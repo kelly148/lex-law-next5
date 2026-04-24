@@ -5,6 +5,11 @@
  * In development, Vite serves the client; in production, Express serves the built dist.
  *
  * Ch 3.1: Next.js was considered and rejected (decision #1); Express + Vite is the stack.
+ *
+ * Phase 2 additions:
+ *   - LLM config validation at startup (Ch 22.3)
+ *   - Job dispatcher startup (Ch 8)
+ *   - Graceful shutdown handler
  */
 
 import 'dotenv/config';
@@ -15,6 +20,15 @@ import { createContext } from './trpc.js';
 import { setTelemetryDbWriter } from './telemetry/emitTelemetry.js';
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
+import { validateLlmConfig } from './llm/config.js';
+import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
+
+// ============================================================
+// Startup validation (Ch 22.3)
+// Fail fast if LLM config is invalid — do not accept connections
+// with a misconfigured model whitelist.
+// ============================================================
+validateLlmConfig();
 
 const app = express();
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
@@ -68,10 +82,33 @@ app.use(
 // ============================================================
 // Start
 // ============================================================
-app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`[server] Lex Law Next v1 listening on port ${PORT}`);
   console.log(`[server] tRPC endpoint: http://localhost:${PORT}/trpc`);
   console.log(`[server] Health check: http://localhost:${PORT}/api/health`);
+
+  // Start the job dispatcher after the server is listening
+  await startDispatcher();
 });
+
+// ============================================================
+// Graceful shutdown
+// ============================================================
+function gracefulShutdown(signal: string): void {
+  console.log(`[server] ${signal} received — shutting down gracefully`);
+  stopDispatcher();
+  server.close(() => {
+    console.log('[server] HTTP server closed');
+    process.exit(0);
+  });
+  // Force exit after 10s if graceful shutdown stalls
+  setTimeout(() => {
+    console.error('[server] Forced exit after 10s shutdown timeout');
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default app;
