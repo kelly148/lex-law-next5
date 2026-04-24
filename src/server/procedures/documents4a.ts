@@ -856,116 +856,6 @@ export const document4aRouter = router({
     }),
 
   // ============================================================
-  // document.finalize — Ch 6.5, Ch 21.4, R13
-  // finalizing → complete.
-  // R13 TOCTOU re-check: detectStaleReferences is called INSIDE the transition.
-  // Preconditions: document exists; workflowState='finalizing'; currentVersionId set;
-  //                all stale references acknowledged.
-  // ============================================================
-  finalize: protectedProcedure
-    .input(
-      z.object({
-        documentId: z.string().uuid(),
-        // staleReferenceIds: must be provided if there are unacknowledged stale refs
-        acknowledgedStaleReferenceIds: z.array(z.string().uuid()).optional(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.userId;
-      const doc = await getDocumentById(input.documentId, userId);
-      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
-      // NOTE: No R12 guard — finalize transitions INTO complete state
-
-      if (doc.workflowState !== 'finalizing') {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `WRONG_STATE: document.finalize requires workflowState='finalizing', got '${doc.workflowState}'`,
-        });
-      }
-      if (!doc.currentVersionId) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'NO_CURRENT_VERSION: document has no current version',
-        });
-      }
-
-      const currentVersion = await getVersionById(doc.currentVersionId, userId);
-      if (!currentVersion) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
-      }
-
-      // R13 TOCTOU re-check: detect stale references INSIDE the transition
-      // (not before — the check must be atomic with the state change)
-      const refs = await listReferencesForDocument(input.documentId, userId);
-      const siblingCurrentVersions: Record<string, string> = {};
-      for (const ref of refs) {
-        const siblingDoc = await getDocumentById(ref.referencedDocumentId, userId);
-        if (siblingDoc?.currentVersionId) {
-          siblingCurrentVersions[ref.referencedDocumentId] = siblingDoc.currentVersionId;
-        }
-      }
-
-      const staleRefs = await detectStaleReferences(
-        input.documentId,
-        userId,
-        siblingCurrentVersions,
-      );
-
-      if (staleRefs.length > 0) {
-        // Check if all stale refs have been acknowledged in this call
-        const acknowledgedIds = new Set(input.acknowledgedStaleReferenceIds ?? []);
-        const unacknowledgedStale = staleRefs.filter((r) => !acknowledgedIds.has(r.id));
-
-        if (unacknowledgedStale.length > 0) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `STALE_REFERENCES: ${unacknowledgedStale.length} stale reference(s) must be acknowledged before finalizing`,
-          });
-        }
-
-        // Acknowledge the stale references
-        await acknowledgeStaleReferences(input.documentId, userId);
-
-        void emitTelemetry(
-          'staleness_acknowledged',
-          {
-            staleReferenceIds: staleRefs.map((r) => r.id),
-            finalizeContext: 'finalize',
-          },
-          { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-        );
-      }
-
-      void emitTelemetry(
-        'finalize_started',
-        { versionId: doc.currentVersionId },
-        { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-      );
-
-      const updated = await updateDocumentWorkflowState(
-        input.documentId,
-        userId,
-        'complete',
-        {
-          completedAt: new Date(),
-          officialFinalVersionNumber: currentVersion.versionNumber,
-        },
-      );
-      if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found after finalize' });
-
-      void emitTelemetry(
-        'document_state_transitioned',
-        { fromState: 'finalizing', toState: 'complete', trigger: 'attorney_finalize' },
-        { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-      );
-
-      // Sync matter phase (all docs complete → matter complete)
-      void maybeSyncMatterPhase(doc.matterId, userId);
-
-      return updated;
-    }),
-
-  // ============================================================
   // document.acceptSubstantiveUnformatted — Ch 6.5, Ch 21.4
   // Skip formatting and go directly to complete (substantively_accepted → complete).
   // Preconditions: document exists; workflowState='substantively_accepted';
@@ -1070,38 +960,173 @@ export const document4aRouter = router({
     }),
 
   // ============================================================
-  // document.startFinalize — Ch 6.5, Ch 21.4
-  // substantively_accepted → finalizing (enters the finalize gate).
+  // document.finalize — Ch 6.5, Ch 21.4, R13
+  // substantively_accepted → finalizing.
+  // Enqueues the formatting job.
+  // R13: TOCTOU stale-reference re-check happens inside the enqueue
+  // transaction immediately before the workflow-state update.
   // ============================================================
-  startFinalize: protectedProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
+  finalize: protectedProcedure
+    .input(
+      z.object({
+        documentId: z.string().uuid(),
+        acknowledgedStaleReferenceIds: z.array(z.string().uuid()).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.userId;
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
-      assertNotComplete(doc.workflowState, 'document.startFinalize');
+      // NOTE: No R12 guard — this transitions INTO finalizing (on the path to complete)
 
       if (doc.workflowState !== 'substantively_accepted') {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
-          message: `WRONG_STATE: document.startFinalize requires workflowState='substantively_accepted', got '${doc.workflowState}'`,
+          message: `WRONG_STATE: document.finalize requires workflowState='substantively_accepted', got '${doc.workflowState}'`,
+        });
+      }
+      if (!doc.currentVersionId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'NO_CURRENT_VERSION: document has no current version to format',
         });
       }
 
-      const updated = await updateDocumentWorkflowState(
+      // R13 — TOCTOU stale-reference re-check.
+      // This check is performed immediately before the workflow-state update
+      // inside the same logical operation. Any staleness that emerged between
+      // the UI dialog and this commit causes rejection with STALENESS_UNACKNOWLEDGED.
+      const refs = await listReferencesForDocument(input.documentId, userId);
+      const siblingCurrentVersions: Record<string, string> = {};
+      for (const ref of refs) {
+        const siblingDoc = await getDocumentById(ref.referencedDocumentId, userId);
+        if (siblingDoc?.currentVersionId) {
+          siblingCurrentVersions[ref.referencedDocumentId] = siblingDoc.currentVersionId;
+        }
+      }
+      const staleRefs = await detectStaleReferences(
         input.documentId,
         userId,
-        'finalizing',
-        {},
+        siblingCurrentVersions,
       );
-      if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found after update' });
+      if (staleRefs.length > 0) {
+        const acknowledgedIds = new Set(input.acknowledgedStaleReferenceIds ?? []);
+        const unacknowledgedStale = staleRefs.filter((r) => !acknowledgedIds.has(r.id));
+        if (unacknowledgedStale.length > 0) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `STALENESS_UNACKNOWLEDGED: ${unacknowledgedStale.length} stale reference(s) must be acknowledged before finalizing`,
+          });
+        }
+        await acknowledgeStaleReferences(input.documentId, userId);
+        void emitTelemetry(
+          'staleness_acknowledged',
+          {
+            staleReferenceIds: staleRefs.map((r) => r.id),
+            finalizeContext: 'finalize',
+          },
+          { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+        );
+      }
+
+      const matter = await getMatterById(doc.matterId, userId);
+      if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+
+      const currentVersionId = doc.currentVersionId;
+      const currentVersion = await getVersionById(currentVersionId, userId);
+      if (!currentVersion) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
+      }
+
+      const systemPrompt = [
+        `You are an expert legal document formatter for ${matter.clientName ?? 'a client'}.`,
+        'Your task is to format the following document in a professional legal style.',
+        'Do NOT change the substance. Only improve formatting, structure, and firm-style prose.',
+        'Return only the formatted document text, no commentary.',
+      ].join('\n');
+
+      const userPrompt = [
+        `Document type: ${doc.documentType}`,
+        `Title: ${doc.title}`,
+        `\n## Document to Format\n${currentVersion.content}`,
+      ].join('\n');
 
       void emitTelemetry(
-        'document_state_transitioned',
-        { fromState: 'substantively_accepted', toState: 'finalizing', trigger: 'attorney_start_finalize' },
+        'finalize_started',
+        { versionId: currentVersionId },
         { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
       );
 
-      return updated;
+      const result = await executeCanonicalMutation({
+        userId,
+        jobType: 'formatting',
+        modelString: PRIMARY_DRAFTER_MODEL,
+        matterId: doc.matterId,
+        documentId: input.documentId,
+        txn1Enqueue: async (_jobId) => {
+          await updateDocumentWorkflowState(
+            input.documentId,
+            userId,
+            'finalizing',
+            {},
+          );
+          void emitTelemetry(
+            'document_state_transitioned',
+            { fromState: 'substantively_accepted', toState: 'finalizing', trigger: 'attorney_finalize' },
+            { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+          );
+          return { jobId: _jobId, preEnqueueState: doc.workflowState };
+        },
+        buildLlmParams: (_jobId) => ({
+          systemPrompt,
+          userPrompt,
+          temperature: 0.1,
+          maxTokens: 8192,
+        }),
+        txn2Commit: async ({ jobId, output }) => {
+          const formattedContent = typeof output === 'string' ? output : JSON.stringify(output);
+          const versionNumber = await getNextVersionNumber(input.documentId, userId);
+          const formattedVersion = await insertVersion({
+            userId,
+            documentId: input.documentId,
+            versionNumber,
+            content: formattedContent,
+            generatedByJobId: jobId,
+            iterationNumber: currentVersion.iterationNumber,
+          });
+          await updateDocumentWorkflowState(
+            input.documentId,
+            userId,
+            'complete',
+            {
+              completedAt: new Date(),
+              officialFinalVersionNumber: formattedVersion.versionNumber,
+            },
+          );
+          await updateDocumentCurrentVersion(input.documentId, userId, formattedVersion.id);
+          void emitTelemetry(
+            'document_state_transitioned',
+            { fromState: 'finalizing', toState: 'complete', trigger: 'formatting_job_completed' },
+            { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+          );
+          void maybeSyncMatterPhase(doc.matterId, userId);
+        },
+        txn2Revert: async ({ jobId, errorClass }) => {
+          await updateDocumentWorkflowState(
+            input.documentId,
+            userId,
+            'substantively_accepted',
+            {},
+          );
+          void emitTelemetry(
+            'document_state_transitioned',
+            { fromState: 'finalizing', toState: 'substantively_accepted', trigger: errorClass === 'timeout' ? 'formatting_timeout' : 'formatting_failure' },
+            { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+          );
+        },
+        telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+      });
+
+      return { jobId: result.jobId, status: result.status };
     }),
 });

@@ -202,7 +202,6 @@ describe('AC3: R12 COMPLETE_READONLY guard in Phase 4a procedures', () => {
       'detach',
       'acceptSubstantive',
       'reopenSubstantive',
-      'startFinalize',
     ];
 
     // Count assertNotComplete calls
