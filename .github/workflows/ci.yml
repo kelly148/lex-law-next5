@@ -1,7 +1,8 @@
 name: CI
 
 # Build Instructions B.4 item 4: Vitest test harness running in CI on every PR.
-# This workflow runs on every pull request targeting main and on every push to main.
+# This workflow runs on every pull request targeting main and on every push to main
+# or any lex-next/* branch.
 
 on:
   push:
@@ -21,16 +22,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # pnpm/action-setup MUST come before actions/setup-node when using
+      # cache: 'pnpm' — setup-node needs pnpm on PATH to configure the cache.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -48,7 +51,6 @@ jobs:
         env:
           # Tests run without a real database — in-memory telemetry mode is enabled
           # by the Vitest setup file (src/server/test-utils/setup.ts).
-          # DATABASE_URL is not needed for Phase 1 unit tests.
           SESSION_SECRET: "test-secret-at-least-32-characters-long"
           NODE_ENV: "test"
 
@@ -68,16 +70,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # pnpm/action-setup MUST come before actions/setup-node
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
