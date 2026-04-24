@@ -13,15 +13,20 @@
  */
 
 import 'dotenv/config';
-import express from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
+import multer from 'multer';
+import mammoth from 'mammoth';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
-import { setTelemetryDbWriter } from './telemetry/emitTelemetry.js';
+import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.js';
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
 import { validateLlmConfig } from './llm/config.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
+import { getSession, extractUserId } from './middleware/session.js';
+import { insertMaterial } from './db/queries/materials.js';
+import { getMatterById } from './db/queries/matters.js';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -61,6 +66,165 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ============================================================
+// POST /api/materials/upload — Phase 5 file-upload endpoint (Ch 21.6 / Ch 27)
+//
+// Transport only: receives a multipart file, extracts text content via mammoth
+// (for .docx) or reads buffer as UTF-8 (for text/plain), then calls the existing
+// insertMaterial() DB primitive. No new persistence primitive is introduced.
+//
+// Auth: userId drawn from iron-session cookie (Ch 35.2). Request rejected with
+// 401 if session is missing or invalid — same guarantee as tRPC protectedProcedure.
+//
+// Zod Wall: the resulting material row is returned through insertMaterial(), which
+// calls parseMaterialRow() → MatterMaterialRowSchema.parse() on every read.
+//
+// Storage: storageKey is set to a deterministic placeholder path
+// (materials/{userId}/{materialId}.{ext}). No external blob storage client is
+// introduced in v1 — the spec defers actual blob storage to a later phase.
+// The placeholder key records the intended storage path for future migration.
+//
+// Supported MIME types:
+//   application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)
+//   text/plain (.txt)
+//   application/pdf — extractionStatus set to 'not_supported' (no PDF extractor in v1)
+//   All others      — extractionStatus set to 'not_supported'
+//
+// File size limit: 50 MB (multer LIMIT_FILE_SIZE).
+// ============================================================
+const uploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+}).single('file');
+
+app.post(
+  '/api/materials/upload',
+  (req: Request, res: Response, next: NextFunction) => {
+    uploadMiddleware(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(413).json({ error: 'FILE_TOO_LARGE', message: 'File exceeds 50 MB limit' });
+          return;
+        }
+        res.status(400).json({ error: err.code, message: err.message });
+        return;
+      }
+      if (err) {
+        next(err);
+        return;
+      }
+      next();
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    // ── Auth: extract userId from iron-session (Ch 35.2) ──────────────────────
+    const session = await getSession(req, res);
+    const userId = extractUserId(session);
+    if (!userId) {
+      res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
+      return;
+    }
+
+    // ── Validate form fields ──────────────────────────────────────────────────
+    const matterId = typeof req.body?.['matterId'] === 'string'
+      ? (req.body['matterId'] as string)
+      : null;
+    if (!matterId) {
+      res.status(400).json({ error: 'MISSING_MATTER_ID', message: 'matterId is required' });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'MISSING_FILE', message: "A file field named 'file' is required" });
+      return;
+    }
+
+    // ── Ownership check: matter must belong to userId ─────────────────────────
+    const matter = await getMatterById(matterId, userId);
+    if (!matter) {
+      res.status(404).json({ error: 'MATTER_NOT_FOUND', message: 'Matter not found' });
+      return;
+    }
+    if (matter.archivedAt !== null) {
+      res.status(409).json({ error: 'MATTER_ARCHIVED', message: 'Cannot upload to an archived matter' });
+      return;
+    }
+
+    // ── Text extraction ───────────────────────────────────────────────────────
+    const mimeType = file.mimetype;
+    const originalName = file.originalname;
+    const dotIdx = originalName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+    // storageKey uses a placeholder UUID for the path; insertMaterial generates the real id
+    const { v4: uuidv4 } = await import('uuid');
+    const pathId = uuidv4();
+    const storageKey = `materials/${userId}/${pathId}${ext ? '.' + ext : ''}`;
+
+    let textContent: string | null = null;
+    let extractionStatus: 'extracted' | 'partial' | 'failed' | 'not_supported' = 'not_supported';
+    let extractionError: string | null = null;
+
+    if (
+      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      ext === 'docx'
+    ) {
+      try {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        textContent = result.value ?? null;
+        extractionStatus = textContent !== null && textContent.trim().length > 0
+          ? 'extracted'
+          : 'partial';
+      } catch (err) {
+        extractionStatus = 'failed';
+        extractionError = err instanceof Error ? err.message : String(err);
+      }
+    } else if (mimeType === 'text/plain' || ext === 'txt') {
+      try {
+        textContent = file.buffer.toString('utf-8');
+        extractionStatus = 'extracted';
+      } catch (err) {
+        extractionStatus = 'failed';
+        extractionError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    // else: pdf and other types — extractionStatus remains 'not_supported'
+
+    // ── Persist via existing insertMaterial() primitive ───────────────────────
+    const material = await insertMaterial({
+      userId,
+      matterId,
+      filename: originalName,
+      mimeType,
+      fileSize: file.size,
+      storageKey,
+      textContent,
+      extractionStatus,
+      extractionError,
+      tags: [],
+      description: null,
+      pinned: false,
+      uploadSource: 'upload',
+      deletedAt: null,
+    });
+
+    // ── Telemetry ─────────────────────────────────────────────────────────────
+    void emitTelemetry(
+      'material_uploaded',
+      {
+        filename: originalName,
+        mimeType,
+        fileSize: file.size,
+        extractionStatus,
+        uploadSource: 'upload',
+      },
+      { userId, matterId, documentId: null, jobId: null },
+    );
+
+    res.status(201).json(material);
+  },
+);
 
 // ============================================================
 // tRPC handler
