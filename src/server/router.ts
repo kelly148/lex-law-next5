@@ -7,6 +7,7 @@
  * Phase 3 scope: matter, document, version, materials, reference,
  *                settings, contextPipeline routers added.
  * Phase 4a scope: template router added; document4aRouter merged into document namespace.
+ * Phase 4b scope: informationRequest, outline, reviewSession routers added.
  *
  * R14 — No Duplicate Primitives: this is the single root router.
  * The AppRouter type exported here is used by the client for type inference.
@@ -24,6 +25,9 @@ import { referenceRouter } from './procedures/references.js';
 import { settingsRouter } from './procedures/settings.js';
 import { contextPipelineRouter } from './procedures/contextPipeline.js';
 import { templateRouter } from './procedures/templates.js';
+import { informationRequestRouter } from './procedures/informationRequest.js';
+import { outlineRouter } from './procedures/outline.js';
+import { reviewSessionRouter } from './procedures/reviewSession.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -36,7 +40,9 @@ export const appRouter = router({
   settings: settingsRouter,
   contextPipeline: contextPipelineRouter,
   template: templateRouter,
-  // Phase 4b+: review, export, etc.
+  informationRequest: informationRequestRouter,
+  outline: outlineRouter,
+  reviewSession: reviewSessionRouter,
 });
 
 export type AppRouter = typeof appRouter;
