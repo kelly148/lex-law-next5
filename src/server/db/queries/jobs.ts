@@ -193,7 +193,7 @@ export async function markJobRunning(
   userId: string,
 ): Promise<number> {
   const now = new Date();
-  const result = await db
+  await db
     .update(jobs)
     .set({
       status: 'running',
@@ -208,7 +208,13 @@ export async function markJobRunning(
         eq(jobs.status, 'queued'), // conditional UPDATE (Ch 23.2)
       ),
     );
-  return (result as unknown as { rowsAffected?: number }[])[0]?.rowsAffected ?? 0;
+  // MySQL does not support .returning(); verify the update took effect with a SELECT.
+  const check = await db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'running')))
+    .limit(1);
+  return check.length;
 }
 
 /**
@@ -244,7 +250,7 @@ export async function markJobCompleted(
   tokensCompletion: number,
 ): Promise<number> {
   const now = new Date();
-  const result = await db
+  await db
     .update(jobs)
     .set({
       status: 'completed',
@@ -262,7 +268,13 @@ export async function markJobCompleted(
         eq(jobs.status, 'running'), // conditional UPDATE (Ch 23.2)
       ),
     );
-  return (result as unknown as { rowsAffected?: number }[])[0]?.rowsAffected ?? 0;
+  // MySQL does not support .returning(); verify the update took effect with a SELECT.
+  const check = await db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'completed')))
+    .limit(1);
+  return check.length;
 }
 
 /**
@@ -334,7 +346,7 @@ export async function markJobCancelled(
   userId: string,
 ): Promise<number> {
   const now = new Date();
-  const result = await db
+  await db
     .update(jobs)
     .set({
       status: 'cancelled',
@@ -351,7 +363,13 @@ export async function markJobCancelled(
         inArray(jobs.status, ['queued', 'running']),
       ),
     );
-  return (result as unknown as { rowsAffected?: number }[])[0]?.rowsAffected ?? 0;
+  // MySQL does not support .returning(); verify the update took effect with a SELECT.
+  const check = await db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'cancelled')))
+    .limit(1);
+  return check.length;
 }
 
 /**
