@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment files — never commit secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Database
+*.sqlite
+*.db
+
+# Uploads (local filesystem storage)
+uploads/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Drizzle
+# Migrations are committed; generated snapshots are not
+src/server/db/migrations/meta/
+
+# Vitest
+.vitest-cache/
