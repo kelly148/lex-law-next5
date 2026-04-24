@@ -16,6 +16,9 @@
  *                document_references, user_preferences tables.
  *                Also adds users.preferences column via migration.
  * Phase 4a scope: templates, template_versions, template_variable_schemas tables.
+ * Phase 4b scope: information_requests, information_request_items, document_outlines,
+ *                  feedback, feedback_evaluations, feedback_manual_selections,
+ *                  review_sessions tables.
  */
 
 import {
@@ -140,6 +143,8 @@ export const JOB_TYPE_VALUES = [
   'formatting',
   'information_request_generation',
   'outline_generation',
+  'reviewer_feedback',
+  'evaluator',
   // context_summary_generation is reserved but not actively implemented in v1 (Ch 8.3 / D6)
   'context_summary_generation',
 ] as const;
@@ -679,6 +684,291 @@ export const templateVariableSchemas = mysqlTable(
 );
 
 // ============================================================
+// Ch 4.10 — information_requests and information_request_items
+// ============================================================
+// information_requests: one active matrix per matter at a time (R10).
+// activeMatterKey generated column enforces the at-most-one-active invariant
+// via a unique index (MySQL/TiDB does not support partial unique index predicates).
+//
+// Indexes (Ch 4.10):
+//   idx_info_requests_matter (userId, matterId, archivedAt)
+//   uniq_active_matrix_per_matter (activeMatterKey)
+//   idx_info_items_request_order (informationRequestId, orderIndex)
+// ============================================================
+export const INFORMATION_REQUEST_STATUS_VALUES = [
+  'draft',
+  'exported',
+  'receiving_answers',
+  'complete',
+] as const;
+export type InformationRequestStatus =
+  (typeof INFORMATION_REQUEST_STATUS_VALUES)[number];
+
+export const informationRequests = mysqlTable(
+  'information_requests',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', INFORMATION_REQUEST_STATUS_VALUES)
+      .notNull()
+      .default('draft'),
+    archivedAt: timestamp('archivedAt'),
+    // -----------------------------------------------------------------------
+    // D.1.2 — GENERATED column (raw SQL migration, not drizzle builder API)
+    // This is a GENERATED column in the database.
+    // DO NOT write to this field from application code.
+    // Any INSERT or UPDATE setting this column will be rejected by TiDB.
+    // The schema declaration exists for TypeScript type inference on reads only.
+    // Reference: R10 and Ch 4.10 / Ch 4.8.
+    // Migration SQL: `activeMatterKey` CHAR(36) GENERATED ALWAYS AS
+    //   (CASE WHEN archivedAt IS NULL THEN matterId ELSE NULL END) STORED
+    // -----------------------------------------------------------------------
+    activeMatterKey: char('activeMatterKey', { length: 36 }),
+
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxInfoRequestsMatter: index('idx_info_requests_matter').on(
+      table.userId,
+      table.matterId,
+      table.archivedAt,
+    ),
+    uniqActiveMatrixPerMatter: uniqueIndex('uniq_active_matrix_per_matter').on(
+      table.activeMatterKey,
+    ),
+  }),
+);
+
+export const informationRequestItems = mysqlTable(
+  'information_request_items',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    informationRequestId: char('informationRequestId', { length: 36 }).notNull(),
+    category: varchar('category', { length: 64 }).notNull(),
+    questionText: text('questionText').notNull(),
+    answerText: text('answerText'),
+    orderIndex: int('orderIndex').notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxInfoItemsRequestOrder: index('idx_info_items_request_order').on(
+      table.informationRequestId,
+      table.orderIndex,
+    ),
+  }),
+);
+
+// ============================================================
+// Ch 4.11 — document_outlines
+// ============================================================
+// One outline per document (enforced at application level).
+// status: draft → approved | skipped.
+// sections: JSON array of { title, description, orderIndex }.
+//
+// Indexes (Ch 4.11):
+//   idx_outlines_user_document (userId, documentId)
+// ============================================================
+export const DOCUMENT_OUTLINE_STATUS_VALUES = [
+  'draft',
+  'approved',
+  'skipped',
+] as const;
+export type DocumentOutlineStatus =
+  (typeof DOCUMENT_OUTLINE_STATUS_VALUES)[number];
+
+export const documentOutlines = mysqlTable(
+  'document_outlines',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', DOCUMENT_OUTLINE_STATUS_VALUES)
+      .notNull()
+      .default('draft'),
+    // sections: JSON array of { title, description, orderIndex }
+    sections: json('sections').notNull().default(sql`(JSON_ARRAY())`),
+    generatedByJobId: char('generatedByJobId', { length: 36 }),
+    approvedAt: timestamp('approvedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxOutlinesUserDocument: index('idx_outlines_user_document').on(
+      table.userId,
+      table.documentId,
+    ),
+  }),
+);
+
+// ============================================================
+// Ch 4.7 — feedback, feedback_evaluations, feedback_manual_selections
+// ============================================================
+// feedback: one row per reviewer-model invocation per document iteration.
+// feedback_evaluations: evaluator pass over multiple reviewers' output.
+// feedback_manual_selections: attorney adoption decisions (R5 positive-selection-only).
+//
+// Indexes (Ch 4.7):
+//   idx_feedback_user_document_iter (userId, documentId, iterationNumber DESC)
+//   idx_feedback_session (reviewSessionId)
+//   idx_feedback_eval_document_iter (documentId, iterationNumber)
+//   uniq_manual_selections (reviewSessionId, suggestionId)
+//   idx_manual_selections_session (reviewSessionId)
+//   idx_manual_selections_document_iter (documentId, iterationNumber)
+// ============================================================
+export const feedback = mysqlTable(
+  'feedback',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    iterationNumber: int('iterationNumber').notNull(),
+    reviewSessionId: char('reviewSessionId', { length: 36 }),
+    jobId: char('jobId', { length: 36 }).notNull(),
+    reviewerRole: varchar('reviewerRole', { length: 32 }).notNull(),
+    reviewerModel: varchar('reviewerModel', { length: 64 }).notNull(),
+    reviewerTitle: varchar('reviewerTitle', { length: 128 }).notNull(),
+    // suggestions: JSON array of { suggestionId, title, body, severity? }
+    suggestions: json('suggestions').notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxFeedbackUserDocumentIter: index('idx_feedback_user_document_iter').on(
+      table.userId,
+      table.documentId,
+      table.iterationNumber,
+    ),
+    idxFeedbackSession: index('idx_feedback_session').on(table.reviewSessionId),
+  }),
+);
+
+export const feedbackEvaluations = mysqlTable(
+  'feedback_evaluations',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    iterationNumber: int('iterationNumber').notNull(),
+    jobId: char('jobId', { length: 36 }).notNull(),
+    // dispositions: JSON array of { suggestionId, disposition, synthesisBody? }
+    dispositions: json('dispositions').notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxFeedbackEvalDocumentIter: index('idx_feedback_eval_document_iter').on(
+      table.documentId,
+      table.iterationNumber,
+    ),
+  }),
+);
+
+export const feedbackManualSelections = mysqlTable(
+  'feedback_manual_selections',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    iterationNumber: int('iterationNumber').notNull(),
+    reviewSessionId: char('reviewSessionId', { length: 36 }).notNull(),
+    suggestionId: varchar('suggestionId', { length: 64 }).notNull(),
+    attorneyNote: text('attorneyNote'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    uniqManualSelections: uniqueIndex('uniq_manual_selections').on(
+      table.reviewSessionId,
+      table.suggestionId,
+    ),
+    idxManualSelectionsSession: index('idx_manual_selections_session').on(
+      table.reviewSessionId,
+    ),
+    idxManualSelectionsDocumentIter: index('idx_manual_selections_document_iter').on(
+      table.documentId,
+      table.iterationNumber,
+    ),
+  }),
+);
+
+// ============================================================
+// Ch 4.8 — review_sessions
+// ============================================================
+// One active session per (documentId, iterationNumber) at a time (R10).
+// activeSessionKey generated column enforces the at-most-one-active invariant
+// via a unique index (MySQL/TiDB does not support partial unique index predicates).
+//
+// Indexes (Ch 4.8):
+//   idx_review_sessions_user_document (userId, documentId, iterationNumber DESC)
+//   uniq_active_review_session (activeSessionKey)
+// ============================================================
+export const REVIEW_SESSION_STATE_VALUES = [
+  'active',
+  'regenerated',
+  'abandoned',
+] as const;
+export type ReviewSessionState =
+  (typeof REVIEW_SESSION_STATE_VALUES)[number];
+
+export const reviewSessions = mysqlTable(
+  'review_sessions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    iterationNumber: int('iterationNumber').notNull(),
+    state: mysqlEnum('state', REVIEW_SESSION_STATE_VALUES)
+      .notNull()
+      .default('active'),
+    // selections: JSON array of { feedbackId: string, note: string | null }
+    selections: json('selections').notNull().default(sql`(JSON_ARRAY())`),
+    // selectedReviewers: JSON array of reviewer role identifiers (Zod Wall)
+    selectedReviewers: json('selectedReviewers').notNull().default(sql`(JSON_ARRAY())`),
+    globalInstructions: text('globalInstructions').notNull().default(''),
+    lastAutosavedAt: timestamp('lastAutosavedAt'),
+    // -----------------------------------------------------------------------
+    // D.1.2 — GENERATED column (raw SQL migration, not drizzle builder API)
+    // This is a GENERATED column in the database.
+    // DO NOT write to this field from application code.
+    // Any INSERT or UPDATE setting this column will be rejected by TiDB.
+    // The schema declaration exists for TypeScript type inference on reads only.
+    // Reference: R10 and Ch 4.10 / Ch 4.8.
+    // Migration SQL: `activeSessionKey` VARCHAR(64) GENERATED ALWAYS AS
+    //   (CASE WHEN state = 'active'
+    //    THEN CONCAT(documentId, '-', LPAD(iterationNumber, 10, '0'))
+    //    ELSE NULL END) STORED
+    // -----------------------------------------------------------------------
+    activeSessionKey: varchar('activeSessionKey', { length: 64 }),
+
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxReviewSessionsUserDocument: index('idx_review_sessions_user_document').on(
+      table.userId,
+      table.documentId,
+      table.iterationNumber,
+    ),
+    uniqActiveReviewSession: uniqueIndex('uniq_active_review_session').on(
+      table.activeSessionKey,
+    ),
+  }),
+);
+
+// ============================================================
 // Type exports for use in query wrappers and procedures
 // ============================================================
 export type User = typeof users.$inferSelect;
@@ -705,3 +995,17 @@ export type TemplateVersion = typeof templateVersions.$inferSelect;
 export type NewTemplateVersion = typeof templateVersions.$inferInsert;
 export type TemplateVariableSchema = typeof templateVariableSchemas.$inferSelect;
 export type NewTemplateVariableSchema = typeof templateVariableSchemas.$inferInsert;
+export type InformationRequest = typeof informationRequests.$inferSelect;
+export type NewInformationRequest = typeof informationRequests.$inferInsert;
+export type InformationRequestItem = typeof informationRequestItems.$inferSelect;
+export type NewInformationRequestItem = typeof informationRequestItems.$inferInsert;
+export type DocumentOutline = typeof documentOutlines.$inferSelect;
+export type NewDocumentOutline = typeof documentOutlines.$inferInsert;
+export type Feedback = typeof feedback.$inferSelect;
+export type NewFeedback = typeof feedback.$inferInsert;
+export type FeedbackEvaluation = typeof feedbackEvaluations.$inferSelect;
+export type NewFeedbackEvaluation = typeof feedbackEvaluations.$inferInsert;
+export type FeedbackManualSelection = typeof feedbackManualSelections.$inferSelect;
+export type NewFeedbackManualSelection = typeof feedbackManualSelections.$inferInsert;
+export type ReviewSession = typeof reviewSessions.$inferSelect;
+export type NewReviewSession = typeof reviewSessions.$inferInsert;

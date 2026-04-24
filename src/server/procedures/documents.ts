@@ -58,7 +58,7 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
  * Phase 4a will add the exhaustiveness assertion:
  *   assert(COMPLETE_READONLY_EXEMPT_PROCEDURES === new Set(['document.unfinalize', 'document.setNotes']))
  */
-function assertNotComplete(
+export function assertNotComplete(
   workflowState: string,
   procedureName: string,
 ): void {
