@@ -18,8 +18,7 @@
 
 import { getIronSession, type IronSession } from 'iron-session';
 import type { Request, Response } from 'express';
-import { SessionDataSchema } from '../../shared/schemas/users.js';
-import type { SessionData } from '../../shared/schemas/users.js';
+import { SessionDataSchema, type SessionData } from '../../shared/schemas/users.js';
 
 if (!process.env['SESSION_SECRET']) {
   throw new Error(

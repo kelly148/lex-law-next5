@@ -19,8 +19,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { users } from '../schema.js';
-import { UserRowSchema, PublicUserSchema } from '../../../shared/schemas/users.js';
-import type { PublicUser } from '../../../shared/schemas/users.js';
+import { UserRowSchema, PublicUserSchema, type PublicUser } from '../../../shared/schemas/users.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { ZodError } from 'zod';
 
@@ -39,7 +38,7 @@ function parseUserRow(raw: unknown, context: { userId: string }): ReturnType<typ
         {
           schemaName: 'UserRowSchema',
           tableName: 'users',
-          columnName: undefined,
+          // columnName omitted — exactOptionalPropertyTypes forbids explicit undefined for optional fields
           errorPath: err.errors.map(e => e.path.join('.')).join(', '),
           errorMessage: err.message,
         },

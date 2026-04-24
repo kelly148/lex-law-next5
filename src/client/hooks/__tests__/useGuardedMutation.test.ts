@@ -8,7 +8,7 @@
  * The synchronous ref guard is the critical path being tested.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // ============================================================
 // Test the guard logic directly (without React rendering)

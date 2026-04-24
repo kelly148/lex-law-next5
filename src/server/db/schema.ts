@@ -19,7 +19,6 @@ import {
   char,
   varchar,
   timestamp,
-  text,
   json,
 } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';

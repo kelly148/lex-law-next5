@@ -15,7 +15,6 @@ import { createContext } from './trpc.js';
 import { setTelemetryDbWriter } from './telemetry/emitTelemetry.js';
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
-import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
@@ -28,9 +27,9 @@ setTelemetryDbWriter(async (event) => {
     eventId: event.eventId,
     eventType: event.eventType,
     userId: event.userId,
-    matterId: event.matterId ?? undefined,
-    documentId: event.documentId ?? undefined,
-    jobId: event.jobId ?? undefined,
+    matterId: event.matterId ?? null,
+    documentId: event.documentId ?? null,
+    jobId: event.jobId ?? null,
     timestamp: event.timestamp,
     payload: event.payload,
   });

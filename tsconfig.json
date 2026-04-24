@@ -10,6 +10,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* skipLibCheck: suppresses type errors inside node_modules declaration files.
+       This is required because drizzle-orm@0.30.10 has internal type-declaration
+       bugs that surface under TypeScript 5.9 strict mode. Our source code is still
+       fully type-checked — only .d.ts files in node_modules are skipped.
+       R15 applies to src/**; skipLibCheck does not weaken that guarantee. */
+    "skipLibCheck": true,
+
     /* R15 — Type-Safety Integrity: these four flags are non-negotiable.
        Relaxing any of them requires Kelly sign-off documented in the PR description. */
     "strict": true,

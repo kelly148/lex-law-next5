@@ -14,7 +14,7 @@
  *   helper (below) is the shared utility for these assertions.
  */
 
-import { beforeEach, afterEach } from 'vitest';
+import { beforeEach } from 'vitest';
 import {
   enableTestTelemetry,
   clearTelemetryBuffer,

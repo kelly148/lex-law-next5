@@ -26,19 +26,9 @@ import { useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 // ============================================================
-// Type helpers
-// ============================================================
-
-// A tRPC mutation procedure shape — minimal interface for type inference
-type TrpcMutationProcedure<TInput, TOutput> = {
-  mutate: (input: TInput) => Promise<TOutput>;
-  useMutation: () => ReturnType<typeof useMutation<TOutput, Error, TInput>>;
-};
-
-// ============================================================
 // Hook signature (per Ch 24.1 spec)
 // ============================================================
-export interface GuardedMutation<TInput, TOutput> {
+export interface GuardedMutation<TInput, _TOutput> {
   mutate: (input: TInput) => void;
   isPending: boolean;
   error: Error | null;

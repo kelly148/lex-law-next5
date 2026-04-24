@@ -20,7 +20,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ZodError } from 'zod';
 import { UserRowSchema, PublicUserSchema, SessionDataSchema } from '../../../../shared/schemas/users.js';
-import { TelemetryEnvelopeSchema } from '../../../telemetry/schemas.js';
 import { emitTelemetry, getTelemetryBuffer, clearTelemetryBuffer } from '../../../telemetry/emitTelemetry.js';
 import { assertTelemetryEmitted } from '../../../test-utils/setup.js';
 
@@ -184,7 +183,7 @@ describe('Zod Wall Stress Test — malformed JSON injection', () => {
           {
             schemaName: 'UserRowSchema',
             tableName: 'users',
-            columnName: undefined,
+            // columnName omitted (optional field — exactOptionalPropertyTypes forbids explicit undefined)
             errorPath: err.errors.map(e => e.path.join('.')).join(', '),
             errorMessage: err.message,
           },
