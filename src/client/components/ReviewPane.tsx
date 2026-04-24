@@ -54,18 +54,17 @@ interface CreateSessionViewProps {
 function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSessionViewProps): React.ReactElement {
   const { data: settings } = trpc.settings.get.useQuery();
   const utils = trpc.useUtils();
-  const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-select enabled reviewers when settings load
-  React.useEffect(() => {
-    if (settings) {
-      const enabled = Object.entries(settings.reviewerEnablement)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
-      setSelectedReviewers(enabled);
-    }
-  }, [settings?.reviewerEnablement.claude, settings?.reviewerEnablement.gpt, settings?.reviewerEnablement.gemini, settings?.reviewerEnablement.grok]);
+  // Derive enabled reviewers from settings; used as initial selection.
+  // Component is remounted by parent when settings change via key prop.
+  const enabledReviewers = React.useMemo(() => {
+    if (!settings) return [];
+    return Object.entries(settings.reviewerEnablement)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+  }, [settings]);
+  const [selectedReviewers, setSelectedReviewers] = useState<string[]>(() => enabledReviewers);
 
   const createMutation = useGuardedMutation(
     (input: { documentId: string; iterationNumber: number; selectedReviewers: string[] }) =>
@@ -93,20 +92,19 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
     createMutation.mutate({ documentId, iterationNumber, selectedReviewers });
   };
 
-  const enabledReviewers = settings
+   const enabledReviewerList = settings
     ? Object.entries(settings.reviewerEnablement).filter(([, v]) => v).map(([k]) => k)
     : [];
-
   return (
     <div className="p-6 space-y-4">
       <p className="text-sm text-gray-600">
         Select reviewers for iteration {iterationNumber}. Only enabled reviewers are shown.
       </p>
       <div className="space-y-2">
-        {enabledReviewers.length === 0 ? (
+        {enabledReviewerList.length === 0 ? (
           <p className="text-sm text-gray-400">No reviewers enabled. Enable reviewers in Settings.</p>
         ) : (
-          enabledReviewers.map((key) => (
+          enabledReviewerList.map((key) => (
             <label key={key} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -290,7 +288,6 @@ interface ActiveSessionViewProps {
 
 function ActiveSessionView({ sessionId, onClose }: ActiveSessionViewProps): React.ReactElement {
   const utils = trpc.useUtils();
-  const [globalInstructions, setGlobalInstructions] = useState('');
   const [editingInstructions, setEditingInstructions] = useState(false);
 
   const { data, isLoading, refetch } = trpc.reviewSession.get.useQuery({ sessionId }, {
@@ -300,11 +297,9 @@ function ActiveSessionView({ sessionId, onClose }: ActiveSessionViewProps): Reac
     },
   });
 
-  React.useEffect(() => {
-    if (data?.session.globalInstructions) {
-      setGlobalInstructions(data.session.globalInstructions);
-    }
-  }, [data?.session.globalInstructions]);
+  // Derive globalInstructions from server data; local edit state is separate.
+  const serverInstructions = data?.session.globalInstructions ?? '';
+  const [globalInstructions, setGlobalInstructions] = useState(serverInstructions);
 
   const regenerateMutation = useGuardedMutation(
     (input: { sessionId: string }) => utils.client.reviewSession.regenerate.mutate(input),

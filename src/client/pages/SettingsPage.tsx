@@ -19,8 +19,11 @@
  *
  * Ch 35.3 — No business logic in React.
  * Ch 35.13 — Every mutation uses useGuardedMutation.
+ *
+ * State-sync pattern: section components receive `initial` props and are
+ * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings, Mic, Users } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -57,10 +60,6 @@ function ReviewerEnablementSection({ initial }: ReviewerEnablementSectionProps):
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const utils = trpc.useUtils();
-
-  useEffect(() => {
-    setValues(initial);
-  }, [initial.claude, initial.gpt, initial.gemini, initial.grok]);
 
   const updateMutation = useGuardedMutation(
     (input: { reviewerEnablement: { claude: boolean; gpt: boolean; gemini: boolean; grok: boolean } }) =>
@@ -141,12 +140,6 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
-
-  useEffect(() => {
-    setForceShowAll(initial.forceShowAll);
-    setForceHideAll(initial.forceHideAll);
-    setDictationLanguage(initial.dictationLanguage);
-  }, [initial.forceShowAll, initial.forceHideAll, initial.dictationLanguage]);
 
   const updateMutation = useGuardedMutation(
     (input: { voiceInput: { forceShowAll: boolean; forceHideAll: boolean; dictationLanguage: string } }) =>
@@ -271,8 +264,18 @@ export default function SettingsPage(): React.ReactElement {
         <div className="text-center py-12 text-red-600 text-sm">Failed to load settings.</div>
       ) : (
         <div className="space-y-6">
-          <ReviewerEnablementSection initial={data.reviewerEnablement} />
-          <VoiceInputSection initial={data.voiceInput} />
+          {/*
+           * key props remount sections when server data changes, avoiding
+           * the useEffect+setState anti-pattern (react-hooks/set-state-in-effect).
+           */}
+          <ReviewerEnablementSection
+            key={`${data.reviewerEnablement.claude}-${data.reviewerEnablement.gpt}-${data.reviewerEnablement.gemini}-${data.reviewerEnablement.grok}`}
+            initial={data.reviewerEnablement}
+          />
+          <VoiceInputSection
+            key={`${data.voiceInput.forceShowAll}-${data.voiceInput.forceHideAll}-${data.voiceInput.dictationLanguage}`}
+            initial={data.voiceInput}
+          />
         </div>
       )}
     </div>
