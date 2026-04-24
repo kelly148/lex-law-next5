@@ -90,6 +90,32 @@ export async function getNextVersionNumber(
   return current + 1;
 }
 
+/**
+ * Look up a version by its (documentId, versionNumber) pair.
+ * Used by the export endpoint to resolve officialFinalVersionNumber and
+ * officialSubstantiveVersionNumber to a concrete version row.
+ * Passes through the Zod Wall (parseVersionRow) on every read.
+ */
+export async function getVersionByNumber(
+  documentId: string,
+  userId: string,
+  versionNumber: number,
+): Promise<VersionRow | null> {
+  const rows = await db
+    .select()
+    .from(versions)
+    .where(
+      and(
+        eq(versions.documentId, documentId),
+        eq(versions.userId, userId),
+        eq(versions.versionNumber, versionNumber),
+      ),
+    )
+    .limit(1);
+  if (rows.length === 0) return null;
+  return parseVersionRow(rows[0]!, { userId });
+}
+
 export async function insertVersion(
   data: Omit<NewVersion, 'id' | 'createdAt'>,
 ): Promise<VersionRow> {

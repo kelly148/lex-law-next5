@@ -27,6 +27,10 @@ import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
 import { getSession, extractUserId } from './middleware/session.js';
 import { insertMaterial } from './db/queries/materials.js';
 import { getMatterById } from './db/queries/matters.js';
+import { getDocumentById } from './db/queries/documents.js';
+import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
+import type { VersionRow } from '../shared/schemas/matters.js';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, Header, AlignmentType } from 'docx';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -223,6 +227,175 @@ app.post(
     );
 
     res.status(201).json(material);
+  },
+);
+
+// ============================================================
+// GET /api/documents/:documentId/export — Phase 6 synchronous DOCX export (Ch 32)
+//
+// Generates a .docx file in memory from the appropriate version content and
+// streams it directly to the client. No stored artifact, no signed URL, no
+// tokenized URL is created.
+//
+// Auth: userId drawn from iron-session cookie (Ch 35.2). Rejected with 401 if
+// session is missing or invalid. userId is never accepted from query params or body.
+//
+// Version-selection rule (Ch 32):
+//   complete             → officialFinalVersionNumber
+//   substantively_accepted | finalizing → officialSubstantiveVersionNumber if set,
+//                                         else currentVersionId fallback
+//   drafting             → currentVersionId
+//   archived             → officialFinalVersionNumber if set,
+//                          else officialSubstantiveVersionNumber if set,
+//                          else currentVersionId
+//
+// Watermark strings (Ch 32 — locked wording):
+//   drafting / finalizing            → "DRAFT — NOT FINAL"
+//   substantively_accepted           → "DRAFT — SUBSTANTIVELY COMPLETE, PENDING FINAL FORMATTING"
+//   archived                         → "ARCHIVED"
+//   complete                         → no watermark
+//
+// Telemetry: emits document_exported with { versionId, watermarkState, expiresAt }.
+// expiresAt is the response-generation ISO timestamp, populated solely to satisfy
+// the telemetry schema. It does not represent a real download-link expiration.
+// ============================================================
+app.get(
+  '/api/documents/:documentId/export',
+  async (req: Request, res: Response): Promise<void> => {
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    const session = await getSession(req, res);
+    const userId = extractUserId(session);
+    if (!userId) {
+      res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
+      return;
+    }
+
+    const { documentId } = req.params as { documentId: string };
+
+    // ── Load document (ownership enforced by userId predicate) ────────────────
+    const doc = await getDocumentById(documentId, userId);
+    if (!doc) {
+      res.status(404).json({ error: 'DOCUMENT_NOT_FOUND', message: 'Document not found' });
+      return;
+    }
+
+    // ── Version-selection ─────────────────────────────────────────────────────
+    let version: VersionRow | null = null;
+    const state = doc.workflowState;
+
+    if (state === 'complete') {
+      // complete: always use officialFinalVersionNumber
+      if (doc.officialFinalVersionNumber !== null) {
+        version = await getVersionByNumber(documentId, userId, doc.officialFinalVersionNumber);
+      }
+    } else if (state === 'substantively_accepted' || state === 'finalizing') {
+      // prefer officialSubstantiveVersionNumber; fall back to currentVersionId
+      if (doc.officialSubstantiveVersionNumber !== null) {
+        version = await getVersionByNumber(documentId, userId, doc.officialSubstantiveVersionNumber);
+      } else if (doc.currentVersionId !== null) {
+        version = await getVersionById(doc.currentVersionId, userId);
+      }
+    } else if (state === 'drafting') {
+      // drafting: currentVersionId
+      if (doc.currentVersionId !== null) {
+        version = await getVersionById(doc.currentVersionId, userId);
+      }
+    } else if (state === 'archived') {
+      // archived: officialFinalVersionNumber → officialSubstantiveVersionNumber → currentVersionId
+      if (doc.officialFinalVersionNumber !== null) {
+        version = await getVersionByNumber(documentId, userId, doc.officialFinalVersionNumber);
+      } else if (doc.officialSubstantiveVersionNumber !== null) {
+        version = await getVersionByNumber(documentId, userId, doc.officialSubstantiveVersionNumber);
+      } else if (doc.currentVersionId !== null) {
+        version = await getVersionById(doc.currentVersionId, userId);
+      }
+    }
+
+    if (!version) {
+      res.status(422).json({
+        error: 'NO_EXPORTABLE_VERSION',
+        message: 'No exportable version is available for this document',
+      });
+      return;
+    }
+
+    // ── Watermark string (Ch 32 locked wording) ───────────────────────────────
+    const WATERMARK: Record<string, string | null> = {
+      drafting: 'DRAFT — NOT FINAL',
+      finalizing: 'DRAFT — NOT FINAL',
+      substantively_accepted: 'DRAFT — SUBSTANTIVELY COMPLETE, PENDING FINAL FORMATTING',
+      archived: 'ARCHIVED',
+      complete: null, // no watermark
+    };
+    const watermarkText = WATERMARK[state] ?? null;
+
+    // ── Build DOCX in memory ──────────────────────────────────────────────────
+    // Split version content into paragraphs on blank lines.
+    const contentParagraphs = version.content
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map(
+        (block) =>
+          new Paragraph({
+            children: block.split('\n').flatMap((line, i, arr) => [
+              new TextRun({ text: line }),
+              ...(i < arr.length - 1 ? [new TextRun({ break: 1 })] : []),
+            ]),
+          }),
+      );
+
+    // Build header with watermark paragraph if required.
+    const headerParagraph = watermarkText
+      ? new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({
+              text: watermarkText,
+              bold: true,
+              color: 'C00000',
+              size: 20, // 10pt in half-points
+            }),
+          ],
+        })
+      : new Paragraph({ text: '' });
+
+    const docxFile = new DocxDocument({
+      sections: [
+        {
+          headers: {
+            default: new Header({ children: [headerParagraph] }),
+          },
+          children: contentParagraphs.length > 0
+            ? contentParagraphs
+            : [new Paragraph({ text: '' })],
+        },
+      ],
+    });
+
+    const buffer = await Packer.toBuffer(docxFile);
+
+    // ── Telemetry ─────────────────────────────────────────────────────────────
+    const exportedAt = new Date().toISOString();
+    // expiresAt is the response-generation timestamp, populated solely to satisfy
+    // the telemetry schema. It does not represent a real download-link expiration.
+    void emitTelemetry(
+      'document_exported',
+      {
+        versionId: version.id,
+        watermarkState: state,
+        expiresAt: exportedAt,
+      },
+      { userId, matterId: doc.matterId, documentId, jobId: null },
+    );
+
+    // ── Stream response ───────────────────────────────────────────────────────
+    const safeTitle = doc.title.replace(/[^a-zA-Z0-9_\-. ]/g, '_').slice(0, 80);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.docx"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).end(buffer);
   },
 );
 

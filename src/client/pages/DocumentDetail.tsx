@@ -43,7 +43,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Edit2, Save, X, Archive, ArchiveRestore, RefreshCw,
   CheckCircle, Clock, AlertCircle, ChevronDown, ChevronUp,
-  FileText, Eye
+  FileText, Eye, Download
 } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
@@ -1006,6 +1006,26 @@ export default function DocumentDetail(): React.ReactElement {
               <span className="text-gray-700">{new Date(doc.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
+
+          {/*
+            Download DOCX — Phase 6 (Ch 32)
+            Visible whenever a version exists to export.
+            Implemented as a plain anchor tag pointing to the REST endpoint.
+            No tRPC mutation is called. No stored artifact is created.
+            The server selects the version and injects the correct watermark.
+          */}
+          {(doc.currentVersionId ||
+            doc.officialFinalVersionNumber !== null ||
+            doc.officialSubstantiveVersionNumber !== null) && (
+            <a
+              href={`/api/documents/${documentId}/export`}
+              download
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download DOCX
+            </a>
+          )}
         </div>
       </div>
 
