@@ -171,7 +171,10 @@ export const reviewSessionRouter = router({
         reviewerJobIds.push(reviewerResult.jobId);
       }
 
-      // Enqueue evaluator job (Decision #41: env-fixed, never attorney-selectable)
+      // Enqueue evaluator job only when multiple reviewers are selected.
+      // Decision #41: env-fixed, never attorney-selectable.
+      // With a single reviewer there is no cross-reviewer synthesis to evaluate.
+      if (input.selectedReviewers.length > 1) {
       const evaluatorModelString = EVALUATOR_MODEL;
       void executeCanonicalMutation({
         userId,
@@ -208,7 +211,7 @@ export const reviewSessionRouter = router({
         },
         telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
       });
-
+      } // end evaluator conditional
       void emitTelemetry(
         'review_session_created',
         {

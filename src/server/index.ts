@@ -82,8 +82,10 @@ app.use(
 // ============================================================
 // Start
 // ============================================================
-const server = app.listen(PORT, async () => {
-  console.log(`[server] Lex Law Next v1 listening on port ${PORT}`);
+// Bind to 0.0.0.0 so the server is reachable from any network interface
+// (required for containerised and proxied deployments — Part 2 portability guardrail).
+const server = app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`[server] Lex Law Next v1 listening on 0.0.0.0:${PORT}`);
   console.log(`[server] tRPC endpoint: http://localhost:${PORT}/trpc`);
   console.log(`[server] Health check: http://localhost:${PORT}/api/health`);
 

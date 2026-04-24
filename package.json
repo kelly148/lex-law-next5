@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Lex Law Next v1 — AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
+  "description": "Lex Law Next v1 \u2014 AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -20,7 +20,10 @@
     "db:migrate": "tsx src/server/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "lint": "eslint src --ext .ts,.tsx"
+    "lint": "eslint src --ext .ts,.tsx",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server/index.js",
+    "start:dev": "tsx src/server/index.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",
