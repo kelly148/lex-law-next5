@@ -58,6 +58,7 @@ const t = initTRPC.context<TrpcContext>().create();
 
 export const router = t.router;
 export const middleware = t.middleware;
+export const mergeRouters = t.mergeRouters;
 
 // ============================================================
 // Public procedure — no authentication required
