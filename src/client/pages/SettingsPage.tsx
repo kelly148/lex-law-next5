@@ -23,7 +23,7 @@
  * State-sync pattern: section components receive `initial` props and are
  * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Settings, Mic, Users } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -60,6 +60,8 @@ function ReviewerEnablementSection({ initial }: ReviewerEnablementSectionProps):
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const utils = trpc.useUtils();
+  // prevRef captures the pre-toggle state so onError can roll back the optimistic update.
+  const prevRef = useRef(initial);
 
   const updateMutation = useGuardedMutation(
     (input: { reviewerEnablement: { claude: boolean; gpt: boolean; gemini: boolean; grok: boolean } }) =>
@@ -72,6 +74,8 @@ function ReviewerEnablementSection({ initial }: ReviewerEnablementSectionProps):
         setTimeout(() => setSaved(false), 2000);
       },
       onError: (err) => {
+        // Roll back the optimistic toggle to the pre-mutation state.
+        setValues(prevRef.current);
         if (err.message.includes('WOULD_DISABLE_ALL_REVIEWERS')) {
           setError('At least one reviewer must remain enabled.');
         } else {
@@ -82,7 +86,9 @@ function ReviewerEnablementSection({ initial }: ReviewerEnablementSectionProps):
   );
 
   const toggle = (key: keyof typeof values): void => {
+    prevRef.current = values;
     const next = { ...values, [key]: !values[key] };
+    // Optimistic update — rolled back in onError if the server rejects.
     setValues(next);
     updateMutation.mutate({ reviewerEnablement: next });
   };
