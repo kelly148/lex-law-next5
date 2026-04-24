@@ -1,50 +1,38 @@
 /**
  * LoginPage — Lex Law Next v1
  *
- * Phase 1 scope: basic login form.
  * Uses useGuardedMutation per Ch 35.13 — every mutation button uses the hook.
  *
  * Ch 35.3 — No business logic in React components:
  *   - Validation is minimal (non-empty fields); real auth logic is server-side.
- *   - The component calls auth.login and handles the result.
+ *   - The component calls auth.login via the tRPC vanilla client.
  */
 
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
-
-// Minimal tRPC client stub for Phase 1 (full tRPC client wired in Phase 2+)
-// This allows the component to compile and the hook to be tested.
-async function loginMutationFn(input: { username: string; password: string }): Promise<{ userId: string; displayName: string }> {
-  const response = await fetch('/trpc/auth.login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ json: input }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Invalid credentials.');
-  }
-
-  const data = await response.json() as { result: { data: { json: { userId: string; displayName: string } } } };
-  return data.result.data.json;
-}
+import { trpc } from '../trpc.js';
 
 export default function LoginPage(): React.ReactElement {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const utils = trpc.useUtils();
 
   // Ch 35.13: every mutation button uses useGuardedMutation
-  const loginMutation = useGuardedMutation(loginMutationFn, {
-    onSuccess: (data) => {
-      // Phase 2+: redirect to the matters list
-      console.log('Logged in as:', data.displayName);
-      window.location.href = '/matters';
-    },
-    onError: (error) => {
-      setErrorMessage(error.message);
-    },
-  });
+  const loginMutation = useGuardedMutation(
+    (input: { username: string; password: string }) =>
+      utils.client.auth.login.mutate(input),
+    {
+      onSuccess: () => {
+        void navigate('/matters');
+      },
+      onError: (error) => {
+        setErrorMessage(error.message);
+      },
+    }
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
