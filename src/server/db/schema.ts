@@ -15,6 +15,7 @@
  * Phase 3 scope: matters, documents, versions, matter_materials,
  *                document_references, user_preferences tables.
  *                Also adds users.preferences column via migration.
+ * Phase 4a scope: templates, template_versions, template_variable_schemas tables.
  */
 
 import {
@@ -573,6 +574,111 @@ export const userPreferences = mysqlTable('user_preferences', {
 });
 
 // ============================================================
+// Ch 4.12 — templates, template_versions, template_variable_schemas
+// ============================================================
+// templates: one row per template library entry. activeVersionId points to the
+// currently-activated version (NULL until first activation).
+//
+// template_versions: immutable version snapshots. Each upload creates a new row.
+// handlebarsSource: the extracted Handlebars text from the uploaded .docx.
+// validationStatus: set synchronously on upload (phase-1 validation, Ch 12.4).
+// activated: true when this version is (or was) the active version.
+//
+// template_variable_schemas: 1:1 with template_versions. Attorney-confirmed
+// variable schema (field names, types, required flags). Zod-validated on read.
+//
+// Indexes (Ch 4.12):
+//   idx_templates_user_type (userId, documentType, archivedAt)
+//   uniq_template_versions (templateId, versionNumber)
+//   uniq_schema_version (templateVersionId)
+// ============================================================
+
+export const TEMPLATE_VALIDATION_STATUS_VALUES = [
+  'pending',
+  'valid',
+  'invalid',
+] as const;
+export type TemplateValidationStatus =
+  (typeof TEMPLATE_VALIDATION_STATUS_VALUES)[number];
+
+export const templates = mysqlTable(
+  'templates',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    name: varchar('name', { length: 256 }).notNull(),
+    // documentType: registry key matching documents.documentType (Ch 6.2)
+    documentType: varchar('documentType', { length: 64 }).notNull(),
+    // activeVersionId: FK to template_versions.id; NULL until first activation
+    activeVersionId: char('activeVersionId', { length: 36 }),
+    archivedAt: timestamp('archivedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxTemplatesUserType: index('idx_templates_user_type').on(
+      table.userId,
+      table.documentType,
+      table.archivedAt,
+    ),
+  }),
+);
+
+export const templateVersions = mysqlTable(
+  'template_versions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    templateId: char('templateId', { length: 36 }).notNull(),
+    versionNumber: int('versionNumber').notNull(),
+    // fileStorageKey: original .docx location in blob storage
+    fileStorageKey: varchar('fileStorageKey', { length: 512 }).notNull(),
+    // handlebarsSource: extracted Handlebars template text (MEDIUMTEXT)
+    handlebarsSource: mediumtext('handlebarsSource').notNull(),
+    // validationStatus: set synchronously on upload (Ch 12.4)
+    validationStatus: mysqlEnum(
+      'validationStatus',
+      TEMPLATE_VALIDATION_STATUS_VALUES,
+    )
+      .notNull()
+      .default('pending'),
+    // validationErrors: structured error list for display when invalid
+    validationErrors: json('validationErrors'),
+    // activated: true when this version is (or was) the active version
+    activated: boolean('activated').notNull().default(false),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    uniqTemplateVersions: uniqueIndex('uniq_template_versions').on(
+      table.templateId,
+      table.versionNumber,
+    ),
+  }),
+);
+
+export const templateVariableSchemas = mysqlTable(
+  'template_variable_schemas',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    templateVersionId: char('templateVersionId', { length: 36 }).notNull(),
+    // schema: JSON blob; Zod-validated on read; field types, required flags, validation rules
+    schema: json('schema').notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    uniqSchemaVersion: uniqueIndex('uniq_schema_version').on(
+      table.templateVersionId,
+    ),
+  }),
+);
+
+// ============================================================
 // Type exports for use in query wrappers and procedures
 // ============================================================
 export type User = typeof users.$inferSelect;
@@ -593,3 +699,9 @@ export type DocumentReference = typeof documentReferences.$inferSelect;
 export type NewDocumentReference = typeof documentReferences.$inferInsert;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
+export type Template = typeof templates.$inferSelect;
+export type NewTemplate = typeof templates.$inferInsert;
+export type TemplateVersion = typeof templateVersions.$inferSelect;
+export type NewTemplateVersion = typeof templateVersions.$inferInsert;
+export type TemplateVariableSchema = typeof templateVariableSchemas.$inferSelect;
+export type NewTemplateVariableSchema = typeof templateVariableSchemas.$inferInsert;
