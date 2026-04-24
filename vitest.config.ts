@@ -5,6 +5,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    env: {
+      // Provide a dummy DATABASE_URL so modules that reference the DB can be imported
+      // in tests that mock the query layer. Tests that need a real DB must set this
+      // to a real connection string in their own environment.
+      DATABASE_URL: process.env['DATABASE_URL'] ?? 'mysql://test:test@localhost:3306/test_db',
+    },
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     exclude: ['node_modules', 'dist'],
     coverage: {
