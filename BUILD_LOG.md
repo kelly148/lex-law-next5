@@ -110,3 +110,80 @@ Checks 1–5 and 8 all passed:
 ### Resolution
 
 No code change required. Verification gap will be closed by operator browser UAT. This event is logged per project Stop/Repair protocol.
+
+---
+
+## D.1.3 Stop/Repair — 2026-04-25
+
+**Event type:** Deployment Acceptance Fix (pre-UAT)
+**Branch:** `lex-next/deploy-fix-prod-build`
+**Merge commit:** `d97bc65` (main)
+
+### Blocker
+
+`pnpm start` (production mode) could not serve the React client because:
+
+1. `src/server/index.ts` had no `express.static` mount or SPA catch-all route. The Express server was API-only; the Vite client had no production serving path.
+2. `package.json` `build:server` referenced `tsconfig.server.json` which did not exist, so `pnpm build:server` always failed with a file-not-found error.
+
+### Fix Applied
+
+| File | Change |
+|---|---|
+| `src/server/index.ts` | Added `import path from 'path'`; added `express.static(dist/)` and `app.get('*', ...)` SPA catch-all after all `/api/*` and `/trpc/*` routes |
+| `package.json` | Replaced `tsc -p tsconfig.server.json` with `esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external` |
+| `DEPLOYMENT.md` | Added esbuild flag documentation; added explicit `pnpm install` prerequisite blockquote in Production Server section |
+| `HANDOFF.md` | Updated production build commands and single-port operation instructions |
+
+**Express version:** 4.22.1. `app.get('*', ...)` is safe on Express 4 (path-to-regexp wildcard issue only affects Express 5).
+
+**esbuild `--packages=external` rationale:** CJS packages (express, mysql2, mammoth, etc.) call `require()` internally. In ESM output format (`"type": "module"`), dynamic `require()` is not supported when bundled. `--packages=external` marks all `node_modules` as external — they are not inlined and must be present at runtime via `pnpm install`.
+
+### Verification
+
+All quality gates passed on `lex-next/deploy-fix-prod-build` before merge:
+
+| Gate | Result |
+|---|---|
+| `pnpm typecheck` | 0 errors |
+| `pnpm lint` | 0 warnings/errors |
+| `pnpm test --run` | 215 passed, 16 skipped, 0 failures |
+| Escape-hatch scan | 0 violations |
+| `pnpm build` | Clean Vite build |
+| `pnpm build:server` | Exit 0, `dist/server/index.js` 283 KB |
+| `pnpm start` binds | `[server] Lex Law Next v1 listening on 0.0.0.0:3001` |
+| `/api/health` | HTTP 200 |
+| `/trpc/auth.login` | HTTP 200 |
+| `/matters` (SPA catch-all) | HTTP 200, `text/html` |
+| Static JS asset | HTTP 200, `application/javascript` |
+| DOCX export | HTTP 200, 9,494 bytes, `Microsoft Word 2007+`, correct watermark |
+| `grep -ri manus dist/` | 0 hits (portability check) |
+
+No tRPC procedure contracts, Zod schemas, database schema, or product behavior changed.
+
+---
+
+## D.1.4 Credential Rotation — 2026-04-25
+
+**Event type:** Operational (credential rotation, no code change)
+**Commit:** `d97bc65` (main)
+
+### Event
+
+Operator confirmed credentials rotation is complete. Seed credentials embedded in the previously running Manus-hosted preview instance are no longer valid. No code change required.
+
+### Manus Deployment Stand-Down
+
+The Manus-hosted preview deployment served its purpose: it proved the production-build fix works (single-port serving, esbuild bundling, SPA catch-all, DOCX export, static asset serving, zero Manus URL hardcoding in `dist/`). That verification is captured in D.1.3 above and in the merged PR.
+
+Operator will proceed with UAT locally per Operator Playbook Part 0.5:
+- Clone repo to operator machine
+- Configure `.env.local` with new credentials and `ANTHROPIC_API_KEY`
+- Run `pnpm install`, `pnpm db:migrate`, `pnpm start`
+- Perform browser UAT against `localhost:3001`
+
+Deferred verification gaps (draft generation, review session, evaluator path) from D.1.2 will be closed during operator local UAT.
+
+### Resolution
+
+No further deployment work required from the Manus side. Codebase is in a clean, documented, deployable state on `main` at commit `d97bc65`.
