@@ -49,3 +49,17 @@ closed by the native builder API. The raw SQL workaround is semantically equival
 guarded by the five controls above.
 
 ---
+
+## Phase 7
+
+### Cross-Phase Reconciliation & Packaging
+
+**Date:** 2026-04-24
+**Status:** Complete
+
+**Activities:**
+1. **Automated Reconciliation Checks:** Extracted all 87 registered tRPC procedures and 74 client tRPC calls. Verified zero phantom client calls. Verified 13 orphan procedures (no client caller) are intentional server-side-only procedures or future UI wirings, all with test coverage. Verified zero `useMutation` escape hatches. Verified zero raw DB `JSON.parse` outside Zod validation layer. Verified canonical job insertion.
+2. **R12 TODO Resolution:** Added `COMPLETE_READONLY_EXEMPT` exhaustiveness assertion to Phase 3 acceptance tests. Verified exactly two R12 carve-outs: `document.setNotes` and `document.unfinalize`.
+3. **Generated-Column Invariant Verification:** Verified `activeMatterKey` and `activeSessionKey` raw-SQL expressions are correct and evaluate to `NULL` for terminal/archived rows. Verified zero manual SELECT-then-INSERT uniqueness checks in application code.
+4. **Final Quality Gate:** Achieved zero TypeScript errors (`pnpm typecheck`), zero lint warnings (`pnpm lint`), and 201 passing tests (`pnpm test`). Scanned for and found zero TypeScript escape hatches (`any`, `as unknown`, `@ts-ignore`, etc.) in implementation files. Clean Vite production build (`pnpm build`).
+5. **Runtime Sanity Check:** Verified API health, authentication, matter creation, document creation, and synchronous DOCX export endpoint. All runtime checks passed.
