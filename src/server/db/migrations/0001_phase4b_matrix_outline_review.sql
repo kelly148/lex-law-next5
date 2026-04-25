@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `information_requests` (
   INDEX `idx_info_requests_matter` (`userId`, `matterId`, `archivedAt`),
   UNIQUE INDEX `uniq_active_matrix_per_matter` (`activeMatterKey`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.10 — information_request_items
 -- -----------------------------------------------------------------------------
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS `information_request_items` (
   PRIMARY KEY (`id`),
   INDEX `idx_info_items_request_order` (`informationRequestId`, `orderIndex`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.11 — document_outlines
 -- One outline per document (enforced at application level via precondition checks).
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS `document_outlines` (
   PRIMARY KEY (`id`),
   INDEX `idx_outlines_user_document` (`userId`, `documentId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.7 — feedback
 -- One row per reviewer-model invocation per document iteration.
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `feedback` (
   INDEX `idx_feedback_user_document_iter` (`userId`, `documentId`, `iterationNumber`),
   INDEX `idx_feedback_session` (`reviewSessionId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.7 — feedback_evaluations
 -- Evaluator pass over multiple reviewers' output.
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS `feedback_evaluations` (
   PRIMARY KEY (`id`),
   INDEX `idx_feedback_eval_document_iter` (`documentId`, `iterationNumber`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.7 — feedback_manual_selections
 -- Attorney adoption decisions (R5: positive-selection-only, no declined/dismissed rows).
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS `feedback_manual_selections` (
   INDEX `idx_manual_selections_session` (`reviewSessionId`),
   INDEX `idx_manual_selections_document_iter` (`documentId`, `iterationNumber`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- Ch 4.8 — review_sessions
 -- activeSessionKey: GENERATED ALWAYS AS (CASE WHEN state='active' THEN CONCAT(documentId,'-',LPAD(iterationNumber,10,'0')) ELSE NULL END) STORED

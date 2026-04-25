@@ -256,3 +256,37 @@ either migration file.
 DD-003 in `DEPENDENCY_DEBT.md` updated to expand scope from JSON defaults to all string-literal
 DEFAULT patterns on JSON and TEXT/BLOB column types.
 
+
+---
+
+## D.1.7 Stop/Repair — 2026-04-25
+
+**Event type:** Deployment Blocker (TiDB Cloud migration — third failure)
+**Branch:** `lex-next/migration-tidb-compat`
+
+### Blocker
+
+After applying the JSON and TEXT DEFAULT fixes from D.1.5 and D.1.6, migration 0000 succeeded
+but migration 0001 failed with `errno 8130`:
+
+> client has multi-statement capability disabled. Run SET GLOBAL tidb_multi_statement_mode='ON'
+> after you understand the security risk
+
+TiDB Cloud Serverless disables `tidb_multi_statement_mode` by default. Drizzle ORM's MySQL
+migrator sends each migration file as a single SQL string. Migration 0001 is a hand-authored
+file containing 7 `CREATE TABLE` statements without `-->statement-breakpoint` markers. TiDB
+rejected the entire file as a multi-statement query.
+
+Migration 0000 was unaffected because `drizzle-kit generate` automatically inserts
+`-->statement-breakpoint` markers between statements.
+
+### Fix Applied
+
+Added `-->statement-breakpoint` markers between each of the 7 `CREATE TABLE` statements in
+`0001_phase4b_matrix_outline_review.sql` (6 markers total). No SQL was modified — only marker
+lines were inserted. Marker placement verified: no leading marker before the first statement,
+no trailing marker after the last.
+
+DD-003 in `DEPENDENCY_DEBT.md` updated to add pattern (b): hand-authored migration files must
+include `-->statement-breakpoint` markers between every DDL statement.
+
