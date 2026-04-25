@@ -69,6 +69,26 @@ After deploying or starting the dev server, verify the following core flows:
 
 - **tRPC Procedures:** 87 registered procedures, 74 client calls. Zero phantom calls. 13 intentional orphan procedures (server-side only or future UI wirings, all with test coverage).
 - **TypeScript & Linting:** 0 errors, 0 warnings. 0 escape hatches (`any`, `as unknown`, `@ts-ignore`, etc.) in implementation files.
-- **Test Suite:** 201 tests passed, 16 skipped (0 failures).
+- **Test Suite:** 215 tests passed, 16 skipped (0 failures).
 - **Zod Wall:** 100% compliance. All DB reads pass through Zod validation. No raw `JSON.parse` on DB rows outside the validation layer.
 - **Mutations:** All client mutations correctly use `useGuardedMutation`. No direct `useMutation` calls.
+
+## 6. Orphan Procedure Inventory
+
+Orphan procedures are registered server-side procedures with no current client caller. All are intentional. The table below documents each with its rationale and test coverage.
+
+| Procedure | Rationale | Coverage |
+|---|---|---|
+| `document.acceptSubstantiveUnformatted` | Phase 4a workflow transition; no UI button yet | `phase4a.acceptance.test.ts` (3 refs) |
+| `document.detach` | Phase 4a template detach; no UI button yet | `phase4a.acceptance.test.ts` (15 refs) |
+| `template.confirmSchema` | Phase 4a template schema confirmation; no UI button yet | `phase4a.acceptance.test.ts` (1 ref) |
+| `template.sandbox` | Phase 4a template sandbox preview; no UI button yet | `phase4a.acceptance.test.ts` (3 refs) |
+| `template.updateSchema` | Phase 4a template schema update; no UI button yet | `phase4a.acceptance.test.ts` (1 ref) |
+| `outline.reopenForEdit` | Workflow transition `approved → draft`; UI wiring deferred | `phase7.orphan.test.ts` (3 tests) |
+| `outline.skip` | Workflow skip (bypass outline step); UI wiring deferred | `phase7.orphan.test.ts` (3 tests) |
+| `reference.add` | Add cross-document reference; UI wiring deferred (documented in `DocumentDetail.tsx` header) | `phase7.orphan.test.ts` (5 tests) |
+| `reference.remove` | Remove cross-document reference; UI wiring deferred | `phase7.orphan.test.ts` (2 tests) |
+| `reference.listInbound` | List inbound references; UI wiring deferred | `phase7.orphan.test.ts` (1 test) |
+| `job.getById` | Single-job getter; client uses `job.listForDocument`/`job.listForMatter` for polling. Intentional server-only read endpoint for future deep-link job status. No dedicated unit test: the procedure is a single-line `getPublicJobById` pass-through with NOT_FOUND guard, fully covered by the query layer's Zod Wall tests. |
+| `job.poll` | Multi-criteria poll; client uses list procedures instead. Intentional server-only read endpoint for future background polling. No dedicated unit test: the procedure is a pass-through query with no branching logic beyond the Zod input schema. |
+| `materials.get` | Single-material getter; client uses `materials.list`. Intentional server-only read endpoint for future material detail view. No dedicated unit test: the procedure is a single-line `getMaterialById` pass-through with NOT_FOUND guard, fully covered by the query layer's Zod Wall tests. |
