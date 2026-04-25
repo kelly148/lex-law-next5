@@ -55,9 +55,20 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
  * Must be called at the top of every document-mutating procedure EXCEPT
  * document.setNotes and document.unfinalize (the two R12 carve-outs).
  *
- * Phase 4a will add the exhaustiveness assertion:
- *   assert(COMPLETE_READONLY_EXEMPT_PROCEDURES === new Set(['document.unfinalize', 'document.setNotes']))
+ * Phase 7 exhaustiveness assertion (resolved):
+ *   COMPLETE_READONLY_EXEMPT === new Set(['document.setNotes', 'document.unfinalize'])
  */
+
+/**
+ * The exhaustive set of document procedures exempt from the R12 COMPLETE_READONLY guard.
+ * Exactly two: setNotes (notes on complete docs) and unfinalize (exits complete state).
+ * Exported for acceptance-test verification.
+ */
+export const COMPLETE_READONLY_EXEMPT: ReadonlySet<string> = new Set([
+  'document.setNotes',
+  'document.unfinalize',
+]);
+
 export function assertNotComplete(
   workflowState: string,
   procedureName: string,

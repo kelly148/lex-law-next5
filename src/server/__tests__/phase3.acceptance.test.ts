@@ -73,7 +73,7 @@ describe('AC1: R12 COMPLETE_READONLY guard', () => {
     expect(parsed.workflowState).toBe('complete');
   });
 
-  it('document procedures that are NOT R12 carve-outs must call assertNotComplete', () => {
+  it('document procedures that are NOT R12 carve-outs must call assertNotComplete', async () => {
     // Verify that the document procedures file contains assertNotComplete calls
     // for all non-carve-out mutation procedures.
     const docProcFile = fs.readFileSync(
@@ -95,14 +95,11 @@ describe('AC1: R12 COMPLETE_READONLY guard', () => {
     }
 
     // These procedures MUST NOT have assertNotComplete (R12 carve-outs)
-    // Phase 4a exhaustiveness assertion placeholder:
-    // TODO Phase 4a: assert COMPLETE_READONLY_EXEMPT === new Set(['document.setNotes', 'document.unfinalize'])
-    // This assertion cannot be fully proven until finalize/complete-state transitions exist.
-    const carveOuts = ['setNotes', 'unfinalize'];
-    for (const _carveOut of carveOuts) {
-      // Verify carve-outs have a comment documenting their exempt status
-      expect(docProcFile).toContain(`R12 carve-out`);
-    }
+    // Phase 7 exhaustiveness assertion (resolved — finalize/complete-state transitions exist):
+    const { COMPLETE_READONLY_EXEMPT } = await import('../procedures/documents.js');
+    expect(COMPLETE_READONLY_EXEMPT).toEqual(new Set(['document.setNotes', 'document.unfinalize']));
+    // Verify carve-outs have a comment documenting their exempt status
+    expect(docProcFile).toContain('R12 carve-out');
   });
 
   it('COMPLETE_READONLY error code is PRECONDITION_FAILED', () => {
@@ -480,4 +477,39 @@ describe('AC8: Ch 35.2 — no procedure input schema contains userId', () => {
       }
     });
   }
+});
+
+// ============================================================
+// AC9 — Phase 6 export endpoint: read-only, not in COMPLETE_READONLY_EXEMPT
+// ============================================================
+
+describe('AC9: Phase 6 export endpoint is read-only and not in COMPLETE_READONLY_EXEMPT', () => {
+  it('GET /api/documents/:documentId/export does not mutate document rows', () => {
+    // The export endpoint in src/server/index.ts must not call any document-mutating
+    // DB functions (updateDocumentWorkflowState, updateDocumentTitle, etc.).
+    const indexFile = fs.readFileSync(
+      path.join(process.cwd(), 'src/server/index.ts'),
+      'utf-8',
+    );
+    // Locate the export handler block
+    const exportHandlerStart = indexFile.indexOf('/api/documents/:documentId/export');
+    expect(exportHandlerStart).toBeGreaterThan(-1);
+    const exportBlock = indexFile.substring(exportHandlerStart, exportHandlerStart + 3000);
+    // Must NOT call any document-mutating helpers
+    expect(exportBlock).not.toContain('updateDocumentWorkflowState');
+    expect(exportBlock).not.toContain('updateDocumentTitle');
+    expect(exportBlock).not.toContain('updateDocumentNotes');
+    expect(exportBlock).not.toContain('archiveDocument');
+    expect(exportBlock).not.toContain('unarchiveDocument');
+    expect(exportBlock).not.toContain('insertDocument');
+  });
+
+  it('export endpoint is not a tRPC procedure and therefore not in COMPLETE_READONLY_EXEMPT', async () => {
+    // The export endpoint is a plain Express GET handler, not a tRPC procedure.
+    // COMPLETE_READONLY_EXEMPT only governs tRPC document procedures.
+    const { COMPLETE_READONLY_EXEMPT } = await import('../procedures/documents.js');
+    expect(COMPLETE_READONLY_EXEMPT.has('document.export')).toBe(false);
+    // Confirm the set is still exactly the two carve-outs
+    expect(COMPLETE_READONLY_EXEMPT).toEqual(new Set(['document.setNotes', 'document.unfinalize']));
+  });
 });

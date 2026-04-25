@@ -10,6 +10,9 @@ export default defineConfig({
       // in tests that mock the query layer. Tests that need a real DB must set this
       // to a real connection string in their own environment.
       DATABASE_URL: process.env['DATABASE_URL'] ?? 'mysql://test:test@localhost:3306/test_db',
+      // Provide a dummy SESSION_SECRET so modules that import trpc.ts (which imports
+      // session.ts) can be loaded in unit tests without a real session configuration.
+      SESSION_SECRET: process.env['SESSION_SECRET'] ?? 'test-session-secret-at-least-32-chars-long!!',
     },
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     exclude: ['node_modules', 'dist'],

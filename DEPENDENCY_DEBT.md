@@ -9,7 +9,7 @@ upgrade path.
 ## DD-001 — drizzle-orm generatedAlwaysAs() API
 
 **Deferred from:** Phase 4b (D.1.2 resolution)
-**Target resolution:** Phase 7 handoff or earlier if a standalone upgrade window opens
+**Target resolution:** Future cleanup (post-Phase 7)
 
 Upgrade drizzle-orm to 0.32+ and migrate raw-SQL generated columns (`activeMatterKey`,
 `activeSessionKey`) to native `generatedAlwaysAs()` builder API. Deferred from Phase 4b per
@@ -24,7 +24,7 @@ disproportionate to the compile-time gap being closed.
 3. The Zod Wall treats these columns as read-only (no write path in any procedure).
 4. Regression tests assert that any INSERT or UPDATE supplying an explicit value for either
    generated column is rejected by the database engine.
-5. This file is included in the Phase 7 Known-Issue List.
+5. This file is included in the Phase 7 Known-Issue List (HANDOFF.md).
 
 **Upgrade path:**
 
