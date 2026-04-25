@@ -63,3 +63,50 @@ guarded by the five controls above.
 3. **Generated-Column Invariant Verification:** Verified `activeMatterKey` and `activeSessionKey` raw-SQL expressions are correct and evaluate to `NULL` for terminal/archived rows. Verified zero manual SELECT-then-INSERT uniqueness checks in application code.
 4. **Final Quality Gate:** Achieved zero TypeScript errors (`pnpm typecheck`), zero lint warnings (`pnpm lint`), and 201 passing tests (`pnpm test`). Scanned for and found zero TypeScript escape hatches (`any`, `as unknown`, `@ts-ignore`, etc.) in implementation files. Clean Vite production build (`pnpm build`).
 5. **Runtime Sanity Check:** Verified API health, authentication, matter creation, document creation, and synchronous DOCX export endpoint. All runtime checks passed.
+
+---
+
+## D.1.2 Stop/Repair — 2026-04-25
+
+**Event type:** Stop/Repair (partial smoke test completion)
+**Commit:** `328b9c0` (main — Phase 7 merge)
+**Detected during:** Step 10 operator-side smoke test
+
+### Blocker
+
+`ANTHROPIC_API_KEY` (and `OPENAI_API_KEY`) are not present in the Manus sandbox environment. Both `.env.local` entries are empty strings. The LLM adapters (`AnthropicAdapter`, `OpenAiAdapter`) perform a non-empty key check at invocation time and throw `LlmProviderError` if the key is absent. As a result, `document.generateDraft` jobs fail immediately with `ANTHROPIC_API_KEY is not set`, blocking smoke test checks 6 (draft generation) and 7 (review session live invocation).
+
+### Options Considered
+
+| Option | Decision |
+|---|---|
+| Add `OPENAI_BASE_URL` env-var override to `OpenAiAdapter` to route through the Manus proxy | **Rejected** — code change to implementation file outside Phase 7 scope |
+| Inject a live API key via chat message for the smoke test session | **Rejected** — operator preference; keys are not to be shared in chat |
+| Accept partial completion per Step 10G of the deployment prompt | **Accepted** — documented acceptable outcome when keys are not present in sandbox |
+
+### Verification Gap
+
+The following checks were not exercised in the Manus environment and are deferred to operator-side browser UAT:
+
+- **Check 6 — Draft generation (Step 10G):** `document.generateDraft` end-to-end with Claude. Will be exercised by the Human Operator using `ANTHROPIC_API_KEY` loaded into the operator's session.
+- **Check 7 — Review session live invocation (Step 10H):** `reviewSession.create` with at least one enabled reviewer. Will be exercised in browser UAT.
+- **Evaluator role end-to-end (Step 10H multi-reviewer path):** Same. Will be exercised in browser UAT.
+
+### Checks Verified in Manus Environment
+
+Checks 1–5 and 8 all passed:
+
+| Check | Result |
+|---|---|
+| 1 — Health (`GET /api/health`) | PASS |
+| 2 — Login (`auth.login`) | PASS |
+| 3 — Matter creation (`matter.create`) | PASS |
+| 4 — Document creation (`document.create`) | PASS |
+| 5 — Material paste (`materials.create`) | PASS |
+| 6 — Draft generation | DEFERRED |
+| 7 — Review session | DEFERRED |
+| 8 — DOCX export (HTTP 200, 9,467 bytes, DRAFT watermark, valid ZIP) | PASS |
+
+### Resolution
+
+No code change required. Verification gap will be closed by operator browser UAT. This event is logged per project Stop/Repair protocol.
