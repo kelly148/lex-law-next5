@@ -21,7 +21,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint src --ext .ts,.tsx",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
     "start": "node dist/server/index.js",
     "start:dev": "tsx src/server/index.ts"
   },
