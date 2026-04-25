@@ -107,9 +107,14 @@ Output: `dist/server/index.js` (approx. 283 KB — application code only, no nod
 
 ## Production Server
 
-After building both client and server:
+> **Runtime prerequisite:** `pnpm build:server` uses `--packages=external`, which means all `node_modules` dependencies are **not bundled** into `dist/server/index.js`. Run `pnpm install` before `pnpm build:server` and `pnpm start` to ensure `node_modules` is present at runtime.
+
+After installing dependencies and building both client and server:
 
 ```bash
+pnpm install          # required — node_modules must be present at runtime
+pnpm build
+pnpm build:server
 pnpm start
 ```
 
@@ -140,9 +145,9 @@ No separate Vite process is needed in production.
 
 **Production mode (single port):**
 
-1. Complete steps 1–5 above.
+1. Complete steps 1–5 above (includes `pnpm install`).
 2. Build: `pnpm build && pnpm build:server`
-3. Start: `pnpm start`
+3. Start: `pnpm start` (`node_modules` must be present — see Production Server note above)
 4. Open `http://localhost:3001` in your browser.
 
 ---
