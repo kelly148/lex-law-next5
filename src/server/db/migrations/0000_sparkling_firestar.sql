@@ -179,7 +179,7 @@ CREATE TABLE `review_sessions` (
 	`state` enum('active','regenerated','abandoned') NOT NULL DEFAULT 'active',
 	`selections` json NOT NULL DEFAULT (JSON_ARRAY()),
 	`selectedReviewers` json NOT NULL DEFAULT (JSON_ARRAY()),
-	`globalInstructions` text NOT NULL DEFAULT (''),
+	`globalInstructions` text NOT NULL,
 	`lastAutosavedAt` timestamp,
 	`activeSessionKey` varchar(64),
 	`createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
