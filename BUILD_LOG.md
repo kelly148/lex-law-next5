@@ -187,3 +187,72 @@ Deferred verification gaps (draft generation, review session, evaluator path) fr
 ### Resolution
 
 No further deployment work required from the Manus side. Codebase is in a clean, documented, deployable state on `main` at commit `d97bc65`.
+
+---
+
+## D.1.5 Stop/Repair — 2026-04-25
+
+**Event type:** Deployment Blocker (TiDB Cloud database provisioning)
+**Branch:** `lex-next/migration-tidb-compat`
+
+### Event
+
+Operator provisioned TiDB Cloud Serverless database `lex_law_next`. Initial migration attempt
+(`pnpm db:migrate`) failed with `ER_PARSE_ERROR` on JSON column defaults emitted by
+`drizzle-kit generate`.
+
+### Blocker
+
+`drizzle-kit 0.20.x` generates `DEFAULT ('[]')` and `DEFAULT ('{}')` for JSON columns. TiDB
+Cloud v8.5.3-serverless rejects these string-literal expressions in favour of function-call
+syntax (`DEFAULT (JSON_ARRAY())`, `DEFAULT (JSON_OBJECT())`).
+
+### Fix Applied
+
+Patched `0000_sparkling_firestar.sql` on branch `lex-next/migration-tidb-compat`:
+
+| Column | Table | Change |
+|---|---|---|
+| `sections` | `document_outlines` | `DEFAULT ('[]')` → `DEFAULT (JSON_ARRAY())` |
+| `tags` | `matter_materials` | `DEFAULT ('[]')` → `DEFAULT (JSON_ARRAY())` |
+| `selections` | `review_sessions` | `DEFAULT ('[]')` → `DEFAULT (JSON_ARRAY())` |
+| `selectedReviewers` | `review_sessions` | `DEFAULT ('[]')` → `DEFAULT (JSON_ARRAY())` |
+| `preferences` | `user_preferences` | `DEFAULT ('{}')` → `DEFAULT (JSON_OBJECT())` |
+
+Each fix pre-verified with a probe CREATE TABLE against TiDB Cloud v8.5.3-serverless before
+applying. DD-003 added to `DEPENDENCY_DEBT.md`.
+
+---
+
+## D.1.6 Stop/Repair — 2026-04-25
+
+**Event type:** Deployment Blocker (TiDB Cloud migration — second failure)
+**Branch:** `lex-next/migration-tidb-compat`
+
+### Blocker
+
+After applying the JSON default fixes from D.1.5, migration still failed with `ER_PARSE_ERROR`
+on the `review_sessions` table. The `globalInstructions text NOT NULL DEFAULT ('')` column
+definition was rejected by TiDB Cloud v8.5.3-serverless. TiDB does not support any
+string-literal DEFAULT expression on TEXT or BLOB column types.
+
+### Fix Applied
+
+Removed the `DEFAULT ('')` clause from `globalInstructions` in `0000_sparkling_firestar.sql`,
+keeping `NOT NULL` (Option A). The Zod layer in the `reviewSession.create` procedure supplies
+`globalInstructions` with `.default('')`, so the database-level default was never relied upon
+by application code.
+
+Pre-verified: `CREATE TABLE _probe_text_test (id char(36) NOT NULL, instructions text NOT NULL,
+PRIMARY KEY (id))` succeeded on TiDB Cloud v8.5.3-serverless before applying.
+
+### Full Scan Outcome
+
+A complete scan of both migration files for all string-literal `DEFAULT ('...')` patterns
+confirmed this was the only remaining instance. No other TEXT, BLOB, LONGTEXT, MEDIUMTEXT,
+TINYTEXT, LONGBLOB, MEDIUMBLOB, or TINYBLOB columns carry string-literal DEFAULT clauses in
+either migration file.
+
+DD-003 in `DEPENDENCY_DEBT.md` updated to expand scope from JSON defaults to all string-literal
+DEFAULT patterns on JSON and TEXT/BLOB column types.
+
