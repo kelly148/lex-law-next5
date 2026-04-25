@@ -13,6 +13,7 @@
  */
 
 import 'dotenv/config';
+import path from 'path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import multer from 'multer';
@@ -415,6 +416,25 @@ app.use(
     },
   })
 );
+
+// ============================================================
+// Static client assets (production)
+//
+// Registered AFTER all /api and /trpc routes so API routes take precedence.
+// In development, Vite serves the client on port 5173 and proxies /api and /trpc
+// to this server. In production, this server serves the built dist/ assets on the
+// same port, eliminating the need for a separate Vite process.
+//
+// Express version: 4.22.1 — app.get('*', ...) is safe on Express 4.
+// The path-to-regexp wildcard issue only affects Express 5.
+// ============================================================
+const distPath = path.resolve(process.cwd(), 'dist');
+app.use(express.static(distPath));
+// SPA catch-all: any route not matched above returns index.html so that
+// React Router can handle client-side navigation (e.g. /matters/:id).
+app.get('*', (_req: Request, res: Response) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
 
 // ============================================================
 // Start

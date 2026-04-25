@@ -74,35 +74,61 @@ When running inside Manus, expose port `5173` to get a public URL for browser ac
 
 ## Production Build
 
+Build the client assets (Vite) and run a type check:
+
 ```bash
 pnpm build
 ```
 
-This runs `tsc --noEmit` (type check) followed by `vite build`. The built client
-assets are emitted to `dist/`. The server is compiled separately:
+This runs `tsc --noEmit` (type check) followed by `vite build`. Built client assets
+are emitted to `dist/assets/` and `dist/index.html`.
+
+Bundle the server (esbuild):
 
 ```bash
 pnpm build:server
 ```
 
+This runs `esbuild` to bundle `src/server/index.ts` into `dist/server/index.js`.
+The following flags are used:
+
+| Flag | Reason |
+|---|---|
+| `--bundle` | Inline all application imports into a single output file |
+| `--platform=node` | Target the Node.js runtime (no browser shims) |
+| `--target=node22` | Emit syntax compatible with Node.js 22 (the installed version) |
+| `--format=esm` | ESM output, required because `package.json` sets `"type": "module"` |
+| `--outfile=dist/server/index.js` | Output path expected by `pnpm start` |
+| `--packages=external` | Mark all `node_modules` as external — they are not inlined into the bundle and must be present at runtime. This is required because several dependencies (express, mysql2, mammoth, docx, etc.) contain CJS `require()` calls that are incompatible with ESM bundling. All externals are in `dependencies` and will be present in `node_modules` at runtime. |
+
+Output: `dist/server/index.js` (approx. 283 KB — application code only, no node_modules).
+
 ---
 
 ## Production Server
 
-After building:
+After building both client and server:
 
 ```bash
 pnpm start
 ```
 
-This runs `node dist/server/index.js`. The server serves the built Vite client
-from `dist/` and the tRPC API at `/trpc`.
+This runs `node dist/server/index.js`. The server:
+- Serves the built Vite client from `dist/` via `express.static`
+- Handles all `/api/*` REST endpoints
+- Handles all `/trpc/*` tRPC calls
+- Returns `dist/index.html` for all other routes (SPA catch-all for React Router)
+
+**Single-port operation:** client and API are served on the same port (default `3001`).
+No separate Vite process is needed in production.
 
 **Access URL in browser:** `http://0.0.0.0:${PORT}` (or the host's public address)
 
 ---
 
 ## Running Locally Outside Manus
+
+**Development mode (two ports):**
 
 1. Clone the repository.
 2. Install dependencies: `pnpm install`
@@ -111,6 +137,13 @@ from `dist/` and the tRPC API at `/trpc`.
 5. Run migrations: `pnpm db:migrate`
 6. Start the dev server: `pnpm dev`
 7. Open `http://localhost:5173` in your browser.
+
+**Production mode (single port):**
+
+1. Complete steps 1–5 above.
+2. Build: `pnpm build && pnpm build:server`
+3. Start: `pnpm start`
+4. Open `http://localhost:3001` in your browser.
 
 ---
 
@@ -156,4 +189,4 @@ See `DEPENDENCY_DEBT.md` for deferred items. Key item: drizzle-orm upgrade to
 
 ---
 
-*This file is built incrementally during Phases 5–6 and finalized in Phase 7.*
+*This file was updated in the deploy-fix-prod-build branch to reflect the esbuild-based server build and single-port production serving.*

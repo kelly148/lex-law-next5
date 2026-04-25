@@ -1,6 +1,6 @@
-# Lex Law Next v1 — Phase 7 Final Handoff
+# Lex Law Next v1 — Final Handoff
 
-This document summarizes the final state of the `lex-law-next5` repository at the conclusion of Phase 7 (Cross-Phase Reconciliation & Packaging).
+This document summarizes the final state of the `lex-law-next5` repository. Updated in the `deploy-fix-prod-build` branch to reflect the production build fix (single-port serving, esbuild-based server bundle).
 
 ## 1. Final Environment Variables List
 
@@ -32,13 +32,23 @@ pnpm dev
 
 ### Production Build & Run
 ```bash
-# Build client and server
+# Build client assets (Vite) and type-check
 pnpm build
+
+# Bundle server (esbuild) → dist/server/index.js
 pnpm build:server
 
-# Start the production server
+# Start the production server (single port, default 3001)
 pnpm start
 ```
+
+In production mode, `pnpm start` runs `node dist/server/index.js`. The server:
+- Serves the built Vite client from `dist/` via `express.static`
+- Handles all `/api/*` REST endpoints
+- Handles all `/trpc/*` tRPC calls
+- Returns `dist/index.html` for all other routes (SPA catch-all for React Router)
+
+**Single-port operation:** client and API are served on the same port. No separate Vite process is needed. Access the app at `http://localhost:3001` (or `PORT` env var).
 
 ### Quality Gates
 ```bash
