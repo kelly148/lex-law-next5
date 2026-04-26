@@ -51,6 +51,12 @@ interface CreateSessionViewProps {
   onCreated: (sessionId: string) => void;
 }
 
+// Parse SESSION_ALREADY_EXISTS:<uuid>: ... error messages to extract the existing session ID.
+function parseExistingSessionId(message: string): string | null {
+  const match = /^SESSION_ALREADY_EXISTS:([0-9a-f-]{36}):/.exec(message);
+  return match ? (match[1] ?? null) : null;
+}
+
 function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSessionViewProps): React.ReactElement {
   const { data: settings } = trpc.settings.get.useQuery();
   const utils = trpc.useUtils();
@@ -73,7 +79,15 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
       onSuccess: (result) => {
         onCreated(result.sessionId);
       },
-      onError: (err) => setError(err.message),
+      onError: (err) => {
+        // If an active session already exists, resume it instead of showing a dead-end error.
+        const existingId = parseExistingSessionId(err.message);
+        if (existingId) {
+          onCreated(existingId);
+          return;
+        }
+        setError(err.message);
+      },
     }
   );
 

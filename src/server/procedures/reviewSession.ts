@@ -111,7 +111,8 @@ export const reviewSessionRouter = router({
       if (existingSession) {
         throw new TRPCError({
           code: 'CONFLICT',
-          message: `SESSION_ALREADY_EXISTS: an active review session already exists for this document at iteration ${existingSession.iterationNumber}`,
+          // Include sessionId so the frontend can resume the existing session instead of showing a dead-end error.
+          message: `SESSION_ALREADY_EXISTS:${existingSession.id}: an active review session already exists for this document at iteration ${existingSession.iterationNumber}`,
         });
       }
 
