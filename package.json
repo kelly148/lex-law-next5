@@ -11,7 +11,7 @@
     "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/index.ts",
-    "build": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build",
+    "build": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build && node_modules/.bin/esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
