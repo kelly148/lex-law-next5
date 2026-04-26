@@ -130,15 +130,22 @@ describe('JobRowSchema — happy path', () => {
 // ============================================================
 
 describe('JobRowSchema — malformed input column (Zod Wall)', () => {
-  it('throws ZodError when input.systemPrompt is missing', () => {
+  it('does NOT throw when input.systemPrompt is missing (legacy rows with input:{})', () => {
+    // Legacy jobs were stored with input:{} before prompt capture was implemented.
+    // systemPrompt and userPrompt are now optional to allow these rows to parse.
     const row = {
       ...validJobRow(),
       input: {
-        // systemPrompt missing
+        // systemPrompt missing — valid for legacy rows
         userPrompt: 'Draft a contract clause.',
       },
     };
-    expect(() => JobRowSchema.parse(row)).toThrow(ZodError);
+    expect(() => JobRowSchema.parse(row)).not.toThrow();
+  });
+
+  it('does NOT throw when input is empty object (legacy rows)', () => {
+    const row = { ...validJobRow(), input: {} };
+    expect(() => JobRowSchema.parse(row)).not.toThrow();
   });
 
   it('throws ZodError when input.userPrompt is empty string', () => {

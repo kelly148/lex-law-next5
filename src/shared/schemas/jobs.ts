@@ -53,9 +53,11 @@ const JOB_ERROR_CLASS_VALUES = [
 // ============================================================
 export const JobInputSchema = z.object({
   // The system prompt rendered for this job (from the prompt asset)
-  systemPrompt: z.string().min(1),
+  // Optional for legacy rows stored as input:{} before prompt capture was implemented
+  systemPrompt: z.string().min(1).optional(),
   // The user-side prompt rendered from the context template
-  userPrompt: z.string().min(1),
+  // Optional for legacy rows stored as input:{} before prompt capture was implemented
+  userPrompt: z.string().min(1).optional(),
   // Materials manifest: which materials were included in context
   materialsManifest: z
     .array(
@@ -96,6 +98,8 @@ export const JobOutputSchema = z
       tokensPrompt: z.number().int().nonnegative(),
       tokensCompletion: z.number().int().nonnegative(),
     }),
+    // Legacy rows: output stored as a raw string before typed envelope was introduced
+    z.string(),
   ])
   .nullable();
 
