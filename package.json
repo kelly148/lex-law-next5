@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Lex Law Next v1 \u2014 AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
+  "description": "Lex Law Next v1 — AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -66,6 +66,7 @@
     "autoprefixer": "^10.4.0",
     "concurrently": "^8.2.0",
     "drizzle-kit": "^0.20.0",
+    "esbuild": "^0.28.0",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "postcss": "^8.4.0",
