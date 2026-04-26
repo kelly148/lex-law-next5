@@ -83,15 +83,14 @@ export class OpenAiAdapter implements LlmClient {
       { role: 'user', content: userPrompt },
     ];
 
-    // gpt-5 and o-series models use max_completion_tokens; older models use max_tokens
+    // gpt-5 and o-series models use max_completion_tokens and do not support temperature
     const usesCompletionTokens = this.modelId.startsWith('gpt-5') || this.modelId.startsWith('o1') || this.modelId.startsWith('o3') || this.modelId.startsWith('o4');
     const requestBody: OpenAiRequest = {
       model: this.modelId,
       messages,
       ...(usesCompletionTokens
         ? { max_completion_tokens: maxTokens }
-        : { max_tokens: maxTokens }),
-      temperature,
+        : { max_tokens: maxTokens, temperature }),
     };
 
     if (structuredOutputSchema) {
