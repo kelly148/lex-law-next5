@@ -25,17 +25,48 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 
-const DOCUMENT_TYPES = [
-  'contract',
-  'motion',
-  'brief',
-  'memo',
-  'letter',
-  'agreement',
-  'complaint',
-  'answer',
-  'discovery',
-  'other',
+const DOCUMENT_TYPES: { value: string; label: string }[] = [
+  // Trusts & Estates
+  { value: 'revocable_living_trust', label: 'Revocable Living Trust' },
+  { value: 'pour_over_will', label: 'Pour-Over Will' },
+  { value: 'last_will_testament', label: 'Last Will and Testament' },
+  { value: 'durable_poa', label: 'Durable General Power of Attorney' },
+  { value: 'advance_medical_directive', label: 'Advance Medical Directive' },
+  { value: 'certificate_of_trust', label: 'Certificate of Trust' },
+  { value: 'trust_amendment', label: 'Trust Amendment' },
+  { value: 'trust_opinion_letter', label: 'Trust Opinion Letter' },
+
+  // Real Estate
+  { value: 'deed', label: 'Deed (general/special warranty, quitclaim, gift)' },
+  { value: 'deed_of_trust', label: 'Deed of Trust' },
+  { value: 'promissory_note', label: 'Promissory Note' },
+  { value: 'residential_psa', label: 'Residential Purchase Agreement' },
+  { value: 'commercial_psa', label: 'Commercial Purchase Agreement' },
+  { value: 'lease_agreement', label: 'Lease Agreement' },
+  { value: 'closing_instruction_letter', label: 'Closing Instruction Letter' },
+
+  // Business Entity
+  { value: 'operating_agreement', label: 'Operating Agreement' },
+  { value: 'articles_of_organization', label: 'Articles of Organization' },
+  { value: 'asset_purchase_agreement', label: 'Asset Purchase Agreement' },
+  { value: 'mipa', label: 'Membership Interest Purchase Agreement' },
+  { value: 'buy_sell_agreement', label: 'Buy-Sell Agreement' },
+
+  // 1031 Exchange
+  { value: 'qi_exchange_agreement', label: 'Qualified Intermediary Exchange Agreement' },
+  { value: 'assignment_1031', label: 'Assignment of Contract (1031)' },
+  { value: 'identification_notice_1031', label: '1031 Identification Notice' },
+
+  // Cross-Practice
+  { value: 'engagement_letter', label: 'Engagement Letter' },
+  { value: 'memorandum', label: 'Memorandum' },
+  { value: 'opinion_letter', label: 'Opinion Letter' },
+  { value: 'demand_letter', label: 'Demand Letter' },
+  { value: 'client_instruction_letter', label: 'Client Instruction Letter' },
+  { value: 'conflict_waiver', label: 'Conflict Waiver / Joint Representation Letter' },
+
+  // Custom escape hatch
+  { value: 'custom', label: 'Other / Custom' },
 ];
 
 const DRAFTING_MODES = [
@@ -52,12 +83,13 @@ interface CreateDocumentFormProps {
 function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentFormProps): React.ReactElement {
   const [title, setTitle] = useState('');
   const [documentType, setDocumentType] = useState('');
+  const [customTypeLabel, setCustomTypeLabel] = useState('');
   const [draftingMode, setDraftingMode] = useState<'template' | 'iterative'>('iterative');
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const createMutation = useGuardedMutation(
-    (input: { matterId: string; title: string; documentType: string; draftingMode: 'template' | 'iterative' }) =>
+    (input: { matterId: string; title: string; documentType: string; customTypeLabel?: string | null; draftingMode: 'template' | 'iterative' }) =>
       utils.client.document.create.mutate(input),
     {
       onSuccess: (doc) => {
@@ -74,8 +106,15 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
     e.preventDefault();
     if (!title.trim()) { setError('Title is required.'); return; }
     if (!documentType) { setError('Document type is required.'); return; }
+    if (documentType === 'custom' && !customTypeLabel.trim()) { setError('Custom document type label is required.'); return; }
     setError(null);
-    createMutation.mutate({ matterId, title: title.trim(), documentType, draftingMode });
+    createMutation.mutate({
+      matterId,
+      title: title.trim(),
+      documentType,
+      customTypeLabel: documentType === 'custom' ? customTypeLabel.trim() : null,
+      draftingMode,
+    });
   };
 
   return (
@@ -107,10 +146,24 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             >
               <option value="">— Select —</option>
               {DOCUMENT_TYPES.map((t) => (
-                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </div>
+          {documentType === 'custom' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Custom Document Type <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={customTypeLabel}
+                onChange={(e) => setCustomTypeLabel(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="e.g., Certificate of Trust, Deed of Correction, Stock Purchase Agreement"
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Drafting Mode</label>
             <div className="flex gap-4">
@@ -135,7 +188,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || (documentType === 'custom' && !customTypeLabel.trim())}
               className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating…' : 'Create Document'}
