@@ -33,6 +33,8 @@ const JOB_TYPE_VALUES = [
   'formatting',
   'information_request_generation',
   'outline_generation',
+  'reviewer_feedback',
+  'evaluator',
   'context_summary_generation',
 ] as const;
 

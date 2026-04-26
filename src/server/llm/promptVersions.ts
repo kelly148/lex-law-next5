@@ -91,6 +91,8 @@ export const JOB_TYPE_TO_PROMPT_ROLE: Record<string, PromptRole> = {
   outline_generation: 'outline',
   information_request_generation: 'matrix',
   review: 'reviewer',
+  reviewer_feedback: 'reviewer',  // review session per-model feedback jobs (Ch 4b)
+  evaluator: 'evaluator',          // review cycle consolidation jobs (Ch 4b)
   // context_summary_generation is reserved but not active in v1 (Ch 8.3)
   context_summary_generation: 'drafter',
 };
