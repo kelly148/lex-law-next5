@@ -434,11 +434,21 @@ export default function DocumentDetail(): React.ReactElement {
   const [showReview, setShowReview] = useState(false);
   const [showContextPreview, setShowContextPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'outline' | 'variables' | 'references'>('content');
+  const [showDraftWarning, setShowDraftWarning] = useState(false);
 
   const { data: doc, isLoading } = trpc.document.get.useQuery(
     { documentId: documentId! },
     { enabled: !!documentId }
   );
+
+  // Query materials to detect empty-drawer state before drafting (Option A)
+  const { data: materialsData } = trpc.materials.list.useQuery(
+    { matterId: matterId! },
+    { enabled: !!matterId }
+  );
+  const extractedMaterialsCount = (materialsData ?? []).filter(
+    (m) => m.extractionStatus === 'extracted' || m.extractionStatus === 'partial'
+  ).length;
 
   const { data: references } = trpc.reference.list.useQuery(
     { sourceDocumentId: documentId! },
@@ -827,13 +837,44 @@ export default function DocumentDetail(): React.ReactElement {
             {isIterative && (
               <div className="space-y-2">
                 {doc.workflowState === 'drafting' && !doc.currentVersionId && (
-                  <button
-                    onClick={() => generateDraftMutation.mutate({ documentId })}
-                    disabled={generateDraftMutation.isPending}
-                    className="w-full px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
-                  >
-                    {generateDraftMutation.isPending ? 'Queuing…' : 'Generate Draft'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        if (extractedMaterialsCount === 0) {
+                          setShowDraftWarning(true);
+                        } else {
+                          generateDraftMutation.mutate({ documentId });
+                        }
+                      }}
+                      disabled={generateDraftMutation.isPending}
+                      className="w-full px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+                    >
+                      {generateDraftMutation.isPending ? 'Queuing…' : 'Generate Draft'}
+                    </button>
+                    {showDraftWarning && (
+                      <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs">
+                        <p className="font-semibold text-amber-800 mb-1">No extracted materials found</p>
+                        <p className="text-amber-700 mb-3">This matter has no extracted materials in the drawer. The draft will use placeholders instead of client data. Upload a completed questionnaire or client notes first for best results.</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setShowDraftWarning(false);
+                              generateDraftMutation.mutate({ documentId });
+                            }}
+                            className="px-2 py-1 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
+                          >
+                            Draft anyway
+                          </button>
+                          <button
+                            onClick={() => setShowDraftWarning(false)}
+                            className="px-2 py-1 text-xs border border-amber-400 text-amber-800 rounded hover:bg-amber-100"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 {doc.workflowState === 'drafting' && doc.currentVersionId && (
                   <>

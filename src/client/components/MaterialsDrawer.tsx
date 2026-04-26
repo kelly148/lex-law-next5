@@ -30,6 +30,8 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 
 interface MaterialsDrawerProps {
   matterId: string;
+  matterTitle?: string | null;
+  clientName?: string | null;
   onClose: () => void;
 }
 
@@ -476,7 +478,7 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
 // ============================================================
 // MaterialsDrawer — main export
 // ============================================================
-export default function MaterialsDrawer({ matterId, onClose }: MaterialsDrawerProps): React.ReactElement {
+export default function MaterialsDrawer({ matterId, matterTitle, clientName, onClose }: MaterialsDrawerProps): React.ReactElement {
   const [mode, setMode] = useState<'list' | 'paste' | 'upload'>('list');
   const [includeDeleted, setIncludeDeleted] = useState(false);
 
@@ -495,11 +497,23 @@ export default function MaterialsDrawer({ matterId, onClose }: MaterialsDrawerPr
       {/* Drawer panel */}
       <div className="w-96 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-firm-navy">
-          <h2 className="text-white font-semibold text-sm">Materials</h2>
-          <button onClick={onClose} className="text-white/70 hover:text-white">
-            <X className="w-4 h-4" />
-          </button>
+        <div className="px-4 py-3 border-b border-gray-200 bg-firm-navy">
+          <div className="flex items-center justify-between">
+            <h2 className="text-white font-semibold text-sm">Materials</h2>
+            <button onClick={onClose} className="text-white/70 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {(matterTitle || clientName) && (
+            <div className="mt-1 border-t border-white/20 pt-1.5">
+              {matterTitle && (
+                <p className="text-white/90 text-xs font-medium truncate">{matterTitle}</p>
+              )}
+              {clientName && (
+                <p className="text-white/60 text-xs truncate">{clientName}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action bar */}

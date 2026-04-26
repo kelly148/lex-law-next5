@@ -462,7 +462,12 @@ export default function MatterDetail(): React.ReactElement {
         <EditMatterForm matter={matter} onClose={() => setShowEditMatter(false)} />
       )}
       {showMaterials && (
-        <MaterialsDrawer matterId={matterId} onClose={() => setShowMaterials(false)} />
+        <MaterialsDrawer
+          matterId={matterId}
+          matterTitle={matter?.title}
+          clientName={matter?.clientName}
+          onClose={() => setShowMaterials(false)}
+        />
       )}
     </div>
   );
