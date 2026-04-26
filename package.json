@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Lex Law Next v1 — AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
+  "description": "Lex Law Next v1 \u2014 AI-assisted legal drafting system for The Satterwhite Law Firm PLLC",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -23,7 +23,9 @@
     "lint": "eslint src --ext .ts,.tsx",
     "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
     "start": "node dist/server/index.js",
-    "start:dev": "tsx src/server/index.ts"
+    "start:dev": "tsx src/server/index.ts",
+    "build:prod": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build",
+    "build:railway": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build && node_modules/.bin/esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",

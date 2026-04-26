@@ -2,7 +2,7 @@
 cmds = ["pnpm install --prod=false"]
 
 [phases.build]
-cmds = ["pnpm run build", "pnpm run build:server"]
+cmds = ["pnpm run build:railway"]
 
 [start]
 cmd = "node dist/server/index.js"
