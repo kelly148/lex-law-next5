@@ -49,7 +49,7 @@ export const WHITELISTED_MODELS = [
   'anthropic:claude-opus-4-5', // default for drafter and evaluator (decision #41)
   'anthropic:claude-sonnet-4-5',
   'openai:gpt-5',
-  'google:gemini-2-5-pro',
+  'google:gemini-2.5-pro',
   'xai:grok-4',
 ] as const;
 
@@ -62,7 +62,7 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 export const REVIEWER_MODELS = {
   claude: 'anthropic:claude-opus-4-5',
   gpt: 'openai:gpt-5',
-  gemini: 'google:gemini-2-5-pro',
+  gemini: 'google:gemini-2.5-pro',
   grok: 'xai:grok-4',
 } as const;
 

@@ -34,6 +34,7 @@ interface OpenAiRequest {
   model: string;
   messages: OpenAiMessage[];
   max_tokens?: number;
+  max_completion_tokens?: number;
   temperature?: number;
   response_format?: { type: 'json_object' | 'text' };
 }
@@ -82,10 +83,14 @@ export class OpenAiAdapter implements LlmClient {
       { role: 'user', content: userPrompt },
     ];
 
+    // gpt-5 and o-series models use max_completion_tokens; older models use max_tokens
+    const usesCompletionTokens = this.modelId.startsWith('gpt-5') || this.modelId.startsWith('o1') || this.modelId.startsWith('o3') || this.modelId.startsWith('o4');
     const requestBody: OpenAiRequest = {
       model: this.modelId,
       messages,
-      max_tokens: maxTokens,
+      ...(usesCompletionTokens
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens }),
       temperature,
     };
 
