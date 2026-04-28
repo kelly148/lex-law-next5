@@ -22,7 +22,8 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
-import { REVIEWER_MODELS, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, type ReviewerKey } from '../llm/config.js';
+import { REVIEWER_MODELS, REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, type ReviewerKey } from '../llm/config.js';
+import { parseFeedbackOutput } from '../llm/parsers/feedbackParser.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
@@ -38,6 +39,7 @@ import {
   listFeedbackForSession,
   getEvaluationForIteration,
   insertManualSelection,
+  insertFeedback,
 } from '../db/queries/phase4b.js';
 import { assertNotComplete } from './documents.js';
 
@@ -131,17 +133,38 @@ export const reviewSessionRouter = router({
         selectedReviewers: input.selectedReviewers,
       });
 
+      // S1a (MR-1): Fetch current document version for reviewer prompt content
+      if (!doc.currentVersionId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'NO_CURRENT_VERSION: document has no current version',
+        });
+      }
+      const currentVersion = await getVersionById(doc.currentVersionId, userId);
+      if (!currentVersion) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
+      }
       // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation)
       const reviewerJobIds: string[] = [];
       for (const reviewerRole of input.selectedReviewers) {
         const modelString = REVIEWER_MODELS[reviewerRole as ReviewerKey];
+        // S1b (MR-1): Updated system prompt requests title/body/severity shape
         const systemPrompt = [
           `You are a legal document reviewer (${reviewerRole}).`,
-          `Review the document titled "${doc.title}" and provide structured feedback.`,
-          'Return a JSON array of feedback items: [{ "suggestion": string, "rationale": string, "severity": "critical"|"major"|"minor" }]',
+          'Review the document and provide structured feedback.',
+          'Return a JSON array of feedback items with this exact shape:',
+          '[{ "title": "Short issue title (under 80 characters)", "body": "Detailed feedback and recommendation", "severity": "critical"|"major"|"minor" }]',
+          'Return an empty array [] if you have no feedback. Do not include any text outside the JSON array.',
         ].join('\n');
-        const userPrompt = `Review session ${sessionId}, iteration ${iterationNumber}.\nDocument: ${doc.title}`;
-
+        // S1a (MR-1): Include full document content in the userPrompt
+        const userPrompt = [
+          `Review session ${sessionId}, iteration ${iterationNumber}.`,
+          `Document title: ${doc.title}`,
+          '',
+          '## Document Content',
+          currentVersion.content,
+        ].join('\n');
+        const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey] ?? reviewerRole;
         const reviewerResult = await executeCanonicalMutation({
           userId,
           jobType: 'reviewer_feedback',
@@ -157,7 +180,22 @@ export const reviewSessionRouter = router({
             temperature: 0.4,
             maxTokens: 4096,
           }),
-          txn2Commit: async ({ jobId }) => {
+          // S3b (MR-1): Parse LLM output and persist to feedback table
+          txn2Commit: async ({ jobId, output }) => {
+            const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
+            const suggestions = parseFeedbackOutput(rawOutput);
+            await insertFeedback({
+              userId,
+              documentId: input.documentId,
+              versionId: doc.currentVersionId!,
+              iterationNumber,
+              reviewSessionId: sessionId,
+              jobId,
+              reviewerRole,
+              reviewerModel: modelString,
+              reviewerTitle,
+              suggestions,
+            });
             void emitTelemetry(
               'generation_completed',
               { jobId, operation: 'reviewer_feedback', newVersionNumber: iterationNumber },
@@ -466,15 +504,23 @@ export const reviewSessionRouter = router({
 
       const selections = (session.selections ?? []) as Array<{ feedbackId: string; note: string | null }>;
       const reviewerSelections = selections.filter((s) => reviewerFeedbackIds.has(s.feedbackId));
-      const hasGlobalInstructions = (session.globalInstructions ?? '').trim().length > 0;
-
+       const hasGlobalInstructions = (session.globalInstructions ?? '').trim().length > 0;
       if (reviewerSelections.length === 0 && !hasGlobalInstructions) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: `REVIEW_SESSION_EMPTY: no selections for reviewer '${input.reviewerRole}' and no global instructions`,
         });
       }
-
+      // S4 (MR-1): D6 defensive guard — detect silent selection drop
+      // If the session has selections but none matched feedback rows for this reviewer,
+      // surface loudly rather than silently regenerating with only global instructions.
+      const hasSessionSelections = selections.length > 0;
+      if (hasSessionSelections && reviewerSelections.length === 0 && !hasGlobalInstructions) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `REVIEWER_SELECTIONS_NOT_RESOLVED: Unable to resolve your selections for this reviewer. The session has selections recorded but none could be matched to feedback rows for the specified reviewer. Please provide global instructions or re-run the review.`,
+        });
+      }
       // Commit only this reviewer's selections (R5: positive-selection only)
       for (const sel of reviewerSelections) {
         await insertManualSelection({

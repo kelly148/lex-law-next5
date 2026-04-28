@@ -304,9 +304,14 @@ function ActiveSessionView({ sessionId, onClose }: ActiveSessionViewProps): Reac
   const [editingInstructions, setEditingInstructions] = useState(false);
 
   const { data, isLoading, refetch } = trpc.reviewSession.get.useQuery({ sessionId }, {
+    // S5 (MR-1): Poll every 3s while session is active and feedback is empty.
+    // Once feedback arrives or session leaves 'active', stop polling.
     refetchInterval: (query) => {
-      const session = query.state.data?.session;
-      return session?.state === 'active' ? false : false;
+      const d = query.state.data;
+      if (!d) return false;
+      const isActive = d.session?.state === 'active';
+      const hasFeedback = (d.feedback?.length ?? 0) > 0;
+      return isActive && !hasFeedback ? 3000 : false;
     },
   });
 
@@ -428,8 +433,15 @@ function ActiveSessionView({ sessionId, onClose }: ActiveSessionViewProps): Reac
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {feedback.length === 0 ? (
           <div className="text-center py-8">
-            <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
-            <p className="text-sm text-gray-400">Review in progress…</p>
+            {session.state === 'active' ? (
+              <>
+                <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
+                <p className="text-sm text-gray-400">Review in progress…</p>
+                <p className="text-xs text-gray-300 mt-1">Checking for results every few seconds.</p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">No feedback recorded for this session.</p>
+            )}
           </div>
         ) : (
           feedback.map((fb) => (
