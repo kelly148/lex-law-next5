@@ -70,7 +70,11 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
       .filter(([, v]) => v)
       .map(([k]) => k);
   }, [settings]);
-  const [selectedReviewers, setSelectedReviewers] = useState<string[]>(() => enabledReviewers);
+  // MR-0G: single-reviewer gate. Multi-reviewer path is structurally broken (MR-0 D1-D5).
+  // State holds at most one reviewer key (empty string = none selected).
+  const [selectedReviewer, setSelectedReviewer] = useState<string>(() => enabledReviewers[0] ?? '');
+  // Derive the array form expected by the API (always length 0 or 1).
+  const selectedReviewers = selectedReviewer ? [selectedReviewer] : [];
 
   const createMutation = useGuardedMutation(
     (input: { documentId: string; iterationNumber: number; selectedReviewers: string[] }) =>
@@ -91,12 +95,6 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
     }
   );
 
-  const toggleReviewer = (key: string): void => {
-    setSelectedReviewers((prev) =>
-      prev.includes(key) ? prev.filter((r) => r !== key) : [...prev, key]
-    );
-  };
-
   const handleCreate = (): void => {
     if (selectedReviewers.length === 0) {
       setError('Select at least one reviewer.');
@@ -106,13 +104,13 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
     createMutation.mutate({ documentId, iterationNumber, selectedReviewers });
   };
 
-   const enabledReviewerList = settings
+  const enabledReviewerList = settings
     ? Object.entries(settings.reviewerEnablement).filter(([, v]) => v).map(([k]) => k)
     : [];
   return (
     <div className="p-6 space-y-4">
       <p className="text-sm text-gray-600">
-        Select reviewers for iteration {iterationNumber}. Only enabled reviewers are shown.
+        Select a reviewer for iteration {iterationNumber}. Only enabled reviewers are shown.
       </p>
       <div className="space-y-2">
         {enabledReviewerList.length === 0 ? (
@@ -121,9 +119,10 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
           enabledReviewerList.map((key) => (
             <label key={key} className="flex items-center gap-3 cursor-pointer">
               <input
-                type="checkbox"
-                checked={selectedReviewers.includes(key)}
-                onChange={() => toggleReviewer(key)}
+                type="radio"
+                name="reviewer-selection"
+                checked={selectedReviewer === key}
+                onChange={() => setSelectedReviewer(key)}
                 className="rounded"
               />
               <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>

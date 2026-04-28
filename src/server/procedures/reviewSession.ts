@@ -69,8 +69,12 @@ export const reviewSessionRouter = router({
         documentId: z.string().uuid(),
         iterationNumber: z.number().int().min(1),
         // Decision #42: required, non-empty
+        // MR-0G: max(1) gate — multi-reviewer path is structurally broken (MR-0 D1-D5).
+        // Reject at schema level before any LLM dispatch occurs.
         selectedReviewers: z.array(z.string().min(1)).min(1, {
           message: 'NO_REVIEWERS_SELECTED: at least one reviewer is required',
+        }).max(1, {
+          message: 'MULTI_REVIEWER_DISABLED: Multi-reviewer review is temporarily unavailable. Please select one reviewer.',
         }),
       }),
     )
