@@ -69,6 +69,17 @@ export const REVIEWER_MODELS = {
 export type ReviewerKey = keyof typeof REVIEWER_MODELS;
 
 // ============================================================
+// Reviewer human-readable titles (MR-1 S3c)
+// Server-local mapping; do not import client-side REVIEWER_LABELS.
+// ============================================================
+export const REVIEWER_TITLES: Record<ReviewerKey, string> = {
+  claude: 'Claude',
+  gpt: 'GPT',
+  gemini: 'Gemini',
+  grok: 'Grok',
+} as const;
+
+// ============================================================
 // Drafter and evaluator model resolution (Ch 22.3)
 // Read once at server startup and cached.
 // ============================================================
