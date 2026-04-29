@@ -122,14 +122,15 @@ describe('S6f–S6j: reviewSession.ts code-path audit (MR-1)', () => {
   });
 });
 
-describe('S6k–S6l: ReviewPane.tsx code-path audit (MR-1 S5)', () => {
-  it('S6k: refetchInterval polls when active and no feedback (3000ms)', () => {
+describe('S6k–S6l: ReviewPane.tsx code-path audit (MR-1 S5 → MR-3 §S1c)', () => {
+  it('S6k: refetchInterval polls at 3000ms — MR-3 §S1c: now aligned with deriveCompletionState', () => {
+    // MR-3 §S1c supersedes MR-1 S5: polling is now driven by deriveCompletionState.
+    // The old isActive && !hasFeedback pattern was replaced by completionState === 'pending_or_running'.
     expect(reviewPaneFile).toContain('3000');
-    expect(reviewPaneFile).toContain('hasFeedback');
-    expect(reviewPaneFile).toContain('isActive && !hasFeedback');
+    expect(reviewPaneFile).toContain("completionState === 'pending_or_running' ? 3000 : false");
   });
 
-  it('S6l: "Checking for results" message present for active+empty state', () => {
+  it('S6l: "Checking for results" message present for pending_or_running state', () => {
     expect(reviewPaneFile).toContain('Checking for results every few seconds');
   });
 });
