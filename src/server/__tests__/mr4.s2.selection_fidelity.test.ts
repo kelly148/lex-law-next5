@@ -8,6 +8,7 @@
  *   T4  — regenerate: attorney note line absent when note is null
  *   T5  — regenerate: global instructions appended after selection summary
  *   T6  — regenerate: global-instructions-only path (no selections) produces no selection summary
+ *   T5a — regenerateSingleReviewer: Option B multi-reviewer — all selections regardless of originating reviewer
  *   T7  — regenerateSingleReviewer: same itemized prompt construction (Option B: all selections)
  *   T8  — regenerate: SUGGESTION_NOT_RESOLVED thrown when selection references unknown suggestionId
  *   T9  — updateSelection: accepts legacy feedbackId field (alias normalization)
@@ -25,7 +26,8 @@
  *   C4  — source-inspection: SessionSelectionSchema transform present in phase4b.ts
  *   C5  — source-inspection: safe user-facing message present in ReviewPane.tsx
  *   C6  — source-inspection: raw suggestionId NOT rendered to user in ReviewPane.tsx
- *   C7  — source-inspection: branch detection uses startsWith sentinel, not ad-hoc regex on raw UUID
+ *   C7  — source-inspection: FeedbackCard structural — per-suggestion checkboxes, note inputs, count badge, note-preservation
+ *   C7x — source-inspection: branch detection uses startsWith sentinel, not ad-hoc regex on raw UUID (merged into T15e)
  *
  * References: MR-4 S2 spec §2 (P1 itemized prompt), §3 (P2 frontend), §3.3 (alias normalization)
  *
@@ -142,6 +144,7 @@ const VERSION_2_ID = uuidv4();
 const SESSION_ID = uuidv4();
 const SUGGESTION_ID_1 = uuidv4();
 const SUGGESTION_ID_2 = uuidv4();
+const SUGGESTION_ID_3 = uuidv4(); // GPT suggestion for T5a multi-reviewer test
 
 const createCaller = (userId: string) =>
   appRouter.createCaller({
@@ -225,7 +228,10 @@ function makeSessionRow(overrides: {
   };
 }
 
-function makeFeedbackRow(suggestions: Array<{ suggestionId: string; title: string; body: string; severity?: string }>) {
+function makeFeedbackRow(
+  suggestions: Array<{ suggestionId: string; title: string; body: string; severity?: string }>,
+  overrides: { reviewerRole?: string; reviewerModel?: string; reviewerTitle?: string } = {},
+) {
   return {
     id: uuidv4(),
     userId: USER_ID,
@@ -234,9 +240,9 @@ function makeFeedbackRow(suggestions: Array<{ suggestionId: string; title: strin
     iterationNumber: 1,
     reviewSessionId: SESSION_ID,
     jobId: uuidv4(),
-    reviewerRole: 'claude',
-    reviewerModel: 'claude-model',
-    reviewerTitle: 'Claude',
+    reviewerRole: overrides.reviewerRole ?? 'claude',
+    reviewerModel: overrides.reviewerModel ?? 'claude-model',
+    reviewerTitle: overrides.reviewerTitle ?? 'Claude',
     suggestions,
     createdAt: new Date(),
   };
@@ -442,6 +448,47 @@ describe('T1–T8: regenerate — itemized prompt construction (MR-4 P1)', () =>
       ])],
     );
     expect(prompt).toContain('[critical]');
+  });
+
+  // ─── T5a: regenerateSingleReviewer Option B multi-reviewer coverage ────────
+  // Evidence: grep -n "Option B\|all selections\|suggestionMapSingle" src/server/procedures/reviewSession.ts
+  // §2.1 Option B: regenerateSingleReviewer uses ALL current selections regardless of originating reviewer.
+  // The reviewerRole parameter controls consolidationMode metadata only.
+  it('T5a: regenerateSingleReviewer includes selections from ALL reviewers (Option B), not only the named reviewer', async () => {
+    // Session has two reviewers: claude and gpt.
+    // Selections reference one suggestion from each reviewer.
+    // Calling regenerateSingleReviewer with reviewerRole='claude' must include
+    // the GPT suggestion in the prompt — Option B: all selections regardless of origin.
+    vi.mocked(phase4bQueries.getReviewSessionById).mockResolvedValue(
+      makeSessionRow({
+        selections: [
+          { suggestionId: SUGGESTION_ID_1, note: null },  // from Claude
+          { suggestionId: SUGGESTION_ID_3, note: null },  // from GPT
+        ],
+        selectedReviewers: ['claude', 'gpt'],
+      }),
+    );
+    vi.mocked(phase4bQueries.listFeedbackForSession).mockResolvedValue([
+      makeFeedbackRow(
+        [{ suggestionId: SUGGESTION_ID_1, title: 'Claude suggestion', body: 'Claude body.', severity: 'minor' }],
+        { reviewerRole: 'claude', reviewerModel: 'claude-model', reviewerTitle: 'Claude' },
+      ),
+      makeFeedbackRow(
+        [{ suggestionId: SUGGESTION_ID_3, title: 'GPT suggestion', body: 'GPT body.', severity: 'major' }],
+        { reviewerRole: 'gpt', reviewerModel: 'gpt-model', reviewerTitle: 'GPT' },
+      ),
+    ]);
+    const capturingAdapter = new CapturingLlmAdapter();
+    setTestLlmAdapter(capturingAdapter);
+    const caller = createCaller(USER_ID);
+    await caller.reviewSession.regenerateSingleReviewer({ sessionId: SESSION_ID, reviewerRole: 'claude' });
+    const prompt = capturingAdapter.capturedUserPrompt;
+    // Both suggestions must appear in the prompt regardless of originating reviewer.
+    expect(prompt).toContain('Claude suggestion');
+    expect(prompt).toContain('GPT suggestion');
+    // Both reviewer titles must appear in the itemized prompt lines.
+    expect(prompt).toContain('[Claude');
+    expect(prompt).toContain('[GPT');
   });
 
   it('T8: regenerate throws SUGGESTION_NOT_RESOLVED when selection references unknown suggestionId', async () => {
@@ -791,14 +838,46 @@ describe('C1–C7: Source-inspection (MR-4 S2)', () => {
     expect(ifBranchBody).not.toContain('setRegenError(err.message)');
   });
 
-  // C7: branch detection uses stable startsWith sentinel, not ad-hoc string matching on UUID
-  // Evidence: grep -n "startsWith.*SUGGESTION_NOT_RESOLVED" src/client/components/ReviewPane.tsx
-  it('C7: ReviewPane.tsx uses startsWith sentinel for SUGGESTION_NOT_RESOLVED branch detection', () => {
-    // startsWith is a stable mechanism — the sentinel prefix is the contract.
-    // If the server message format changes, the prefix must remain stable.
-    expect(reviewPaneFile).toContain("startsWith('SUGGESTION_NOT_RESOLVED')");
-    // The codebase convention for other branches (SESSION_ALREADY_EXISTS) also uses
-    // message-prefix detection (parseExistingSessionId). This is the established pattern.
-    expect(reviewPaneFile).toContain('parseExistingSessionId');
+  // C7: FeedbackCard structural — per-suggestion granularity (MR-4 P2 §3)
+  // Evidence:
+  //   grep -n "feedback.suggestions.map" src/client/components/ReviewPane.tsx
+  //   grep -n "type=\"checkbox\"" src/client/components/ReviewPane.tsx
+  //   grep -n "per-suggestion note input" src/client/components/ReviewPane.tsx
+  //   grep -n "count badge\|selectedCount" src/client/components/ReviewPane.tsx
+  //   grep -n "latestSelections\|noteInputs\[sel.suggestionId\]" src/client/components/ReviewPane.tsx
+  it('C7.a: ReviewPane.tsx renders one checkbox per suggestion (per-suggestion granularity)', () => {
+    // The FeedbackCard iterates over feedback.suggestions and renders a checkbox per item.
+    expect(reviewPaneFile).toContain('feedback.suggestions.map');
+    expect(reviewPaneFile).toContain('type="checkbox"');
+    // The onChange calls toggleSuggestion with the individual suggestionId.
+    expect(reviewPaneFile).toContain('onChange={() => toggleSuggestion(suggestion.suggestionId)');
+  });
+
+  it('C7.b: ReviewPane.tsx renders one note input per selected suggestion (note scoped at suggestion level)', () => {
+    // The note input is gated on isChecked and calls updateNote with the individual suggestionId.
+    expect(reviewPaneFile).toContain('MR-4 P2: per-suggestion note input, shown only when selected');
+    expect(reviewPaneFile).toContain('onChange={(e) => updateNote(suggestion.suggestionId, e.target.value)');
+    // The note input is only rendered when the suggestion is selected.
+    expect(reviewPaneFile).toContain('{isChecked && (');
+  });
+
+  it('C7.c: ReviewPane.tsx contains the selected-count badge (N / M selected)', () => {
+    // The count badge source must be present.
+    expect(reviewPaneFile).toContain('MR-4 P2: count badge showing N / M selected for this card');
+    expect(reviewPaneFile).toContain('selectedCount');
+    expect(reviewPaneFile).toContain('feedback.suggestions.length} selected');
+  });
+
+  it('C7.d: toggleSuggestion handler preserves note state for other suggestions (note-preservation structure)', () => {
+    // The toggleSuggestion handler must build latestSelections from the full selections array
+    // merged with noteInputs, so that toggling one checkbox does not drop notes on others.
+    // Evidence: the comment and the noteInputs[sel.suggestionId] merge pattern.
+    expect(reviewPaneFile).toContain('This prevents the race where a note typed before a checkbox toggle is dropped.');
+    expect(reviewPaneFile).toContain('noteInputs[sel.suggestionId]');
   });
 });
+
+// ─── Note: The branch-detection sentinel check (startsWith SUGGESTION_NOT_RESOLVED) ───
+// is covered by T15e above. The original C7 label was repurposed for the FeedbackCard
+// structural assertions above (C7.a–C7.d) per the MR-4 S2 dispatch.
+// Evidence for branch detection: grep -n "startsWith.*SUGGESTION_NOT_RESOLVED" src/client/components/ReviewPane.tsx
