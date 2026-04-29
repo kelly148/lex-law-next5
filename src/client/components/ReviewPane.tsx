@@ -10,6 +10,7 @@
  * Procedures used:
  *   - reviewSession.create (mutation) — with selectedReviewers
  *   - reviewSession.get (query)
+ *   - job.poll (query) — MR-3 §S2a: reviewer job status for FAILED state detection
  *   - reviewSession.updateSelection (mutation)
  *   - reviewSession.updateGlobalInstructions (mutation)
  *   - reviewSession.regenerate (mutation)
@@ -24,10 +25,11 @@
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
 import React, { useState } from 'react';
-import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import { deriveCompletionState } from '../utils/reviewState.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -375,15 +377,14 @@ interface HistorySectionProps {
 
 function HistorySection({ documentId, currentIterationNumber }: HistorySectionProps): React.ReactElement | null {
   const [expanded, setExpanded] = useState(false);
-  const { data, isLoading } = trpc.reviewSession.getDocumentHistory.useQuery({ documentId });
-
+  // MR-3 §S5: Capture query error state for non-fatal error display.
+  const { data, isLoading, isError } = trpc.reviewSession.getDocumentHistory.useQuery({ documentId });
   // Filter out current iteration rows — those are shown in the active session view.
   // NOTE: Both useMemo calls are unconditional (above early returns) per Rules of Hooks.
   const priorRows = React.useMemo(() => {
     if (!data) return [];
     return data.feedback.filter((fb) => fb.iterationNumber < currentIterationNumber);
   }, [data, currentIterationNumber]);
-
   // Group by iterationNumber ascending (oldest first).
   // Computed unconditionally here so no hook is called after an early return.
   const grouped = React.useMemo(() => {
@@ -396,8 +397,23 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
     // Sort iteration keys ascending (oldest first).
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [priorRows]);
-
-  if (isLoading) return null;
+  // MR-3 §S5: Loading state — show a minimal indicator rather than returning null.
+  if (isLoading) {
+    return (
+      <div className="border-t border-gray-200 px-4 py-2">
+        <p className="text-xs text-gray-400">Loading history…</p>
+      </div>
+    );
+  }
+  // MR-3 §S5: Error state — non-fatal; show a minimal error message.
+  if (isError) {
+    return (
+      <div className="border-t border-gray-200 px-4 py-2">
+        <p className="text-xs text-red-400">History unavailable. Reload to retry.</p>
+      </div>
+    );
+  }
+  // MR-3 §S5: Empty state — no prior iterations; render nothing (accordion would be empty).
   if (priorRows.length === 0) return null;
 
   return (
@@ -436,6 +452,88 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
 }
 
 // ============================================================
+// CompletedWithoutFeedbackView — MR-3 §S3 / §S1b
+// Shown when the reviewer job completed but returned zero suggestions.
+// ============================================================
+interface CompletedWithoutFeedbackViewProps {
+  reviewerTitle: string;
+  sessionId: string;
+  onAbandon: () => void;
+  abandonPending: boolean;
+}
+function CompletedWithoutFeedbackView({
+  reviewerTitle,
+  onAbandon,
+  abandonPending,
+}: CompletedWithoutFeedbackViewProps): React.ReactElement {
+  return (
+    <div className="text-center py-8 px-4 space-y-4">
+      <CheckCircle className="w-8 h-8 text-green-400 mx-auto" />
+      <div>
+        <p className="text-sm font-medium text-gray-700">Review complete — no suggestions</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {reviewerTitle} found no suggestions for this iteration.
+        </p>
+      </div>
+      <div className="text-xs text-gray-500 space-y-1 text-left border border-gray-100 rounded p-3 bg-gray-50">
+        <p className="font-medium text-gray-600">Paths forward:</p>
+        <ul className="list-disc list-inside space-y-1">
+          <li>Start the next review iteration via Regenerate.</li>
+          <li>Try a different reviewer in a new session.</li>
+          <li>Abandon this session if no further review is needed.</li>
+        </ul>
+      </div>
+      <button
+        onClick={onAbandon}
+        disabled={abandonPending}
+        className="px-4 py-2 text-xs border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50"
+      >
+        {abandonPending ? 'Abandoning…' : 'Abandon session'}
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// FailedReviewView — MR-3 §S2b / §S1b
+// Shown when the reviewer job reached a terminal failure status.
+// No retry button (Option 1 locked per operator decision).
+// ============================================================
+interface FailedReviewViewProps {
+  reviewerTitle: string;
+  sessionId: string;
+  onAbandon: () => void;
+  abandonPending: boolean;
+}
+function FailedReviewView({
+  reviewerTitle,
+  onAbandon,
+  abandonPending,
+}: FailedReviewViewProps): React.ReactElement {
+  return (
+    <div className="text-center py-8 px-4 space-y-4">
+      <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+      <div>
+        <p className="text-sm font-medium text-gray-700">Reviewer failed to return feedback</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {reviewerTitle} — this may be a temporary LLM provider error or timeout.
+        </p>
+      </div>
+      <div className="text-xs text-gray-500 text-left border border-red-100 rounded p-3 bg-red-50">
+        <p>Abandon this session and start a new review session to try again.</p>
+      </div>
+      <button
+        onClick={onAbandon}
+        disabled={abandonPending}
+        className="px-4 py-2 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+      >
+        {abandonPending ? 'Abandoning…' : 'Abandon and start a new review session'}
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
 // ActiveSessionView — shown when a session exists
 // ============================================================
 interface ActiveSessionViewProps {
@@ -449,15 +547,36 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
   const utils = trpc.useUtils();
   const [editingInstructions, setEditingInstructions] = useState(false);
 
+  // MR-3 §S2a: Poll reviewer_feedback jobs for this document to detect FAILED state.
+  // job.poll returns all jobs for the document; we filter to reviewer_feedback client-side.
+  // Enabled only when session is active (no feedback yet); disabled once feedback arrives
+  // or the session leaves 'active' state (aligned with reviewSession.get polling below).
+  const { data: jobsData } = trpc.job.poll.useQuery(
+    { documentId, statuses: ['queued', 'running', 'failed', 'timed_out', 'cancelled'] },
+    {
+      // Poll jobs at the same cadence as reviewSession.get while pending.
+      // Once completion state is resolved, polling stops via refetchInterval.
+      refetchInterval: (query) => {
+        const jobs = query.state.data?.jobs ?? [];
+        const reviewerJobs = jobs.filter((j) => j.jobType === 'reviewer_feedback');
+        const hasTerminal = reviewerJobs.some(
+          (j) => j.status === 'failed' || j.status === 'timed_out' || j.status === 'cancelled',
+        );
+        // Stop polling jobs once a terminal state is reached.
+        return hasTerminal ? false : 3000;
+      },
+    },
+  );
+
   const { data, isLoading, refetch } = trpc.reviewSession.get.useQuery({ sessionId }, {
-    // S5 (MR-1): Poll every 3s while session is active and feedback is empty.
-    // Once feedback arrives or session leaves 'active', stop polling.
+    // S1c (MR-3): Poll only when state is PENDING_OR_RUNNING.
+    // Aligned with deriveCompletionState — stop polling on any terminal state.
     refetchInterval: (query) => {
       const d = query.state.data;
       if (!d) return false;
-      const isActive = d.session?.state === 'active';
-      const hasFeedback = (d.feedback?.length ?? 0) > 0;
-      return isActive && !hasFeedback ? 3000 : false;
+      const jobs = jobsData?.jobs ?? [];
+      const completionState = deriveCompletionState(d.feedback ?? [], jobs);
+      return completionState === 'pending_or_running' ? 3000 : false;
     },
   });
 
@@ -506,6 +625,10 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
 
   const { session, feedback, evaluation } = data;
   const evalDispositions = evaluation?.dispositions ?? null;
+
+  // MR-3 §S1a: Derive completion state from feedback rows + job status.
+  const jobs = jobsData?.jobs ?? [];
+  const completionState = deriveCompletionState(feedback, jobs);
 
   return (
     <div className="flex flex-col h-full">
@@ -575,21 +698,16 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
         )}
       </div>
 
-      {/* Feedback list */}
+      {/* Feedback area — MR-3 §S1b: render based on derived completion state */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {feedback.length === 0 ? (
+        {completionState === 'pending_or_running' && (
           <div className="text-center py-8">
-            {session.state === 'active' ? (
-              <>
-                <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
-                <p className="text-sm text-gray-400">Review in progress…</p>
-                <p className="text-xs text-gray-300 mt-1">Checking for results every few seconds.</p>
-              </>
-            ) : (
-              <p className="text-sm text-gray-400">No feedback recorded for this session.</p>
-            )}
+            <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
+            <p className="text-sm text-gray-400">Review in progress…</p>
+            <p className="text-xs text-gray-300 mt-1">Checking for results every few seconds.</p>
           </div>
-        ) : (
+        )}
+        {completionState === 'completed_with_feedback' && (
           feedback.map((fb) => (
             <FeedbackCard
               key={fb.id}
@@ -600,6 +718,26 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
               onRefresh={() => void refetch()}
             />
           ))
+        )}
+        {completionState === 'completed_without_feedback' && (
+          <CompletedWithoutFeedbackView
+            reviewerTitle={feedback[0]?.reviewerTitle ?? session.selectedReviewers[0] ?? 'Reviewer'}
+            sessionId={sessionId}
+            onAbandon={() => abandonMutation.mutate({ sessionId })}
+            abandonPending={abandonMutation.isPending}
+          />
+        )}
+        {completionState === 'failed' && (
+          <FailedReviewView
+            reviewerTitle={
+              jobs.find((j) => j.jobType === 'reviewer_feedback')?.modelId ??
+              session.selectedReviewers[0] ??
+              'Reviewer'
+            }
+            sessionId={sessionId}
+            onAbandon={() => abandonMutation.mutate({ sessionId })}
+            abandonPending={abandonMutation.isPending}
+          />
         )}
       </div>
 
