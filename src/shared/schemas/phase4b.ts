@@ -61,6 +61,22 @@ export const SessionSelectionSchema = z
     feedbackId: z.string().uuid().optional(),
     note: z.string().nullable(),
   })
+  .superRefine((raw, ctx) => {
+    // MR-4 §3.3 alias conflict guard: reject rows where both keys are present
+    // with differing values. A row written by manual intervention, smoke-test
+    // data, or any non-client write path could contain both keys with different
+    // values — that is an unresolvable conflict and must be surfaced explicitly.
+    if (
+      raw.suggestionId &&
+      raw.feedbackId &&
+      raw.suggestionId !== raw.feedbackId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'SessionSelection has conflicting suggestionId and feedbackId values',
+      });
+    }
+  })
   .transform((raw) => ({
     // Prefer canonical suggestionId; fall back to legacy feedbackId alias.
     suggestionId: (raw.suggestionId ?? raw.feedbackId) as string,

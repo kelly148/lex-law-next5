@@ -18,7 +18,7 @@
  *   T13 — regenerate: SUGGESTION_NOT_RESOLVED message includes sentinel prefix (for client detection)
  *   T14 — source-inspection: toggleSuggestion builds payload from latest-local-state merge
  *   T15 — source-inspection: SUGGESTION_NOT_RESOLVED branch maps to safe user-facing message
- *   T16 — source-inspection: SessionSelectionSchema normalizes feedbackId → suggestionId
+ *   T16 — SessionSelectionSchema: alias normalization, conflict guard (T16a–T16f)
  *
  *   C1  — source-inspection: itemized prompt lines present in reviewSession.ts
  *   C2  — source-inspection: SUGGESTION_NOT_RESOLVED sentinel present in reviewSession.ts
@@ -31,7 +31,7 @@
  *
  * References: MR-4 S2 spec §2 (P1 itemized prompt), §3 (P2 frontend), §3.3 (alias normalization)
  *
- * Evidence class: Rule 3 (repo command). Grep commands for step (b) are embedded inline.
+ * Evidence class: T16a–T16d are (test output) / (code inspection); T16e–T16f are behavioral (live schema parse).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -755,10 +755,10 @@ describe('T15: ReviewPane.tsx — SUGGESTION_NOT_RESOLVED safe error message (MR
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// T16: SessionSelectionSchema alias normalization (source-inspection)
+// T16: SessionSelectionSchema alias normalization + conflict guard (source-inspection + behavioral)
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('T16: SessionSelectionSchema — feedbackId → suggestionId alias normalization (MR-4 §3.3)', () => {
-  // Evidence: grep -n "feedbackId\|suggestionId.*transform\|feedbackId.*alias" src/shared/schemas/phase4b.ts
+describe('T16: SessionSelectionSchema — feedbackId → suggestionId alias normalization + conflict guard (MR-4 §3.3)', () => {
+  // Evidence: grep -n "feedbackId\|suggestionId.*transform\|feedbackId.*alias\|superRefine\|conflicting" src/shared/schemas/phase4b.ts
 
   it('T16a: SessionSelectionSchema accepts feedbackId as a legacy alias field', () => {
     expect(phase4bSchemaFile).toContain('feedbackId: z.string().uuid().optional()');
@@ -781,6 +781,43 @@ describe('T16: SessionSelectionSchema — feedbackId → suggestionId alias norm
     const transformBody = phase4bSchemaFile.slice(transformIdx, transformIdx + 300);
     expect(transformBody).toContain('suggestionId:');
     expect(transformBody).not.toContain('feedbackId:');
+  });
+
+  it('T16e: SessionSelectionSchema rejects input with both suggestionId and feedbackId where values differ', async () => {
+    // A row written by manual intervention, smoke-test data, or any non-client
+    // write path could contain both keys with different values — that is an
+    // unresolvable conflict and must be rejected before the .transform() step.
+    const { SessionSelectionSchema } = await import('../../shared/schemas/phase4b.js');
+    const conflictingInput = {
+      suggestionId: '11111111-1111-4111-a111-111111111111',
+      feedbackId:   '22222222-2222-4222-a222-222222222222',
+      note: null,
+    };
+    const result = SessionSelectionSchema.safeParse(conflictingInput);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message);
+      expect(messages).toContain(
+        'SessionSelection has conflicting suggestionId and feedbackId values',
+      );
+    }
+  });
+
+  it('T16f: SessionSelectionSchema accepts input with both keys where values match', async () => {
+    // When both keys are present but identical, the conflict guard must not fire.
+    // The schema should parse successfully and normalize to the canonical shape.
+    const { SessionSelectionSchema } = await import('../../shared/schemas/phase4b.js');
+    const matchingInput = {
+      suggestionId: '33333333-3333-4333-a333-333333333333',
+      feedbackId:   '33333333-3333-4333-a333-333333333333',
+      note: 'attorney note',
+    };
+    const result = SessionSelectionSchema.safeParse(matchingInput);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.suggestionId).toBe('33333333-3333-4333-a333-333333333333');
+      expect(result.data.note).toBe('attorney note');
+    }
   });
 });
 
