@@ -343,6 +343,10 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_1_ID));
     vi.mocked(versionQueries.getVersionById).mockResolvedValue(makeVersionRow(VERSION_1_ID, 1));
 
+    // MR-4 P1: listFeedbackForSession is now called by regenerate to build itemized prompt.
+    // Session has no selections (globalInstructions only), so an empty list is safe here
+    // since there are no selections to resolve against the suggestion map.
+    vi.mocked(phase4bQueries.listFeedbackForSession).mockResolvedValue([]);
     const regenLlmOutput = 'Revised contract content with narrowed indemnity.';
     setTestLlmAdapter(new MockLlmAdapter({ content: regenLlmOutput }));
 
