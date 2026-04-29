@@ -75,30 +75,46 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   // Fetch prior-iteration feedback to determine which reviewer was used last.
   const { data: historyData } = trpc.reviewSession.getDocumentHistory.useQuery({ documentId });
 
-  // S3 Cases 1–4:
-  //   Case 1: iterationNumber === 1 — no prior history; default to first enabled reviewer.
-  //   Case 2: iterationNumber > 1, prior feedback exists — default to the reviewer used in
-  //           the most recent prior iteration (highest iterationNumber < current).
-  //   Case 3: iterationNumber > 1, no prior feedback for the document — fall back to Case 1.
-  //   Case 4: derived reviewer is not in enabledReviewers (disabled since last use) — fall
-  //           back to first enabled reviewer.
-  const derivedDefault = React.useMemo((): string => {
-    const fallback = enabledReviewers[0] ?? '';
-    if (iterationNumber === 1 || !historyData || historyData.feedback.length === 0) {
-      // Case 1 or Case 3
-      return fallback;
-    }
-    // Case 2: find the feedback row with the highest iterationNumber < current.
+  // S3 Cases 1–4 per MR-2 §S3b (rotation heuristic):
+  //   Case 1: Prior reviewer identified AND in enabledReviewers AND at least one other
+  //           enabled reviewer exists → default to NEXT enabled reviewer (skip prior).
+  //           Advisory: YES.
+  //   Case 2: Prior reviewer identified BUT no longer in enabledReviewers → first enabled.
+  //           Advisory: NO.
+  //   Case 3: Prior reviewer identified AND is the ONLY enabled reviewer → that reviewer.
+  //           Advisory: NO.
+  //   Case 4: No prior reviewer identified (no prior iteration with feedback) → first enabled.
+  //           Advisory: NO.
+  //
+  // Helper: find the most recent prior feedback row (highest iterationNumber < current).
+  const mostRecentPriorRow = React.useMemo(() => {
+    if (!historyData || historyData.feedback.length === 0) return null;
     const priorRows = historyData.feedback.filter((fb) => fb.iterationNumber < iterationNumber);
-    if (priorRows.length === 0) return fallback; // Case 3
-    const mostRecent = priorRows.reduce((best, fb) =>
+    if (priorRows.length === 0) return null;
+    return priorRows.reduce((best, fb) =>
       fb.iterationNumber > best.iterationNumber ? fb : best
     );
-    const priorRole = mostRecent.reviewerRole;
-    // Case 4: if the prior reviewer is no longer enabled, fall back.
-    if (!enabledReviewers.includes(priorRole)) return fallback;
-    return priorRole;
-  }, [enabledReviewers, historyData, iterationNumber]);
+  }, [historyData, iterationNumber]);
+
+  const derivedDefault = React.useMemo((): string => {
+    const fallback = enabledReviewers[0] ?? '';
+    if (!mostRecentPriorRow) {
+      // Case 4: no prior history.
+      return fallback;
+    }
+    const priorRole = mostRecentPriorRow.reviewerRole;
+    if (!enabledReviewers.includes(priorRole)) {
+      // Case 2: prior reviewer no longer enabled.
+      return fallback;
+    }
+    if (enabledReviewers.length === 1) {
+      // Case 3: prior reviewer is the only enabled reviewer — repeat.
+      return priorRole;
+    }
+    // Case 1: rotate — find the next enabled reviewer after the prior one.
+    const idx = enabledReviewers.indexOf(priorRole);
+    return enabledReviewers[(idx + 1) % enabledReviewers.length] ?? fallback;
+  }, [enabledReviewers, mostRecentPriorRow]);
 
   // MR-0G: single-reviewer gate. Multi-reviewer path is structurally broken (MR-0 D1-D5).
   // State holds at most one reviewer key (empty string = none selected).
@@ -116,16 +132,18 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   // Derive the array form expected by the API (always length 0 or 1).
   const selectedReviewers = selectedReviewer ? [selectedReviewer] : [];
 
-  // Advisory text: show which reviewer was used last, if applicable (Case 2).
+  // Advisory text: Case 1 only — prior reviewer identified, rotation applied.
+  // Shows prior reviewer label, suggested next reviewer label, and override invitation.
   const advisoryText = React.useMemo((): string | null => {
-    if (iterationNumber <= 1 || !historyData || historyData.feedback.length === 0) return null;
-    const priorRows = historyData.feedback.filter((fb) => fb.iterationNumber < iterationNumber);
-    if (priorRows.length === 0) return null;
-    const mostRecent = priorRows.reduce((best, fb) =>
-      fb.iterationNumber > best.iterationNumber ? fb : best
-    );
-    return `Last iteration used ${mostRecent.reviewerTitle}.`;
-  }, [historyData, iterationNumber]);
+    if (!mostRecentPriorRow) return null;
+    const priorRole = mostRecentPriorRow.reviewerRole;
+    if (!enabledReviewers.includes(priorRole)) return null; // Case 2 — no advisory
+    if (enabledReviewers.length === 1) return null; // Case 3 — no advisory
+    // Case 1: rotation applied.
+    const priorLabel = REVIEWER_LABELS[priorRole] ?? priorRole;
+    const nextLabel = REVIEWER_LABELS[derivedDefault] ?? derivedDefault;
+    return `Last reviewed by ${priorLabel}. Suggesting ${nextLabel} for fresh perspective. Override below.`;
+  }, [mostRecentPriorRow, enabledReviewers, derivedDefault]);
 
   const createMutation = useGuardedMutation(
     (input: { documentId: string; iterationNumber: number; selectedReviewers: string[] }) =>
@@ -376,8 +394,8 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
       arr.push(fb);
       map.set(fb.iterationNumber, arr);
     }
-    // Sort iteration keys descending.
-    return Array.from(map.entries()).sort(([a], [b]) => b - a);
+    // Sort iteration keys ascending (oldest first).
+    return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [priorRows]);
 
   return (
