@@ -11,7 +11,7 @@
     "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/index.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm exec tsc --noEmit && pnpm exec vite build && pnpm exec esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,9 +21,11 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint src --ext .ts,.tsx",
-    "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
+    "build:server": "node_modules/.bin/esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external",
     "start": "node dist/server/index.js",
-    "start:dev": "tsx src/server/index.ts"
+    "start:dev": "tsx src/server/index.ts",
+    "build:prod": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build",
+    "build:railway": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build && node_modules/.bin/esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",
