@@ -483,6 +483,80 @@ export async function listFeedbackForSession(
   return rows.map((r) => parseFeedbackRow(r, { userId }));
 }
 
+/**
+ * listFeedbackForDocument — MR-2 §S2a
+ *
+ * Returns all feedback rows for a document, ordered by iterationNumber ASC
+ * then createdAt ASC, excluding rows whose associated review session is in
+ * 'abandoned' state (operator decision: exclude-where-feasible).
+ *
+ * Rows with a NULL reviewSessionId (orphaned feedback) are included because
+ * they cannot be attributed to an abandoned session.
+ *
+ * Ownership: feedback.userId === userId (enforced in WHERE clause).
+ */
+export async function listFeedbackForDocument(
+  documentId: string,
+  userId: string,
+): Promise<FeedbackRow[]> {
+  // Left-join review_sessions to read session state alongside each feedback row.
+  // Post-filter excludes rows from abandoned sessions.
+  // The result set is bounded by (documentId, userId) so post-filtering is safe.
+  const rows = await db
+    .select({
+      id: feedback.id,
+      userId: feedback.userId,
+      documentId: feedback.documentId,
+      versionId: feedback.versionId,
+      iterationNumber: feedback.iterationNumber,
+      reviewSessionId: feedback.reviewSessionId,
+      jobId: feedback.jobId,
+      reviewerRole: feedback.reviewerRole,
+      reviewerModel: feedback.reviewerModel,
+      reviewerTitle: feedback.reviewerTitle,
+      suggestions: feedback.suggestions,
+      createdAt: feedback.createdAt,
+      sessionState: reviewSessions.state,
+    })
+    .from(feedback)
+    .leftJoin(
+      reviewSessions,
+      and(
+        eq(feedback.reviewSessionId, reviewSessions.id),
+        eq(reviewSessions.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(feedback.documentId, documentId),
+        eq(feedback.userId, userId),
+      ),
+    )
+    .orderBy(asc(feedback.iterationNumber), asc(feedback.createdAt));
+
+  // Post-filter: exclude rows whose session is 'abandoned'.
+  // Rows with sessionState === null (no matching session) are included.
+  return rows
+    .filter((r) => r.sessionState !== 'abandoned')
+    .map((r) => parseFeedbackRow(
+      {
+        id: r.id,
+        userId: r.userId,
+        documentId: r.documentId,
+        versionId: r.versionId,
+        iterationNumber: r.iterationNumber,
+        reviewSessionId: r.reviewSessionId,
+        jobId: r.jobId,
+        reviewerRole: r.reviewerRole,
+        reviewerModel: r.reviewerModel,
+        reviewerTitle: r.reviewerTitle,
+        suggestions: r.suggestions,
+        createdAt: r.createdAt,
+      } as Feedback,
+      { userId },
+    ));
+}
+
 export async function insertFeedback(data: {
   id?: string;
   userId: string;
