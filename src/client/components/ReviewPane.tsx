@@ -378,15 +378,14 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
   const { data, isLoading } = trpc.reviewSession.getDocumentHistory.useQuery({ documentId });
 
   // Filter out current iteration rows — those are shown in the active session view.
+  // NOTE: Both useMemo calls are unconditional (above early returns) per Rules of Hooks.
   const priorRows = React.useMemo(() => {
     if (!data) return [];
     return data.feedback.filter((fb) => fb.iterationNumber < currentIterationNumber);
   }, [data, currentIterationNumber]);
 
-  if (isLoading) return null;
-  if (priorRows.length === 0) return null;
-
-  // Group by iterationNumber descending (most recent prior iteration first).
+  // Group by iterationNumber ascending (oldest first).
+  // Computed unconditionally here so no hook is called after an early return.
   const grouped = React.useMemo(() => {
     const map = new Map<number, typeof priorRows>();
     for (const fb of priorRows) {
@@ -397,6 +396,9 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
     // Sort iteration keys ascending (oldest first).
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [priorRows]);
+
+  if (isLoading) return null;
+  if (priorRows.length === 0) return null;
 
   return (
     <div className="border-t border-gray-200 mt-2">
