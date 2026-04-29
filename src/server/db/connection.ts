@@ -34,6 +34,15 @@ function createDb() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    // S2 (MR-DEPLOY-1): Explicit keep-alive settings.
+    // enableKeepAlive is true by default in mysql2 >=3.x, but set explicitly
+    // to guard against future version drift and make intent visible in code.
+    // keepAliveInitialDelay defaults to undefined (OS-level, ~7200s on Linux),
+    // which is far too long for cloud-managed MySQL idle-timeout patterns.
+    // 10000ms (10s) is conservative and works against any plausible idle policy
+    // in the typical 60s–600s range (assumption per MR-DEPLOY-1 S1.a).
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
   });
 
   return drizzle(pool, {

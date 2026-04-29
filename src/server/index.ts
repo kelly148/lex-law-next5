@@ -32,6 +32,7 @@ import { getDocumentById } from './db/queries/documents.js';
 import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, Header, AlignmentType } from 'docx';
+import { makeReadyHandler } from './routes/ready.js';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -66,11 +67,28 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// Health check
+// Health check (liveness — process-only, UNCHANGED per §5.4)
 // ============================================================
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ============================================================
+// Readiness check (S4, MR-DEPLOY-1)
+//
+// /api/ready performs a lightweight SELECT 1 against the shared DB pool.
+// Returns 200 { status: 'ready' } on success, 503 { status: 'not_ready' }
+// on failure or timeout. Internal error details are NEVER included in the
+// response body (server-side logs only).
+//
+// /api/health remains liveness-only (process-alive, unconditional 200).
+// /api/ready is the readiness signal for Railway or any external probe that
+// needs to distinguish process liveness from DB reachability.
+//
+// checkDbReady and makeReadyHandler are defined in routes/ready.ts so that
+// unit tests can import the helper without triggering the server bootstrap.
+// ============================================================
+app.get('/api/ready', makeReadyHandler(db));
 
 // ============================================================
 // POST /api/materials/upload — Phase 5 file-upload endpoint (Ch 21.6 / Ch 27)
