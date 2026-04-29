@@ -89,16 +89,35 @@ describe('MR-1 Behavioral Persistence Test', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearTelemetryBuffer();
-    
-    // Setup base mocks
+
+    // Fix 1: setJobWriteFunctions mocks must match JobWriteFunctions type.
+    // markJobRunning, markJobCompleted, markJobCancelled return Promise<number>.
+    // insertJob returns Promise<string>. Pattern mirrors phase2.acceptance.test.ts:58-80.
+    // Schema refs: src/server/db/canonicalMutation.ts:125-133 (JobWriteFunctions type);
+    //              src/server/db/queries/jobs.ts:191-194, 245-251, 344-347 (return types).
     setJobWriteFunctions({
-      insertJob: async () => {},
-      markJobRunning: async () => {},
-      markJobCompleted: async () => {},
-      markJobFailed: async () => {},
-      markJobTimedOut: async () => {},
-      markJobCancelled: async () => {},
-      updateJobHeartbeat: async () => {},
+      insertJob: async (_newJob: unknown): Promise<string> => 'noop',
+      markJobRunning: async (_jobId: string, _userId: string): Promise<number> => 1,
+      markJobCompleted: async (
+        _jobId: string,
+        _userId: string,
+        _output: unknown,
+        _tokensPrompt: number,
+        _tokensCompletion: number,
+      ): Promise<number> => 1,
+      markJobFailed: async (
+        _jobId: string,
+        _userId: string,
+        _errorClass: string,
+        _errorMessage: string,
+      ): Promise<void> => {},
+      markJobTimedOut: async (
+        _jobId: string,
+        _userId: string,
+        _errorMessage: string,
+      ): Promise<void> => {},
+      markJobCancelled: async (_jobId: string, _userId: string): Promise<number> => 1,
+      updateJobHeartbeat: async (_jobId: string, _userId: string): Promise<void> => {},
     });
 
     vi.mocked(userPreferenceQueries.getUserPreferences).mockResolvedValue({
@@ -122,49 +141,62 @@ describe('MR-1 Behavioral Persistence Test', () => {
       templateVersionId: null,
       templateSnapshot: null,
       variableMap: null,
-      workflowState: 'review_pending',
+      // Fix 2: 'review_pending' is not a valid DocumentWorkflowState.
+      // Valid values: 'drafting' | 'substantively_accepted' | 'finalizing' | 'complete' | 'archived'
+      // Schema ref: src/shared/schemas/matters.ts:32-37 (DOCUMENT_WORKFLOW_STATE_VALUES).
+      // An in-review document is still in 'drafting' state (review is a sub-phase of drafting).
+      workflowState: 'drafting' as const,
       currentVersionId: VERSION_ID,
+      // Fix 2b: DocumentRow also requires completedAt, archivedAt,
+      // officialSubstantiveVersionNumber, officialFinalVersionNumber, notes.
+      // Schema ref: src/shared/schemas/matters.ts:69-91 (DocumentRowSchema).
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
+    // Fix 3: getVersionById returns VersionRow which requires versionNumber and generatedByJobId.
+    // Schema ref: src/shared/schemas/matters.ts:99-109 (VersionRowSchema).
     vi.mocked(versionQueries.getVersionById).mockResolvedValue({
       id: VERSION_ID,
       userId: USER_ID,
       documentId: DOC_ID,
-      iterationNumber: 1,
+      versionNumber: 1,
       content: 'Draft content',
+      generatedByJobId: null,
+      iterationNumber: 1,
       createdAt: new Date(),
     });
 
+    // Fix 4: getMatterById returns MatterRow which uses 'title' not 'name', and 'phase' not 'status'.
+    // Schema ref: src/shared/schemas/matters.ts:14-25 (MatterRowSchema).
     vi.mocked(matterQueries.getMatterById).mockResolvedValue({
       id: MATTER_ID,
       userId: USER_ID,
-      name: 'Test Matter',
-      description: null,
-      status: 'open',
+      title: 'Test Matter',
+      clientName: null,
+      practiceArea: null,
+      phase: 'drafting' as const,
       archivedAt: null,
+      completedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
     vi.mocked(phase4bQueries.getActiveReviewSessionForDocument).mockResolvedValue(null);
-    
-    vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue({
-      id: SESSION_ID,
-      userId: USER_ID,
-      documentId: DOC_ID,
-      iterationNumber: 1,
-      state: 'active',
-      selections: [],
-      selectedReviewers: ['claude'],
-      globalInstructions: null,
-      activeSessionKey: 'key',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    
-    vi.mocked(phase4bQueries.insertFeedback).mockResolvedValue();
+
+    // Fix 5: insertReviewSession returns Promise<string> (the inserted row ID), not an object.
+    // Schema ref: src/server/db/queries/phase4b.ts:676-683 (function signature).
+    vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_ID);
+
+    // Fix 6: insertFeedback returns Promise<string> (the inserted row ID).
+    // mockResolvedValue() requires one argument.
+    // Schema ref: src/server/db/queries/phase4b.ts:486-500 (function signature).
+    vi.mocked(phase4bQueries.insertFeedback).mockResolvedValue(uuidv4());
   });
 
   afterEach(() => {
@@ -194,18 +226,23 @@ describe('MR-1 Behavioral Persistence Test', () => {
       selectedReviewers: ['claude'],
     });
 
-    expect((result.sessionId as any).id).toBe(SESSION_ID);
+    expect(result.sessionId).toBe(SESSION_ID);
 
     // 2. Assert insertFeedback was called with the parsed data
     expect(phase4bQueries.insertFeedback).toHaveBeenCalledTimes(1);
-    
+
     const insertCallArgs = vi.mocked(phase4bQueries.insertFeedback).mock.calls[0]![0];
     expect(insertCallArgs.documentId).toBe(DOC_ID);
     expect(insertCallArgs.reviewerRole).toBe('claude');
-    
+
     // 3. Assert the suggestion was parsed and stamped with an ID
     expect(insertCallArgs.suggestions).toHaveLength(1);
-    const suggestion = (insertCallArgs.suggestions as any[])[0];
+    const suggestion = (insertCallArgs.suggestions as Array<{
+      suggestionId: string;
+      title: string;
+      body: string;
+      severity: string;
+    }>)[0]!;
     expect(suggestion.title).toBe('Fix indemnity clause');
     expect(suggestion.body).toBe('The indemnity clause is too broad.');
     expect(suggestion.severity).toBe('major');
