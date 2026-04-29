@@ -37,6 +37,7 @@ import {
   updateReviewSessionSelections,
   updateReviewSessionGlobalInstructions,
   listFeedbackForSession,
+  listFeedbackForDocument,
   getEvaluationForIteration,
   insertManualSelection,
   insertFeedback,
@@ -214,9 +215,23 @@ export const reviewSessionRouter = router({
         reviewerJobIds.push(reviewerResult.jobId);
       }
 
-      // Enqueue evaluator job only when multiple reviewers are selected.
-      // Decision #41: env-fixed, never attorney-selectable.
-      // With a single reviewer there is no cross-reviewer synthesis to evaluate.
+      // EVALUATOR PATH — STRUCTURALLY INERT (MR-2 §S1)
+      //
+      // This dispatch gate fires when input.selectedReviewers.length > 1.
+      // MR-0G's .max(1) constraint on the API schema makes this branch
+      // unreachable in supported workflow.
+      //
+      // The evaluator system/user prompts and persistence path are not
+      // part of the sequential single-reviewer product model per
+      // Operating Plan v1.2 §1.3. The attorney is the synthesizer
+      // across iterations; automated cross-synthesis is not required.
+      //
+      // If future product evidence supports automated synthesis,
+      // evaluator repair or full decommissioning should be scoped as a
+      // separate engagement (post-MR-3 cleanup or new feature work).
+      //
+      // References: MR-0 close-out (D3, D4 evaluator-path defects);
+      // MR-0G acceptance (multi-reviewer gate); MR-2 close-out.
       if (input.selectedReviewers.length > 1) {
       const evaluatorModelString = EVALUATOR_MODEL;
       void executeCanonicalMutation({
@@ -380,6 +395,26 @@ export const reviewSessionRouter = router({
       );
 
       return { session, feedback, evaluation };
+    }),
+
+  // ============================================================
+  // reviewSession.getDocumentHistory — MR-2 §S2b
+  // Returns all prior-iteration feedback rows for a document.
+  // Used by the history view in ReviewPane to show feedback from
+  // previous iterations. Excludes the current iteration (filtered
+  // client-side in ReviewPane to avoid duplication).
+  // Ownership: documentId must belong to userId (enforced in query).
+  // ============================================================
+  getDocumentHistory: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      const doc = await getDocumentById(input.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+
+      const allFeedback = await listFeedbackForDocument(input.documentId, userId);
+      return { feedback: allFeedback };
     }),
 
   // ============================================================
