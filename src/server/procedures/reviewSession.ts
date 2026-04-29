@@ -294,7 +294,9 @@ export const reviewSessionRouter = router({
         sessionId: z.string().uuid(),
         selections: z.array(
           z.object({
-            feedbackId: z.string().uuid(),
+            // MR-4 §3.3: canonical field; legacy feedbackId alias handled by
+            // SessionSelectionSchema at the DB read layer.
+            suggestionId: z.string().uuid(),
             note: z.string().nullable(),
           }),
         ),
@@ -311,12 +313,12 @@ export const reviewSessionRouter = router({
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       assertNotComplete(doc.workflowState, 'reviewSession.updateSelection');
 
-      // Compute diff for telemetry
-      const currentSelections = (session.selections ?? []) as Array<{ feedbackId: string }>;
-      const currentIds = new Set(currentSelections.map((s) => s.feedbackId));
-      const newIds = new Set(input.selections.map((s) => s.feedbackId));
-      const added = input.selections.filter((s) => !currentIds.has(s.feedbackId)).map((s) => s.feedbackId);
-      const removed = currentSelections.filter((s) => !newIds.has(s.feedbackId)).map((s) => s.feedbackId);
+      // Compute diff for telemetry (MR-4 §3.3: canonical suggestionId)
+      const currentSelections = (session.selections ?? []) as Array<{ suggestionId: string }>;
+      const currentIds = new Set(currentSelections.map((s) => s.suggestionId));
+      const newIds = new Set(input.selections.map((s) => s.suggestionId));
+      const added = input.selections.filter((s) => !currentIds.has(s.suggestionId)).map((s) => s.suggestionId);
+      const removed = currentSelections.filter((s) => !newIds.has(s.suggestionId)).map((s) => s.suggestionId);
 
       const updatedSession = await updateReviewSessionSelections(
         input.sessionId,
@@ -439,7 +441,8 @@ export const reviewSessionRouter = router({
       assertNotComplete(doc.workflowState, 'reviewSession.regenerate');
 
       // Validate: must have at least one selection OR non-empty global instructions
-      const selections = (session.selections ?? []) as Array<{ feedbackId: string; note: string | null }>;
+      // MR-4 §3.3: canonical suggestionId field after alias normalization at Zod parse layer.
+      const selections = (session.selections ?? []) as Array<{ suggestionId: string; note: string | null }>;
       const hasSelections = selections.length > 0;
       const hasGlobalInstructions = (session.globalInstructions ?? '').trim().length > 0;
       if (!hasSelections && !hasGlobalInstructions) {
@@ -449,6 +452,31 @@ export const reviewSessionRouter = router({
         });
       }
 
+      // MR-4 P1: Build itemized prompt from full suggestion text.
+      // Fetch all feedback rows for this session to resolve suggestionId → suggestion data.
+      const allFeedbackForPrompt = await listFeedbackForSession(input.sessionId, userId);
+      // Build a flat map: suggestionId → { title, body, severity, reviewerTitle }
+      const suggestionMap = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string }>();
+      for (const feedbackRow of allFeedbackForPrompt) {
+        for (const suggestion of feedbackRow.suggestions) {
+          suggestionMap.set(suggestion.suggestionId, {
+            title: suggestion.title,
+            body: suggestion.body,
+            ...(suggestion.severity !== undefined ? { severity: suggestion.severity } : {}),
+            reviewerTitle: feedbackRow.reviewerTitle,
+          });
+        }
+      }
+      // Validate all selected suggestionIds resolve (fail-safe: SUGGESTION_NOT_RESOLVED)
+      for (const sel of selections) {
+        if (!suggestionMap.has(sel.suggestionId)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `SUGGESTION_NOT_RESOLVED: selection references unknown suggestionId '${sel.suggestionId}'`,
+          });
+        }
+      }
+
       // Commit feedback_manual_selections rows (R5: positive-selection only)
       for (const sel of selections) {
         await insertManualSelection({
@@ -456,7 +484,7 @@ export const reviewSessionRouter = router({
           documentId: session.documentId,
           iterationNumber: session.iterationNumber,
           reviewSessionId: input.sessionId,
-          suggestionId: sel.feedbackId,
+          suggestionId: sel.suggestionId,
           attorneyNote: sel.note,
         });
       }
@@ -475,10 +503,16 @@ export const reviewSessionRouter = router({
         { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
       );
 
-      // Delegate to document.regenerate (Clarification 3: reuse Phase 4a path)
-      // Build instructions from selections and global instructions
+      // MR-4 P1: Build itemized prompt with full suggestion text (Option B: all selections
+      // regardless of originating reviewer — product semantic: attorney sees consolidated view).
+      const selectionLines = selections.map((sel, i) => {
+        const s = suggestionMap.get(sel.suggestionId)!;
+        const severityTag = s.severity ? ` [${s.severity}]` : '';
+        const noteLine = sel.note ? `\n   Attorney note: ${sel.note}` : '';
+        return `${i + 1}. [${s.reviewerTitle}${severityTag}] ${s.title}: ${s.body}${noteLine}`;
+      });
       const selectionSummary = selections.length > 0
-        ? `Apply ${selections.length} selected suggestion(s) from all reviewers.`
+        ? `Apply the following ${selections.length} selected suggestion(s):\n${selectionLines.join('\n')}`
         : '';
       const globalPart = (session.globalInstructions ?? '').trim();
       const instructions = [selectionSummary, globalPart].filter(Boolean).join('\n\n');
@@ -529,18 +563,13 @@ export const reviewSessionRouter = router({
         });
       }
 
-      // Get feedback for this reviewer only
-      const allFeedback = await listFeedbackForSession(input.sessionId, userId);
-      const reviewerFeedbackIds = new Set(
-        allFeedback
-          .filter((f) => f.reviewerRole === input.reviewerRole)
-          .map((f) => f.id),
-      );
-
-      const selections = (session.selections ?? []) as Array<{ feedbackId: string; note: string | null }>;
-      const reviewerSelections = selections.filter((s) => reviewerFeedbackIds.has(s.feedbackId));
-       const hasGlobalInstructions = (session.globalInstructions ?? '').trim().length > 0;
-      if (reviewerSelections.length === 0 && !hasGlobalInstructions) {
+       // MR-4 §3.3: canonical suggestionId field after alias normalization at Zod parse layer.
+      // MR-4 §2.1 Option B: regenerateSingleReviewer uses ALL current selections regardless
+      // of originating reviewer — same product semantic as regenerate (consolidated view).
+      // The reviewerRole parameter controls consolidationMode metadata only.
+      const selections = (session.selections ?? []) as Array<{ suggestionId: string; note: string | null }>;
+      const hasGlobalInstructions = (session.globalInstructions ?? '').trim().length > 0;
+      if (selections.length === 0 && !hasGlobalInstructions) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: `REVIEW_SESSION_EMPTY: no selections for reviewer '${input.reviewerRole}' and no global instructions`,
@@ -549,21 +578,37 @@ export const reviewSessionRouter = router({
       // S4 (MR-1): D6 defensive guard — detect silent selection drop
       // If the session has selections but none matched feedback rows for this reviewer,
       // surface loudly rather than silently regenerating with only global instructions.
-      const hasSessionSelections = selections.length > 0;
-      if (hasSessionSelections && reviewerSelections.length === 0 && !hasGlobalInstructions) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `REVIEWER_SELECTIONS_NOT_RESOLVED: Unable to resolve your selections for this reviewer. The session has selections recorded but none could be matched to feedback rows for the specified reviewer. Please provide global instructions or re-run the review.`,
-        });
+      // MR-4: guard is now on all selections (Option B), not reviewer-filtered subset.
+      // MR-4 P1: Build itemized prompt from full suggestion text (same path as regenerate).
+      const allFeedbackForPromptSingle = await listFeedbackForSession(input.sessionId, userId);
+      const suggestionMapSingle = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string }>();
+      for (const feedbackRow of allFeedbackForPromptSingle) {
+        for (const suggestion of feedbackRow.suggestions) {
+          suggestionMapSingle.set(suggestion.suggestionId, {
+            title: suggestion.title,
+            body: suggestion.body,
+            ...(suggestion.severity !== undefined ? { severity: suggestion.severity } : {}),
+            reviewerTitle: feedbackRow.reviewerTitle,
+          });
+        }
       }
-      // Commit only this reviewer's selections (R5: positive-selection only)
-      for (const sel of reviewerSelections) {
+      // Validate all selected suggestionIds resolve (fail-safe: SUGGESTION_NOT_RESOLVED)
+      for (const sel of selections) {
+        if (!suggestionMapSingle.has(sel.suggestionId)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `SUGGESTION_NOT_RESOLVED: selection references unknown suggestionId '${sel.suggestionId}'`,
+          });
+        }
+      }
+      // Commit all selections (R5: positive-selection only)
+      for (const sel of selections) {
         await insertManualSelection({
           userId,
           documentId: session.documentId,
           iterationNumber: session.iterationNumber,
           reviewSessionId: input.sessionId,
-          suggestionId: sel.feedbackId,
+          suggestionId: sel.suggestionId,
           attorneyNote: sel.note,
         });
       }
@@ -576,14 +621,20 @@ export const reviewSessionRouter = router({
         {
           sessionId: input.sessionId,
           consolidationMode: 'single_reviewer',
-          adoptedCount: reviewerSelections.length,
+          adoptedCount: selections.length,
         },
         { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
       );
 
-      // Delegate to document.regenerate (Clarification 3: reuse Phase 4a path)
-      const selectionSummary = reviewerSelections.length > 0
-        ? `Apply ${reviewerSelections.length} selected suggestion(s) from reviewer '${input.reviewerRole}'.`
+      // MR-4 P1: Build itemized prompt with full suggestion text (Option B: all selections).
+      const selectionLinesSingle = selections.map((sel, i) => {
+        const s = suggestionMapSingle.get(sel.suggestionId)!;
+        const severityTag = s.severity ? ` [${s.severity}]` : '';
+        const noteLine = sel.note ? `\n   Attorney note: ${sel.note}` : '';
+        return `${i + 1}. [${s.reviewerTitle}${severityTag}] ${s.title}: ${s.body}${noteLine}`;
+      });
+      const selectionSummary = selections.length > 0
+        ? `Apply the following ${selections.length} selected suggestion(s):\n${selectionLinesSingle.join('\n')}`
         : '';
       const globalPart = (session.globalInstructions ?? '').trim();
       const instructions = [selectionSummary, globalPart].filter(Boolean).join('\n\n');

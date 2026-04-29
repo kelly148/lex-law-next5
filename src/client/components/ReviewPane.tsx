@@ -218,6 +218,7 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
 
 // ============================================================
 // FeedbackCard — single reviewer's feedback
+// MR-4 P2: per-suggestion selection model.
 // ============================================================
 interface FeedbackCardProps {
   feedback: {
@@ -227,20 +228,25 @@ interface FeedbackCardProps {
     suggestions: Array<{ suggestionId: string; title: string; body: string; severity?: string }>;
   };
   sessionId: string;
-  selections: Array<{ feedbackId: string; note: string | null }>;
+  // MR-4 P2: selections now keyed by suggestionId (canonical field after §3.3 normalization).
+  selections: Array<{ suggestionId: string; note: string | null }>;
   evaluation: Array<{ suggestionId: string; disposition: 'adopt' | 'reject' | 'neutral'; synthesisBody?: string }> | null;
   onRefresh: () => void;
 }
 
 function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }: FeedbackCardProps): React.ReactElement {
   const [expanded, setExpanded] = useState(true);
+  // MR-4 P2: per-suggestion note inputs keyed by suggestionId.
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
   const utils = trpc.useUtils();
 
-  const isSelected = selections.some((s) => s.feedbackId === feedback.id);
+  // MR-4 P2: Build a Set of selected suggestionIds for O(1) lookup.
+  const selectedSuggestionIds = new Set(selections.map((s) => s.suggestionId));
+  // Count how many of this card's suggestions are currently selected.
+  const selectedCount = feedback.suggestions.filter((sg) => selectedSuggestionIds.has(sg.suggestionId)).length;
 
   const updateSelectionMutation = useGuardedMutation(
-    (input: { sessionId: string; selections: Array<{ feedbackId: string; note: string | null }> }) =>
+    (input: { sessionId: string; selections: Array<{ suggestionId: string; note: string | null }> }) =>
       utils.client.reviewSession.updateSelection.mutate(input),
     {
       onSuccess: () => {
@@ -261,18 +267,41 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
     }
   );
 
-  const toggleSelection = (): void => {
-    const currentSelections = selections.filter((s) => s.feedbackId !== feedback.id);
-    const newSelections = isSelected
-      ? currentSelections
-      : [...currentSelections, { feedbackId: feedback.id, note: noteInputs[feedback.id] ?? null }];
+  // MR-4 P2: Toggle a single suggestion's selection state.
+  // Latest-local-state merge: builds payload from server selections merged with
+  // pending noteInputs state, so unsaved note edits are preserved on toggle.
+  const toggleSuggestion = (suggestionId: string): void => {
+    const isCurrentlySelected = selectedSuggestionIds.has(suggestionId);
+    // Derive latest canonical selections: server selections + any pending local note edits.
+    // This prevents the race where a note typed before a checkbox toggle is dropped.
+    const latestSelections: Array<{ suggestionId: string; note: string | null }> = selections.map((sel) => ({
+      suggestionId: sel.suggestionId,
+      // Prefer local pending note input if present; fall back to server-confirmed note.
+      note: noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note,
+    }));
+    const newSelections = isCurrentlySelected
+      ? latestSelections.filter((s) => s.suggestionId !== suggestionId)
+      : [...latestSelections, { suggestionId, note: noteInputs[suggestionId] ?? null }];
     updateSelectionMutation.mutate({ sessionId, selections: newSelections });
+  };
+
+  // MR-4 P2: Update note for a single suggestion, preserving all other selections.
+  const updateNote = (suggestionId: string, value: string): void => {
+    setNoteInputs((prev) => ({ ...prev, [suggestionId]: value }));
+    // Build payload from latest local state: all current selections with updated note.
+    const latestSelections: Array<{ suggestionId: string; note: string | null }> = selections.map((sel) => ({
+      suggestionId: sel.suggestionId,
+      note: sel.suggestionId === suggestionId
+        ? (value || null)
+        : (noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note),
+    }));
+    updateSelectionMutation.mutate({ sessionId, selections: latestSelections });
   };
 
   return (
     <div className={clsx(
       'border rounded-lg overflow-hidden',
-      isSelected ? 'border-firm-navy' : 'border-gray-200'
+      selectedCount > 0 ? 'border-firm-navy' : 'border-gray-200'
     )}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 bg-white">
@@ -284,6 +313,17 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* MR-4 P2: count badge showing N / M selected for this card */}
+          {feedback.suggestions.length > 0 && (
+            <span className={clsx(
+              'text-xs px-2 py-0.5 rounded',
+              selectedCount > 0
+                ? 'bg-firm-navy text-white'
+                : 'bg-gray-100 text-gray-500'
+            )}>
+              {selectedCount} / {feedback.suggestions.length} selected
+            </span>
+          )}
           <button
             onClick={() => regenerateSingleMutation.mutate({ sessionId, reviewerRole: feedback.reviewerRole })}
             disabled={regenerateSingleMutation.isPending}
@@ -292,32 +332,32 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={toggleSelection}
-            disabled={updateSelectionMutation.isPending}
-            className={clsx(
-              'px-2 py-1 text-xs rounded transition-colors disabled:opacity-50',
-              isSelected
-                ? 'bg-firm-navy text-white'
-                : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-            )}
-          >
-            {isSelected ? 'Selected' : 'Select'}
-          </button>
           <button onClick={() => setExpanded(!expanded)} className="p-1 text-gray-400 hover:text-firm-navy">
             {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
 
-      {/* Suggestions */}
+      {/* Suggestions — MR-4 P2: per-suggestion checkboxes and note inputs */}
       {expanded && feedback.suggestions.length > 0 && (
         <div className="border-t border-gray-100 divide-y divide-gray-50">
           {feedback.suggestions.map((suggestion) => {
             const evalDisposition = evaluation?.find((e) => e.suggestionId === suggestion.suggestionId);
+            const isChecked = selectedSuggestionIds.has(suggestion.suggestionId);
             return (
-              <div key={suggestion.suggestionId} className="px-4 py-3 bg-gray-50">
+              <div key={suggestion.suggestionId} className={clsx(
+                'px-4 py-3',
+                isChecked ? 'bg-firm-navy/5' : 'bg-gray-50'
+              )}>
                 <div className="flex items-start gap-2">
+                  {/* MR-4 P2: per-suggestion checkbox */}
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleSuggestion(suggestion.suggestionId)}
+                    disabled={updateSelectionMutation.isPending}
+                    className="mt-0.5 flex-shrink-0 cursor-pointer disabled:opacity-50"
+                  />
                   {evalDisposition && (
                     <span className="flex-shrink-0 mt-0.5">
                       {evalDisposition.disposition === 'adopt' && <CheckCircle className="w-3.5 h-3.5 text-green-600" />}
@@ -341,24 +381,21 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
                     {evalDisposition?.synthesisBody && (
                       <p className="text-xs text-gray-500 italic mt-1">{evalDisposition.synthesisBody}</p>
                     )}
+                    {/* MR-4 P2: per-suggestion note input, shown only when selected */}
+                    {isChecked && (
+                      <input
+                        type="text"
+                        value={noteInputs[suggestion.suggestionId] ?? (selections.find((s) => s.suggestionId === suggestion.suggestionId)?.note ?? '')}
+                        onChange={(e) => updateNote(suggestion.suggestionId, e.target.value)}
+                        placeholder="Optional note for this suggestion…"
+                        className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Note input for selected feedback */}
-      {isSelected && (
-        <div className="px-4 py-2 bg-firm-navy/5 border-t border-firm-navy/10">
-          <input
-            type="text"
-            value={noteInputs[feedback.id] ?? ''}
-            onChange={(e) => setNoteInputs((prev) => ({ ...prev, [feedback.id]: e.target.value }))}
-            placeholder="Optional note for this selection…"
-            className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
-          />
         </div>
       )}
     </div>
@@ -546,6 +583,8 @@ interface ActiveSessionViewProps {
 function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: ActiveSessionViewProps): React.ReactElement {
   const utils = trpc.useUtils();
   const [editingInstructions, setEditingInstructions] = useState(false);
+  // MR-4 P2: regenError state for SUGGESTION_NOT_RESOLVED and other regenerate errors.
+  const [regenError, setRegenError] = useState<string | null>(null);
 
   // MR-3 §S2a: Poll reviewer_feedback jobs for this document to detect FAILED state.
   // job.poll returns all jobs for the document; we filter to reviewer_feedback client-side.
@@ -591,6 +630,15 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
         void utils.reviewSession.get.invalidate({ sessionId });
         onClose();
       },
+      // MR-4 P2: SUGGESTION_NOT_RESOLVED safe error display.
+      // Sentinel detection via startsWith — never leaks raw UUIDs to the user.
+      onError: (err) => {
+        if (err.message.startsWith('SUGGESTION_NOT_RESOLVED')) {
+          setRegenError('One or more selected suggestions could not be found. Please refresh and try again.');
+        } else {
+          setRegenError(err.message);
+        }
+      },
     }
   );
 
@@ -630,6 +678,9 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
   const jobs = jobsData?.jobs ?? [];
   const completionState = deriveCompletionState(feedback, jobs);
 
+  // MR-4 P2: Count unique selected suggestionIds across all feedback cards.
+  const totalSelected = session.selections.length;
+
   return (
     <div className="flex flex-col h-full">
       {/* Session info */}
@@ -647,7 +698,7 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">
-            {session.selections.length} selected
+            {totalSelected} selected
           </span>
         </div>
       </div>
@@ -746,21 +797,28 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
 
       {/* Footer actions */}
       {session.state === 'active' && (
-        <div className="px-4 py-3 border-t border-gray-200 flex gap-2">
-          <button
-            onClick={() => abandonMutation.mutate({ sessionId })}
-            disabled={abandonMutation.isPending}
-            className="flex-1 px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50"
-          >
-            Abandon
-          </button>
-          <button
-            onClick={() => regenerateMutation.mutate({ sessionId })}
-            disabled={regenerateMutation.isPending || session.selections.length === 0}
-            className="flex-1 px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
-          >
-            {regenerateMutation.isPending ? 'Regenerating…' : `Regenerate (${session.selections.length} selected)`}
-          </button>
+        <div className="px-4 py-3 border-t border-gray-200 flex flex-col gap-2">
+          {/* MR-4 P2: regenError inline display — same pattern as CreateSessionView */}
+          {regenError && <p className="text-red-600 text-sm">{regenError}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => abandonMutation.mutate({ sessionId })}
+              disabled={abandonMutation.isPending}
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              Abandon
+            </button>
+            <button
+              onClick={() => {
+                setRegenError(null);
+                regenerateMutation.mutate({ sessionId });
+              }}
+              disabled={regenerateMutation.isPending || totalSelected === 0}
+              className="flex-1 px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+            >
+              {regenerateMutation.isPending ? 'Regenerating…' : `Regenerate (${totalSelected} selected)`}
+            </button>
+          </div>
         </div>
       )}
     </div>

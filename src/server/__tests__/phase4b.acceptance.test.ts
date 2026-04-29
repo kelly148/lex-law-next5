@@ -150,16 +150,17 @@ describe('Item 6: review_selection_changed telemetry — added[] and removed[] d
     expect(block).toContain('removed: string[]');
   });
 
-  it('updateSelection procedure computes added and removed arrays from set difference', () => {
+  // MR-4 §3.3: canonical field is now suggestionId (alias normalization at Zod parse layer).
+  it('updateSelection procedure computes added and removed arrays from set difference (canonical suggestionId)', () => {
     const reviewSessionFile = fs.readFileSync(
       path.join(process.cwd(), 'src/server/procedures/reviewSession.ts'),
       'utf-8',
     );
-    // The diff computation must use Set-based filtering
-    expect(reviewSessionFile).toContain('const currentIds = new Set(currentSelections.map((s) => s.feedbackId))');
-    expect(reviewSessionFile).toContain('const newIds = new Set(input.selections.map((s) => s.feedbackId))');
-    expect(reviewSessionFile).toContain('const added = input.selections.filter((s) => !currentIds.has(s.feedbackId)).map((s) => s.feedbackId)');
-    expect(reviewSessionFile).toContain('const removed = currentSelections.filter((s) => !newIds.has(s.feedbackId)).map((s) => s.feedbackId)');
+    // The diff computation must use Set-based filtering on canonical suggestionId.
+    expect(reviewSessionFile).toContain('const currentIds = new Set(currentSelections.map((s) => s.suggestionId))');
+    expect(reviewSessionFile).toContain('const newIds = new Set(input.selections.map((s) => s.suggestionId))');
+    expect(reviewSessionFile).toContain('const added = input.selections.filter((s) => !currentIds.has(s.suggestionId)).map((s) => s.suggestionId)');
+    expect(reviewSessionFile).toContain('const removed = currentSelections.filter((s) => !newIds.has(s.suggestionId)).map((s) => s.suggestionId)');
   });
 
   it('added and removed arrays are passed to emitTelemetry for review_selection_changed', () => {
@@ -178,54 +179,55 @@ describe('Item 6: review_selection_changed telemetry — added[] and removed[] d
     expect(telemetryBlock).toContain('removed,');
   });
 
-  it('diff produces non-empty added array when new feedbackId is introduced', () => {
-    // Unit-level simulation of the diff logic
-    const currentSelections: Array<{ feedbackId: string }> = [
-      { feedbackId: 'fb-001' },
-      { feedbackId: 'fb-002' },
+  // MR-4 §3.3: unit-level simulation tests updated to use canonical suggestionId field.
+  it('diff produces non-empty added array when new suggestionId is introduced', () => {
+    // Unit-level simulation of the diff logic (canonical suggestionId field)
+    const currentSelections: Array<{ suggestionId: string }> = [
+      { suggestionId: 'fb-001' },
+      { suggestionId: 'fb-002' },
     ];
-    const newSelections: Array<{ feedbackId: string; note: string | null }> = [
-      { feedbackId: 'fb-001', note: null },
-      { feedbackId: 'fb-002', note: null },
-      { feedbackId: 'fb-003', note: null }, // newly added
+    const newSelections: Array<{ suggestionId: string; note: string | null }> = [
+      { suggestionId: 'fb-001', note: null },
+      { suggestionId: 'fb-002', note: null },
+      { suggestionId: 'fb-003', note: null }, // newly added
     ];
-    const currentIds = new Set(currentSelections.map((s) => s.feedbackId));
-    const newIds = new Set(newSelections.map((s) => s.feedbackId));
-    const added = newSelections.filter((s) => !currentIds.has(s.feedbackId)).map((s) => s.feedbackId);
-    const removed = currentSelections.filter((s) => !newIds.has(s.feedbackId)).map((s) => s.feedbackId);
+    const currentIds = new Set(currentSelections.map((s) => s.suggestionId));
+    const newIds = new Set(newSelections.map((s) => s.suggestionId));
+    const added = newSelections.filter((s) => !currentIds.has(s.suggestionId)).map((s) => s.suggestionId);
+    const removed = currentSelections.filter((s) => !newIds.has(s.suggestionId)).map((s) => s.suggestionId);
     expect(added).toEqual(['fb-003']);
     expect(removed).toEqual([]);
   });
 
-  it('diff produces non-empty removed array when feedbackId is de-selected', () => {
-    const currentSelections: Array<{ feedbackId: string }> = [
-      { feedbackId: 'fb-001' },
-      { feedbackId: 'fb-002' },
+  it('diff produces non-empty removed array when suggestionId is de-selected', () => {
+    const currentSelections: Array<{ suggestionId: string }> = [
+      { suggestionId: 'fb-001' },
+      { suggestionId: 'fb-002' },
     ];
-    const newSelections: Array<{ feedbackId: string; note: string | null }> = [
-      { feedbackId: 'fb-001', note: null }, // fb-002 removed
+    const newSelections: Array<{ suggestionId: string; note: string | null }> = [
+      { suggestionId: 'fb-001', note: null }, // fb-002 removed
     ];
-    const currentIds = new Set(currentSelections.map((s) => s.feedbackId));
-    const newIds = new Set(newSelections.map((s) => s.feedbackId));
-    const added = newSelections.filter((s) => !currentIds.has(s.feedbackId)).map((s) => s.feedbackId);
-    const removed = currentSelections.filter((s) => !newIds.has(s.feedbackId)).map((s) => s.feedbackId);
+    const currentIds = new Set(currentSelections.map((s) => s.suggestionId));
+    const newIds = new Set(newSelections.map((s) => s.suggestionId));
+    const added = newSelections.filter((s) => !currentIds.has(s.suggestionId)).map((s) => s.suggestionId);
+    const removed = currentSelections.filter((s) => !newIds.has(s.suggestionId)).map((s) => s.suggestionId);
     expect(added).toEqual([]);
     expect(removed).toEqual(['fb-002']);
   });
 
   it('diff produces both added and removed when selection set changes', () => {
-    const currentSelections: Array<{ feedbackId: string }> = [
-      { feedbackId: 'fb-001' },
-      { feedbackId: 'fb-002' },
+    const currentSelections: Array<{ suggestionId: string }> = [
+      { suggestionId: 'fb-001' },
+      { suggestionId: 'fb-002' },
     ];
-    const newSelections: Array<{ feedbackId: string; note: string | null }> = [
-      { feedbackId: 'fb-002', note: null },
-      { feedbackId: 'fb-003', note: null }, // fb-001 removed, fb-003 added
+    const newSelections: Array<{ suggestionId: string; note: string | null }> = [
+      { suggestionId: 'fb-002', note: null },
+      { suggestionId: 'fb-003', note: null }, // fb-001 removed, fb-003 added
     ];
-    const currentIds = new Set(currentSelections.map((s) => s.feedbackId));
-    const newIds = new Set(newSelections.map((s) => s.feedbackId));
-    const added = newSelections.filter((s) => !currentIds.has(s.feedbackId)).map((s) => s.feedbackId);
-    const removed = currentSelections.filter((s) => !newIds.has(s.feedbackId)).map((s) => s.feedbackId);
+    const currentIds = new Set(currentSelections.map((s) => s.suggestionId));
+    const newIds = new Set(newSelections.map((s) => s.suggestionId));
+    const added = newSelections.filter((s) => !currentIds.has(s.suggestionId)).map((s) => s.suggestionId);
+    const removed = currentSelections.filter((s) => !newIds.has(s.suggestionId)).map((s) => s.suggestionId);
     expect(added).toEqual(['fb-003']);
     expect(removed).toEqual(['fb-001']);
   });

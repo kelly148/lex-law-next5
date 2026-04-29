@@ -40,11 +40,35 @@ export const EvaluatorDispositionSchema = z.object({
 });
 export type EvaluatorDisposition = z.infer<typeof EvaluatorDispositionSchema>;
 
-/** A single selection in a review session (Ch 4.8) */
-export const SessionSelectionSchema = z.object({
-  feedbackId: z.string(),
-  note: z.string().nullable(),
-});
+/**
+ * A single selection in a review session (Ch 4.8)
+ *
+ * MR-4 §3.3 alias normalization: accepts both legacy { feedbackId } and
+ * canonical { suggestionId } shapes on input, normalizing to { suggestionId }
+ * at the Zod parse layer. All downstream code and all writes use the canonical
+ * shape. No DB migration required (JSON column, no DB-level key constraint).
+ *
+ * .uuid() is retained on the canonical field because feedbackParser.ts stamps
+ * every suggestion with crypto.randomUUID(), which always produces RFC 4122 v4
+ * UUIDs (verified: crypto.randomUUID() → '51f6112f-9118-43cd-bc7c-e90c2878ed40').
+ */
+export const SessionSelectionSchema = z
+  .object({
+    // Canonical field — RFC 4122 UUID stamped by feedbackParser.
+    suggestionId: z.string().uuid().optional(),
+    // Legacy alias — accepted for backward-compatibility with any persisted rows
+    // written before MR-4. Normalized to suggestionId at parse time.
+    feedbackId: z.string().uuid().optional(),
+    note: z.string().nullable(),
+  })
+  .transform((raw) => ({
+    // Prefer canonical suggestionId; fall back to legacy feedbackId alias.
+    suggestionId: (raw.suggestionId ?? raw.feedbackId) as string,
+    note: raw.note,
+  }))
+  .refine((v) => typeof v.suggestionId === 'string' && v.suggestionId.length > 0, {
+    message: 'SessionSelection must include either suggestionId or feedbackId',
+  });
 export type SessionSelection = z.infer<typeof SessionSelectionSchema>;
 
 // ============================================================

@@ -115,10 +115,15 @@ describe('S6f–S6j: reviewSession.ts code-path audit (MR-1)', () => {
     expect(reviewSessionFile).toContain('reviewerTitle');
   });
 
-  it('S6j: S4 — D6 defensive guard present', () => {
+  // MR-4 P1: D6 guard was superseded by SUGGESTION_NOT_RESOLVED fail-safe.
+  // hasSessionSelections / REVIEWER_SELECTIONS_NOT_RESOLVED were removed when the
+  // itemized prompt construction was introduced (Option B: all selections used).
+  // The D6 comment is still present as a reference marker; the new fail-safe is SUGGESTION_NOT_RESOLVED.
+  it('S6j: S4 — D6 defensive guard present (MR-4: superseded by SUGGESTION_NOT_RESOLVED fail-safe)', () => {
+    // D6 comment is still present as a reference marker.
     expect(reviewSessionFile).toContain('D6');
-    expect(reviewSessionFile).toContain('hasSessionSelections');
-    expect(reviewSessionFile).toContain('REVIEWER_SELECTIONS_NOT_RESOLVED');
+    // MR-4 P1: SUGGESTION_NOT_RESOLVED is the new fail-safe replacing REVIEWER_SELECTIONS_NOT_RESOLVED.
+    expect(reviewSessionFile).toContain('SUGGESTION_NOT_RESOLVED');
   });
 });
 
