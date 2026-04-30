@@ -32,6 +32,7 @@ import { getDocumentById } from './db/queries/documents.js';
 import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, Header, AlignmentType } from 'docx';
+import { markdownToDocxParagraphs } from './utils/markdownToDocx.js';
 import { makeReadyHandler } from './routes/ready.js';
 
 // ============================================================
@@ -349,20 +350,14 @@ app.get(
     const watermarkText = WATERMARK[state] ?? null;
 
     // ── Build DOCX in memory ──────────────────────────────────────────────────
-    // Split version content into paragraphs on blank lines.
-    const contentParagraphs = version.content
-      .split(/\n{2,}/)
-      .map((block) => block.trim())
-      .filter(Boolean)
-      .map(
-        (block) =>
-          new Paragraph({
-            children: block.split('\n').flatMap((line, i, arr) => [
-              new TextRun({ text: line }),
-              ...(i < arr.length - 1 ? [new TextRun({ break: 1 })] : []),
-            ]),
-          }),
-      );
+    // Convert stored Markdown content to docx Paragraphs via the helper.
+    // The helper handles the supported Markdown subset (##/###/####, **bold**,
+    // *italic*, ***bold-italic***, ---) and passes deferred/unsupported syntax
+    // through as literal plain text for backward compatibility.
+    const mdParagraphs = markdownToDocxParagraphs(version.content);
+    const contentParagraphs = mdParagraphs.length > 0
+      ? mdParagraphs
+      : [new Paragraph({ text: '' })];
 
     // Build header with watermark paragraph if required.
     const headerParagraph = watermarkText
