@@ -334,7 +334,7 @@ function VersionHistory({ documentId, currentVersionId }: VersionHistoryProps): 
               )}
             </div>
             {/* Version content */}
-            <div className="flex-1 p-3 max-h-64 overflow-y-auto">
+            <div className="flex-1 p-3 min-h-[60vh] overflow-y-auto">
               {selectedVersion ? (
                 <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
                   {selectedVersion.content}
@@ -435,6 +435,7 @@ export default function DocumentDetail(): React.ReactElement {
   const [showContextPreview, setShowContextPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'outline' | 'variables' | 'references'>('content');
   const [showDraftWarning, setShowDraftWarning] = useState(false);
+  const [showRegenInput, setShowRegenInput] = useState(false);
 
   const { data: doc, isLoading } = trpc.document.get.useQuery(
     { documentId: documentId! },
@@ -577,7 +578,7 @@ export default function DocumentDetail(): React.ReactElement {
   }[doc.workflowState] ?? 'bg-gray-100 text-gray-600';
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-4 text-sm text-gray-500">
         <Link to="/matters" className="hover:text-firm-navy">Matters</Link>
@@ -704,10 +705,247 @@ export default function DocumentDetail(): React.ReactElement {
         </div>
       )}
 
-      {/* Main layout: tabs + workflow actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left: tabs */}
-        <div className="lg:col-span-2 space-y-4">
+      {/* Action row — compact band above document workspace, always visible */}
+      <div className="relative flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+        {/* Version metadata — compact secondary line */}
+        <div className="flex items-center gap-3 text-xs text-gray-400 mr-auto">
+          <span>Subst. v: {doc.officialSubstantiveVersionNumber ?? '—'}</span>
+          <span>Final v: {doc.officialFinalVersionNumber ?? '—'}</span>
+          <span>Created: {new Date(doc.createdAt).toLocaleDateString()}</span>
+        </div>
+        {/* Iterative mode action buttons */}
+        {isIterative && (
+          <>
+            {doc.workflowState === 'drafting' && !doc.currentVersionId && (
+              <>
+                <button
+                  onClick={() => {
+                    if (extractedMaterialsCount === 0) {
+                      setShowDraftWarning(true);
+                    } else {
+                      generateDraftMutation.mutate({ documentId });
+                    }
+                  }}
+                  disabled={generateDraftMutation.isPending}
+                  className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+                >
+                  {generateDraftMutation.isPending ? 'Queuing\u2026' : 'Generate Draft'}
+                </button>
+                {showDraftWarning && (
+                  <div className="absolute left-0 top-full mt-1 z-20 w-80 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs shadow-lg">
+                    <p className="font-semibold text-amber-800 mb-1">No extracted materials found</p>
+                    <p className="text-amber-700 mb-3">This matter has no extracted materials in the drawer. The draft will use placeholders instead of client data. Upload a completed questionnaire or client notes first for best results.</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setShowDraftWarning(false);
+                          generateDraftMutation.mutate({ documentId });
+                        }}
+                        className="px-2 py-1 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
+                      >
+                        Draft anyway
+                      </button>
+                      <button
+                        onClick={() => setShowDraftWarning(false)}
+                        className="px-2 py-1 text-xs border border-amber-400 text-amber-800 rounded hover:bg-amber-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            {doc.workflowState === 'drafting' && doc.currentVersionId && (
+              <>
+                <button
+                  onClick={() => setShowReview(true)}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+                >
+                  Request Review
+                </button>
+                <button
+                  onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
+                  disabled={acceptSubstantiveMutation.isPending}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Accept Substantive
+                </button>
+              </>
+            )}
+            {doc.workflowState === 'substantively_accepted' && (
+              <>
+                <button
+                  onClick={() => reopenSubstantiveMutation.mutate({ documentId })}
+                  disabled={reopenSubstantiveMutation.isPending}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Reopen Drafting
+                </button>
+                <button
+                  onClick={() => finalizeMutation.mutate({ documentId })}
+                  disabled={finalizeMutation.isPending}
+                  className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                >
+                  Finalize
+                </button>
+              </>
+            )}
+            {doc.workflowState === 'finalizing' && (
+              <div className="flex items-center gap-1.5 text-xs text-purple-700">
+                <Clock className="w-3.5 h-3.5" />
+                Finalizing…
+              </div>
+            )}
+            {doc.workflowState === 'complete' && (
+              <div className="flex items-center gap-1.5 text-xs text-green-700">
+                <CheckCircle className="w-3.5 h-3.5" />
+                Complete
+              </div>
+            )}
+            {isComplete && (
+              <button
+                onClick={() => unfinalizeMutation.mutate({ documentId })}
+                disabled={unfinalizeMutation.isPending}
+                className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+              >
+                Unfinalize
+              </button>
+            )}
+          </>
+        )}
+        {/* Template mode action buttons */}
+        {isTemplate && (
+          <>
+            {doc.workflowState === 'drafting' && (
+              <>
+                {Object.keys(doc.variableMap as Record<string, unknown> ?? {}).length === 0 ? (
+                  <button
+                    onClick={() => extractVariablesMutation.mutate({ documentId })}
+                    disabled={extractVariablesMutation.isPending}
+                    className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+                  >
+                    {extractVariablesMutation.isPending ? 'Extracting…' : 'Extract Variables'}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => populateFromMatterMutation.mutate({ documentId })}
+                      disabled={populateFromMatterMutation.isPending}
+                      className="px-3 py-1.5 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
+                    >
+                      Auto-populate from Matter
+                    </button>
+                    <button
+                      onClick={() => renderMutation.mutate({ documentId })}
+                      disabled={renderMutation.isPending}
+                      className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+                    >
+                      {renderMutation.isPending ? 'Rendering…' : 'Render Document'}
+                    </button>
+                    <button
+                      onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
+                      disabled={acceptSubstantiveMutation.isPending}
+                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Accept Substantive
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+            {doc.workflowState === 'substantively_accepted' && (
+              <>
+                <button
+                  onClick={() => reopenSubstantiveMutation.mutate({ documentId })}
+                  disabled={reopenSubstantiveMutation.isPending}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Reopen Drafting
+                </button>
+                <button
+                  onClick={() => finalizeMutation.mutate({ documentId })}
+                  disabled={finalizeMutation.isPending}
+                  className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                >
+                  Finalize
+                </button>
+              </>
+            )}
+            {doc.workflowState === 'complete' && (
+              <>
+                <div className="flex items-center gap-1.5 text-xs text-green-700">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Complete
+                </div>
+                <button
+                  onClick={() => unfinalizeMutation.mutate({ documentId })}
+                  disabled={unfinalizeMutation.isPending}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Unfinalize
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {/* Download DOCX */}
+        {(doc.currentVersionId ||
+          doc.officialFinalVersionNumber !== null ||
+          doc.officialSubstantiveVersionNumber !== null) && (
+          <a
+            href={`/api/documents/${documentId}/export`}
+            download
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download DOCX
+          </a>
+        )}
+      </div>
+
+      {/* Regeneration band — collapsible, above document workspace */}
+      {isIterative && doc.workflowState === 'drafting' && doc.currentVersionId && (
+        <div className="mb-3 border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowRegenInput(!showRegenInput)}
+            className="flex items-center justify-between w-full px-4 py-2.5 bg-white text-xs font-medium text-firm-navy hover:bg-gray-50"
+          >
+            <span>Regenerate with instructions</span>
+            {showRegenInput ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {showRegenInput && (
+            <div className="border-t border-gray-100 p-3 space-y-2">
+              <textarea
+                value={regenerateInstructions}
+                onChange={(e) => setRegenerateInstructions(e.target.value)}
+                rows={3}
+                placeholder="Instructions for regeneration…"
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy resize-none"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={() => {
+                    if (regenerateInstructions.trim()) {
+                      regenerateMutation.mutate({ documentId, instructions: regenerateInstructions.trim() });
+                      setShowRegenInput(false);
+                    }
+                  }}
+                  disabled={regenerateMutation.isPending || !regenerateInstructions.trim()}
+                  className="px-3 py-1.5 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  {regenerateMutation.isPending ? 'Queuing…' : 'Regenerate'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main layout: full-width tabs */}
+      <div className="space-y-4">
+        {/* Tabs */}
+        <div className="space-y-4">
           {/* Tab bar */}
           <div className="flex border-b border-gray-200">
             {(['content', 'outline', 'variables', 'references'] as const).map((tab) => (
@@ -824,248 +1062,6 @@ export default function DocumentDetail(): React.ReactElement {
                 </div>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Right: workflow actions */}
-        <div className="space-y-4">
-          {/* Workflow state card */}
-          <div className="p-4 bg-white border border-gray-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-firm-navy mb-3">Workflow</h3>
-
-            {/* Iterative mode actions */}
-            {isIterative && (
-              <div className="space-y-2">
-                {doc.workflowState === 'drafting' && !doc.currentVersionId && (
-                  <>
-                    <button
-                      onClick={() => {
-                        if (extractedMaterialsCount === 0) {
-                          setShowDraftWarning(true);
-                        } else {
-                          generateDraftMutation.mutate({ documentId });
-                        }
-                      }}
-                      disabled={generateDraftMutation.isPending}
-                      className="w-full px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
-                    >
-                      {generateDraftMutation.isPending ? 'Queuing…' : 'Generate Draft'}
-                    </button>
-                    {showDraftWarning && (
-                      <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs">
-                        <p className="font-semibold text-amber-800 mb-1">No extracted materials found</p>
-                        <p className="text-amber-700 mb-3">This matter has no extracted materials in the drawer. The draft will use placeholders instead of client data. Upload a completed questionnaire or client notes first for best results.</p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setShowDraftWarning(false);
-                              generateDraftMutation.mutate({ documentId });
-                            }}
-                            className="px-2 py-1 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
-                          >
-                            Draft anyway
-                          </button>
-                          <button
-                            onClick={() => setShowDraftWarning(false)}
-                            className="px-2 py-1 text-xs border border-amber-400 text-amber-800 rounded hover:bg-amber-100"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                {doc.workflowState === 'drafting' && doc.currentVersionId && (
-                  <>
-                    <div className="space-y-1">
-                      <textarea
-                        value={regenerateInstructions}
-                        onChange={(e) => setRegenerateInstructions(e.target.value)}
-                        rows={3}
-                        placeholder="Instructions for regeneration…"
-                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy resize-none"
-                      />
-                      <button
-                        onClick={() => {
-                          if (regenerateInstructions.trim()) {
-                            regenerateMutation.mutate({ documentId, instructions: regenerateInstructions.trim() });
-                          }
-                        }}
-                        disabled={regenerateMutation.isPending || !regenerateInstructions.trim()}
-                        className="w-full px-3 py-2 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
-                      >
-                        {regenerateMutation.isPending ? 'Queuing…' : 'Regenerate'}
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => setShowReview(true)}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
-                    >
-                      Request Review
-                    </button>
-                    <button
-                      onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
-                      disabled={acceptSubstantiveMutation.isPending}
-                      className="w-full px-3 py-2 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      Accept Substantive
-                    </button>
-                  </>
-                )}
-                {doc.workflowState === 'substantively_accepted' && (
-                  <>
-                    <button
-                      onClick={() => reopenSubstantiveMutation.mutate({ documentId })}
-                      disabled={reopenSubstantiveMutation.isPending}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Reopen Drafting
-                    </button>
-                    <button
-                      onClick={() => finalizeMutation.mutate({ documentId })}
-                      disabled={finalizeMutation.isPending}
-                      className="w-full px-3 py-2 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Finalize
-                    </button>
-                  </>
-                )}
-                {doc.workflowState === 'finalizing' && (
-                  <div className="flex items-center gap-2 text-xs text-purple-700">
-                    <Clock className="w-3.5 h-3.5" />
-                    Finalizing…
-                  </div>
-                )}
-                {doc.workflowState === 'complete' && (
-                  <div className="flex items-center gap-2 text-xs text-green-700">
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Complete
-                  </div>
-                )}
-                {isComplete && (
-                  <button
-                    onClick={() => unfinalizeMutation.mutate({ documentId })}
-                    disabled={unfinalizeMutation.isPending}
-                    className="w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Unfinalize
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Template mode actions */}
-            {isTemplate && (
-              <div className="space-y-2">
-                {doc.workflowState === 'drafting' && (
-                  <>
-                    {Object.keys(doc.variableMap as Record<string, unknown> ?? {}).length === 0 ? (
-                      <button
-                        onClick={() => extractVariablesMutation.mutate({ documentId })}
-                        disabled={extractVariablesMutation.isPending}
-                        className="w-full px-3 py-2 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
-                      >
-                        {extractVariablesMutation.isPending ? 'Extracting…' : 'Extract Variables'}
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => populateFromMatterMutation.mutate({ documentId })}
-                          disabled={populateFromMatterMutation.isPending}
-                          className="w-full px-3 py-2 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
-                        >
-                          Auto-populate from Matter
-                        </button>
-                        <button
-                          onClick={() => renderMutation.mutate({ documentId })}
-                          disabled={renderMutation.isPending}
-                          className="w-full px-3 py-2 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
-                        >
-                          {renderMutation.isPending ? 'Rendering…' : 'Render Document'}
-                        </button>
-                        <button
-                          onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
-                          disabled={acceptSubstantiveMutation.isPending}
-                          className="w-full px-3 py-2 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          Accept Substantive
-                        </button>
-                      </>
-                    )}
-                  </>
-                )}
-                {doc.workflowState === 'substantively_accepted' && (
-                  <>
-                    <button
-                      onClick={() => reopenSubstantiveMutation.mutate({ documentId })}
-                      disabled={reopenSubstantiveMutation.isPending}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Reopen Drafting
-                    </button>
-                    <button
-                      onClick={() => finalizeMutation.mutate({ documentId })}
-                      disabled={finalizeMutation.isPending}
-                      className="w-full px-3 py-2 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Finalize
-                    </button>
-                  </>
-                )}
-                {doc.workflowState === 'complete' && (
-                  <>
-                    <div className="flex items-center gap-2 text-xs text-green-700">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Complete
-                    </div>
-                    <button
-                      onClick={() => unfinalizeMutation.mutate({ documentId })}
-                      disabled={unfinalizeMutation.isPending}
-                      className="w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Unfinalize
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Quick info */}
-          <div className="p-4 bg-white border border-gray-200 rounded-lg text-xs space-y-1.5">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Official substantive v</span>
-              <span className="text-gray-700">{doc.officialSubstantiveVersionNumber ?? '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Official final v</span>
-              <span className="text-gray-700">{doc.officialFinalVersionNumber ?? '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Created</span>
-              <span className="text-gray-700">{new Date(doc.createdAt).toLocaleDateString()}</span>
-            </div>
-          </div>
-
-          {/*
-            Download DOCX — Phase 6 (Ch 32)
-            Visible whenever a version exists to export.
-            Implemented as a plain anchor tag pointing to the REST endpoint.
-            No tRPC mutation is called. No stored artifact is created.
-            The server selects the version and injects the correct watermark.
-          */}
-          {(doc.currentVersionId ||
-            doc.officialFinalVersionNumber !== null ||
-            doc.officialSubstantiveVersionNumber !== null) && (
-            <a
-              href={`/api/documents/${documentId}/export`}
-              download
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download DOCX
-            </a>
           )}
         </div>
       </div>
