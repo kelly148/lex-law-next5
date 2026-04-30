@@ -1130,7 +1130,6 @@ export const document4aRouter = router({
         buildLlmParams: (_jobId) => ({
           systemPrompt,
           userPrompt,
-          temperature: 0.1,
           maxTokens: 8192,
         }),
         txn2Commit: async ({ jobId, output }) => {
