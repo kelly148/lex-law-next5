@@ -142,7 +142,21 @@ export class GoogleAdapter implements LlmClient {
       throw new LlmProviderError('api_error', `Failed to parse Google Gemini response JSON: ${String(err)}`, err);
     }
 
-    const rawText = data.candidates[0]?.content.parts[0]?.text ?? '';
+    if (!data.candidates || data.candidates.length === 0) {
+      throw new LlmProviderError(
+        'api_error',
+        'Google Gemini returned no candidates (empty or missing candidates array). This may indicate a safety filter block or model unavailability.',
+      );
+    }
+    const candidateText = data.candidates[0]?.content?.parts?.[0]?.text;
+    if (!candidateText) {
+      const finishReason = data.candidates[0]?.finishReason ?? 'unknown';
+      throw new LlmProviderError(
+        'api_error',
+        `Google Gemini candidate returned no text content (finishReason: ${finishReason}). This may indicate a safety filter block or incomplete response.`,
+      );
+    }
+    const rawText = candidateText;
 
     if (structuredOutputSchema) {
       let parsed: unknown;
