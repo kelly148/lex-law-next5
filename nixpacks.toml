@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["pnpm install --prod=false"]
+
+[phases.build]
+cmds = ["pnpm run build:railway"]
+
+[start]
+cmd = "node dist/server/index.js"
