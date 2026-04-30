@@ -830,6 +830,32 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
 // ============================================================
 export default function ReviewPane({ documentId, iterationNumber, onClose }: ReviewPaneProps): React.ReactElement {
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const utils = trpc.useUtils();
+
+  // Option A (MR-UX-1 bug fix): auto-abandon the active session when the user
+  // closes the pane via the X button without explicitly abandoning.
+  // If no session exists yet (CreateSessionView), close immediately.
+  // Ch 35.13: uses useGuardedMutation.
+  const autoAbandonMutation = useGuardedMutation(
+    (input: { sessionId: string }) => utils.client.reviewSession.abandon.mutate(input),
+    {
+      onSuccess: () => {
+        onClose();
+      },
+      onError: () => {
+        // If abandon fails (e.g. session already terminal), close anyway.
+        onClose();
+      },
+    }
+  );
+
+  const handleClose = (): void => {
+    if (sessionId && !autoAbandonMutation.isPending) {
+      autoAbandonMutation.mutate({ sessionId });
+    } else {
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end justify-end z-50">
@@ -837,7 +863,7 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-firm-navy">
           <h2 className="text-white font-semibold text-sm">Review Session</h2>
-          <button onClick={onClose} className="text-white/70 hover:text-white">
+          <button onClick={handleClose} disabled={autoAbandonMutation.isPending} className="text-white/70 hover:text-white disabled:opacity-50">
             <X className="w-4 h-4" />
           </button>
         </div>
