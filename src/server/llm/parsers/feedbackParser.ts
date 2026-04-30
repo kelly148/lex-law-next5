@@ -25,7 +25,7 @@ const RawSuggestionSchema = z.object({
   severity: z.enum(['critical', 'major', 'minor']),
 });
 
-const RawSuggestionsArraySchema = z.array(RawSuggestionSchema);
+export const RawSuggestionsArraySchema = z.array(RawSuggestionSchema);
 
 // ────────────────────────────────────────────────────────────
 // Output type
