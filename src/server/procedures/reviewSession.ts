@@ -23,7 +23,7 @@ import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_MODELS, REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, type ReviewerKey } from '../llm/config.js';
-import { parseFeedbackOutput } from '../llm/parsers/feedbackParser.js';
+import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
@@ -180,6 +180,7 @@ export const reviewSessionRouter = router({
             userPrompt,
             temperature: 0.4,
             maxTokens: 4096,
+            structuredOutputSchema: RawSuggestionsArraySchema,
           }),
           // S3b (MR-1): Parse LLM output and persist to feedback table
           txn2Commit: async ({ jobId, output }) => {
