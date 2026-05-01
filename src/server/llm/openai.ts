@@ -133,6 +133,24 @@ export class OpenAiAdapter implements LlmClient {
     const rawText = data.choices[0]?.message.content ?? '';
 
     if (structuredOutputSchema) {
+      // Guard A: finish_reason must be 'stop' (or null for legacy/streaming); any other value
+      // (e.g. 'content_filter', 'length') means the model was interrupted and the content
+      // field is unreliable — throw before attempting JSON.parse.
+      const finishReason = data.choices[0]?.finish_reason ?? null;
+      if (finishReason !== null && finishReason !== 'stop') {
+        throw new LlmProviderError(
+          'api_error',
+          `OpenAI structured output blocked: finish_reason=${finishReason}`,
+        );
+      }
+      // Guard B: empty content string cannot be valid JSON — throw before JSON.parse
+      // to surface a clear api_error rather than a cryptic SyntaxError.
+      if (rawText === '') {
+        throw new LlmProviderError(
+          'api_error',
+          'OpenAI structured output returned empty content',
+        );
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(rawText);
