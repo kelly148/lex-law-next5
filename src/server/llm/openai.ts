@@ -133,14 +133,21 @@ export class OpenAiAdapter implements LlmClient {
     const rawText = data.choices[0]?.message.content ?? '';
 
     if (structuredOutputSchema) {
-      // Guard A: finish_reason must be 'stop' (or null for legacy/streaming); any other value
-      // (e.g. 'content_filter', 'length') means the model was interrupted and the content
-      // field is unreliable — throw before attempting JSON.parse.
-      const finishReason = data.choices[0]?.finish_reason ?? null;
-      if (finishReason !== null && finishReason !== 'stop') {
+      // Guard A: named-target finish_reason checks (dispatch v2 final §3.2 / AHC-9).
+      // Only the two confirmed-problem values are caught; all other finish_reason values
+      // (including 'tool_calls' and any unknown future values) pass through to the
+      // empty-string guard and the existing JSON.parse block (failing-open default).
+      const finishReason = data.choices[0]?.finish_reason;
+      if (finishReason === 'content_filter') {
         throw new LlmProviderError(
           'api_error',
-          `OpenAI structured output blocked: finish_reason=${finishReason}`,
+          `OpenAI returned finish_reason 'content_filter' (content policy triggered)`,
+        );
+      }
+      if (finishReason === 'length') {
+        throw new LlmProviderError(
+          'api_error',
+          `OpenAI returned finish_reason 'length' (token truncation)`,
         );
       }
       // Guard B: empty content string cannot be valid JSON — throw before JSON.parse

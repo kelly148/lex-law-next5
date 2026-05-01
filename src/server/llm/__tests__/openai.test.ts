@@ -346,8 +346,8 @@ describe('OpenAiAdapter — finish_reason and empty-content guards (MR-LLM-1 S8)
     );
   }
 
-  // ── T-S8-1 — Guard A: finish_reason='content_filter' throws api_error ──
-  it('T-S8-1: throws LlmProviderError api_error when finish_reason is content_filter (structured output)', async () => {
+  // ── T-S8-1 — Guard A (named-target): finish_reason='content_filter' throws api_error ──
+  it('T-S8-1: throws LlmProviderError api_error when finish_reason is content_filter (named-target guard, structured output)', async () => {
     mockFetch.mockResolvedValueOnce(makeResponse('content_filter', '{"status":"ok"}'));
     const adapter = new OpenAiAdapter('gpt-5');
     await expect(
@@ -363,12 +363,13 @@ describe('OpenAiAdapter — finish_reason and empty-content guards (MR-LLM-1 S8)
       (err: unknown) =>
         err instanceof LlmProviderError &&
         err.errorClass === 'api_error' &&
-        err.message.includes('content_filter'),
+        err.message.includes("content_filter") &&
+        err.message.includes('content policy triggered'),
     );
   });
 
-  // ── T-S8-2 — Guard A: finish_reason='length' throws api_error ──
-  it('T-S8-2: throws LlmProviderError api_error when finish_reason is length (structured output)', async () => {
+  // ── T-S8-2 — Guard A (named-target): finish_reason='length' throws api_error ──
+  it('T-S8-2: throws LlmProviderError api_error when finish_reason is length (named-target guard, structured output)', async () => {
     mockFetch.mockResolvedValueOnce(makeResponse('length', '{"status":"ok"}'));
     const adapter = new OpenAiAdapter('gpt-5');
     await expect(
@@ -384,8 +385,27 @@ describe('OpenAiAdapter — finish_reason and empty-content guards (MR-LLM-1 S8)
       (err: unknown) =>
         err instanceof LlmProviderError &&
         err.errorClass === 'api_error' &&
-        err.message.includes('length'),
+        err.message.includes('length') &&
+        err.message.includes('token truncation'),
     );
+  });
+
+  // ── T-S8-2b — Guard A (failing-open): finish_reason='tool_calls' passes through to parse path ──
+  // Resolution A carryforward: non-named finish_reason values pass through to Guard B and JSON.parse.
+  it('T-S8-2b: finish_reason=tool_calls passes through Guard A and succeeds when content is valid JSON (failing-open default)', async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse('tool_calls', '{"status":"ok"}'));
+    const adapter = new OpenAiAdapter('gpt-5');
+    const result = await adapter.generate({
+      systemPrompt: 'You are a JSON API.',
+      userPrompt: 'Return status ok.',
+      structuredOutputSchema: objectSchema,
+      temperature: 0.4,
+      maxTokens: 32,
+      signal: new AbortController().signal,
+    });
+    // Guard A does NOT fire; content passes through to JSON.parse and Zod validation
+    expect(typeof result.content).toBe('string');
+    expect(result.content).toBe('{"status":"ok"}');
   });
 
   // ── T-S8-3 — Guard B: content=null (rawText='') with finish_reason='stop' throws api_error ──
