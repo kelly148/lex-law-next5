@@ -154,7 +154,7 @@ export class OpenAiAdapter implements LlmClient {
       }
 
       return {
-        content: result.data as Record<string, unknown>,
+        content: rawText,
         tokensPrompt: data.usage.prompt_tokens,
         tokensCompletion: data.usage.completion_tokens,
         providerMetadata: {

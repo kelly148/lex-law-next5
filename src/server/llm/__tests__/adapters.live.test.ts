@@ -113,8 +113,9 @@ liveDescribe('Live: OpenAiAdapter (gpt-5)', () => {
     const adapter = new OpenAiAdapter('gpt-5');
     const result = await adapter.generate({ ...STRUCTURED_PARAMS, signal: makeSignal() });
 
-    expect(typeof result.content).toBe('object');
-    expect((result.content as Record<string, unknown>)['status']).toBe('ok');
+    expect(typeof result.content).toBe('string');
+    const parsed = JSON.parse(result.content as string);
+    expect(parsed.status).toBe('ok');
   });
 
   it('throws LlmProviderError when OPENAI_API_KEY is missing', async () => {
@@ -150,8 +151,9 @@ liveDescribe('Live: GoogleAdapter (gemini-2-5-pro)', () => {
     const adapter = new GoogleAdapter('gemini-2-5-pro');
     const result = await adapter.generate({ ...STRUCTURED_PARAMS, signal: makeSignal() });
 
-    expect(typeof result.content).toBe('object');
-    expect((result.content as Record<string, unknown>)['status']).toBe('ok');
+    expect(typeof result.content).toBe('string');
+    const parsed = JSON.parse(result.content as string);
+    expect(parsed.status).toBe('ok');
   });
 
   it('throws LlmProviderError when GOOGLE_API_KEY is missing', async () => {
