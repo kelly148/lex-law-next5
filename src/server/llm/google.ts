@@ -180,7 +180,7 @@ export class GoogleAdapter implements LlmClient {
       }
 
       return {
-        content: result.data as Record<string, unknown>,
+        content: rawText,
         tokensPrompt: data.usageMetadata.promptTokenCount,
         tokensCompletion: data.usageMetadata.candidatesTokenCount,
         providerMetadata: {

@@ -102,3 +102,210 @@ describe('OpenAiAdapter — request body shape (MR-LLM-1 S2)', () => {
     expect(capturedBody['max_completion_tokens']).toBeUndefined();
   });
 });
+
+// ============================================================
+// MR-LLM-1 S5 — Structured-output return normalization tests
+// ============================================================
+
+import { LlmProviderError } from '../types.js';
+import { RawSuggestionsArraySchema } from '../../llm/parsers/feedbackParser.js';
+
+describe('OpenAiAdapter — structured-output returns rawText string (MR-LLM-1 S5)', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    process.env['OPENAI_API_KEY'] = 'sk-test-dummy';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env['OPENAI_API_KEY'];
+  });
+
+  // ── T1 — Array schema: content is typeof string, NOT array ──
+  it('T1: returns content as string (not array) when structuredOutputSchema is an array schema', async () => {
+    const arrayPayload = JSON.stringify([
+      { title: 'Fix heading', body: 'The heading is inconsistent.', severity: 'major' },
+    ]);
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t1',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: arrayPayload }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const adapter = new OpenAiAdapter('gpt-5');
+    const result = await adapter.generate({
+      systemPrompt: 'You are a reviewer.',
+      userPrompt: 'Review this.',
+      structuredOutputSchema: RawSuggestionsArraySchema,
+      temperature: 0.4,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+
+    expect(typeof result.content).toBe('string');
+    expect(Array.isArray(result.content)).toBe(false);
+  });
+
+  // ── T2 — Array schema: JSON.parse(content) validates against RawSuggestionsArraySchema ──
+  it('T2: JSON.parse(content) validates against RawSuggestionsArraySchema after array-schema call', async () => {
+    const arrayPayload = JSON.stringify([
+      { title: 'Fix heading', body: 'The heading is inconsistent.', severity: 'major' },
+    ]);
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t2',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: arrayPayload }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const adapter = new OpenAiAdapter('gpt-5');
+    const result = await adapter.generate({
+      systemPrompt: 'You are a reviewer.',
+      userPrompt: 'Review this.',
+      structuredOutputSchema: RawSuggestionsArraySchema,
+      temperature: 0.4,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+
+    const parsed = JSON.parse(result.content as string);
+    const validation = RawSuggestionsArraySchema.safeParse(parsed);
+    expect(validation.success).toBe(true);
+  });
+
+  // ── T3 — Array schema: malformed JSON throws LlmProviderError('parse_error') ──
+  it('T3: throws LlmProviderError parse_error when response is malformed JSON for array schema', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t3',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: 'not valid json {{{' }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const adapter = new OpenAiAdapter('gpt-5');
+    await expect(
+      adapter.generate({
+        systemPrompt: 'You are a reviewer.',
+        userPrompt: 'Review this.',
+        structuredOutputSchema: RawSuggestionsArraySchema,
+        temperature: 0.4,
+        maxTokens: 4096,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof LlmProviderError && err.errorClass === 'parse_error',
+    );
+  });
+
+  // ── T4 — Object schema: content is typeof string, NOT object ──
+  it('T4: returns content as string (not object) when structuredOutputSchema is an object schema', async () => {
+    const objectPayload = JSON.stringify({ status: 'ok' });
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t4',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: objectPayload }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const objectSchema = z.object({ status: z.literal('ok') });
+    const adapter = new OpenAiAdapter('gpt-5');
+    const result = await adapter.generate({
+      systemPrompt: 'You are a JSON API.',
+      userPrompt: 'Return status ok.',
+      structuredOutputSchema: objectSchema,
+      temperature: 0.4,
+      maxTokens: 32,
+      signal: new AbortController().signal,
+    });
+
+    expect(typeof result.content).toBe('string');
+    expect(typeof result.content !== 'object').toBe(true);
+  });
+
+  // ── T5 — Object schema: JSON.parse(content) validates against object schema ──
+  it('T5: JSON.parse(content) validates against object schema after object-schema call', async () => {
+    const objectPayload = JSON.stringify({ status: 'ok' });
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t5',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: objectPayload }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const objectSchema = z.object({ status: z.literal('ok') });
+    const adapter = new OpenAiAdapter('gpt-5');
+    const result = await adapter.generate({
+      systemPrompt: 'You are a JSON API.',
+      userPrompt: 'Return status ok.',
+      structuredOutputSchema: objectSchema,
+      temperature: 0.4,
+      maxTokens: 32,
+      signal: new AbortController().signal,
+    });
+
+    const parsed = JSON.parse(result.content as string);
+    const validation = objectSchema.safeParse(parsed);
+    expect(validation.success).toBe(true);
+  });
+
+  // ── T6 — Object schema: malformed JSON throws LlmProviderError('parse_error') ──
+  it('T6: throws LlmProviderError parse_error when response is malformed JSON for object schema', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-t6',
+          model: 'gpt-5',
+          choices: [{ message: { role: 'assistant', content: '{ broken json' }, finish_reason: 'stop', index: 0 }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const objectSchema = z.object({ status: z.literal('ok') });
+    const adapter = new OpenAiAdapter('gpt-5');
+    await expect(
+      adapter.generate({
+        systemPrompt: 'You are a JSON API.',
+        userPrompt: 'Return status ok.',
+        structuredOutputSchema: objectSchema,
+        temperature: 0.4,
+        maxTokens: 32,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof LlmProviderError && err.errorClass === 'parse_error',
+    );
+  });
+});
