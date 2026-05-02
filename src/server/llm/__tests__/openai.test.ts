@@ -527,3 +527,172 @@ describe('OpenAiAdapter — finish_reason and empty-content guards (MR-LLM-1 S8)
     expect(result.content).toBe('');
   });
 });
+
+// ============================================================
+// MR-LLM-1 S11 — GPT-5 reviewer maxTokens increase tests
+// ============================================================
+describe('OpenAiAdapter — GPT-5 reviewer maxTokens increase (MR-LLM-1 S11)', () => {
+  let capturedBody: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockFetch: any;
+  const reviewerSchema = z.array(
+    z.object({
+      title: z.string(),
+      body: z.string(),
+      severity: z.enum(['critical', 'major', 'minor']),
+    }),
+  );
+  beforeEach(() => {
+    capturedBody = {};
+    mockFetch = vi.fn((_url: unknown, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-s11',
+          model: 'gpt-5',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: JSON.stringify([
+                  { title: 'Test issue', body: 'Test body', severity: 'minor' },
+                ]),
+              },
+              finish_reason: 'stop',
+              index: 0,
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 200, total_tokens: 300 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', mockFetch);
+    process.env['OPENAI_API_KEY'] = 'sk-test-dummy';
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env['OPENAI_API_KEY'];
+  });
+  // ── T-S11-1 — GPT-5 reviewer-feedback path sends max_completion_tokens=8192 ──
+  it('T-S11-1: GPT-5 reviewer-feedback path constructs request with max_completion_tokens=8192', async () => {
+    const adapter = new OpenAiAdapter('gpt-5');
+    await adapter.generate({
+      systemPrompt: 'You are a legal document reviewer (gpt).',
+      userPrompt: 'Review this document.',
+      temperature: 0.4,
+      maxTokens: 8192,
+      structuredOutputSchema: reviewerSchema,
+      signal: new AbortController().signal,
+    });
+    expect(capturedBody['max_completion_tokens']).toBe(8192);
+    expect(capturedBody['max_tokens']).toBeUndefined();
+  });
+  // ── T-S11-2 — S8 Guard A (content_filter) still fires after S11 change ──
+  it('T-S11-2: S8 content_filter guard preserved — throws api_error with finish_reason content_filter after S11', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-s11-2',
+          model: 'gpt-5',
+          choices: [
+            {
+              message: { role: 'assistant', content: '{"status":"ok"}' },
+              finish_reason: 'content_filter',
+              index: 0,
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 8192, total_tokens: 8292 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const adapter = new OpenAiAdapter('gpt-5');
+    await expect(
+      adapter.generate({
+        systemPrompt: 'You are a legal document reviewer (gpt).',
+        userPrompt: 'Review this document.',
+        temperature: 0.4,
+        maxTokens: 8192,
+        structuredOutputSchema: reviewerSchema,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof LlmProviderError &&
+        err.errorClass === 'api_error' &&
+        err.message.includes('content_filter'),
+    );
+  });
+  // ── T-S11-3 — S8 Guard A (length) still fires after S11 change ──
+  it('T-S11-3: S8 length guard preserved — throws api_error with finish_reason length after S11', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-s11-3',
+          model: 'gpt-5',
+          choices: [
+            {
+              message: { role: 'assistant', content: '{"status":"ok"}' },
+              finish_reason: 'length',
+              index: 0,
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 8192, total_tokens: 8292 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const adapter = new OpenAiAdapter('gpt-5');
+    await expect(
+      adapter.generate({
+        systemPrompt: 'You are a legal document reviewer (gpt).',
+        userPrompt: 'Review this document.',
+        temperature: 0.4,
+        maxTokens: 8192,
+        structuredOutputSchema: reviewerSchema,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof LlmProviderError &&
+        err.errorClass === 'api_error' &&
+        err.message.includes("finish_reason 'length'"),
+    );
+  });
+  // ── T-S11-4 — Non-reviewer-feedback paths (gpt-4o) are unaffected by S11 ──
+  it('T-S11-4: non-reviewer-feedback path (gpt-4o) still uses max_tokens and is unaffected by S11', async () => {
+    // Use mockImplementationOnce so capturedBody is populated AND the response is returned
+    mockFetch.mockImplementationOnce((_url: unknown, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string) as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 'chatcmpl-s11-4',
+            model: 'gpt-4o',
+            choices: [
+              {
+                message: { role: 'assistant', content: 'plain text response' },
+                finish_reason: 'stop',
+                index: 0,
+              },
+            ],
+            usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+    const adapter = new OpenAiAdapter('gpt-4o');
+    await adapter.generate({
+      systemPrompt: 'You are a drafter.',
+      userPrompt: 'Draft this.',
+      temperature: 0.3,
+      maxTokens: 4096,
+      signal: new AbortController().signal,
+    });
+    // gpt-4o uses max_tokens, not max_completion_tokens; value unchanged at 4096
+    expect(capturedBody['max_tokens']).toBe(4096);
+    expect(capturedBody['max_completion_tokens']).toBeUndefined();
+  });
+});

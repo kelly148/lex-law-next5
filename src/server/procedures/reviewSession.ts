@@ -179,7 +179,7 @@ export const reviewSessionRouter = router({
             systemPrompt,
             userPrompt,
             temperature: 0.4,
-            maxTokens: 4096,
+            maxTokens: 8192, // MR-LLM-1 S11: raised from 4096 to 8192 to remediate finish_reason='length' truncation (H2 confirmed in S10)
             structuredOutputSchema: RawSuggestionsArraySchema,
           }),
           // S3b (MR-1): Parse LLM output and persist to feedback table
