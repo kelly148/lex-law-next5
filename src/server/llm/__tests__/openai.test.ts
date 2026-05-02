@@ -574,19 +574,37 @@ describe('OpenAiAdapter — GPT-5 reviewer maxTokens increase (MR-LLM-1 S11)', (
     vi.unstubAllGlobals();
     delete process.env['OPENAI_API_KEY'];
   });
-  // ── T-S11-1 — GPT-5 reviewer-feedback path sends max_completion_tokens=8192 ──
-  it('T-S11-1: GPT-5 reviewer-feedback path constructs request with max_completion_tokens=8192', async () => {
+  // ── T-S11-1 — GPT-5 reviewer-feedback path sends max_completion_tokens=16384 (updated by S12) ──
+  it('T-S11-1: GPT-5 reviewer-feedback path constructs request with max_completion_tokens=16384', async () => {
     const adapter = new OpenAiAdapter('gpt-5');
     await adapter.generate({
       systemPrompt: 'You are a legal document reviewer (gpt).',
       userPrompt: 'Review this document.',
       temperature: 0.4,
-      maxTokens: 8192,
+      maxTokens: 16384,
       structuredOutputSchema: reviewerSchema,
       signal: new AbortController().signal,
     });
-    expect(capturedBody['max_completion_tokens']).toBe(8192);
+    expect(capturedBody['max_completion_tokens']).toBe(16384);
     expect(capturedBody['max_tokens']).toBeUndefined();
+  });
+  // ── T-S12-1 — GPT-5 reviewer-feedback path sends max_completion_tokens=16384 (S12 load-bearing) ──
+  it('T-S12-1: GPT-5 reviewer-feedback path constructs request with max_completion_tokens=16384 (S12 model-ceiling budget)', async () => {
+    const adapter = new OpenAiAdapter('gpt-5');
+    await adapter.generate({
+      systemPrompt: 'You are a legal document reviewer (gpt).',
+      userPrompt: 'Review this document for a Last Will Testament.',
+      temperature: 0.4,
+      maxTokens: 16384,
+      structuredOutputSchema: reviewerSchema,
+      signal: new AbortController().signal,
+    });
+    // S12 load-bearing assertion: max_completion_tokens must be 16384 (model ceiling floor)
+    expect(capturedBody['max_completion_tokens']).toBe(16384);
+    // max_tokens must not be set for gpt-5 (uses max_completion_tokens, not max_tokens)
+    expect(capturedBody['max_tokens']).toBeUndefined();
+    // temperature must not be set for gpt-5 (o-series / gpt-5 do not support temperature)
+    expect(capturedBody['temperature']).toBeUndefined();
   });
   // ── T-S11-2 — S8 Guard A (content_filter) still fires after S11 change ──
   it('T-S11-2: S8 content_filter guard preserved — throws api_error with finish_reason content_filter after S11', async () => {
