@@ -182,6 +182,12 @@ export const reviewSessionRouter = router({
             maxTokens: 16384, // MR-LLM-1 S12: raised from 8192 to 16384 (model ceiling floor) to handle any legal document size; supersedes S11 8192 budget
             structuredOutputSchema: RawSuggestionsArraySchema,
           }),
+          // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
+          // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default
+          // is insufficient. 300 000 ms (5 min) gives a safe margin for all four
+          // reviewer adapters (Claude, GPT, Gemini, Grok) at any document size.
+          // Non-reviewer jobs continue to use the global 120 000 ms default.
+          timeoutMs: 300_000,
           // S3b (MR-1): Parse LLM output and persist to feedback table
           txn2Commit: async ({ jobId, output }) => {
             const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);

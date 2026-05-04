@@ -14,6 +14,14 @@
  *   When structuredOutputSchema is provided, we enable JSON mode and validate
  *   the response against the Zod schema (Ch 22.7).
  *
+ *   NOTE: json_object mode requires GPT to return a JSON *object*, not a bare
+ *   array. GPT-5 therefore wraps reviewer-feedback arrays in an object wrapper
+ *   such as { "feedback": [...] } or { "suggestions": [...] }. This is the
+ *   live-confirmed failure mechanism (MR-LLM-GPT-1): Zod validation against
+ *   RawSuggestionsArraySchema (z.array(...)) fails with "Expected array,
+ *   received object". normalizeOpenAiStructuredOutput() extracts the array
+ *   from an unambiguous single-key wrapper before Zod validation.
+ *
  * ERROR TAXONOMY (Ch 22.6):
  *   - AbortError → timeout (propagated to dispatcher)
  *   - HTTP 4xx/5xx → api_error
@@ -56,6 +64,56 @@ interface OpenAiResponse {
 }
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+
+// ============================================================
+// MR-LLM-GPT-1: OpenAI structured-output object-wrapper normalization
+// ============================================================
+/**
+ * Normalize the parsed value from an OpenAI json_object response when the
+ * expected schema is a bare array (e.g. RawSuggestionsArraySchema).
+ *
+ * OpenAI's json_object mode requires the model to return a JSON object, so
+ * GPT-5 wraps reviewer-feedback arrays in a single-key object such as:
+ *   { "feedback": [...] }
+ *   { "suggestions": [...] }
+ *   { "items": [...] }
+ *   { "result": [...] }
+ *
+ * Normalization rules (identical to MR-LLM-GROK-1 normalizeGrokStructuredOutput):
+ *   - If the value is already an array → return as-is (no-op).
+ *   - If the value is a plain object with exactly one property whose value is
+ *     an array → extract and return that array.
+ *   - All other cases → return the value unchanged; Zod validation will fail
+ *     with a typed parse_error.
+ *
+ * This function does NOT weaken the canonical schema. RawSuggestionsArraySchema
+ * remains a z.array(...). Normalization happens before Zod validation.
+ *
+ * @param value - The parsed JSON value from the OpenAI response.
+ * @returns The normalized value (array if wrapper was extracted, original otherwise).
+ */
+export function normalizeOpenAiStructuredOutput(value: unknown): unknown {
+  // Direct array — pass through unchanged
+  if (Array.isArray(value)) {
+    return value;
+  }
+  // Plain object with exactly one property whose value is an array — extract it
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  ) {
+    const keys = Object.keys(value as Record<string, unknown>);
+    if (keys.length === 1) {
+      const inner = (value as Record<string, unknown>)[keys[0]!];
+      if (Array.isArray(inner)) {
+        return inner;
+      }
+    }
+  }
+  // All other cases — return unchanged; Zod will reject with parse_error
+  return value;
+}
 
 export class OpenAiAdapter implements LlmClient {
   constructor(private readonly modelId: string) {}
@@ -169,7 +227,20 @@ export class OpenAiAdapter implements LlmClient {
         );
       }
 
-      const result = (structuredOutputSchema as z.ZodSchema).safeParse(parsed);
+      // MR-LLM-GPT-1: normalize object wrapper before Zod validation.
+      // OpenAI json_object mode requires GPT to return an object, so GPT-5 wraps
+      // reviewer-feedback arrays in a single-key wrapper. Extract the array if
+      // present; pass through unchanged otherwise (Zod will reject with parse_error).
+      const normalized = normalizeOpenAiStructuredOutput(parsed);
+
+      // Re-serialize if normalization extracted a wrapper, so that content is
+      // always a JSON string of the canonical array (consistent with the
+      // non-wrapped path and with the xAI adapter after MR-LLM-GROK-1).
+      const effectiveRawText = normalized !== parsed
+        ? JSON.stringify(normalized)
+        : rawText;
+
+      const result = (structuredOutputSchema as z.ZodSchema).safeParse(normalized);
       if (!result.success) {
         throw new LlmProviderError(
           'parse_error',
@@ -179,7 +250,7 @@ export class OpenAiAdapter implements LlmClient {
       }
 
       return {
-        content: rawText,
+        content: effectiveRawText,
         tokensPrompt: data.usage.prompt_tokens,
         tokensCompletion: data.usage.completion_tokens,
         providerMetadata: {

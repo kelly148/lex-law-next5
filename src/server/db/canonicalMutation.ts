@@ -109,6 +109,15 @@ export interface CanonicalMutationParams {
    * Called inside a DB transaction after the LLM call fails or times out.
    */
   txn2Revert: (params: Txn2RevertParams) => Promise<void>;
+  /**
+   * Optional per-call LLM fetch timeout in milliseconds.
+   * Overrides the global DEFAULT_LLM_FETCH_TIMEOUT_MS for this specific job.
+   * Use only for job types whose provider is known to require a longer budget
+   * (e.g. reviewer_feedback with gpt-5 which has TTFT > 80s at high load).
+   * Defaults to getLlmFetchTimeoutMs() (120 000 ms) when not set.
+   * MR-LLM-GPT-1: introduced to allow reviewer_feedback to use 300 000 ms.
+   */
+  timeoutMs?: number;
   /** Telemetry context for all events emitted during this mutation */
   telemetryCtx: TelemetryContext;
 }
@@ -211,6 +220,7 @@ export async function executeCanonicalMutation(
     txn2Commit,
     txn2Revert,
     telemetryCtx,
+    timeoutMs,
   } = params;
 
   const jobId = uuidv4();
@@ -270,7 +280,10 @@ export async function executeCanonicalMutation(
   // Between transactions: LLM call
   // ──────────────────────────────────────────────────────────
   const abortController = new AbortController();
-  const timeoutSignal = AbortSignal.timeout(getLlmFetchTimeoutMs());
+  // MR-LLM-GPT-1: use caller-supplied timeoutMs when provided (e.g. reviewer_feedback
+  // with gpt-5 needs 300 000 ms); fall back to global default for all other jobs.
+  const effectiveTimeoutMs = timeoutMs ?? getLlmFetchTimeoutMs();
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
 
   // Combine timeout signal with the job's abort controller
   // so job.cancel can fire the abort
@@ -353,7 +366,7 @@ export async function executeCanonicalMutation(
       await jw.markJobTimedOut(jobId, userId, `Job timed out after ${elapsedMs}ms`);
       void emitTelemetry(
         'job_timed_out',
-        { jobType, timeoutMs: getLlmFetchTimeoutMs(), elapsedMs },
+        { jobType, timeoutMs: effectiveTimeoutMs, elapsedMs },
         { ...telemetryCtx, jobId },
       );
       return { jobId, status: 'timed_out' };
