@@ -620,9 +620,11 @@ export default function DocumentDetail(): React.ReactElement {
   );
 
   // MR-FINALIZE-EXPORT-2: latest formatting job for diagnostic banner
+  // MR-FINALIZE-EXPORT-3: also filter by active documentId to prevent stale jobs
+  // from other documents appearing in the banner after navigation or hard refresh.
   const allJobs = useDocumentJobs(documentId ?? '');
   const latestFormattingJob = allJobs
-    .filter((j) => j.jobType === 'formatting')
+    .filter((j) => j.jobType === 'formatting' && j.documentId === (documentId ?? null))
     .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime())[0] ?? null;
 
   if (!documentId || !matterId) return <div className="p-6 text-red-600">Invalid document ID.</div>;
