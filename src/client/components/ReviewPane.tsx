@@ -539,11 +539,13 @@ function CompletedWithoutFeedbackView({
 interface FailedReviewViewProps {
   reviewerTitle: string;
   sessionId: string;
+  errorMessage: string | null;
   onAbandon: () => void;
   abandonPending: boolean;
 }
 function FailedReviewView({
   reviewerTitle,
+  errorMessage,
   onAbandon,
   abandonPending,
 }: FailedReviewViewProps): React.ReactElement {
@@ -555,6 +557,9 @@ function FailedReviewView({
         <p className="text-xs text-gray-400 mt-1">
           {reviewerTitle} — this may be a temporary LLM provider error or timeout.
         </p>
+        {errorMessage && errorMessage.trim() !== '' && (
+          <p className="text-xs text-gray-500 mt-1 font-mono">{errorMessage}</p>
+        )}
       </div>
       <div className="text-xs text-gray-500 text-left border border-red-100 rounded p-3 bg-red-50">
         <p>Abandon this session and start a new review session to try again.</p>
@@ -786,6 +791,9 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
               'Reviewer'
             }
             sessionId={sessionId}
+            errorMessage={
+              jobs.find((j) => j.jobType === 'reviewer_feedback')?.errorMessage ?? null
+            }
             onAbandon={() => abandonMutation.mutate({ sessionId })}
             abandonPending={abandonMutation.isPending}
           />
