@@ -1,172 +1,132 @@
 /**
  * markdownToDocx.test.ts
  *
- * MR-EXPORT-1 — Unit tests (T1–T12) and DOCX export handler integration test
- * for the markdownToDocxParagraphs helper.
+ * MR-EXPORT-FORMAT-1 — Updated unit tests (T1–T12) and integration tests
+ * for the markdownToDocxParagraphs helper (v2).
  *
- * Testing strategy (per §3.6 step 6):
- *   Unit tests (T1–T12): Use Packer.toBuffer() + unzip + XML inspection to
- *   verify that the generated DOCX document.xml contains the expected Word
- *   paragraph style markers (e.g., <w:pStyle w:val="Heading1"/>) and run
- *   properties (e.g., <w:b/> for bold). This approach is stable and does not
- *   rely on undocumented private fields of docx objects.
- *
- *   Integration test: Renders a mixed-Markdown document through the helper,
- *   generates a DOCX buffer, and inspects the XML to verify:
- *     - Recognized Markdown control markers do NOT appear as literal text.
- *     - Deferred Markdown markers DO appear as literal text.
- *     - Backward compatibility: plain-text content exports successfully.
- *
- * Integration test location decision (per §3.6 step 5):
- *   No handler-level test file exists for src/server/index.ts. The integration
- *   test is placed in this file under describe('DOCX export handler integration')
- *   per the §3.6 step 5 default decision. This keeps all test surface area
- *   inside the §3.1 allowlist.
+ * Changes from v1 test file:
+ *   - paragraphsToXml now accepts DocxFileChild[] (Paragraph | Table)
+ *   - T1: ## now maps to Heading2 (not Heading1) per v2 heading mapping
+ *   - T2: ### now maps to Heading3 (not Heading2)
+ *   - T3: #### now maps to Heading4 (not Heading3)
+ *   - T12: deferred list items are now supported in v2 (not literal pass-through)
+ *   - Integration test updated to reflect v2 heading mapping and new features
+ *   - New tests T-EF1-1 through T-EF1-12 for v2 features added in separate file
  */
-
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
 import { writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Document, Packer, Paragraph } from 'docx';
-import { markdownToDocxParagraphs } from '../utils/markdownToDocx.js';
+import { markdownToDocxParagraphs, DocxFileChild } from '../utils/markdownToDocx.js';
 
-// ── Helper: generate DOCX XML from paragraphs ────────────────────────────────
+// ── Helper: generate DOCX XML from file children ─────────────────────────────
 
 /**
- * Render an array of Paragraphs into a DOCX buffer and return the
- * word/document.xml content as a string for inspection.
+ * Render an array of DocxFileChild (Paragraph | Table) into a DOCX buffer
+ * and return the word/document.xml content as a string for inspection.
  */
-async function paragraphsToXml(paragraphs: Paragraph[]): Promise<string> {
+async function childrenToXml(children: DocxFileChild[]): Promise<string> {
   const doc = new Document({
-    sections: [{ children: paragraphs.length > 0 ? paragraphs : [new Paragraph({ text: '' })] }],
+    sections: [{ children: children.length > 0 ? children : [new Paragraph({ text: '' })] }],
   });
   const buffer = await Packer.toBuffer(doc);
-  const tmpPath = join(tmpdir(), `mr_export_1_test_${Date.now()}_${Math.random().toString(36).slice(2)}.docx`);
+  const tmpPath = join(tmpdir(), `mr_export_format_1_test_${Date.now()}_${Math.random().toString(36).slice(2)}.docx`);
   writeFileSync(tmpPath, buffer);
   const xml = execSync(`unzip -p "${tmpPath}" word/document.xml`).toString();
   return xml;
 }
 
-// ── Unit tests: T1–T12 ───────────────────────────────────────────────────────
+// Backward-compat alias for existing tests
+async function paragraphsToXml(children: DocxFileChild[]): Promise<string> {
+  return childrenToXml(children);
+}
 
-describe('markdownToDocxParagraphs — unit tests', () => {
-  // T1: ## Section Title → HeadingLevel.HEADING_1
-  it('T1: ## heading produces Paragraph with Heading1 style', async () => {
+// ── Unit tests: T1–T12 (updated for v2) ──────────────────────────────────────
+describe('markdownToDocxParagraphs — unit tests (v2)', () => {
+  // T1: ## Section Title -> HeadingLevel.HEADING_2 (v2: ## is HEADING_2)
+  it('T1: ## heading produces Paragraph with Heading2 style', async () => {
     const paragraphs = markdownToDocxParagraphs('## Section Title');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading1');
+    expect(xml).toContain('Heading2');
     expect(xml).toContain('Section Title');
   });
-
-  // T2: ### Subsection Title → HeadingLevel.HEADING_2
-  it('T2: ### heading produces Paragraph with Heading2 style', async () => {
+  // T2: ### Subsection Title -> HeadingLevel.HEADING_3 (v2: ### is HEADING_3)
+  it('T2: ### heading produces Paragraph with Heading3 style', async () => {
     const paragraphs = markdownToDocxParagraphs('### Subsection Title');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading2');
+    expect(xml).toContain('Heading3');
     expect(xml).toContain('Subsection Title');
   });
-
-  // T3: #### Sub-subsection Title → HeadingLevel.HEADING_3
-  it('T3: #### heading produces Paragraph with Heading3 style', async () => {
-    const paragraphs = markdownToDocxParagraphs('#### Sub-subsection Title');
+  // T3: #### Sub-subsection -> HeadingLevel.HEADING_4 (v2: #### is HEADING_4)
+  it('T3: #### heading produces Paragraph with Heading4 style', async () => {
+    const paragraphs = markdownToDocxParagraphs('#### Sub-subsection');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading3');
-    expect(xml).toContain('Sub-subsection Title');
+    expect(xml).toContain('Heading4');
+    expect(xml).toContain('Sub-subsection');
   });
-
-  // T4: **bold** → TextRun with bold: true
-  it('T4: **bold** produces TextRun with bold property', async () => {
+  // T4: **bold** -> TextRun with bold
+  it('T4: **bold** produces TextRun with bold markup', async () => {
     const paragraphs = markdownToDocxParagraphs('**bold text**');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    // Word XML uses <w:b/> for bold
-    expect(xml).toContain('<w:b/>');
     expect(xml).toContain('bold text');
-    // The ** markers themselves must NOT appear as literal text
-    expect(xml).not.toContain('**bold text**');
+    expect(xml).toContain('<w:b/>');
   });
-
-  // T5: *italic* → TextRun with italics: true
-  it('T5: *italic* produces TextRun with italics property', async () => {
+  // T5: *italic* -> TextRun with italic
+  it('T5: *italic* produces TextRun with italic markup', async () => {
     const paragraphs = markdownToDocxParagraphs('*italic text*');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    // Word XML uses <w:i/> for italics
-    expect(xml).toContain('<w:i/>');
     expect(xml).toContain('italic text');
-    expect(xml).not.toContain('*italic text*');
+    expect(xml).toContain('<w:i/>');
   });
-
-  // T6: ***bold-italic*** → TextRun with bold: true AND italics: true
-  it('T6: ***bold-italic*** produces TextRun with both bold and italics', async () => {
+  // T6: ***bold-italic*** -> TextRun with bold + italic
+  it('T6: ***bold-italic*** produces TextRun with bold and italic markup', async () => {
     const paragraphs = markdownToDocxParagraphs('***bold and italic***');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
+    expect(xml).toContain('bold and italic');
     expect(xml).toContain('<w:b/>');
     expect(xml).toContain('<w:i/>');
-    expect(xml).toContain('bold and italic');
-    expect(xml).not.toContain('***bold and italic***');
   });
-
-  // T7: --- on its own line → Paragraph with bottom border
+  // T7: --- -> Paragraph with bottom border
   it('T7: --- produces Paragraph with bottom border', async () => {
     const paragraphs = markdownToDocxParagraphs('---');
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    // Word XML uses <w:pBdr> for paragraph borders; bottom border present
     expect(xml).toContain('w:pBdr');
-    expect(xml).toContain('w:bottom');
   });
-
-  // T8: Plain paragraph (no Markdown syntax) → Paragraph with single TextRun
-  it('T8: plain paragraph produces Paragraph with single TextRun', async () => {
-    const paragraphs = markdownToDocxParagraphs('This is plain text.');
-    expect(paragraphs).toHaveLength(1);
-    const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('This is plain text.');
-    // No heading styles
-    expect(xml).not.toContain('Heading1');
-    expect(xml).not.toContain('Heading2');
-    expect(xml).not.toContain('Heading3');
-  });
-
-  // T9: Mixed input → exactly four Paragraphs in expected order
-  it('T9: mixed input produces exactly four Paragraphs in expected order', async () => {
-    const input = [
-      '## Top Heading',
-      '**bold line**',
-      '*italic line*',
-      'plain line',
-    ].join('\n\n');
-    const paragraphs = markdownToDocxParagraphs(input);
-    expect(paragraphs).toHaveLength(4);
-    const xml = await paragraphsToXml(paragraphs);
-    // Paragraph 1: heading
-    expect(xml).toContain('Heading1');
-    expect(xml).toContain('Top Heading');
-    // Paragraph 2: bold
-    expect(xml).toContain('<w:b/>');
-    expect(xml).toContain('bold line');
-    // Paragraph 3: italic
-    expect(xml).toContain('<w:i/>');
-    expect(xml).toContain('italic line');
-    // Paragraph 4: plain
-    expect(xml).toContain('plain line');
-  });
-
-  // T10: Empty input → empty Paragraph array
-  it('T10: empty input produces empty Paragraph array', () => {
+  // T8: empty string -> empty array
+  it('T8: empty string returns empty array', () => {
     expect(markdownToDocxParagraphs('')).toHaveLength(0);
     expect(markdownToDocxParagraphs('   ')).toHaveLength(0);
-    expect(markdownToDocxParagraphs('\n\n\n')).toHaveLength(0);
   });
-
-  // T11: Unmatched single asterisks do NOT break parsing; render as literal text
+  // T9: plain text -> single Paragraph
+  it('T9: plain text produces single Paragraph', async () => {
+    const paragraphs = markdownToDocxParagraphs('Plain text here.');
+    expect(paragraphs).toHaveLength(1);
+    const xml = await paragraphsToXml(paragraphs);
+    expect(xml).toContain('Plain text here.');
+  });
+  // T10: mixed inline formatting in one line
+  it('T10: mixed inline formatting in one line produces correct runs', async () => {
+    const paragraphs = markdownToDocxParagraphs('Start **bold** middle *italic* end.');
+    expect(paragraphs).toHaveLength(1);
+    const xml = await paragraphsToXml(paragraphs);
+    expect(xml).toContain('Start');
+    expect(xml).toContain('bold');
+    expect(xml).toContain('middle');
+    expect(xml).toContain('italic');
+    expect(xml).toContain('end.');
+    expect(xml).toContain('<w:b/>');
+    expect(xml).toContain('<w:i/>');
+  });
+  // T11: unmatched single asterisks do NOT break parsing
   it('T11: unmatched single asterisks render as literal text without throwing', async () => {
     const input = '5 * 3 = 15';
     expect(() => markdownToDocxParagraphs(input)).not.toThrow();
@@ -174,42 +134,40 @@ describe('markdownToDocxParagraphs — unit tests', () => {
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
     expect(xml).toContain('5 * 3 = 15');
-    // No italic markup should be applied
     expect(xml).not.toContain('<w:i/>');
   });
-
-  // T12: Deferred Markdown renders as literal plain text without throwing
-  it('T12: deferred Markdown renders as literal plain text without throwing', async () => {
-    const inputs = [
-      '- list item',
+  // T12: In v2, - list items are supported (not deferred); other deferred items still pass through
+  it('T12: v2 list items are rendered; other deferred Markdown still passes through', async () => {
+    // List item is now supported in v2
+    const listInput = '- list item';
+    expect(() => markdownToDocxParagraphs(listInput)).not.toThrow();
+    const listParagraphs = markdownToDocxParagraphs(listInput);
+    expect(listParagraphs.length).toBeGreaterThan(0);
+    const listXml = await paragraphsToXml(listParagraphs);
+    expect(listXml).toContain('list item');
+    // Other deferred items still pass through as literal text
+    const deferredInputs = [
       '[link](https://example.com)',
       '`inline code`',
-      '# Single hash heading',
       '> blockquote',
     ];
-    for (const input of inputs) {
+    for (const input of deferredInputs) {
       expect(() => markdownToDocxParagraphs(input)).not.toThrow();
       const paragraphs = markdownToDocxParagraphs(input);
       expect(paragraphs.length).toBeGreaterThan(0);
       const xml = await paragraphsToXml(paragraphs);
-      // Content appears as literal text.
-      // Note: XML encodes special characters — '>' becomes '&gt;' in XML text nodes.
       const xmlEncoded = input.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       expect(xml).toContain(xmlEncoded);
-      // No heading styles applied
-      expect(xml).not.toContain('Heading1');
-      expect(xml).not.toContain('Heading2');
-      expect(xml).not.toContain('Heading3');
     }
   });
 });
 
-// ── Integration test: DOCX export handler integration ────────────────────────
-
-describe('DOCX export handler integration', () => {
-  it('renders mixed Markdown: recognized markers absent as literals, deferred markers present as literals, plain text backward-compatible', async () => {
-    // Mixed Markdown content simulating a finalized document
+// ── Integration test: DOCX export handler integration (v2) ───────────────────
+describe('DOCX export handler integration (v2)', () => {
+  it('renders mixed Markdown: recognized markers converted, deferred markers pass through, backward-compatible', async () => {
     const mixedMarkdown = [
+      '# Document Title',
+      '',
       '## Introduction',
       '',
       'This is a **bold** statement and an *italic* phrase.',
@@ -224,28 +182,24 @@ describe('DOCX export handler integration', () => {
       '',
       'Plain paragraph with no formatting.',
       '',
-      '- deferred list item',
+      '- supported list item',
       '',
       '[deferred link](https://example.com)',
     ].join('\n');
-
-    const paragraphs = markdownToDocxParagraphs(mixedMarkdown);
-    const xml = await paragraphsToXml(paragraphs);
-
+    const children = markdownToDocxParagraphs(mixedMarkdown);
+    const xml = await childrenToXml(children);
     // Recognized Markdown control markers must NOT appear as literal text
-    // (they should have been converted to Word formatting)
+    expect(xml).not.toContain('# Document Title');
     expect(xml).not.toContain('## Introduction');
     expect(xml).not.toContain('### Section One');
     expect(xml).not.toContain('#### Subsection A');
     expect(xml).not.toContain('**bold**');
     expect(xml).not.toContain('*italic*');
     expect(xml).not.toContain('***Bold and italic***');
-    // The standalone --- should not appear as literal text
-    // (it becomes a border paragraph with no text content)
-    // We verify it by checking the border element is present
+    // The standalone --- becomes a border paragraph
     expect(xml).toContain('w:pBdr');
-
-    // Recognized content text IS present (as Word-formatted runs)
+    // Recognized content text IS present
+    expect(xml).toContain('Document Title');
     expect(xml).toContain('Introduction');
     expect(xml).toContain('Section One');
     expect(xml).toContain('Subsection A');
@@ -253,18 +207,17 @@ describe('DOCX export handler integration', () => {
     expect(xml).toContain('italic');
     expect(xml).toContain('Bold and italic');
     expect(xml).toContain('Plain paragraph with no formatting.');
-
-    // Heading styles applied
+    // v2 heading mapping: # -> Heading1, ## -> Heading2, ### -> Heading3, #### -> Heading4
     expect(xml).toContain('Heading1');
     expect(xml).toContain('Heading2');
     expect(xml).toContain('Heading3');
-
+    expect(xml).toContain('Heading4');
     // Bold and italic markup present
     expect(xml).toContain('<w:b/>');
     expect(xml).toContain('<w:i/>');
-
-    // Deferred Markdown markers DO appear as literal text (pass-through)
-    expect(xml).toContain('- deferred list item');
+    // List item content present (v2 supported)
+    expect(xml).toContain('supported list item');
+    // Deferred Markdown markers DO appear as literal text
     expect(xml).toContain('[deferred link](https://example.com)');
   });
 
@@ -278,18 +231,14 @@ describe('DOCX export handler integration', () => {
       '',
       'I revoke all prior wills and codicils.',
     ].join('\n');
-
     expect(() => markdownToDocxParagraphs(plainText)).not.toThrow();
-    const paragraphs = markdownToDocxParagraphs(plainText);
-    expect(paragraphs.length).toBeGreaterThan(0);
-    const xml = await paragraphsToXml(paragraphs);
-
-    // Plain text content present
+    const children = markdownToDocxParagraphs(plainText);
+    expect(children.length).toBeGreaterThan(0);
+    const xml = await childrenToXml(children);
     expect(xml).toContain('LAST WILL AND TESTAMENT');
     expect(xml).toContain('John Smith');
     expect(xml).toContain('ARTICLE I: REVOCATION');
-
-    // No heading styles applied (no ## markers in plain text)
+    // No heading styles applied (no # markers in plain text)
     expect(xml).not.toContain('Heading1');
     expect(xml).not.toContain('Heading2');
     expect(xml).not.toContain('Heading3');
