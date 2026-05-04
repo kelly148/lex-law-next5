@@ -97,14 +97,14 @@ describe('MR-EXPORT-FORMAT-2 — Satterwhite house-style pack', () => {
     // Article heading text present
     expect(xml).toContain('ARTICLE I');
 
-    // Centered alignment: docx renders AlignmentType.CENTER as "center" in XML
-    expect(xml).toContain('center');
+    // v4: section headers use left alignment with two-paragraph pattern (not centered)
+    expect(xml).toContain('left'); // v4: jc val=left for section headings
 
     // Navy color present on title/heading runs
-    expect(xml).toContain('1F3864');
+    expect(xml).toContain('1f3864'); // v4: lowercase hex
 
     // Gold border present on title/article headings
-    expect(xml).toContain('BF8F00');
+    expect(xml).toContain('bf8f00'); // v4: lowercase hex
 
     // Section heading text present
     expect(xml).toContain('Section 2.1');
@@ -115,9 +115,10 @@ describe('MR-EXPORT-FORMAT-2 — Satterwhite house-style pack', () => {
     const children = markdownToDocxParagraphs('# VIRGINIA DURABLE FINANCIAL POWER OF ATTORNEY');
     const xml = await childrenToXml(children);
     expect(xml).toContain('VIRGINIA DURABLE FINANCIAL POWER OF ATTORNEY');
-    expect(xml).toContain('center');
-    expect(xml).toContain('1F3864');
-    expect(xml).toContain('BF8F00');
+    // v4: section headers use left alignment with two-paragraph pattern
+    expect(xml).toContain('left'); // v4: jc val=left
+    expect(xml).toContain('1f3864'); // v4: lowercase hex
+    expect(xml).toContain('bf8f00'); // v4: lowercase hex
   });
 
   // T-EXPORT-FORMAT-2-2: Adds Satterwhite footer with page numbering
@@ -171,7 +172,7 @@ describe('MR-EXPORT-FORMAT-2 — Satterwhite house-style pack', () => {
 
     // Drafter note: red color and italic
     expect(xml).toContain('Confirm address before delivery.');
-    expect(xml).toContain('C00000');
+    expect(xml).toContain('c00000'); // v4: lowercase hex
     expect(xml).toContain('<w:i/>');
   });
 
@@ -211,10 +212,10 @@ describe('MR-EXPORT-FORMAT-2 — Satterwhite house-style pack', () => {
     expect(xml).toContain('Prepared by');
 
     // Execution lead-in and signature labels should have navy color
-    expect(xml).toContain('1F3864');
+    expect(xml).toContain('1f3864'); // v4: lowercase hex
 
-    // Centered alignment present (for execution lead-in)
-    expect(xml).toContain('center');
+    // v4: execution lead-in uses left alignment (not centered)
+    expect(xml).toContain('left'); // v4: jc val=left
 
     // Substantive text not altered — verify key strings unchanged
     expect(xml).toContain('Kelly Satterwhite, Esq.');
@@ -244,14 +245,14 @@ describe('MR-EXPORT-FORMAT-2 — Satterwhite house-style pack', () => {
     expect(xml).toContain('1022 08 0018');
 
     // Navy header fill (1F3864)
-    expect(xml).toContain('1F3864');
+    expect(xml).toContain('1f3864'); // v4: lowercase hex
 
     // White bold header text (FFFFFF and w:b)
-    expect(xml).toContain('FFFFFF');
+    expect(xml).toContain('FFFFFF'); // v4: table header white stays uppercase in docx output
     expect(xml).toContain('<w:b/>');
 
     // Alternating row shading (F2F2F2)
-    expect(xml).toContain('F2F2F2');
+    expect(xml).toContain('f2f2f2'); // v4: lowercase hex
   });
 
   // T-EXPORT-FORMAT-2-6: Plain text and malformed Markdown degrade safely

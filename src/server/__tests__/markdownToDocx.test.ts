@@ -45,29 +45,36 @@ async function paragraphsToXml(children: DocxFileChild[]): Promise<string> {
 
 // ── Unit tests: T1–T12 (updated for v2) ──────────────────────────────────────
 describe('markdownToDocxParagraphs — unit tests (v2)', () => {
-  // T1: ## Section Title -> HeadingLevel.HEADING_2 (v2: ## is HEADING_2)
-  it('T1: ## heading produces Paragraph with Heading2 style', async () => {
+  // T1: ## Section Title -> two-paragraph section-header pattern (v4)
+  it('T1: ## heading produces two-paragraph section-header pattern (v4)', async () => {
     const paragraphs = markdownToDocxParagraphs('## Section Title');
-    expect(paragraphs).toHaveLength(1);
+    // v4: two-paragraph pattern (heading paragraph + gold rule paragraph)
+    expect(paragraphs).toHaveLength(2);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading2');
     expect(xml).toContain('Section Title');
+    // v4: navy color 1f3864 (lowercase)
+    expect(xml).toContain('1f3864');
+    // v4: gold rule bf8f00
+    expect(xml).toContain('bf8f00');
   });
-  // T2: ### Subsection Title -> HeadingLevel.HEADING_3 (v2: ### is HEADING_3)
-  it('T2: ### heading produces Paragraph with Heading3 style', async () => {
+  // T2: ### Subsection Title -> two-paragraph section-header pattern (v4)
+  it('T2: ### heading produces two-paragraph section-header pattern (v4)', async () => {
     const paragraphs = markdownToDocxParagraphs('### Subsection Title');
-    expect(paragraphs).toHaveLength(1);
+    // v4: two-paragraph pattern
+    expect(paragraphs).toHaveLength(2);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading3');
     expect(xml).toContain('Subsection Title');
+    expect(xml).toContain('1f3864');
   });
-  // T3: #### Sub-subsection -> HeadingLevel.HEADING_4 (v2: #### is HEADING_4)
-  it('T3: #### heading produces Paragraph with Heading4 style', async () => {
+  // T3: #### Sub-subsection -> single section-heading paragraph (v4: no gold rule for ####)
+  it('T3: #### heading produces single bold section-heading paragraph (v4)', async () => {
     const paragraphs = markdownToDocxParagraphs('#### Sub-subsection');
+    // v4: #### is a single paragraph (no gold rule)
     expect(paragraphs).toHaveLength(1);
     const xml = await paragraphsToXml(paragraphs);
-    expect(xml).toContain('Heading4');
     expect(xml).toContain('Sub-subsection');
+    // v4: bold body charcoal
+    expect(xml).toContain('<w:b/>');
   });
   // T4: **bold** -> TextRun with bold
   it('T4: **bold** produces TextRun with bold markup', async () => {
@@ -207,11 +214,9 @@ describe('DOCX export handler integration (v2)', () => {
     expect(xml).toContain('italic');
     expect(xml).toContain('Bold and italic');
     expect(xml).toContain('Plain paragraph with no formatting.');
-    // v2 heading mapping: # -> Heading1, ## -> Heading2, ### -> Heading3, #### -> Heading4
-    expect(xml).toContain('Heading1');
-    expect(xml).toContain('Heading2');
-    expect(xml).toContain('Heading3');
-    expect(xml).toContain('Heading4');
+    // v4: heading mapping uses two-paragraph section-header pattern, not HeadingN style names
+    // Content text is present (verified above); navy color confirms heading rendering
+    expect(xml).toContain('1f3864');
     // Bold and italic markup present
     expect(xml).toContain('<w:b/>');
     expect(xml).toContain('<w:i/>');

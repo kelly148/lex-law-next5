@@ -40,35 +40,42 @@ async function childrenToXml(children: DocxFileChild[]): Promise<string> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('MR-EXPORT-FORMAT-1 — v2 feature tests', () => {
-  // T-EF1-1: # heading -> HEADING_1 (new in v2)
-  it('T-EF1-1: # heading produces Paragraph with Heading1 style', async () => {
+  // T-EF1-1: # heading -> two-paragraph section-header pattern (v4)
+  it('T-EF1-1: # heading produces two-paragraph section-header pattern (v4)', async () => {
     const children = markdownToDocxParagraphs('# Document Title');
-    expect(children).toHaveLength(1);
+    // v4: two-paragraph pattern (heading + gold rule)
+    expect(children).toHaveLength(2);
     expect(children[0]).toBeInstanceOf(Paragraph);
     const xml = await childrenToXml(children);
-    expect(xml).toContain('Heading1');
+    // v4: no HeadingN style names; uses explicit formatting
+    expect(xml).not.toContain('Heading1');
     expect(xml).toContain('Document Title');
+    expect(xml).toContain('1f3864');
   });
 
-  // T-EF1-2: ## heading -> HEADING_2 (v2 mapping change)
-  it('T-EF1-2: ## heading produces Paragraph with Heading2 style (not Heading1)', async () => {
+  // T-EF1-2: ## heading -> two-paragraph section-header pattern (v4)
+  it('T-EF1-2: ## heading produces two-paragraph section-header pattern (v4)', async () => {
     const children = markdownToDocxParagraphs('## Section Title');
-    expect(children).toHaveLength(1);
+    // v4: two-paragraph pattern
+    expect(children).toHaveLength(2);
     const xml = await childrenToXml(children);
-    expect(xml).toContain('Heading2');
+    // v4: no HeadingN style names
+    expect(xml).not.toContain('Heading2');
     expect(xml).not.toContain('Heading1');
     expect(xml).toContain('Section Title');
+    expect(xml).toContain('1f3864');
   });
 
-  // T-EF1-3: Heading paragraphs include navy color (1F3864) in XML
-  it('T-EF1-3: heading paragraphs include navy color 1F3864 in XML', async () => {
+  // T-EF1-3: Heading paragraphs include navy color (1f3864 lowercase) in XML (v4)
+  it('T-EF1-3: heading paragraphs include navy color 1f3864 in XML (v4 lowercase)', async () => {
     const children = markdownToDocxParagraphs('## Navy Heading');
     const xml = await childrenToXml(children);
-    expect(xml).toContain('1F3864');
+    // v4: lowercase hex per spec
+    expect(xml).toContain('1f3864');
   });
 
-  // T-EF1-4: H1/H2/H3 headings include gold border (BF8F00); H4 does not
-  it('T-EF1-4: H1/H2/H3 headings include gold border BF8F00; H4 does not', async () => {
+  // T-EF1-4: H1/H2/H3 headings include gold rule bf8f00 (lowercase); H4 does not (v4)
+  it('T-EF1-4: H1/H2/H3 headings include gold rule bf8f00 (lowercase); H4 does not (v4)', async () => {
     const h1 = markdownToDocxParagraphs('# H1');
     const h2 = markdownToDocxParagraphs('## H2');
     const h3 = markdownToDocxParagraphs('### H3');
@@ -77,10 +84,12 @@ describe('MR-EXPORT-FORMAT-1 — v2 feature tests', () => {
     const h2Xml = await childrenToXml(h2);
     const h3Xml = await childrenToXml(h3);
     const h4Xml = await childrenToXml(h4);
-    expect(h1Xml).toContain('BF8F00');
-    expect(h2Xml).toContain('BF8F00');
-    expect(h3Xml).toContain('BF8F00');
-    expect(h4Xml).not.toContain('BF8F00');
+    // v4: lowercase hex
+    expect(h1Xml).toContain('bf8f00');
+    expect(h2Xml).toContain('bf8f00');
+    expect(h3Xml).toContain('bf8f00');
+    // H4 is a single section-heading paragraph with no gold rule
+    expect(h4Xml).not.toContain('bf8f00');
   });
 
   // T-EF1-5: Body paragraphs include justified alignment
@@ -91,15 +100,14 @@ describe('MR-EXPORT-FORMAT-1 — v2 feature tests', () => {
     expect(xml).toContain('both');
   });
 
-  // T-EF1-6: Unordered list item produces indented paragraph with bullet
-  it('T-EF1-6: unordered list item produces indented paragraph with bullet character', async () => {
+  // T-EF1-6: Unordered list item produces indented paragraph (v4: no unicode bullet prefix)
+  it('T-EF1-6: unordered list item produces indented paragraph (v4: no unicode bullet)', async () => {
     const children = markdownToDocxParagraphs('- List item text');
     expect(children).toHaveLength(1);
     expect(children[0]).toBeInstanceOf(Paragraph);
     const xml = await childrenToXml(children);
     expect(xml).toContain('List item text');
-    // Bullet character U+2022 in XML
-    expect(xml).toContain('\u2022');
+    // v4: no unicode bullet prefix (spec says no unicode bullet for content bullets)
     // Indentation present
     expect(xml).toContain('w:ind');
   });
@@ -156,14 +164,14 @@ describe('MR-EXPORT-FORMAT-1 — v2 feature tests', () => {
     expect(xml).toContain('yellow');
   });
 
-  // T-EF1-11: *Drafter Note: text* produces red italic paragraph
-  it('T-EF1-11: *Drafter Note: text* produces red italic paragraph', async () => {
+  // T-EF1-11: *Drafter Note: text* produces red italic paragraph (v4: lowercase c00000)
+  it('T-EF1-11: *Drafter Note: text* produces red italic paragraph (v4 lowercase hex)', async () => {
     const children = markdownToDocxParagraphs('*Drafter Note: Review this section.*');
     expect(children).toHaveLength(1);
     const xml = await childrenToXml(children);
     expect(xml).toContain('Review this section.');
-    // Red color C00000
-    expect(xml).toContain('C00000');
+    // v4: lowercase hex c00000
+    expect(xml).toContain('c00000');
     // Italic markup
     expect(xml).toContain('<w:i/>');
   });

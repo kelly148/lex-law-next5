@@ -1,58 +1,57 @@
 /**
  * markdownToDocx.ts
  *
- * MR-EXPORT-FORMAT-2 — Satterwhite DOCX house-style pack (v3).
+ * MR-EXPORT-FORMAT-3 — Satterwhite Formal Document Formatting Specification (v4).
  *
- * Builds on MR-EXPORT-FORMAT-1 (v2) to deliver a deterministic Satterwhite
- * house-style DOCX renderer for legal instruments.
+ * Replaces the looser house-style assumptions from MR-EXPORT-FORMAT-1 and
+ * MR-EXPORT-FORMAT-2 with deterministic renderer rules based on the exact
+ * Satterwhite Law Firm Document Formatting Specification.
  *
- * New in v3 (MR-EXPORT-FORMAT-2):
- *   - Legal-document semantic detection (title, article/section headings,
- *     execution lead-in, signature labels, notary blocks, preparer block).
- *   - Centered title/cover treatment (Calibri bold navy, larger size, gold divider).
- *   - Centered article headings and execution/notary display headings.
- *   - Running header: document title or "CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED".
- *   - Footer: "The Satterwhite Law Firm, PLLC • 703-855-7380 • Page [X]" with
- *     real Word PAGE field (PageNumber.CURRENT).
- *   - Signature/notary block polish: controlled spacing, centered display headings,
- *     clean signature lines, notarial seal placeholder.
- *   - Table polish: navy header, white Calibri bold, alternating gray, thin borders.
- *   - Document-wide settings: widow/orphan control, keepNext on headings,
- *     consistent margins, Times New Roman 12pt justified body.
- *
- * Preserved from v2 (MR-EXPORT-FORMAT-1):
- *   # Title               -> HEADING_1 (Calibri bold navy, gold bottom border, centered)
- *   ## Section Title      -> HEADING_2 (Calibri bold navy, gold bottom border)
- *   ### Subsection        -> HEADING_3 (Calibri bold navy, gold bottom border)
- *   #### Sub-subsection   -> HEADING_4 (Calibri bold navy)
- *   **bold**              -> TextRun bold: true
- *   *italic*              -> TextRun italics: true
- *   ***bold-italic***     -> TextRun bold + italic
- *   ---                   -> Paragraph with bottom border (horizontal rule)
- *   - item / + item       -> Indented paragraph with bullet prefix
- *   1. item               -> Indented paragraph with number prefix
- *   | col | col |         -> docx Table (navy header, alternating shading, borders)
- *   [[PLACEHOLDER]]       -> TextRun with yellow highlight
- *   *Drafter Note: ...*   -> Red italic paragraph
- *   plain text            -> Times New Roman 12pt justified paragraph
+ * Key changes in v4 (MR-EXPORT-FORMAT-3):
+ *   - Exact constants: lowercase hex, DXA page size (12240x15840), margins 1440,
+ *     header/footer offsets 708, content width 9360.
+ *   - Body charcoal 404040 (no pure-black body text).
+ *   - Two-paragraph section-header pattern: heading paragraph (Times New Roman
+ *     12pt bold navy left-aligned) + empty gold-rule paragraph.
+ *   - Cover page architecture for fiduciary instruments (trusts, wills, POAs,
+ *     advance directives): typography-only cover with navy rules, gold rules,
+ *     principal name, firm block, CONFIDENTIAL, page break.
+ *   - Running header: right-aligned Calibri italic 8pt navy with bottom border.
+ *   - Running footer: left firm text + right tab PAGE field, Calibri 8pt navy,
+ *     top border, tab stop at 9360. Uses SimpleField("PAGE").
+ *   - Body paragraph: Times New Roman 12pt charcoal 404040, justified,
+ *     line spacing 276 auto, after 180, no before, no first-line indent.
+ *   - Bold heading normalization: strip ** markers from heading detection;
+ *     no literal ** artifacts in DOCX.
+ *   - Table: WidthType.DXA 9360, ShadingType.CLEAR, navy header, white bold
+ *     Calibri, alternating f2f2f2, borders cccccc.
+ *   - Lists: literal A./B./C. and 1./2./3. text, left indent 720, no docx
+ *     auto-numbering, no unicode bullet for content bullets.
+ *   - Signature/notary: exact spec pattern with d9d9d9 bottom border, right
+ *     indent 4680, two-paragraph section-header pattern for Execution and
+ *     Notary Acknowledgment headings.
+ *   - XML hygiene: no w:highlightCs, no rootKey, pBdr child ordering safe.
+ *   - Full-content preservation: no line/block count limit in renderer.
  *
  * Public API:
  *   markdownToDocxParagraphs(markdown) -> DocxFileChild[]   (backward-compat)
- *   buildSatterwhiteSection(markdown, opts) -> ISectionOptions  (v3 section builder)
+ *   buildSatterwhiteSection(markdown, opts) -> ISectionOptions
  */
 import {
   AlignmentType,
   BorderStyle,
   Footer,
   Header,
-  HeadingLevel,
   HighlightColor,
-  PageNumber,
+  LineRuleType,
+  PageOrientation,
   Paragraph,
   ShadingType,
+  SimpleField,
   Table,
   TableCell,
   TableRow,
+  TabStopType,
   TextRun,
   WidthType,
   type ISectionOptions,
@@ -82,92 +81,113 @@ export interface SatterwhiteSectionOptions {
   watermarkText?: string | null;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Exact constants (Satterwhite Formatting Specification) ────────────────────
+// Page setup — US Letter, portrait
+const PAGE_WIDTH_DXA = 12240;
+const PAGE_HEIGHT_DXA = 15840;
+const MARGIN_DXA = 1440;
+const HEADER_OFFSET_DXA = 708;
+const FOOTER_OFFSET_DXA = 708;
+const CONTENT_WIDTH_DXA = 9360;
 
-/** Firm navy color (hex, no #). */
-const NAVY = '1F3864';
-/** Firm gold color for heading dividers (hex, no #). */
-const GOLD = 'BF8F00';
-/** Red for drafter notes (hex, no #). */
-const RED = 'C00000';
-/** Heading font. */
-const HEADING_FONT = 'Calibri';
-/** Body font. */
+// Colors — exact lowercase hex per spec
+const FIRM_NAVY = '1f3864';
+const FIRM_GOLD = 'bf8f00';
+const BODY_CHARCOAL = '404040';
+const SIGNATURE_LINE_GRAY = 'd9d9d9';
+const TABLE_BORDER_GRAY = 'cccccc';
+const TABLE_ROW_SHADE = 'f2f2f2';
+const DRAFTER_RED = 'c00000';
+const WHITE = 'FFFFFF';
+
+// Fonts — two-font system only
 const BODY_FONT = 'Times New Roman';
-/** Body font size in half-points (12pt = 24). */
-const BODY_SIZE = 24;
-/** Document title font size in half-points (18pt = 36). */
-const TITLE_SIZE = 36;
-/** Article heading font size in half-points (14pt = 28). */
-const ARTICLE_SIZE = 28;
-/** Spacing after body paragraph in twips (120 = 6pt). */
-const BODY_SPACING_AFTER = 120;
-/** Spacing before heading in twips (240 = 12pt). */
-const HEADING_SPACING_BEFORE = 240;
-/** Spacing after heading in twips (120 = 6pt). */
-const HEADING_SPACING_AFTER = 120;
-/** Spacing before display heading (title/article) in twips (360 = 18pt). */
-const DISPLAY_SPACING_BEFORE = 360;
-/** Spacing after display heading in twips (240 = 12pt). */
-const DISPLAY_SPACING_AFTER = 240;
-/** Table header fill color (navy). */
-const TABLE_HEADER_FILL = NAVY;
-/** Table alternating row fill (light gray). */
-const TABLE_ALT_FILL = 'F2F2F2';
-/** Table border color. */
-const TABLE_BORDER_COLOR = 'CCCCCC';
-/** Firm footer text (without page number). */
-const FIRM_FOOTER_TEXT = 'The Satterwhite Law Firm, PLLC \u2022 703-855-7380 \u2022 Page\u00a0';
-/** Default running header for client-retained legal instruments. */
-const DEFAULT_HEADER_TEXT = 'CONFIDENTIAL \u2014 ATTORNEY-CLIENT PRIVILEGED';
+const DISPLAY_FONT = 'Calibri';
+
+// Sizes in half-points
+const BODY_SIZE = 24;            // 12pt
+const SECTION_HEADING_SIZE = 24; // 12pt per spec
+const COVER_TITLE_SIZE = 36;     // 18pt
+const COVER_PRINCIPAL_SIZE = 28; // 14pt
+const COVER_CAPTION_SIZE = 20;   // 10pt
+const RUNNING_HF_SIZE = 16;      // 8pt
+
+// Spacing in DXA/twips
+const SECTION_HEADING_BEFORE = 360;
+const SECTION_HEADING_AFTER = 120;
+const GOLD_RULE_AFTER = 160;
+const BODY_AFTER = 180;
+const SIGNATURE_RIGHT_INDENT = 4680;
 
 // ── Semantic detection ────────────────────────────────────────────────────────
 
 /**
- * Detect whether a line is a legal document title.
- * Matches all-caps lines that look like document titles (no leading # marker).
- * Examples: "DURABLE POWER OF ATTORNEY", "VIRGINIA DURABLE FINANCIAL POWER OF ATTORNEY"
+ * Strip whole-line bold markers (**text**) from a line.
+ * Returns the inner text if the entire line is bold-wrapped, otherwise returns
+ * the original line unchanged.
+ */
+function stripWholeBold(line: string): { text: string; wasBold: boolean } {
+  const t = line.trim();
+  const m = /^\*{2}(.+?)\*{2}$/.exec(t);
+  if (m && m[1]) return { text: m[1].trim(), wasBold: true };
+  return { text: t, wasBold: false };
+}
+
+/**
+ * Detect whether a line (after stripping bold markers) is a legal document title.
+ * All-caps, at least 5 chars, no lowercase, at least 3 uppercase letters.
  */
 function isDocumentTitle(line: string): boolean {
-  const t = line.trim();
-  // Must be all-caps (allowing spaces, hyphens, em-dashes, slashes, parens, digits)
-  // Must be at least 5 chars and not a separator
-  if (t.length < 5 || /^---/.test(t)) return false;
-  if (/^\|/.test(t)) return false;
-  if (/^#/.test(t)) return false;
-  // No lowercase letters present, at least 3 uppercase letters
+  const { text: t } = stripWholeBold(line);
+  if (t.length < 5 || /^---/.test(t) || /^\|/.test(t) || /^#/.test(t)) return false;
   return !/[a-z]/.test(t) && /[A-Z]{3,}/.test(t);
 }
 
 /**
  * Detect whether a line is an article heading.
- * Examples: "ARTICLE I — DURABILITY PROVISION", "ARTICLE II — POWERS GRANTED"
+ * Examples: "ARTICLE I — TRUST NAME AND DECLARATION", "**ARTICLE I**"
  */
 function isArticleHeading(line: string): boolean {
-  return /^ARTICLE\s+[IVXLCDM\d]+\b/i.test(line.trim());
+  const { text: t } = stripWholeBold(line);
+  return /^ARTICLE\s+[IVXLCDM\d]+\b/i.test(t);
 }
 
 /**
- * Detect whether a line is an execution lead-in.
- * Examples: "IN WITNESS WHEREOF", "EXECUTION"
+ * Detect whether a line is a section heading (e.g. "Section 1.1 Name of Trust.").
+ */
+function isSectionHeading(line: string): boolean {
+  const { text: t } = stripWholeBold(line);
+  return /^Section\s+\d+\.\d+\b/.test(t);
+}
+
+/**
+ * Detect whether a line is an execution lead-in or major execution heading.
+ * Examples: "EXECUTION", "Execution", "IN WITNESS WHEREOF"
  */
 function isExecutionLeadIn(line: string): boolean {
-  return /^IN WITNESS WHEREOF/i.test(line.trim()) || /^EXECUTION\s*$/i.test(line.trim());
+  const { text: t } = stripWholeBold(line);
+  return /^EXECUTION\s*$/i.test(t) || /^IN WITNESS WHEREOF/i.test(t);
+}
+
+/**
+ * Detect whether a line is a Notary Acknowledgment heading.
+ */
+function isNotaryAcknowledgmentHeading(line: string): boolean {
+  const { text: t } = stripWholeBold(line);
+  return /^NOTARY ACKNOWLEDGMENT\s*$/i.test(t) || /^ACKNOWLEDGMENT\s*$/i.test(t);
 }
 
 /**
  * Detect whether a line is a signature block label.
- * Examples: "PRINCIPAL:", "ATTORNEY-IN-FACT:", "AGENT:", "SUCCESSOR AGENT:"
+ * Examples: "PRINCIPAL:", "ATTORNEY-IN-FACT:", "AGENT:", "TRUSTEE:"
  */
 function isSignatureLabel(line: string): boolean {
-  return /^(PRINCIPAL|ATTORNEY-IN-FACT|AGENT|SUCCESSOR AGENT|GRANTOR|TRUSTEE|BORROWER|LENDER)\s*:/i.test(
-    line.trim(),
-  );
+  const t = line.trim();
+  return /^(PRINCIPAL|ATTORNEY-IN-FACT|AGENT|SUCCESSOR AGENT|GRANTOR|TRUSTEE|BORROWER|LENDER|PERSONAL REPRESENTATIVE)\s*:/i.test(t);
 }
 
 /**
  * Detect whether a line is a notary block line.
- * Examples: "COMMONWEALTH OF VIRGINIA", "COUNTY OF", "City of Alexandria, to-wit:"
  */
 function isNotaryLine(line: string): boolean {
   const t = line.trim();
@@ -184,29 +204,97 @@ function isNotaryLine(line: string): boolean {
 
 /**
  * Detect whether a line is a preparer block line.
- * Examples: "Prepared by:", "Prepared By:"
  */
 function isPreparerLine(line: string): boolean {
   return /^Prepared\s+[Bb]y\s*:/i.test(line.trim());
 }
 
 /**
+ * Detect whether a line is a drafter note (*Drafter Note: ...*).
+ */
+function isDrafterNote(line: string): boolean {
+  return /^\*Drafter Note:/i.test(line);
+}
+
+/**
+ * Detect whether a line is a list item (ordered, lettered, or unordered).
+ */
+function isListItem(line: string): boolean {
+  return /^[-+]\s+/.test(line) || /^\d+[.)]\s+/.test(line) || /^[A-Z]\.\s+/.test(line);
+}
+
+/**
+ * Detect whether a line looks like a table row (starts and ends with |).
+ */
+function isTableRow(line: string): boolean {
+  return /^\|.+\|/.test(line.trim());
+}
+
+/**
+ * Detect whether a line is a signature line placeholder (underscores or dashes).
+ */
+function isSignatureLine(line: string): boolean {
+  const t = line.trim();
+  return /^_{10,}$/.test(t) || /^-{10,}$/.test(t);
+}
+
+/**
+ * Detect whether a document is a fiduciary instrument (trust, will, POA, advance directive).
+ */
+function isFiduciaryInstrument(markdown: string): boolean {
+  const upper = markdown.slice(0, 2000).toUpperCase();
+  return (
+    /REVOCABLE\s+(LIVING\s+)?TRUST/.test(upper) ||
+    /IRREVOCABLE\s+TRUST/.test(upper) ||
+    /LAST\s+WILL\s+AND\s+TESTAMENT/.test(upper) ||
+    /DURABLE\s+(FINANCIAL\s+)?POWER\s+OF\s+ATTORNEY/.test(upper) ||
+    /ADVANCE\s+(MEDICAL\s+)?DIRECTIVE/.test(upper) ||
+    /HEALTHCARE\s+DIRECTIVE/.test(upper) ||
+    /LIVING\s+WILL/.test(upper)
+  );
+}
+
+/**
  * Extract the document title from the first title-like line in the content.
- * Used to populate the running header.
  */
 function extractDocumentTitle(markdown: string): string | null {
   const lines = markdown.split('\n');
-  for (const line of lines) {
+  for (const line of lines.slice(0, 15)) {
     const t = line.trim();
     if (!t) continue;
-    // Explicit # heading
     if (/^# /.test(t)) return t.slice(2).trim();
-    // All-caps document title
+    const { text, wasBold } = stripWholeBold(t);
+    if (wasBold && isDocumentTitle(t)) return text;
     if (isDocumentTitle(t)) return t;
-    // First non-empty line if nothing else found in first 10 lines
+    if (isArticleHeading(t)) continue;
     break;
   }
   return null;
+}
+
+/**
+ * Extract the principal/settlor/grantor name from the content.
+ */
+function extractPrincipalName(markdown: string): string | null {
+  const placeholderMatch = /\[\[([A-Z][A-Z\s]+(?:NAME|CLIENT|SETTLOR|GRANTOR|TESTATOR|PRINCIPAL))\]\]/i.exec(markdown.slice(0, 3000));
+  if (placeholderMatch) return placeholderMatch[0];
+  const grantorMatch = /(?:created by|established by|made by|between)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/i.exec(markdown.slice(0, 3000));
+  if (grantorMatch && grantorMatch[1]) return grantorMatch[1];
+  return null;
+}
+
+/**
+ * Determine the role caption for the principal on the cover page.
+ */
+function getRoleCaption(markdown: string): string {
+  const upper = markdown.slice(0, 2000).toUpperCase();
+  if (/REVOCABLE\s+(LIVING\s+)?TRUST/.test(upper) || /IRREVOCABLE\s+TRUST/.test(upper)) {
+    return 'Settlor / Grantor';
+  }
+  if (/LAST\s+WILL\s+AND\s+TESTAMENT/.test(upper)) return 'Testator';
+  if (/DURABLE\s+(FINANCIAL\s+)?POWER\s+OF\s+ATTORNEY/.test(upper)) return 'Principal';
+  if (/ADVANCE\s+(MEDICAL\s+)?DIRECTIVE/.test(upper) || /HEALTHCARE\s+DIRECTIVE/.test(upper)) return 'Principal';
+  return 'Principal';
 }
 
 // ── Inline parser ─────────────────────────────────────────────────────────────
@@ -214,10 +302,10 @@ function extractDocumentTitle(markdown: string): string | null {
 /**
  * Parse inline Markdown formatting within a single line of text.
  * Handles ***bold-italic***, **bold**, *italic*, and [[PLACEHOLDER]] spans.
- * Unmatched asterisks render as literal text (no throw).
  */
-function parseInline(line: string, opts?: { bodyFont?: boolean }): TextSegment[] {
+function parseInline(line: string, opts?: { bodyFont?: boolean; color?: string }): TextSegment[] {
   const useBodyFont = opts?.bodyFont ?? false;
+  const defaultColor = opts?.color;
   const segments: TextSegment[] = [];
   const pattern = /(\[\[([^\]]*)\]\]|\*{3}(.+?)\*{3}|\*{2}(.+?)\*{2}|\*([^*\n]+?)\*)/g;
   let lastIndex = 0;
@@ -227,6 +315,7 @@ function parseInline(line: string, opts?: { bodyFont?: boolean }): TextSegment[]
       segments.push({
         text: line.slice(lastIndex, match.index),
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+        ...(defaultColor ? { color: defaultColor } : {}),
       });
     }
     const full = match[0];
@@ -242,18 +331,22 @@ function parseInline(line: string, opts?: { bodyFont?: boolean }): TextSegment[]
         bold: true,
         italics: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+        ...(defaultColor ? { color: defaultColor } : {}),
       });
     } else if (full.startsWith('**')) {
+      // Inline bold in body: body charcoal, not navy
       segments.push({
         text: match[4] ?? '',
         bold: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+        color: defaultColor ?? BODY_CHARCOAL,
       });
     } else {
       segments.push({
         text: match[5] ?? '',
         italics: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+        ...(defaultColor ? { color: defaultColor } : {}),
       });
     }
     lastIndex = match.index + full.length;
@@ -262,12 +355,14 @@ function parseInline(line: string, opts?: { bodyFont?: boolean }): TextSegment[]
     segments.push({
       text: line.slice(lastIndex),
       ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+      ...(defaultColor ? { color: defaultColor } : {}),
     });
   }
   if (segments.length === 0) {
     segments.push({
       text: line,
       ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
+      ...(defaultColor ? { color: defaultColor } : {}),
     });
   }
   return segments;
@@ -275,7 +370,6 @@ function parseInline(line: string, opts?: { bodyFont?: boolean }): TextSegment[]
 
 /**
  * Convert an array of TextSegments into an array of docx TextRun instances.
- * Filters out zero-length text segments to avoid empty TextRuns.
  */
 function segmentsToTextRuns(segments: TextSegment[]): TextRun[] {
   return segments
@@ -294,74 +388,129 @@ function segmentsToTextRuns(segments: TextSegment[]): TextRun[] {
     );
 }
 
+// ── Section header: two-paragraph pattern ────────────────────────────────────
+
+/**
+ * Build the two-paragraph section-header pattern per spec:
+ *   P1: heading text — Times New Roman 12pt bold navy left-aligned,
+ *       spacing before 360, after 120.
+ *   P2: empty paragraph with bottom border gold bf8f00, sz=4, space=4,
+ *       spacing after 160.
+ *
+ * Returns [headingParagraph, goldRuleParagraph].
+ */
+function buildSectionHeader(text: string): [Paragraph, Paragraph] {
+  const headingParagraph = new Paragraph({
+    children: [
+      new TextRun({
+        text,
+        bold: true,
+        color: FIRM_NAVY,
+        font: BODY_FONT,
+        size: SECTION_HEADING_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.LEFT,
+    spacing: { before: SECTION_HEADING_BEFORE, after: SECTION_HEADING_AFTER },
+    keepNext: true,
+  });
+  const goldRuleParagraph = new Paragraph({
+    children: [new TextRun({ text: '' })],
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: FIRM_GOLD },
+    },
+    spacing: { after: GOLD_RULE_AFTER },
+  });
+  return [headingParagraph, goldRuleParagraph];
+}
+
 // ── Paragraph builders ────────────────────────────────────────────────────────
 
 /**
- * Build a document title paragraph: centered, Calibri bold navy, 18pt, gold divider.
+ * Build a body paragraph per spec:
+ * Times New Roman 12pt, charcoal 404040, justified, line spacing 276 auto,
+ * after 180, no before, no first-line indent, widow control.
  */
-function buildDocumentTitle(text: string): Paragraph {
+function buildBodyParagraph(line: string): Paragraph {
   return new Paragraph({
-    children: [
-      new TextRun({
-        text,
-        bold: true,
-        color: NAVY,
-        font: HEADING_FONT,
-        size: TITLE_SIZE,
-      }),
-    ],
-    alignment: AlignmentType.CENTER,
-    spacing: { before: DISPLAY_SPACING_BEFORE, after: DISPLAY_SPACING_AFTER },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 8, space: 1, color: GOLD } },
-    keepNext: true,
+    children: segmentsToTextRuns(parseInline(line, { bodyFont: true, color: BODY_CHARCOAL })),
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { line: 276, lineRule: LineRuleType.AUTO, after: BODY_AFTER, before: 0 },
+    widowControl: true,
   });
 }
 
 /**
- * Build an article heading paragraph: centered, Calibri bold navy, 14pt, gold divider.
+ * Build a drafter-note paragraph: red italic Times New Roman.
  */
-function buildArticleHeading(text: string): Paragraph {
+function buildDrafterNote(line: string): Paragraph {
+  let text = line;
+  if (text.startsWith('*') && text.endsWith('*') && text.length > 2) {
+    text = text.slice(1, -1);
+  }
   return new Paragraph({
     children: [
-      new TextRun({
-        text,
-        bold: true,
-        color: NAVY,
-        font: HEADING_FONT,
-        size: ARTICLE_SIZE,
-      }),
+      new TextRun({ text, italics: true, color: DRAFTER_RED, font: BODY_FONT, size: BODY_SIZE }),
     ],
-    alignment: AlignmentType.CENTER,
-    spacing: { before: DISPLAY_SPACING_BEFORE, after: HEADING_SPACING_AFTER },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 6, space: 1, color: GOLD } },
-    keepNext: true,
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: BODY_AFTER },
   });
 }
 
 /**
- * Build an execution lead-in paragraph: centered, Calibri bold navy, 12pt.
- * Used for "IN WITNESS WHEREOF" and similar display headings.
+ * Build a list item paragraph.
+ * Lettered (A./B./C.) and numbered (1./2./3.) items: literal text, left indent 720.
+ * Unordered (-/+): literal text, left indent 720.
+ * No docx auto-numbering.
  */
-function buildExecutionHeading(text: string): Paragraph {
+function buildListItem(line: string): Paragraph {
+  let prefix = '';
+  let content = line;
+  const letteredMatch = /^([A-Z]\.\s+)(.*)$/.exec(line);
+  if (letteredMatch) {
+    prefix = letteredMatch[1] ?? '';
+    content = letteredMatch[2] ?? '';
+  } else {
+    const orderedMatch = /^(\d+[.)]\s*)(.*)$/.exec(line);
+    if (orderedMatch) {
+      prefix = orderedMatch[1] ?? '';
+      content = orderedMatch[2] ?? '';
+    } else {
+      const unorderedMatch = /^[-+]\s+(.*)$/.exec(line);
+      if (unorderedMatch) {
+        prefix = '';
+        content = unorderedMatch[1] ?? '';
+      }
+    }
+  }
   return new Paragraph({
     children: [
-      new TextRun({
-        text,
-        bold: true,
-        color: NAVY,
-        font: HEADING_FONT,
-        size: BODY_SIZE,
-      }),
+      ...(prefix ? [new TextRun({ text: prefix, font: BODY_FONT, size: BODY_SIZE, color: BODY_CHARCOAL })] : []),
+      ...segmentsToTextRuns(parseInline(content, { bodyFont: true, color: BODY_CHARCOAL })),
     ],
-    alignment: AlignmentType.CENTER,
-    spacing: { before: DISPLAY_SPACING_BEFORE, after: HEADING_SPACING_AFTER },
-    keepNext: true,
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { line: 276, lineRule: LineRuleType.AUTO, after: BODY_AFTER },
+    indent: { left: 720 },
   });
 }
 
 /**
- * Build a signature label paragraph: left-aligned, Calibri bold navy.
- * Used for "PRINCIPAL:", "ATTORNEY-IN-FACT:", etc.
+ * Build a signature line: empty paragraph with bottom border d9d9d9, sz=4, space=4,
+ * right indent 4680.
+ */
+function buildSignatureLine(): Paragraph {
+  return new Paragraph({
+    children: [new TextRun({ text: '' })],
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: SIGNATURE_LINE_GRAY },
+    },
+    indent: { right: SIGNATURE_RIGHT_INDENT },
+    spacing: { after: 120 },
+  });
+}
+
+/**
+ * Build a signature label paragraph: bold Times New Roman 12pt charcoal.
  */
 function buildSignatureLabel(text: string): Paragraph {
   return new Paragraph({
@@ -369,8 +518,8 @@ function buildSignatureLabel(text: string): Paragraph {
       new TextRun({
         text,
         bold: true,
-        color: NAVY,
-        font: HEADING_FONT,
+        color: BODY_CHARCOAL,
+        font: BODY_FONT,
         size: BODY_SIZE,
       }),
     ],
@@ -381,18 +530,20 @@ function buildSignatureLabel(text: string): Paragraph {
 }
 
 /**
- * Build a notary block paragraph: left-aligned, Times New Roman 12pt.
- * "[NOTARIAL SEAL]" gets extra spacing as a seal placeholder.
+ * Build a notary block paragraph: Times New Roman 12pt charcoal.
+ * Jurisdiction lines (COMMONWEALTH OF, STATE OF, COUNTY OF) get bold navy.
  */
 function buildNotaryParagraph(text: string): Paragraph {
   const isSeal = /^\[NOTARIAL SEAL\]/i.test(text.trim());
+  const isJurisdictionLine = /^(COMMONWEALTH OF|STATE OF|COUNTY OF|CITY OF)/i.test(text.trim());
   return new Paragraph({
     children: [
       new TextRun({
         text,
         font: BODY_FONT,
         size: BODY_SIZE,
-        ...(isSeal ? { bold: true } : {}),
+        color: isJurisdictionLine ? FIRM_NAVY : BODY_CHARCOAL,
+        bold: isJurisdictionLine || isSeal,
       }),
     ],
     alignment: AlignmentType.LEFT,
@@ -401,7 +552,7 @@ function buildNotaryParagraph(text: string): Paragraph {
 }
 
 /**
- * Build a preparer block paragraph: left-aligned, Times New Roman 12pt italic.
+ * Build a preparer block paragraph: italic Times New Roman.
  */
 function buildPreparerParagraph(text: string): Paragraph {
   return new Paragraph({
@@ -411,110 +562,39 @@ function buildPreparerParagraph(text: string): Paragraph {
         font: BODY_FONT,
         size: BODY_SIZE,
         italics: true,
+        color: BODY_CHARCOAL,
       }),
     ],
     alignment: AlignmentType.LEFT,
-    spacing: { before: 240, after: BODY_SPACING_AFTER },
+    spacing: { before: 240, after: BODY_AFTER },
   });
 }
 
 /**
- * Build a firm-standard heading paragraph.
- * H1: centered, Calibri bold navy, gold bottom border.
- * H2/H3: left-aligned (or centered if article-style), Calibri bold navy, gold bottom border.
- * H4: left-aligned, Calibri bold navy, no border.
+ * Build a section heading paragraph (Section 1.1 style):
+ * bold Times New Roman 12pt charcoal, justified, keepNext.
  */
-function buildHeading(text: string, level: (typeof HeadingLevel)[keyof typeof HeadingLevel]): Paragraph {
-  const isH1 = level === HeadingLevel.HEADING_1;
-  const isTopLevel =
-    level === HeadingLevel.HEADING_1 ||
-    level === HeadingLevel.HEADING_2 ||
-    level === HeadingLevel.HEADING_3;
-  const runs = segmentsToTextRuns(
-    parseInline(text).map((s) => ({ ...s, bold: true, color: NAVY, font: HEADING_FONT })),
-  );
+function buildSectionHeadingParagraph(text: string): Paragraph {
   return new Paragraph({
-    heading: level,
-    children: runs,
-    alignment: isH1 ? AlignmentType.CENTER : AlignmentType.LEFT,
-    spacing: { before: HEADING_SPACING_BEFORE, after: HEADING_SPACING_AFTER },
-    keepNext: true,
-    ...(isTopLevel
-      ? { border: { bottom: { style: BorderStyle.SINGLE, size: 6, space: 1, color: GOLD } } }
-      : {}),
-  });
-}
-
-/**
- * Build a firm-standard body paragraph.
- * Times New Roman 12pt, justified, widow/orphan control, spacing after 6pt.
- */
-function buildBodyParagraph(line: string): Paragraph {
-  return new Paragraph({
-    children: segmentsToTextRuns(parseInline(line, { bodyFont: true })),
+    children: segmentsToTextRuns(
+      parseInline(text, { bodyFont: true, color: BODY_CHARCOAL }).map((s) => ({ ...s, bold: true })),
+    ),
     alignment: AlignmentType.JUSTIFIED,
-    spacing: { after: BODY_SPACING_AFTER },
+    spacing: { line: 276, lineRule: LineRuleType.AUTO, after: BODY_AFTER },
     widowControl: true,
-  });
-}
-
-/**
- * Build a drafter-note paragraph: red italic.
- * Strips surrounding * markers if the whole line is italic-wrapped.
- */
-function buildDrafterNote(line: string): Paragraph {
-  let text = line;
-  if (text.startsWith('*') && text.endsWith('*') && text.length > 2) {
-    text = text.slice(1, -1);
-  }
-  return new Paragraph({
-    children: [
-      new TextRun({ text, italics: true, color: RED, font: BODY_FONT, size: BODY_SIZE }),
-    ],
-    alignment: AlignmentType.JUSTIFIED,
-    spacing: { after: BODY_SPACING_AFTER },
-  });
-}
-
-/**
- * Build a list item paragraph with indentation and visible prefix.
- * Unordered: "•  item text"
- * Ordered: "N.  item text" (prefix preserved from input)
- */
-function buildListItem(line: string): Paragraph {
-  let prefix = '';
-  let content = line;
-  const orderedMatch = /^(\d+[.)]\s*)(.*)$/.exec(line);
-  if (orderedMatch) {
-    prefix = orderedMatch[1] ?? '';
-    content = orderedMatch[2] ?? '';
-  } else {
-    const unorderedMatch = /^[-+]\s+(.*)$/.exec(line);
-    if (unorderedMatch) {
-      prefix = '\u2022  ';
-      content = unorderedMatch[1] ?? '';
-    }
-  }
-  return new Paragraph({
-    children: [
-      new TextRun({ text: prefix, font: BODY_FONT, size: BODY_SIZE }),
-      ...segmentsToTextRuns(parseInline(content, { bodyFont: true })),
-    ],
-    alignment: AlignmentType.LEFT,
-    spacing: { after: 60 },
-    indent: { left: 720 },
+    keepNext: true,
   });
 }
 
 // ── Table builder ─────────────────────────────────────────────────────────────
 
 /**
- * Parse a Markdown pipe table block into a docx Table.
- * Returns null if the block cannot be parsed as a valid table.
- *
- * Header row: navy background, white bold Calibri text.
- * Odd data rows: white background. Even data rows: light gray background.
- * All cells: thin gray borders.
+ * Parse a Markdown pipe table block into a docx Table per spec:
+ * - WidthType.DXA, width 9360.
+ * - Navy header row, white bold Calibri text.
+ * - Alternating f2f2f2 data row shading.
+ * - Thin borders cccccc.
+ * - ShadingType.CLEAR (not SOLID).
  */
 function buildTable(lines: string[]): Table | null {
   try {
@@ -530,13 +610,13 @@ function buildTable(lines: string[]): Table | null {
     const tableRows = rows.map((rowCells, rowIndex) => {
       const isHeader = rowIndex === 0;
       const isAltRow = !isHeader && rowIndex % 2 === 0;
-      const fillColor = isHeader ? TABLE_HEADER_FILL : isAltRow ? TABLE_ALT_FILL : 'FFFFFF';
-      const borderDef = { style: BorderStyle.SINGLE, size: 4, color: TABLE_BORDER_COLOR };
+      const fillColor = isHeader ? FIRM_NAVY : isAltRow ? TABLE_ROW_SHADE : WHITE;
+      const borderDef = { style: BorderStyle.SINGLE, size: 4, color: TABLE_BORDER_GRAY };
       const cells = Array.from({ length: colCount }, (_, colIndex) => {
         const cellText = rowCells[colIndex] ?? '';
         const textRun = isHeader
-          ? new TextRun({ text: cellText, bold: true, color: 'FFFFFF', font: HEADING_FONT })
-          : new TextRun({ text: cellText, font: BODY_FONT, size: BODY_SIZE });
+          ? new TextRun({ text: cellText, bold: true, color: WHITE, font: DISPLAY_FONT, size: BODY_SIZE })
+          : new TextRun({ text: cellText, font: BODY_FONT, size: BODY_SIZE, color: BODY_CHARCOAL });
         return new TableCell({
           children: [new Paragraph({ children: [textRun] })],
           shading: { fill: fillColor, type: ShadingType.CLEAR },
@@ -545,56 +625,248 @@ function buildTable(lines: string[]): Table | null {
       });
       return new TableRow({ children: cells });
     });
-    return new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } });
+    return new Table({
+      rows: tableRows,
+      width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+    });
   } catch {
     return null;
   }
 }
 
-// ── Line-level dispatcher ─────────────────────────────────────────────────────
-
-/** Determine if a line is a drafter note (*Drafter Note: ...*). */
-function isDrafterNote(line: string): boolean {
-  return /^\*Drafter Note:/i.test(line);
-}
-
-/** Determine if a line is a list item (ordered or unordered). */
-function isListItem(line: string): boolean {
-  return /^[-+]\s+/.test(line) || /^\d+[.)]\s+/.test(line);
-}
-
-/** Determine if a line looks like a table row (starts and ends with |). */
-function isTableRow(line: string): boolean {
-  return /^\|.+\|/.test(line.trim());
-}
+// ── Cover page builder ────────────────────────────────────────────────────────
 
 /**
- * Convert a single non-empty line into a Paragraph (or delegate to semantic builders).
- * Dispatches in priority order: explicit Markdown markers first, then semantic detection.
+ * Build a typography-only cover page for fiduciary instruments per spec Section 6.
+ * Returns an array of Paragraph elements forming the cover page.
  */
-function lineToChild(line: string): Paragraph {
-  // Explicit Markdown heading markers take priority over semantic detection
-  if (/^# /.test(line)) return buildHeading(line.slice(2), HeadingLevel.HEADING_1);
-  if (/^## /.test(line)) return buildHeading(line.slice(3), HeadingLevel.HEADING_2);
-  if (/^### /.test(line)) return buildHeading(line.slice(4), HeadingLevel.HEADING_3);
-  if (/^#### /.test(line)) return buildHeading(line.slice(5), HeadingLevel.HEADING_4);
-  if (/^---$/.test(line.trim())) {
-    return new Paragraph({
-      border: { bottom: { style: BorderStyle.SINGLE, size: 6, space: 1, color: '000000' } },
-    });
+function buildCoverPage(markdown: string): Paragraph[] {
+  const cover: Paragraph[] = [];
+  const titleLine = extractDocumentTitle(markdown) ?? 'LEGAL DOCUMENT';
+  const principalName = extractPrincipalName(markdown);
+
+  // Top spacer
+  cover.push(new Paragraph({
+    children: [new TextRun({ text: '' })],
+    spacing: { before: 1440, after: 0 },
+  }));
+
+  // Upper navy rule
+  cover.push(new Paragraph({
+    children: [new TextRun({ text: '' })],
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 12, space: 4, color: FIRM_NAVY },
+    },
+    spacing: { after: 360 },
+  }));
+
+  // Title (split on em-dash or hyphen if present)
+  const titleParts = titleLine.includes('\u2014')
+    ? titleLine.split('\u2014')
+    : titleLine.includes(' - ')
+    ? titleLine.split(' - ')
+    : [titleLine];
+
+  for (const part of titleParts) {
+    cover.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: part.trim(),
+          bold: true,
+          color: FIRM_NAVY,
+          font: DISPLAY_FONT,
+          size: COVER_TITLE_SIZE,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 120, after: 120 },
+    }));
   }
-  if (isDrafterNote(line)) return buildDrafterNote(line);
-  if (isListItem(line)) return buildListItem(line);
 
-  // Semantic detection for legal document blocks
-  if (isArticleHeading(line)) return buildArticleHeading(line);
-  if (isExecutionLeadIn(line)) return buildExecutionHeading(line);
-  if (isSignatureLabel(line)) return buildSignatureLabel(line);
-  if (isNotaryLine(line)) return buildNotaryParagraph(line);
-  if (isPreparerLine(line)) return buildPreparerParagraph(line);
-  if (isDocumentTitle(line)) return buildDocumentTitle(line);
+  // Double gold rule
+  for (let i = 0; i < 2; i++) {
+    cover.push(new Paragraph({
+      children: [new TextRun({ text: '' })],
+      border: {
+        bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: FIRM_GOLD },
+      },
+      spacing: { after: i === 0 ? 60 : 360 },
+    }));
+  }
 
-  return buildBodyParagraph(line);
+  // Principal/settlor name
+  if (principalName) {
+    cover.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: principalName,
+          bold: true,
+          color: FIRM_NAVY,
+          font: BODY_FONT,
+          size: COVER_PRINCIPAL_SIZE,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 120, after: 60 },
+    }));
+    const roleCaption = getRoleCaption(markdown);
+    cover.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: roleCaption,
+          italics: true,
+          color: BODY_CHARCOAL,
+          font: BODY_FONT,
+          size: COVER_CAPTION_SIZE,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 360 },
+    }));
+  }
+
+  // Lower navy rule
+  cover.push(new Paragraph({
+    children: [new TextRun({ text: '' })],
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 12, space: 4, color: FIRM_NAVY },
+    },
+    spacing: { after: 480 },
+  }));
+
+  // Prepared by caption
+  cover.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: 'Prepared by:',
+        italics: true,
+        color: BODY_CHARCOAL,
+        font: BODY_FONT,
+        size: COVER_CAPTION_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 60 },
+  }));
+
+  // Firm name
+  cover.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: 'THE SATTERWHITE LAW FIRM, PLLC',
+        bold: true,
+        color: FIRM_NAVY,
+        font: DISPLAY_FONT,
+        size: BODY_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 60 },
+  }));
+
+  // Virginia • Maryland
+  cover.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: 'Virginia \u2022 Maryland',
+        color: BODY_CHARCOAL,
+        font: DISPLAY_FONT,
+        size: COVER_CAPTION_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 120 },
+  }));
+
+  // CONFIDENTIAL
+  cover.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: 'CONFIDENTIAL',
+        bold: true,
+        color: FIRM_NAVY,
+        font: DISPLAY_FONT,
+        size: COVER_CAPTION_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 0 },
+  }));
+
+  return cover;
+}
+
+// ── Line-level dispatcher ─────────────────────────────────────────────────────
+
+/**
+ * Convert a single non-empty line into one or more Paragraphs.
+ * Returns an array because section headers produce two paragraphs.
+ */
+function lineToChildren(line: string): Paragraph[] {
+  const t = line.trim();
+
+  // Explicit Markdown heading markers — use two-paragraph section-header pattern
+  if (/^# /.test(t)) return [...buildSectionHeader(t.slice(2).trim())];
+  if (/^## /.test(t)) return [...buildSectionHeader(t.slice(3).trim())];
+  if (/^### /.test(t)) return [...buildSectionHeader(t.slice(4).trim())];
+  if (/^#### /.test(t)) return [buildSectionHeadingParagraph(t.slice(5).trim())];
+
+  // Horizontal rule
+  if (/^---$/.test(t)) {
+    return [new Paragraph({
+      children: [new TextRun({ text: '' })],
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: FIRM_NAVY } },
+      spacing: { after: BODY_AFTER },
+    })];
+  }
+
+  if (isDrafterNote(t)) return [buildDrafterNote(t)];
+  if (isListItem(t)) return [buildListItem(t)];
+
+  // Article headings: two-paragraph section-header pattern
+  if (isArticleHeading(t)) {
+    const { text: cleanText } = stripWholeBold(t);
+    return [...buildSectionHeader(cleanText)];
+  }
+
+  // Execution heading: two-paragraph section-header pattern
+  if (isExecutionLeadIn(t)) {
+    const { text: cleanText } = stripWholeBold(t);
+    return [...buildSectionHeader(cleanText)];
+  }
+
+  // Notary Acknowledgment heading: two-paragraph section-header pattern
+  if (isNotaryAcknowledgmentHeading(t)) {
+    const { text: cleanText } = stripWholeBold(t);
+    return [...buildSectionHeader(cleanText)];
+  }
+
+  // Section headings (Section 1.1 style)
+  if (isSectionHeading(t)) {
+    const { text: cleanText } = stripWholeBold(t);
+    return [buildSectionHeadingParagraph(cleanText)];
+  }
+
+  // Signature line underscores
+  if (isSignatureLine(t)) return [buildSignatureLine()];
+
+  // Signature labels
+  if (isSignatureLabel(t)) return [buildSignatureLabel(t)];
+
+  // Notary block lines
+  if (isNotaryLine(t)) return [buildNotaryParagraph(t)];
+
+  // Preparer lines
+  if (isPreparerLine(t)) return [buildPreparerParagraph(t)];
+
+  // Document title (all-caps): two-paragraph section-header pattern
+  if (isDocumentTitle(t)) {
+    const { text: cleanText } = stripWholeBold(t);
+    return [...buildSectionHeader(cleanText)];
+  }
+
+  // Default: body paragraph
+  return [buildBodyParagraph(t)];
 }
 
 // ── Core renderer ─────────────────────────────────────────────────────────────
@@ -603,7 +875,9 @@ function lineToChild(line: string): Paragraph {
  * Convert a Markdown string into an array of docx FileChild constructs
  * (Paragraph or Table), ready to be embedded in a Document section.
  *
- * Backward-compatible public API (v2 behavior preserved).
+ * Full-content preservation: no line/block count limit. All blocks are processed.
+ *
+ * Backward-compatible public API.
  */
 export function markdownToDocxParagraphs(markdown: string): DocxFileChild[] {
   if (!markdown || markdown.trim().length === 0) return [];
@@ -626,93 +900,169 @@ export function markdownToDocxParagraphs(markdown: string): DocxFileChild[] {
     }
     for (const line of lines) {
       try {
-        children.push(lineToChild(line));
+        const paragraphs = lineToChildren(line);
+        for (const p of paragraphs) {
+          children.push(p);
+        }
       } catch {
-        children.push(new Paragraph({ text: line }));
+        children.push(new Paragraph({
+          children: [new TextRun({ text: line, font: BODY_FONT, size: BODY_SIZE, color: BODY_CHARCOAL })],
+        }));
       }
     }
   }
   return children;
 }
 
-// ── Section builder (v3 — MR-EXPORT-FORMAT-2) ────────────────────────────────
+// ── Running header/footer builders ───────────────────────────────────────────
 
 /**
- * Build a complete Satterwhite house-style DOCX section object.
+ * Build the running header paragraph per spec:
+ * Right-aligned, Calibri italic 8pt navy, bottom border navy sz=4 space=4.
+ */
+function buildRunningHeader(headerText: string, isWatermark: boolean): Paragraph {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: headerText,
+        bold: isWatermark,
+        italics: !isWatermark,
+        color: isWatermark ? DRAFTER_RED : FIRM_NAVY,
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+      }),
+    ],
+    alignment: AlignmentType.RIGHT,
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: FIRM_NAVY },
+    },
+  });
+}
+
+/**
+ * Build the running footer paragraph per spec:
+ * Left firm text + right tab PAGE field.
+ * Calibri 8pt navy, top border navy sz=4 space=4, tab stop right at 9360.
+ * Uses SimpleField("PAGE") for real Word PAGE field.
+ */
+function buildRunningFooter(): Paragraph {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: 'The Satterwhite Law Firm, PLLC \u2022 703-855-7380',
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
+      new TextRun({
+        text: '\t',
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
+      new TextRun({
+        text: 'Page\u00a0',
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
+      new SimpleField('PAGE'),
+    ],
+    tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH_DXA }],
+    border: {
+      top: { style: BorderStyle.SINGLE, size: 4, space: 4, color: FIRM_NAVY },
+    },
+  });
+}
+
+// ── Section builder ───────────────────────────────────────────────────────────
+
+/**
+ * Build a complete Satterwhite formal-document DOCX section object per spec.
  *
  * Returns an ISectionOptions-compatible object containing:
- *   - properties: page margins
- *   - headers: running header (document title or watermark)
- *   - footers: Satterwhite firm footer with real PAGE field
- *   - children: rendered content paragraphs/tables
+ *   - properties: explicit US Letter page size (12240x15840), margins 1440,
+ *     header/footer offsets 708, portrait orientation.
+ *   - headers: right-aligned Calibri italic 8pt navy running header.
+ *   - footers: left firm text + right tab PAGE field, Calibri 8pt navy.
+ *   - children: cover page (if fiduciary instrument) + rendered content.
  *
- * The caller (export handler) passes this directly into the Document sections array.
- *
- * Running header logic:
- *   - If watermarkText is provided, the header shows the watermark (existing behavior).
- *   - Otherwise, the header shows the document title extracted from content,
- *     or falls back to DEFAULT_HEADER_TEXT ("CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED").
- *
- * Profile/privilege routing carryforward (CF-EF2-1):
- *   For third-party transaction documents the privilege footer should be omitted.
- *   This requires a document-type/profile flag from the export route, which is not
- *   available in the current architecture. Safe default (privilege header) is used.
- *   A future authorized index.ts/route change can pass a profile flag to suppress it.
+ * Profile/privilege routing carryforward (CF-EF3-1):
+ *   Document profile/template-vs-signing-copy flag is not available in the
+ *   current architecture. Placeholder/drafter-note behavior is preserved.
  */
 export function buildSatterwhiteSection(
   markdown: string,
   opts?: SatterwhiteSectionOptions,
 ): ISectionOptions {
-  const children = markdownToDocxParagraphs(markdown);
-  const contentChildren = children.length > 0 ? children : [new Paragraph({ text: '' })];
+  const bodyChildren = markdownToDocxParagraphs(markdown);
+  // Include all children (paragraphs and tables)
+  const allChildren = bodyChildren.length > 0 ? bodyChildren : [new Paragraph({ children: [new TextRun({ text: '', font: BODY_FONT, size: BODY_SIZE })] })];
 
-  // ── Running header ──────────────────────────────────────────────────────────
+  // ── Running header text ─────────────────────────────────────────────────────
+  const isWatermark = !!(opts?.watermarkText);
   let headerText: string;
   if (opts?.watermarkText) {
     headerText = opts.watermarkText;
   } else {
-    headerText = extractDocumentTitle(markdown) ?? DEFAULT_HEADER_TEXT;
+    const docTitle = extractDocumentTitle(markdown);
+    const principalName = extractPrincipalName(markdown);
+    if (docTitle && principalName) {
+      headerText = `${docTitle} \u2022 ${principalName}`;
+    } else if (docTitle) {
+      headerText = docTitle;
+    } else {
+      headerText = 'CONFIDENTIAL \u2014 ATTORNEY-CLIENT PRIVILEGED';
+    }
   }
-  const headerParagraph = new Paragraph({
-    alignment: AlignmentType.CENTER,
-    children: [
-      new TextRun({
-        text: headerText,
-        bold: !!opts?.watermarkText,
-        color: opts?.watermarkText ? 'C00000' : NAVY,
-        font: HEADING_FONT,
-        size: opts?.watermarkText ? 20 : 18,
-      }),
-    ],
-  });
 
-  // ── Satterwhite footer with PAGE field ──────────────────────────────────────
-  const footerParagraph = new Paragraph({
-    alignment: AlignmentType.CENTER,
-    children: [
-      new TextRun({
-        text: FIRM_FOOTER_TEXT,
-        font: HEADING_FONT,
-        size: 18,
-        color: NAVY,
-      }),
-      new TextRun({
-        children: [PageNumber.CURRENT],
-        font: HEADING_FONT,
-        size: 18,
-        color: NAVY,
-      }),
-    ],
-  });
+  const headerParagraph = buildRunningHeader(headerText, isWatermark);
+  const footerParagraph = buildRunningFooter();
+
+  // ── Cover page for fiduciary instruments ────────────────────────────────────
+  const hasCoverPage = !isWatermark && isFiduciaryInstrument(markdown);
+
+  if (hasCoverPage) {
+    const coverParagraphs = buildCoverPage(markdown);
+    const pageBreakParagraph = new Paragraph({
+      children: [new TextRun({ text: '', break: 1 })],
+      pageBreakBefore: true,
+    });
+    return {
+      properties: {
+        page: {
+          size: { width: PAGE_WIDTH_DXA, height: PAGE_HEIGHT_DXA, orientation: PageOrientation.PORTRAIT },
+          margin: {
+            top: MARGIN_DXA,
+            right: MARGIN_DXA,
+            bottom: MARGIN_DXA,
+            left: MARGIN_DXA,
+            header: HEADER_OFFSET_DXA,
+            footer: FOOTER_OFFSET_DXA,
+          },
+        },
+      },
+      headers: {
+        default: new Header({ children: [headerParagraph] }),
+      },
+      footers: {
+        default: new Footer({ children: [footerParagraph] }),
+      },
+      children: [...coverParagraphs, pageBreakParagraph, ...allChildren],
+    };
+  }
 
   return {
     properties: {
       page: {
+        size: { width: PAGE_WIDTH_DXA, height: PAGE_HEIGHT_DXA, orientation: PageOrientation.PORTRAIT },
         margin: {
-          top: 1440,    // 1 inch
-          right: 1440,  // 1 inch
-          bottom: 1440, // 1 inch
-          left: 1440,   // 1 inch
+          top: MARGIN_DXA,
+          right: MARGIN_DXA,
+          bottom: MARGIN_DXA,
+          left: MARGIN_DXA,
+          header: HEADER_OFFSET_DXA,
+          footer: FOOTER_OFFSET_DXA,
         },
       },
     },
@@ -722,6 +1072,6 @@ export function buildSatterwhiteSection(
     footers: {
       default: new Footer({ children: [footerParagraph] }),
     },
-    children: contentChildren,
+    children: allChildren,
   };
 }
