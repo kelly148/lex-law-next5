@@ -80,7 +80,10 @@ export class AnthropicAdapter implements LlmClient {
       userPrompt,
       structuredOutputSchema,
       maxTokens = 4096,
-      temperature = 0.3,
+      // temperature is intentionally not destructured: claude-opus-4-7 and other
+      // extended-thinking Claude models reject the temperature parameter with
+      // HTTP 400 "temperature is deprecated for this model". The Anthropic API
+      // applies its own default when temperature is absent. (MR-FINALIZE-ANTHROPIC-1)
       signal,
     } = params;
 
@@ -94,7 +97,6 @@ export class AnthropicAdapter implements LlmClient {
       max_tokens: maxTokens,
       system: effectiveSystemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
-      temperature,
     };
 
     let response: Response;
