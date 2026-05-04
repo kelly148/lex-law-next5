@@ -31,8 +31,8 @@ import { getMatterById } from './db/queries/matters.js';
 import { getDocumentById } from './db/queries/documents.js';
 import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
-import { Document as DocxDocument, Packer, Paragraph, TextRun, Header, AlignmentType } from 'docx';
-import { markdownToDocxParagraphs } from './utils/markdownToDocx.js';
+import { Document as DocxDocument, Packer } from 'docx';
+import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
 import { makeReadyHandler } from './routes/ready.js';
 
 // ============================================================
@@ -349,43 +349,12 @@ app.get(
     };
     const watermarkText = WATERMARK[state] ?? null;
 
-    // ── Build DOCX in memory ──────────────────────────────────────────────────
-    // Convert stored Markdown content to docx Paragraphs via the helper.
-    // The helper handles the supported Markdown subset (##/###/####, **bold**,
-    // *italic*, ***bold-italic***, ---) and passes deferred/unsupported syntax
-    // through as literal plain text for backward compatibility.
-    const mdParagraphs = markdownToDocxParagraphs(version.content);
-    const contentParagraphs = mdParagraphs.length > 0
-      ? mdParagraphs
-      : [new Paragraph({ text: '' })];
-
-    // Build header with watermark paragraph if required.
-    const headerParagraph = watermarkText
-      ? new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [
-            new TextRun({
-              text: watermarkText,
-              bold: true,
-              color: 'C00000',
-              size: 20, // 10pt in half-points
-            }),
-          ],
-        })
-      : new Paragraph({ text: '' });
-
-    const docxFile = new DocxDocument({
-      sections: [
-        {
-          headers: {
-            default: new Header({ children: [headerParagraph] }),
-          },
-          children: contentParagraphs.length > 0
-            ? contentParagraphs
-            : [new Paragraph({ text: '' })],
-        },
-      ],
-    });
+    // ── Build DOCX in memory (MR-EXPORT-FORMAT-2) ────────────────────────────
+    // buildSatterwhiteSection returns a complete ISectionOptions object with
+    // Satterwhite house-style header, footer (with PAGE field), and rendered
+    // content children. All style logic lives in markdownToDocx.ts.
+    const section = buildSatterwhiteSection(version.content, { watermarkText });
+    const docxFile = new DocxDocument({ sections: [section] });
 
     const buffer = await Packer.toBuffer(docxFile);
 
