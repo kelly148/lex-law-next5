@@ -392,3 +392,44 @@ describe('§S6g: regression preservation — MR-3 new deliverables', () => {
     expect(reviewPane).toContain('History unavailable. Reload to retry.');
   });
 });
+
+// ============================================================
+// MR-UAT-ERR-2 — Failed Review Diagnostic Message Surfacing
+// Source-analysis tests (no DOM rendering), consistent with
+// project node-environment vitest configuration.
+// ============================================================
+describe('MR-UAT-ERR-2: FailedReviewView errorMessage surfacing', () => {
+  const reviewPane = readSrc('client/components/ReviewPane.tsx');
+
+  // T-UAT-ERR-2-1 — renders diagnostic error message when present
+  it('T-UAT-ERR-2-1: FailedReviewViewProps includes errorMessage: string | null', () => {
+    expect(reviewPane).toContain('errorMessage: string | null;');
+  });
+  it('T-UAT-ERR-2-1: FailedReviewView renders errorMessage when non-empty', () => {
+    expect(reviewPane).toContain("{errorMessage && errorMessage.trim() !== ''");
+    expect(reviewPane).toContain('{errorMessage}');
+  });
+  it('T-UAT-ERR-2-1: call site passes errorMessage from failed reviewer_feedback job', () => {
+    expect(reviewPane).toContain("jobs.find((j) => j.jobType === 'reviewer_feedback')?.errorMessage ?? null");
+    expect(reviewPane).toContain('errorMessage={');
+  });
+
+  // T-UAT-ERR-2-2 — preserves generic fallback when diagnostic is absent
+  it('T-UAT-ERR-2-2: generic fallback text is still present in FailedReviewView', () => {
+    expect(reviewPane).toContain('this may be a temporary LLM provider error or timeout');
+  });
+  it('T-UAT-ERR-2-2: errorMessage render is conditional (null/empty does not render)', () => {
+    expect(reviewPane).toContain("errorMessage.trim() !== ''");
+  });
+
+  // T-UAT-ERR-2-3 — does not alter abandon action rendering
+  it('T-UAT-ERR-2-3: abandon button is still present in FailedReviewView', () => {
+    expect(reviewPane).toContain('Abandon and start a new review session');
+  });
+  it('T-UAT-ERR-2-3: onAbandon prop is still present in FailedReviewViewProps', () => {
+    expect(reviewPane).toContain('onAbandon: () => void;');
+  });
+  it('T-UAT-ERR-2-3: abandonPending prop is still present in FailedReviewViewProps', () => {
+    expect(reviewPane).toContain('abandonPending: boolean;');
+  });
+});
