@@ -52,6 +52,53 @@ import ReviewPane from '../components/ReviewPane.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 
 // ============================================================
+// Finalize diagnostic banner — MR-FINALIZE-EXPORT-2
+// Shown when finalizeMutation.error is set or the latest formatting
+// job is in a terminal failure state (failed | timed_out).
+// Pattern mirrors FailedReviewView in ReviewPane (MR-UAT-ERR-2).
+// ============================================================
+interface FinalizeDiagnosticBannerProps {
+  mutationError: Error | null;
+  formattingJob: { status: string; errorMessage: string | null } | null;
+}
+
+function FinalizeDiagnosticBanner({
+  mutationError,
+  formattingJob,
+}: FinalizeDiagnosticBannerProps): React.ReactElement | null {
+  const hasJobFailure =
+    formattingJob !== null &&
+    (formattingJob.status === 'failed' || formattingJob.status === 'timed_out');
+  if (!mutationError && !hasJobFailure) return null;
+  const diagnosticMessage: string | null = mutationError
+    ? mutationError.message
+    : (formattingJob?.errorMessage ?? null);
+  return (
+    <div
+      data-testid="finalize-diagnostic-banner"
+      className="mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm"
+    >
+      <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+      <div>
+        <p className="text-sm font-medium text-red-700">Finalize failed</p>
+        <p className="text-xs text-red-500 mt-0.5">
+          The formatting pass did not complete. The document has been returned to
+          substantively accepted. You may retry Finalize or use Accept Unformatted.
+        </p>
+        {diagnosticMessage && diagnosticMessage.trim() !== '' && (
+          <p
+            data-testid="finalize-diagnostic-message"
+            className="text-xs text-gray-600 mt-1 font-mono"
+          >
+            {diagnosticMessage}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Job status banner
 // ============================================================
 interface JobBannerProps {
@@ -100,6 +147,19 @@ function JobBanner({ documentId }: JobBannerProps): React.ReactElement | null {
       </button>
     </div>
   );
+}
+
+// ============================================================
+// useDocumentJobs — lightweight hook for formatting job access
+// Used by DocumentDetail to derive the latest formatting job
+// without duplicating the JobBanner polling query.
+// ============================================================
+function useDocumentJobs(documentId: string) {
+  const { data } = trpc.job.listForDocument.useQuery(
+    { documentId },
+    { refetchInterval: false },
+  );
+  return data?.jobs ?? [];
 }
 
 // ============================================================
@@ -559,6 +619,12 @@ export default function DocumentDetail(): React.ReactElement {
     { onSuccess: () => void utils.reference.list.invalidate({ sourceDocumentId: documentId! }) }
   );
 
+  // MR-FINALIZE-EXPORT-2: latest formatting job for diagnostic banner
+  const allJobs = useDocumentJobs(documentId ?? '');
+  const latestFormattingJob = allJobs
+    .filter((j) => j.jobType === 'formatting')
+    .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime())[0] ?? null;
+
   if (!documentId || !matterId) return <div className="p-6 text-red-600">Invalid document ID.</div>;
   if (isLoading) return <div className="p-6 text-gray-400 text-sm">Loading document…</div>;
   if (!doc) return <div className="p-6 text-red-600 text-sm">Document not found.</div>;
@@ -595,6 +661,12 @@ export default function DocumentDetail(): React.ReactElement {
       <div className="mb-4">
         <JobBanner documentId={documentId} />
       </div>
+
+      {/* Finalize diagnostic banner — MR-FINALIZE-EXPORT-2 */}
+      <FinalizeDiagnosticBanner
+        mutationError={finalizeMutation.error}
+        formattingJob={latestFormattingJob}
+      />
 
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
@@ -889,18 +961,32 @@ export default function DocumentDetail(): React.ReactElement {
             )}
           </>
         )}
-        {/* Download DOCX */}
+        {/* Download DOCX — MR-FINALIZE-EXPORT-2: state-aware label and disclosure */}
         {(doc.currentVersionId ||
           doc.officialFinalVersionNumber !== null ||
           doc.officialSubstantiveVersionNumber !== null) && (
-          <a
-            href={`/api/documents/${documentId}/export`}
-            download
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download DOCX
-          </a>
+          <div className="flex flex-col items-end gap-0.5">
+            <a
+              href={`/api/documents/${documentId}/export`}
+              download
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {doc.workflowState === 'complete' && doc.officialFinalVersionNumber !== null
+                ? 'Download Final DOCX'
+                : 'Download DOCX'}
+            </a>
+            {doc.workflowState !== 'complete' && (
+              <span
+                data-testid="export-state-disclosure"
+                className="text-[10px] text-amber-600"
+              >
+                {doc.workflowState === 'finalizing'
+                  ? 'Formatting in progress — export uses substantive version'
+                  : 'Export uses substantive/current version (not final formatted)'}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
