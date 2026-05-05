@@ -631,8 +631,15 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
   const regenerateMutation = useGuardedMutation(
     (input: { sessionId: string }) => utils.client.reviewSession.regenerate.mutate(input),
     {
+      // MR-REGENERATE-REFRESH-1: invalidate document.get and version.list so the
+      // newly regenerated version appears in Version History without a hard refresh.
+      // executeCanonicalMutation is synchronous — the new version is already in the
+      // DB by the time this onSuccess fires. JobBanner polling cannot be relied upon
+      // because the job is already terminal when the mutation returns.
       onSuccess: () => {
         void utils.reviewSession.get.invalidate({ sessionId });
+        void utils.document.get.invalidate({ documentId });
+        void utils.version.list.invalidate({ documentId });
         onClose();
       },
       // MR-4 P2: SUGGESTION_NOT_RESOLVED safe error display.
