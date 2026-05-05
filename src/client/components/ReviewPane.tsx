@@ -764,9 +764,14 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
       {/* Feedback area — MR-3 §S1b: render based on derived completion state */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {completionState === 'pending_or_running' && (
-          <div className="text-center py-8">
+          // MR-UAT-PROGRESS-1: show reviewer-specific label when available.
+          <div className="text-center py-8" aria-live="polite" aria-busy={true}>
             <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
-            <p className="text-sm text-gray-400">Review in progress…</p>
+            <p className="text-sm text-gray-400">
+              {session.selectedReviewers[0]
+                ? `${REVIEWER_LABELS[session.selectedReviewers[0]] ?? session.selectedReviewers[0]} reviewer is analyzing…`
+                : 'Review in progress…'}
+            </p>
             <p className="text-xs text-gray-300 mt-1">Checking for results every few seconds.</p>
           </div>
         )}

@@ -585,7 +585,14 @@ export default function DocumentDetail(): React.ReactElement {
 
   const finalizeMutation = useGuardedMutation(
     (input: { documentId: string }) => utils.client.document.finalize.mutate(input),
-    { onSuccess: () => void utils.document.get.invalidate({ documentId: documentId! }) }
+    {
+      // MR-UAT-PROGRESS-1: also invalidate job.listForDocument so JobBanner immediately
+      // picks up the queued formatting job without waiting for the next poll cycle.
+      onSuccess: () => {
+        void utils.document.get.invalidate({ documentId: documentId! });
+        void utils.job.listForDocument.invalidate({ documentId: documentId! });
+      },
+    }
   );
 
   // Template-mode mutations
@@ -626,6 +633,12 @@ export default function DocumentDetail(): React.ReactElement {
   const latestFormattingJob = allJobs
     .filter((j) => j.jobType === 'formatting' && j.documentId === (documentId ?? null))
     .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime())[0] ?? null;
+  // MR-UAT-PROGRESS-1: true while a formatting job is queued or running for this document.
+  // Disables the Finalize button and shows a progress label after finalizeMutation completes
+  // (isPending becomes false) but the formatting job is still active in the job queue.
+  const isFormattingActive =
+    latestFormattingJob !== null &&
+    (latestFormattingJob.status === 'queued' || latestFormattingJob.status === 'running');
 
   if (!documentId || !matterId) return <div className="p-6 text-red-600">Invalid document ID.</div>;
   if (isLoading) return <div className="p-6 text-gray-400 text-sm">Loading document…</div>;
@@ -858,10 +871,11 @@ export default function DocumentDetail(): React.ReactElement {
                 </button>
                 <button
                   onClick={() => finalizeMutation.mutate({ documentId })}
-                  disabled={finalizeMutation.isPending}
+                  disabled={finalizeMutation.isPending || isFormattingActive}
+                  aria-busy={finalizeMutation.isPending || isFormattingActive}
                   className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                 >
-                  Finalize
+                  {(finalizeMutation.isPending || isFormattingActive) ? 'Finalizing document…' : 'Finalize'}
                 </button>
               </>
             )}
@@ -939,10 +953,11 @@ export default function DocumentDetail(): React.ReactElement {
                 </button>
                 <button
                   onClick={() => finalizeMutation.mutate({ documentId })}
-                  disabled={finalizeMutation.isPending}
+                  disabled={finalizeMutation.isPending || isFormattingActive}
+                  aria-busy={finalizeMutation.isPending || isFormattingActive}
                   className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                 >
-                  Finalize
+                  {(finalizeMutation.isPending || isFormattingActive) ? 'Finalizing document…' : 'Finalize'}
                 </button>
               </>
             )}
