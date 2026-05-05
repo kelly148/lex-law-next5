@@ -552,8 +552,10 @@ export default function DocumentDetail(): React.ReactElement {
     { onSuccess: () => void utils.document.get.invalidate({ documentId: documentId! }) }
   );
 
+  // MR-LLM-LITE-1: generation model mode state ('full' | 'lite').
+  const [generationModelMode, setGenerationModelMode] = React.useState<'full' | 'lite'>('full');
   const generateDraftMutation = useGuardedMutation(
-    (input: { documentId: string }) => utils.client.document.generateDraft.mutate(input),
+    (input: { documentId: string; generationModelMode: 'full' | 'lite' }) => utils.client.document.generateDraft.mutate(input),
     {
       onSuccess: () => {
         void utils.document.get.invalidate({ documentId: documentId! });
@@ -805,12 +807,23 @@ export default function DocumentDetail(): React.ReactElement {
           <>
             {doc.workflowState === 'drafting' && !doc.currentVersionId && (
               <>
+                {/* MR-LLM-LITE-1: Full / Lite model mode toggle */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setGenerationModelMode('full')}
+                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'full' ? 'bg-firm-navy text-white border-firm-navy' : 'border-gray-300 text-gray-600 hover:bg-gray-50')}
+                  >Full</button>
+                  <button
+                    onClick={() => setGenerationModelMode('lite')}
+                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'lite' ? 'bg-firm-navy text-white border-firm-navy' : 'border-gray-300 text-gray-600 hover:bg-gray-50')}
+                  >Lite</button>
+                </div>
                 <button
                   onClick={() => {
                     if (extractedMaterialsCount === 0) {
                       setShowDraftWarning(true);
                     } else {
-                      generateDraftMutation.mutate({ documentId });
+                      generateDraftMutation.mutate({ documentId, generationModelMode });
                     }
                   }}
                   disabled={generateDraftMutation.isPending}
@@ -826,7 +839,7 @@ export default function DocumentDetail(): React.ReactElement {
                       <button
                         onClick={() => {
                           setShowDraftWarning(false);
-                          generateDraftMutation.mutate({ documentId });
+                          generateDraftMutation.mutate({ documentId, generationModelMode });
                         }}
                         className="px-2 py-1 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
                       >

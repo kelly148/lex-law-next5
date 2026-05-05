@@ -36,6 +36,19 @@ const REVIEWER_LABELS: Record<string, string> = {
   gpt: 'GPT',
   gemini: 'Gemini',
   grok: 'Grok',
+  // MR-LLM-LITE-1: Lite reviewer labels
+  claude_lite: 'Claude Lite',
+  gpt_lite: 'GPT Lite',
+  gemini_lite: 'Gemini Lite',
+  grok_lite: 'Grok Lite',
+};
+
+// MR-LLM-LITE-1: Map from full reviewer key to its Lite counterpart.
+const REVIEWER_LITE_KEY: Record<string, string> = {
+  claude: 'claude_lite',
+  gpt: 'gpt_lite',
+  gemini: 'gemini_lite',
+  grok: 'grok_lite',
 };
 
 interface ReviewPaneProps {
@@ -187,18 +200,37 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
         {enabledReviewerList.length === 0 ? (
           <p className="text-sm text-gray-400">No reviewers enabled. Enable reviewers in Settings.</p>
         ) : (
-          enabledReviewerList.map((key) => (
-            <label key={key} className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="reviewer-selection"
-                checked={selectedReviewer === key}
-                onChange={() => setSelectedReviewer(key)}
-                className="rounded"
-              />
-              <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>
-            </label>
-          ))
+          enabledReviewerList.flatMap((key) => {
+            const liteKey = REVIEWER_LITE_KEY[key];
+            const rows = [
+              <label key={key} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="reviewer-selection"
+                  checked={selectedReviewer === key}
+                  onChange={() => setSelectedReviewer(key)}
+                  className="rounded"
+                />
+                <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>
+              </label>,
+            ];
+            // MR-LLM-LITE-1: render Lite sub-option indented below each full reviewer.
+            if (liteKey) {
+              rows.push(
+                <label key={liteKey} className="flex items-center gap-3 cursor-pointer pl-6">
+                  <input
+                    type="radio"
+                    name="reviewer-selection"
+                    checked={selectedReviewer === liteKey}
+                    onChange={() => setSelectedReviewer(liteKey)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-500">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
+                </label>
+              );
+            }
+            return rows;
+          })
         )}
       </div>
       {advisoryText && (

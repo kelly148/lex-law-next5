@@ -6,6 +6,7 @@
  *   - PRIMARY_DRAFTER_MODEL and EVALUATOR_MODEL env-var parsing
  *   - LLM_FETCH_TIMEOUT_MS constant
  *   - Provider-to-model routing helpers
+ *   - MR-LLM-LITE-1: Lite reviewer model IDs and generation model mode resolution
  *
  * STARTUP VALIDATION:
  *   Setting PRIMARY_DRAFTER_MODEL or EVALUATOR_MODEL to a non-whitelisted
@@ -69,15 +70,77 @@ export const REVIEWER_MODELS = {
 export type ReviewerKey = keyof typeof REVIEWER_MODELS;
 
 // ============================================================
-// Reviewer human-readable titles (MR-1 S3c)
+// Lite reviewer model identifiers (MR-LLM-LITE-1)
+// Each Lite key maps to the same provider adapter as its full
+// counterpart but uses a lighter model ID.
+// Env vars allow operator override; safe defaults are provided.
+// ============================================================
+
+function resolveLiteModel(envVar: string, defaultModel: string): string {
+  const v = process.env[envVar];
+  if (v && v.trim().length > 0) return v.trim();
+  return defaultModel;
+}
+
+export const LITE_REVIEWER_MODELS = {
+  claude_lite: resolveLiteModel('LITE_ANTHROPIC_REVIEWER_MODEL', 'anthropic:claude-sonnet-4-5'),
+  gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-4.1-mini'),
+  gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-2.5-flash'),
+  grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-3-mini'),
+} as const;
+
+export type LiteReviewerKey = keyof typeof LITE_REVIEWER_MODELS;
+
+/** All valid reviewer keys — full and Lite combined. */
+export type AnyReviewerKey = ReviewerKey | LiteReviewerKey;
+
+/**
+ * Resolve a reviewer key (full or Lite) to its model string.
+ * Returns undefined if the key is not recognized.
+ */
+export function resolveReviewerModel(key: string): string | undefined {
+  if (key in REVIEWER_MODELS) return REVIEWER_MODELS[key as ReviewerKey];
+  if (key in LITE_REVIEWER_MODELS) return LITE_REVIEWER_MODELS[key as LiteReviewerKey];
+  return undefined;
+}
+
+// ============================================================
+// Reviewer human-readable titles (MR-1 S3c, MR-LLM-LITE-1)
 // Server-local mapping; do not import client-side REVIEWER_LABELS.
 // ============================================================
-export const REVIEWER_TITLES: Record<ReviewerKey, string> = {
+export const REVIEWER_TITLES: Record<AnyReviewerKey, string> = {
   claude: 'Claude',
   gpt: 'GPT',
   gemini: 'Gemini',
   grok: 'Grok',
+  claude_lite: 'Claude Lite',
+  gpt_lite: 'GPT Lite',
+  gemini_lite: 'Gemini Lite',
+  grok_lite: 'Grok Lite',
 } as const;
+
+// ============================================================
+// Generation model mode (MR-LLM-LITE-1)
+// 'full' uses PRIMARY_DRAFTER_MODEL (unchanged).
+// 'lite' uses LITE_GENERATION_MODEL resolved from env.
+// ============================================================
+
+export type GenerationModelMode = 'full' | 'lite';
+
+export const LITE_GENERATION_MODEL = resolveLiteModel(
+  'LITE_OPENAI_GENERATE_MODEL',
+  'openai:gpt-4.1-mini',
+);
+
+/**
+ * Resolve the generation model string for the given mode.
+ * 'full' → PRIMARY_DRAFTER_MODEL (resolved at startup).
+ * 'lite' → LITE_GENERATION_MODEL (resolved at startup).
+ */
+export function resolveGenerationModel(mode: GenerationModelMode, fullModel: string): string {
+  if (mode === 'lite') return LITE_GENERATION_MODEL;
+  return fullModel;
+}
 
 // ============================================================
 // Drafter and evaluator model resolution (Ch 22.3)

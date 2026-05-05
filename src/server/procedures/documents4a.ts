@@ -65,6 +65,8 @@ import {
 } from '../db/canonicalMutation.js';
 import {
   PRIMARY_DRAFTER_MODEL,
+  resolveGenerationModel,
+  type GenerationModelMode,
 } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 
@@ -463,9 +465,12 @@ export const document4aRouter = router({
         documentId: z.string().uuid(),
         siblingDocumentIds: z.array(z.string().uuid()).optional(),
         excludeMaterialIds: z.array(z.string().uuid()).optional(),
+        // MR-LLM-LITE-1: optional generation model mode; defaults to 'full' (PRIMARY_DRAFTER_MODEL).
+        generationModelMode: z.enum(['full', 'lite']).default('full'),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const generationModelMode: GenerationModelMode = input.generationModelMode;
       const userId = ctx.userId;
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
@@ -533,7 +538,7 @@ export const document4aRouter = router({
       const result = await executeCanonicalMutation({
         userId,
         jobType: 'draft_generation',
-        modelString: PRIMARY_DRAFTER_MODEL,
+        modelString: resolveGenerationModel(generationModelMode, PRIMARY_DRAFTER_MODEL),
         matterId: doc.matterId,
         documentId: input.documentId,
         txn1Enqueue: async (jobId) => {

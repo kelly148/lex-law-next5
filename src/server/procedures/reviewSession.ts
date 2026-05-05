@@ -22,7 +22,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
-import { REVIEWER_MODELS, REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, type ReviewerKey } from '../llm/config.js';
+import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -96,16 +96,33 @@ export const reviewSessionRouter = router({
       // Validate selectedReviewers against user's enabled set (Decision #42)
       const prefs = await getUserPreferences(userId);
       const enablement = prefs.preferences.reviewerEnablement;
-      const validReviewerKeys: ReviewerKey[] = ['claude', 'gpt', 'gemini', 'grok'];
+      // MR-LLM-LITE-1: validReviewerKeys includes both full and Lite keys.
+      // Lite keys (e.g. 'gpt_lite') are always available when their parent provider
+      // is enabled; they are not separately togglable in reviewerEnablement.
+      const validFullKeys: ReviewerKey[] = ['claude', 'gpt', 'gemini', 'grok'];
+      const validLiteKeys: LiteReviewerKey[] = ['claude_lite', 'gpt_lite', 'gemini_lite', 'grok_lite'];
+      // Map Lite key → parent full key for enablement check.
+      const liteToFullKey: Record<LiteReviewerKey, ReviewerKey> = {
+        claude_lite: 'claude',
+        gpt_lite: 'gpt',
+        gemini_lite: 'gemini',
+        grok_lite: 'grok',
+      };
 
       for (const reviewerRole of input.selectedReviewers) {
-        if (!validReviewerKeys.includes(reviewerRole as ReviewerKey)) {
+        const isFullKey = validFullKeys.includes(reviewerRole as ReviewerKey);
+        const isLiteKey = validLiteKeys.includes(reviewerRole as LiteReviewerKey);
+        if (!isFullKey && !isLiteKey) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: `REVIEWER_NOT_ENABLED: '${reviewerRole}' is not a valid reviewer identifier`,
           });
         }
-        if (!enablement[reviewerRole as ReviewerKey]) {
+        // For Lite keys, check the parent full key's enablement.
+        const enablementKey: ReviewerKey = isLiteKey
+          ? liteToFullKey[reviewerRole as LiteReviewerKey]
+          : (reviewerRole as ReviewerKey);
+        if (!enablement[enablementKey]) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: `REVIEWER_NOT_ENABLED: reviewer '${reviewerRole}' is not enabled in user settings`,
@@ -148,7 +165,13 @@ export const reviewSessionRouter = router({
       // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation)
       const reviewerJobIds: string[] = [];
       for (const reviewerRole of input.selectedReviewers) {
-        const modelString = REVIEWER_MODELS[reviewerRole as ReviewerKey];
+        const modelString = resolveReviewerModel(reviewerRole);
+        if (!modelString) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `REVIEWER_NOT_ENABLED: '${reviewerRole}' is not a valid reviewer identifier`,
+          });
+        }
         // S1b (MR-1): Updated system prompt requests title/body/severity shape
         const systemPrompt = [
           `You are a legal document reviewer (${reviewerRole}).`,
@@ -165,7 +188,7 @@ export const reviewSessionRouter = router({
           '## Document Content',
           currentVersion.content,
         ].join('\n');
-        const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey] ?? reviewerRole;
+        const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
         const reviewerResult = await executeCanonicalMutation({
           userId,
           jobType: 'reviewer_feedback',
