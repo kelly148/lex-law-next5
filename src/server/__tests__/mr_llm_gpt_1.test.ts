@@ -162,8 +162,10 @@ describe('MR-LLM-GPT-1 — T-GPT-2: normalizeOpenAiStructuredOutput direct array
 // ── T-GPT-3: normalizeOpenAiStructuredOutput — ambiguous/invalid pass through ─
 
 describe('MR-LLM-GPT-1 — T-GPT-3: normalizeOpenAiStructuredOutput ambiguous/invalid pass-through', () => {
-  it('T-GPT-3a: object with multiple properties passes through unchanged (Zod will reject)', () => {
-    const ambiguous = { feedback: CANONICAL_ARRAY, extra: 'value' };
+  it('T-GPT-3a: object with multiple unknown-key properties passes through unchanged (Zod will reject)', () => {
+    // MR-LLM-LITE-2: known keys (feedback, suggestions, items, result, data) are now extracted.
+    // A truly ambiguous object has multiple keys none of which are known wrapper keys.
+    const ambiguous = { unknownKeyA: CANONICAL_ARRAY, unknownKeyB: 'value' };
     const result = normalizeOpenAiStructuredOutput(ambiguous);
     expect(result).toBe(ambiguous);
   });
@@ -323,8 +325,10 @@ describe('MR-LLM-GPT-1 — T-GPT-6: OpenAiAdapter ambiguous/invalid object fails
     delete process.env['OPENAI_API_KEY'];
   });
 
-  it('T-GPT-6a: ambiguous multi-key object fails with parse_error', async () => {
-    const ambiguous = { feedback: CANONICAL_ARRAY, extra: 'value' };
+  it('T-GPT-6a: ambiguous multi-key object with no known key fails with parse_error', async () => {
+    // MR-LLM-LITE-2: { feedback: [...], extra: ... } now normalizes successfully.
+    // Use an object with no known wrapper keys to test the ambiguous/fail path.
+    const ambiguous = { unknownKeyA: CANONICAL_ARRAY, unknownKeyB: 'value' };
     vi.stubGlobal('fetch', vi.fn(() => makeOpenAiResponse(JSON.stringify(ambiguous))));
     process.env['OPENAI_API_KEY'] = 'sk-test-gpt1-dummy';
 
@@ -530,8 +534,9 @@ describe('MR-LLM-GPT-1 — T-GPT-9: Grok MR-LLM-GROK-1 normalization does not re
     expect(normalizeGrokStructuredOutput(CANONICAL_ARRAY)).toBe(CANONICAL_ARRAY);
   });
 
-  it('T-GPT-9c: normalizeGrokStructuredOutput still passes ambiguous objects through unchanged', () => {
-    const ambiguous = { feedback: CANONICAL_ARRAY, extra: 'value' };
+  it('T-GPT-9c: normalizeGrokStructuredOutput still passes truly ambiguous objects through unchanged', () => {
+    // MR-LLM-LITE-2: known keys are now extracted. Use an object with no known wrapper keys.
+    const ambiguous = { unknownKeyA: CANONICAL_ARRAY, unknownKeyB: 'value' };
     expect(normalizeGrokStructuredOutput(ambiguous)).toBe(ambiguous);
   });
 

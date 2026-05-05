@@ -74,26 +74,34 @@ interface XaiResponse {
 
 const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
 
+// Known wrapper key names used by Grok json_object mode when the expected
+// schema is a bare array. Tried in order when the single-key check does not
+// match (MR-LLM-LITE-2 extension for grok-3-mini multi-key wrappers).
+const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
+
 /**
- * MR-LLM-GROK-1: Normalize a Grok structured-output value before Zod validation.
+ * MR-LLM-GROK-1 / MR-LLM-LITE-2: Normalize a Grok structured-output value before Zod validation.
  *
  * Grok with json_object mode may return an object wrapper around the expected
  * array, such as { "feedback": [...] } or { "suggestions": [...] }.
- * This function extracts the array when the parsed value is a plain object
- * with exactly one property whose value is an array.
+ * grok-3-mini (Lite) may return multi-key wrappers such as { "feedback": [...], "count": 3 }.
  *
  * Rules:
- *   - If parsed is already an array → return it unchanged.
- *   - If parsed is a plain object with exactly one property that is an array
- *     → return that array (unambiguous single-array-property extraction).
- *   - Otherwise → return the value unchanged (Zod validation will fail with
- *     a diagnostic error if the shape is wrong).
+ *   1. If parsed is already an array → return it unchanged.
+ *   2. If parsed is a plain object with exactly one property that is an array
+ *      → return that array (unambiguous single-array-property extraction).
+ *   3. If parsed is a plain object with multiple properties, and one of the
+ *      known wrapper key names (feedback, suggestions, items, result, data)
+ *      contains an array → return that array (MR-LLM-LITE-2).
+ *   4. Otherwise → return the value unchanged (Zod validation will fail with
+ *      a diagnostic error if the shape is wrong).
  *
  * This normalization preserves the canonical schema contract: the canonical
  * reviewer-feedback schema still expects an array; we are normalizing the
  * provider output before validation, not weakening the schema.
  */
 export function normalizeGrokStructuredOutput(parsed: unknown): unknown {
+  // Rule 1: Direct array
   if (Array.isArray(parsed)) {
     return parsed;
   }
@@ -102,14 +110,25 @@ export function normalizeGrokStructuredOutput(parsed: unknown): unknown {
     typeof parsed === 'object' &&
     !Array.isArray(parsed)
   ) {
-    const keys = Object.keys(parsed as Record<string, unknown>);
+    const obj = parsed as Record<string, unknown>;
+    const keys = Object.keys(obj);
+
+    // Rule 2: Exactly one property whose value is an array
     if (keys.length === 1) {
-      const value = (parsed as Record<string, unknown>)[keys[0]!];
+      const value = obj[keys[0]!];
       if (Array.isArray(value)) {
         return value;
       }
     }
+
+    // Rule 3: Multi-key object — try known wrapper key names in priority order
+    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
+      if (knownKey in obj && Array.isArray(obj[knownKey])) {
+        return obj[knownKey];
+      }
+    }
   }
+  // Rule 4: All other cases
   return parsed;
 }
 
