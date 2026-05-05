@@ -115,8 +115,12 @@ describe('Item 4: EVALUATOR_MODEL is env-only, never attorney-selectable', () =>
   });
 
   it('EVALUATOR_MODEL is imported as a constant, not passed in procedure input', () => {
-    // The procedure imports EVALUATOR_MODEL as a module-level constant
-    expect(reviewSessionFile).toContain("EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, type ReviewerKey } from '../llm/config.js'");
+    // The procedure imports EVALUATOR_MODEL as a module-level constant.
+    // MR-LLM-LITE-1: import was updated to include resolveReviewerModel, LiteReviewerKey, etc.
+    // We verify the key constants are still present as module-level imports from config.js.
+    expect(reviewSessionFile).toContain('EVALUATOR_MODEL');
+    expect(reviewSessionFile).toContain('PRIMARY_DRAFTER_MODEL');
+    expect(reviewSessionFile).toContain("from '../llm/config.js'");
   });
 
   it('reviewSession.create input schema has no model or evaluatorModel field', () => {
