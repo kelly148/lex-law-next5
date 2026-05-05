@@ -337,9 +337,12 @@ export class OpenAiAdapter implements LlmClient {
 
       const result = (structuredOutputSchema as z.ZodSchema).safeParse(normalized);
       if (!result.success) {
+        // MR-LLM-LITE-4: append sanitized shape diagnostic to parse_error so live
+        // failures expose the actual wrapper structure without leaking content.
+        const shapeDiag = sanitizeShapeForDiagnostic(normalized);
         throw new LlmProviderError(
           'parse_error',
-          `OpenAI structured output failed Zod validation: ${result.error.message}`,
+          `OpenAI structured output failed Zod validation: ${result.error.message}. Sanitized output shape: ${JSON.stringify(shapeDiag)}`,
           result.error,
         );
       }
