@@ -74,10 +74,12 @@ describe('MR-LLM-GROK-1 — normalizeGrokStructuredOutput', () => {
   });
 
   // ── T-GROK-3: Object without unambiguous array wrapper passes through unchanged ──
-  it('T-GROK-3a: object with multiple properties passes through unchanged (Zod will reject it)', () => {
-    const ambiguous = { feedback: CANONICAL_ARRAY, extra: 'value' };
+  it('T-GROK-3a: object with multiple unknown-key properties passes through unchanged (Zod will reject it)', () => {
+    // MR-LLM-LITE-2: known keys (feedback, suggestions, items, result, data) are now extracted.
+    // A truly ambiguous object has multiple keys none of which are known wrapper keys.
+    const ambiguous = { unknownKeyA: CANONICAL_ARRAY, unknownKeyB: 'value' };
     const result = normalizeGrokStructuredOutput(ambiguous);
-    // Multiple keys → not normalized; returned as-is so Zod validation will fail
+    // Multiple unknown keys → not normalized; returned as-is so Zod validation will fail
     expect(result).toBe(ambiguous);
   });
 
@@ -167,8 +169,10 @@ describe('MR-LLM-GROK-1 — XaiAdapter structured output path', () => {
   });
 
   // ── T-GROK-3 (adapter level): Invalid Grok object fails with diagnostic parse_error ──
-  it('T-GROK-3 (adapter): ambiguous object (multiple keys) fails Zod validation with parse_error', async () => {
-    const ambiguousJson = JSON.stringify({ feedback: CANONICAL_ARRAY, extra: 'value' });
+  it('T-GROK-3 (adapter): ambiguous object with no known key fails Zod validation with parse_error', async () => {
+    // MR-LLM-LITE-2: { feedback: [...], extra: ... } now normalizes successfully.
+    // Use an object with no known wrapper keys to test the ambiguous/fail path.
+    const ambiguousJson = JSON.stringify({ unknownKeyA: CANONICAL_ARRAY, unknownKeyB: 'value' });
     mockFetch.mockResolvedValueOnce(makeXaiResponse(ambiguousJson));
 
     const adapter = new XaiAdapter('grok-4');

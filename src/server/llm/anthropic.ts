@@ -8,6 +8,7 @@
  *     via PRIMARY_DRAFTER_MODEL=anthropic:claude-opus-4-5
  *   - Evaluator role via EVALUATOR_MODEL=anthropic:claude-opus-4-5
  *   - Reviewer role (claude reviewer adapter)
+ *   - Lite reviewer role (claude_lite) — anthropic:claude-sonnet-4-5 (MR-LLM-LITE-1)
  *
  * API KEY:
  *   Read from ANTHROPIC_API_KEY at invocation time, not at startup.
@@ -20,6 +21,12 @@
  *   when structuredOutputSchema is provided, we append a JSON-format
  *   instruction to the system prompt and parse the response.
  *   The parsed output is validated against the Zod schema (Ch 22.7).
+ *
+ *   MR-LLM-LITE-2: claude-sonnet-4-5 may return fenced JSON (```json ... ```)
+ *   despite the system prompt instruction. stripJsonCodeFenceIfWholeResponse()
+ *   strips the fence before JSON.parse. Also adds object-wrapper normalization
+ *   via normalizeAnthropicStructuredOutput() and aligns content return to
+ *   string (consistent with OpenAI/Google/xAI adapters).
  *
  * ERROR TAXONOMY (Ch 22.6):
  *   - AbortError → timeout (handled by dispatcher, not here)
@@ -62,6 +69,66 @@ interface AnthropicResponse {
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
+
+// Known wrapper key names for Anthropic structured output normalization.
+const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
+
+// ============================================================
+// MR-LLM-LITE-2: Anthropic structured-output helpers
+// ============================================================
+
+/**
+ * Strip a JSON code fence if the entire response is wrapped in one.
+ *
+ * claude-sonnet-4-5 may return:
+ *   ```json
+ *   [...]
+ *   ```
+ * despite the system prompt instruction to return only raw JSON.
+ * If the response is not a whole-response fence, it is returned unchanged.
+ */
+export function stripJsonCodeFenceIfWholeResponse(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fenceMatch && fenceMatch[1] !== undefined) {
+    return fenceMatch[1].trim();
+  }
+  return text;
+}
+
+/**
+ * Normalize the parsed value from an Anthropic structured-output response
+ * when the expected schema is a bare array (e.g. RawSuggestionsArraySchema).
+ *
+ * Normalization rules (identical to OpenAI/xAI adapters, MR-LLM-LITE-2):
+ *   1. If the value is already an array → return as-is.
+ *   2. If the value is a plain object with exactly one property whose value
+ *      is an array → extract and return that array.
+ *   3. If the value is a plain object with multiple properties, and one of
+ *      the known wrapper key names contains an array → return that array.
+ *   4. All other cases → return unchanged; Zod will reject with parse_error.
+ */
+export function normalizeAnthropicStructuredOutput(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 1) {
+      const inner = obj[keys[0]!];
+      if (Array.isArray(inner)) {
+        return inner;
+      }
+    }
+    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
+      if (knownKey in obj && Array.isArray(obj[knownKey])) {
+        return obj[knownKey];
+      }
+    }
+  }
+  return value;
+}
 
 export class AnthropicAdapter implements LlmClient {
   constructor(private readonly modelId: string) {}
@@ -137,9 +204,12 @@ export class AnthropicAdapter implements LlmClient {
     const rawText = data.content[0]?.text ?? '';
 
     if (structuredOutputSchema) {
+      // MR-LLM-LITE-2: claude-sonnet-4-5 may return fenced JSON. Strip fence first.
+      const effectiveText = stripJsonCodeFenceIfWholeResponse(rawText);
+
       let parsed: unknown;
       try {
-        parsed = JSON.parse(rawText);
+        parsed = JSON.parse(effectiveText);
       } catch (err) {
         throw new LlmProviderError(
           'parse_error',
@@ -148,8 +218,11 @@ export class AnthropicAdapter implements LlmClient {
         );
       }
 
+      // MR-LLM-LITE-2: normalize object wrapper before Zod validation.
+      const normalized = normalizeAnthropicStructuredOutput(parsed);
+
       // Validate against the Zod schema (Ch 22.7)
-      const result = (structuredOutputSchema as z.ZodSchema).safeParse(parsed);
+      const result = (structuredOutputSchema as z.ZodSchema).safeParse(normalized);
       if (!result.success) {
         throw new LlmProviderError(
           'parse_error',
@@ -158,8 +231,14 @@ export class AnthropicAdapter implements LlmClient {
         );
       }
 
+      // MR-LLM-LITE-2: return content as string (consistent with OpenAI/Google/xAI).
+      // Re-serialize if normalization extracted a wrapper.
+      const contentText = normalized !== parsed
+        ? JSON.stringify(normalized)
+        : effectiveText;
+
       return {
-        content: result.data as Record<string, unknown>,
+        content: contentText,
         tokensPrompt: data.usage.input_tokens,
         tokensCompletion: data.usage.output_tokens,
         providerMetadata: {

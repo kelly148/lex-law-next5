@@ -4,6 +4,7 @@
  * Implements the LlmClient interface for OpenAI's GPT models.
  * Used for:
  *   - Reviewer role (gpt reviewer adapter) — openai:gpt-5
+ *   - Lite reviewer role (gpt_lite) — openai:gpt-4.1-mini (MR-LLM-LITE-1)
  *
  * API KEY:
  *   Read from OPENAI_API_KEY at invocation time, not at startup.
@@ -21,6 +22,11 @@
  *   RawSuggestionsArraySchema (z.array(...)) fails with "Expected array,
  *   received object". normalizeOpenAiStructuredOutput() extracts the array
  *   from an unambiguous single-key wrapper before Zod validation.
+ *
+ *   MR-LLM-LITE-2: Extended to also extract arrays from multi-key wrappers
+ *   when a known wrapper key name (feedback, suggestions, items, result, data)
+ *   is present and contains an array. gpt-4.1-mini may return multi-key wrappers
+ *   such as { "feedback": [...], "count": 3 }.
  *
  * ERROR TAXONOMY (Ch 22.6):
  *   - AbortError → timeout (propagated to dispatcher)
@@ -65,26 +71,30 @@ interface OpenAiResponse {
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
+// Known wrapper key names used by OpenAI json_object mode when the expected
+// schema is a bare array. These are tried in order when the single-key check
+// does not match (MR-LLM-LITE-2 extension).
+const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
+
 // ============================================================
-// MR-LLM-GPT-1: OpenAI structured-output object-wrapper normalization
+// MR-LLM-GPT-1 / MR-LLM-LITE-2: OpenAI structured-output object-wrapper normalization
 // ============================================================
 /**
  * Normalize the parsed value from an OpenAI json_object response when the
  * expected schema is a bare array (e.g. RawSuggestionsArraySchema).
  *
  * OpenAI's json_object mode requires the model to return a JSON object, so
- * GPT-5 wraps reviewer-feedback arrays in a single-key object such as:
- *   { "feedback": [...] }
- *   { "suggestions": [...] }
- *   { "items": [...] }
- *   { "result": [...] }
+ * GPT-5 and gpt-4.1-mini wrap reviewer-feedback arrays in an object wrapper.
  *
- * Normalization rules (identical to MR-LLM-GROK-1 normalizeGrokStructuredOutput):
- *   - If the value is already an array → return as-is (no-op).
- *   - If the value is a plain object with exactly one property whose value is
- *     an array → extract and return that array.
- *   - All other cases → return the value unchanged; Zod validation will fail
- *     with a typed parse_error.
+ * Normalization rules:
+ *   1. If the value is already an array → return as-is (no-op).
+ *   2. If the value is a plain object with exactly one property whose value is
+ *      an array → extract and return that array (unambiguous single-key).
+ *   3. If the value is a plain object with multiple properties, and one of the
+ *      known wrapper key names (feedback, suggestions, items, result, data)
+ *      contains an array → extract and return that array (MR-LLM-LITE-2).
+ *   4. All other cases → return the value unchanged; Zod validation will fail
+ *      with a typed parse_error.
  *
  * This function does NOT weaken the canonical schema. RawSuggestionsArraySchema
  * remains a z.array(...). Normalization happens before Zod validation.
@@ -93,25 +103,36 @@ const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
  * @returns The normalized value (array if wrapper was extracted, original otherwise).
  */
 export function normalizeOpenAiStructuredOutput(value: unknown): unknown {
-  // Direct array — pass through unchanged
+  // Rule 1: Direct array — pass through unchanged
   if (Array.isArray(value)) {
     return value;
   }
-  // Plain object with exactly one property whose value is an array — extract it
+
   if (
     value !== null &&
     typeof value === 'object' &&
     !Array.isArray(value)
   ) {
-    const keys = Object.keys(value as Record<string, unknown>);
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+
+    // Rule 2: Exactly one property whose value is an array — unambiguous extraction
     if (keys.length === 1) {
-      const inner = (value as Record<string, unknown>)[keys[0]!];
+      const inner = obj[keys[0]!];
       if (Array.isArray(inner)) {
         return inner;
       }
     }
+
+    // Rule 3: Multi-key object — try known wrapper key names in priority order
+    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
+      if (knownKey in obj && Array.isArray(obj[knownKey])) {
+        return obj[knownKey];
+      }
+    }
   }
-  // All other cases — return unchanged; Zod will reject with parse_error
+
+  // Rule 4: All other cases — return unchanged; Zod will reject with parse_error
   return value;
 }
 
@@ -227,10 +248,11 @@ export class OpenAiAdapter implements LlmClient {
         );
       }
 
-      // MR-LLM-GPT-1: normalize object wrapper before Zod validation.
-      // OpenAI json_object mode requires GPT to return an object, so GPT-5 wraps
-      // reviewer-feedback arrays in a single-key wrapper. Extract the array if
-      // present; pass through unchanged otherwise (Zod will reject with parse_error).
+      // MR-LLM-GPT-1 / MR-LLM-LITE-2: normalize object wrapper before Zod validation.
+      // OpenAI json_object mode requires GPT to return an object, so GPT-5 and
+      // gpt-4.1-mini wrap reviewer-feedback arrays in a wrapper. Extract the array if
+      // present (single-key or known multi-key wrapper); pass through unchanged otherwise
+      // (Zod will reject with parse_error).
       const normalized = normalizeOpenAiStructuredOutput(parsed);
 
       // Re-serialize if normalization extracted a wrapper, so that content is
