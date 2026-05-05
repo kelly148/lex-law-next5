@@ -79,8 +79,53 @@ const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
 // match (MR-LLM-LITE-2 extension for grok-3-mini multi-key wrappers).
 const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
 
+// MR-LLM-LITE-3: Outer wrapper keys that Grok Lite may use to wrap a nested object
+// containing the actual array (e.g. { "review": { "feedback": [...] } }).
+const KNOWN_OUTER_WRAPPER_KEYS = ['review', 'output', 'response', 'result', 'data'] as const;
+
+// MR-LLM-LITE-3: Inner array keys expected inside a nested object wrapper.
+const KNOWN_INNER_ARRAY_KEYS = ['feedback', 'suggestions', 'items', 'issues'] as const;
+
 /**
- * MR-LLM-GROK-1 / MR-LLM-LITE-2: Normalize a Grok structured-output value before Zod validation.
+ * MR-LLM-LITE-3: Return a safe diagnostic shape descriptor for a parsed value.
+ * MUST NOT include document text, feedback body text, user content, or API keys.
+ * Returns only structural metadata: top-level type, key names, value types,
+ * and array lengths.
+ */
+export function sanitizeShapeForDiagnostic(value: unknown): Record<string, unknown> {
+  if (value === null) return { topLevelType: 'null' };
+  if (Array.isArray(value)) return { topLevelType: 'array', length: value.length };
+  if (typeof value !== 'object') return { topLevelType: typeof value };
+
+  const obj = value as Record<string, unknown>;
+  const keys: Record<string, string> = {};
+  const nestedKeys: Record<string, Record<string, string>> = {};
+
+  for (const [k, v] of Object.entries(obj)) {
+    if (Array.isArray(v)) {
+      keys[k] = `array(length=${v.length})`;
+    } else if (v !== null && typeof v === 'object') {
+      keys[k] = 'object';
+      const inner = v as Record<string, unknown>;
+      const innerShape: Record<string, string> = {};
+      for (const [ik, iv] of Object.entries(inner)) {
+        if (Array.isArray(iv)) {
+          innerShape[ik] = `array(length=${iv.length})`;
+        } else {
+          innerShape[ik] = iv === null ? 'null' : typeof iv;
+        }
+      }
+      nestedKeys[k] = innerShape;
+    } else {
+      keys[k] = v === null ? 'null' : typeof v;
+    }
+  }
+
+  return { topLevelType: 'object', keys, nestedKeys };
+}
+
+/**
+ * MR-LLM-GROK-1 / MR-LLM-LITE-2 / MR-LLM-LITE-3: Normalize a Grok structured-output value before Zod validation.
  *
  * Grok with json_object mode may return an object wrapper around the expected
  * array, such as { "feedback": [...] } or { "suggestions": [...] }.
@@ -93,7 +138,15 @@ const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 
  *   3. If parsed is a plain object with multiple properties, and one of the
  *      known wrapper key names (feedback, suggestions, items, result, data)
  *      contains an array → return that array (MR-LLM-LITE-2).
- *   4. Otherwise → return the value unchanged (Zod validation will fail with
+ *   4. MR-LLM-LITE-3: If the value is a plain object and none of the above
+ *      rules matched, check for a nested object wrapper: iterate over known
+ *      outer wrapper keys (review, output, response, result, data); if the
+ *      value at that key is a plain object, check whether it contains exactly
+ *      one known inner array key (feedback, suggestions, items, issues) whose
+ *      value is an array. If exactly one candidate is found → extract that
+ *      array. If multiple competing candidates are found across all outer keys
+ *      → pass through unchanged (ambiguous; Zod will reject).
+ *   5. Otherwise → return the value unchanged (Zod validation will fail with
  *      a diagnostic error if the shape is wrong).
  *
  * This normalization preserves the canonical schema contract: the canonical
@@ -127,8 +180,28 @@ export function normalizeGrokStructuredOutput(parsed: unknown): unknown {
         return obj[knownKey];
       }
     }
+
+    // Rule 4 (MR-LLM-LITE-3): Nested object wrapper — e.g. { "review": { "feedback": [...] } }
+    // Collect all unambiguous nested array candidates across known outer keys.
+    const nestedCandidates: unknown[] = [];
+    for (const outerKey of KNOWN_OUTER_WRAPPER_KEYS) {
+      if (!(outerKey in obj)) continue;
+      const outerVal = obj[outerKey];
+      if (outerVal === null || typeof outerVal !== 'object' || Array.isArray(outerVal)) continue;
+      const innerObj = outerVal as Record<string, unknown>;
+      for (const innerKey of KNOWN_INNER_ARRAY_KEYS) {
+        if (innerKey in innerObj && Array.isArray(innerObj[innerKey])) {
+          nestedCandidates.push(innerObj[innerKey]);
+        }
+      }
+    }
+    if (nestedCandidates.length === 1) {
+      // Exactly one unambiguous nested array found — extract it
+      return nestedCandidates[0];
+    }
+    // If nestedCandidates.length > 1 → ambiguous; fall through to Rule 5
   }
-  // Rule 4: All other cases
+  // Rule 5: All other cases
   return parsed;
 }
 
