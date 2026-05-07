@@ -34,6 +34,7 @@ import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer } from 'docx';
 import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
 import { buildLetterSection } from './utils/letterFormatter.js';
+import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 
 // ============================================================
@@ -557,7 +558,7 @@ app.post(
     try {
       const section = profile === 'letter'
         ? buildLetterSection(extractedText)
-        : buildSatterwhiteSection(extractedText, { watermarkText: null });
+        : buildLegalInstrumentSection(extractedText);
       const docxFile = new DocxDocument({ sections: [section] });
       buffer = await Packer.toBuffer(docxFile);
     } catch (err) {
