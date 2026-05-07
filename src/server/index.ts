@@ -33,6 +33,7 @@ import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer } from 'docx';
 import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
+import { buildLetterSection } from './utils/letterFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 
 // ============================================================
@@ -548,16 +549,21 @@ app.post(
       });
       return;
     }
-    // ── Format via existing Satterwhite renderer ──────────────────────────────
+    // ── Profile routing (MR-UPLOAD-FORMAT-3) ─────────────────────────────────
+    const rawProfile = typeof req.body?.profile === 'string' ? req.body.profile : 'general';
+    const profile = rawProfile === 'letter' ? 'letter' : 'general';
+    // ── Format via renderer ───────────────────────────────────────────────────
     let buffer: Buffer;
     try {
-      const section = buildSatterwhiteSection(extractedText, { watermarkText: null });
+      const section = profile === 'letter'
+        ? buildLetterSection(extractedText)
+        : buildSatterwhiteSection(extractedText, { watermarkText: null });
       const docxFile = new DocxDocument({ sections: [section] });
       buffer = await Packer.toBuffer(docxFile);
     } catch (err) {
       res.status(500).json({
         error: 'FORMATTING_FAILED',
-        message: `Satterwhite formatting failed: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Formatting failed: ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }
