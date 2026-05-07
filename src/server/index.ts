@@ -383,6 +383,144 @@ app.get(
 );
 
 // ============================================================
+// POST /api/upload-format — MR-UPLOAD-FORMAT-1 stateless upload-and-format
+//
+// Accepts a multipart/form-data upload with a single 'file' field.
+// Supported types:
+//   .docx  — mammoth.extractRawText → buildSatterwhiteSection → DOCX download
+//   .txt   — UTF-8 read → buildSatterwhiteSection → DOCX download
+//   .md    — UTF-8 read → buildSatterwhiteSection → DOCX download
+//   .pdf   — not supported; returns 415 UNSUPPORTED_FILE_TYPE
+//   other  — returns 415 UNSUPPORTED_FILE_TYPE
+//
+// Auth: userId drawn from iron-session cookie. Rejected with 401 if absent.
+// No DB persistence. No LLM calls. Reuses existing Satterwhite renderer.
+// File size limit: 50 MB.
+// Output filename: sanitized original name with -formatted.docx suffix.
+// ============================================================
+
+const uploadFormatMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+}).single('file');
+
+app.post(
+  '/api/upload-format',
+  (req: Request, res: Response, next: NextFunction) => {
+    uploadFormatMiddleware(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(413).json({ error: 'FILE_TOO_LARGE', message: 'File exceeds 50 MB limit' });
+          return;
+        }
+        res.status(400).json({ error: err.code, message: err.message });
+        return;
+      }
+      if (err) { next(err); return; }
+      next();
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    const session = await getSession(req, res);
+    const userId = extractUserId(session);
+    if (!userId) {
+      res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
+      return;
+    }
+    // ── File validation ───────────────────────────────────────────────────────
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'MISSING_FILE', message: "A file field named 'file' is required" });
+      return;
+    }
+    if (file.size === 0) {
+      res.status(400).json({ error: 'EMPTY_FILE', message: 'Uploaded file is empty' });
+      return;
+    }
+    const originalName = file.originalname;
+    const dotIdx = originalName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+    const mimeType = file.mimetype;
+    // ── Type gate ─────────────────────────────────────────────────────────────
+    const isDocx =
+      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      ext === 'docx';
+    const isTxt = mimeType === 'text/plain' || ext === 'txt';
+    const isMd = mimeType === 'text/markdown' || ext === 'md';
+    const isPdf = mimeType === 'application/pdf' || ext === 'pdf';
+    if (isPdf) {
+      res.status(415).json({
+        error: 'UNSUPPORTED_FILE_TYPE',
+        message: 'PDF upload is not supported. Please convert to .docx or paste text directly.',
+      });
+      return;
+    }
+    if (!isDocx && !isTxt && !isMd) {
+      res.status(415).json({
+        error: 'UNSUPPORTED_FILE_TYPE',
+        message: `Unsupported file type '${ext || mimeType}'. Supported: .docx, .txt, .md`,
+      });
+      return;
+    }
+    // ── Text extraction ───────────────────────────────────────────────────────
+    let extractedText: string;
+    try {
+      if (isDocx) {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        const raw = result.value ?? '';
+        if (raw.trim().length === 0) {
+          res.status(422).json({
+            error: 'EXTRACTION_FAILED',
+            message: 'DOCX extraction produced no text. The file may be empty or image-only.',
+          });
+          return;
+        }
+        extractedText = raw;
+      } else {
+        extractedText = file.buffer.toString('utf-8');
+        if (extractedText.trim().length === 0) {
+          res.status(400).json({ error: 'EMPTY_FILE', message: 'Uploaded file contains no text content' });
+          return;
+        }
+      }
+    } catch (err) {
+      res.status(422).json({
+        error: 'EXTRACTION_FAILED',
+        message: `Failed to extract text: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
+    // ── Format via existing Satterwhite renderer ──────────────────────────────
+    let buffer: Buffer;
+    try {
+      const section = buildSatterwhiteSection(extractedText, { watermarkText: null });
+      const docxFile = new DocxDocument({ sections: [section] });
+      buffer = await Packer.toBuffer(docxFile);
+    } catch (err) {
+      res.status(500).json({
+        error: 'FORMATTING_FAILED',
+        message: `Satterwhite formatting failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
+    // ── Output filename ───────────────────────────────────────────────────────
+    const baseName = dotIdx >= 0 ? originalName.slice(0, dotIdx) : originalName;
+    const safeBase = baseName.replace(/[^a-zA-Z0-9_\-. ]/g, '_').slice(0, 80);
+    const outputFilename = `${safeBase}-formatted.docx`;
+    // ── Stream response ───────────────────────────────────────────────────────
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).end(buffer);
+  },
+);
+
+// ============================================================
 // tRPC handler
 // ============================================================
 app.use(

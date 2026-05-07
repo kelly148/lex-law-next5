@@ -26,6 +26,7 @@ const DocumentDetail = lazy(() => import("./pages/DocumentDetail.js"));
 const TemplatesPage = lazy(() => import("./pages/TemplatesPage.js"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage.js"));
 const InformationRequestPage = lazy(() => import("./pages/InformationRequestPage.js"));
+const UploadFormatPage = lazy(() => import("./pages/UploadFormatPage.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -57,6 +58,7 @@ export default function App(): React.ReactElement {
       <Route path="/matters/:matterId/information-requests" element={<ProtectedLayout><InformationRequestPage /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
+      <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />
       <Route path="*" element={<Navigate to="/matters" replace />} />
     </Routes>
   );
