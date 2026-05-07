@@ -1,5 +1,5 @@
 /**
- * UploadFormatPage — MR-UPLOAD-FORMAT-1
+ * UploadFormatPage — MR-UPLOAD-FORMAT-1 / MR-UPLOAD-FORMAT-2 / MR-UPLOAD-FORMAT-3
  *
  * Upload & Format Existing Document workflow.
  *
@@ -21,7 +21,11 @@
  *   - Drag-and-drop drop zone
  *   - Pasted text / Markdown input
  *
- * Server endpoint: POST /api/upload-format (multipart/form-data, field 'file')
+ * Document profiles (MR-UPLOAD-FORMAT-3):
+ *   general — Legal Instrument / General Legal Document (default; preserves POA/instrument behavior)
+ *   letter  — Letter / Engagement Letter (correspondence-style formatting)
+ *
+ * Server endpoint: POST /api/upload-format (multipart/form-data, fields 'file' and 'profile')
  * or POST /api/upload-format with text body via synthetic File.
  */
 import React, { useCallback, useRef, useState } from 'react';
@@ -34,6 +38,14 @@ const ACCEPTED_MIME_TYPES = [
   'text/markdown',
 ];
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+
+/** Valid document profile values. */
+export type DocumentProfile = 'general' | 'letter';
+
+const PROFILE_OPTIONS: { value: DocumentProfile; label: string }[] = [
+  { value: 'general', label: 'Legal Instrument / General' },
+  { value: 'letter', label: 'Letter / Engagement Letter' },
+];
 
 function isAcceptedFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -50,6 +62,7 @@ export default function UploadFormatPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [successFilename, setSuccessFilename] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [profile, setProfile] = useState<DocumentProfile>('general');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const clearState = (): void => {
@@ -119,6 +132,7 @@ export default function UploadFormatPage(): React.ReactElement {
     try {
       const formData = new FormData();
       formData.append('file', uploadFile);
+      formData.append('profile', profile);
 
       const response = await fetch('/api/upload-format', {
         method: 'POST',
@@ -168,6 +182,29 @@ export default function UploadFormatPage(): React.ReactElement {
           Upload an existing document and apply Satterwhite firm-standard formatting. Returns a
           formatted .docx file. Supported: .docx, .txt, .md. No review or generation required.
         </p>
+      </div>
+
+      {/* Document type / profile selector */}
+      <div className="mb-5" data-testid="upload-profile-selector">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Document Type
+        </label>
+        <div className="flex gap-4">
+          {PROFILE_OPTIONS.map((opt) => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="documentProfile"
+                value={opt.value}
+                checked={profile === opt.value}
+                onChange={() => setProfile(opt.value)}
+                className="accent-firm-navy"
+                data-testid={`upload-profile-${opt.value}`}
+              />
+              <span className="text-sm text-gray-700">{opt.label}</span>
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Input mode toggle */}
