@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Scale, FileText, Settings, LogOut } from 'lucide-react';
+import { Scale, FileText, Settings, LogOut, FilePlus } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -74,6 +74,10 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
           <NavLink to="/templates" className={navLinkClass}>
             <FileText className="w-4 h-4" />
             Templates
+          </NavLink>
+          <NavLink to="/upload-format" className={navLinkClass}>
+            <FilePlus className="w-4 h-4" />
+            Upload &amp; Format
           </NavLink>
           <NavLink to="/settings" className={navLinkClass}>
             <Settings className="w-4 h-4" />
