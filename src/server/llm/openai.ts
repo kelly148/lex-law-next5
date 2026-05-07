@@ -38,6 +38,7 @@
 
 import { z } from 'zod';
 import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
 
 interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -138,7 +139,7 @@ export function sanitizeShapeForDiagnostic(value: unknown): Record<string, unkno
  *   3. If the value is a plain object with multiple properties, and one of the
  *      known wrapper key names (feedback, suggestions, items, result, data)
  *      contains an array → extract and return that array (MR-LLM-LITE-2).
- *   4. MR-LLM-LITE-3: If the value is a plain object and none of the above
+   *   4. MR-LLM-LITE-3: If the value is a plain object and none of the above
  *      rules matched, check for a nested object wrapper: iterate over known
  *      outer wrapper keys (review, output, response, result, data); if the
  *      value at that key is a plain object, check whether it contains exactly
@@ -146,7 +147,10 @@ export function sanitizeShapeForDiagnostic(value: unknown): Record<string, unkno
  *      value is an array. If exactly one candidate is found → extract that
  *      array. If multiple competing candidates are found across all outer keys
  *      → pass through unchanged (ambiguous; Zod will reject).
- *   5. All other cases → return the value unchanged; Zod validation will fail
+ *   5. MR-LLM-LITE-5: If the normalized result is still a plain object, test
+ *      whether [value] validates against RawSuggestionsArraySchema. If yes,
+ *      return [value] (singleton feedback item). If no, leave unchanged.
+ *   6. All other cases → return the value unchanged; Zod validation will fail
  *      with a typed parse_error.
  *
  * This function does NOT weaken the canonical schema. RawSuggestionsArraySchema
@@ -203,9 +207,19 @@ export function normalizeOpenAiStructuredOutput(value: unknown): unknown {
       return nestedCandidates[0];
     }
     // If nestedCandidates.length > 1 → ambiguous; fall through to Rule 5
+
+    // Rule 5 (MR-LLM-LITE-5): Singleton feedback item — test whether [obj] validates
+    // against the canonical reviewer-feedback array schema. If yes, return [obj].
+    // This handles the live-confirmed case where GPT/Grok Lite returns a single
+    // feedback item object instead of an array.
+    const singletonCandidate = RawSuggestionsArraySchema.safeParse([obj]);
+    if (singletonCandidate.success) {
+      return [obj];
+    }
+    // Rule 5 failed — arbitrary object, leave unchanged; Zod will reject with parse_error
   }
 
-  // Rule 5: All other cases — return unchanged; Zod will reject with parse_error
+  // Rule 6: All other cases — return unchanged; Zod will reject with parse_error
   return value;
 }
 
