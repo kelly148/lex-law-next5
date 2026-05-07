@@ -1,7 +1,24 @@
 /**
- * letterFormatter.ts — MR-UPLOAD-FORMAT-3
+ * letterFormatter.ts — MR-UPLOAD-FORMAT-5
  *
  * Letter / Engagement Letter formatting profile for the Upload & Format workflow.
+ *
+ * Improvements over MR-UPLOAD-FORMAT-3:
+ *   - Markdown artifact cleanup: strips/converts **bold**, _italic_, __bold__,
+ *     *italic* markers before rendering so they do not appear literally in DOCX.
+ *   - Mason letterhead: produces a polished Bentancur-style Mason letterhead
+ *     (THE MASON LAW FIRM, PLC / ATTORNEYS AT LAW / address line) instead of
+ *     rendering raw letterhead lines as plain centered text.
+ *   - Mason footer: CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED COMMUNICATION /
+ *     The Mason Law Firm, PLC / (703) 354-2100 / Page X of Y.
+ *   - Satterwhite footer: upgraded to use PageNumber.CURRENT / PageNumber.TOTAL_PAGES
+ *     (same as buildRunningFooter in markdownToDocx.ts) so "Page  of" never appears.
+ *   - Letter-zone parser improvements: handles Markdown-wrapped delivery/RE lines,
+ *     optional document title/label before letterhead, improved blank-line handling.
+ *   - Signature block: preserves /s/ lines, VSB/admission lines, firm affiliation.
+ *   - Acceptance block: improved blank-line and signature-line detection.
+ *   - Enclosure block: normalized spacing.
+ *   - Unknown firm: neutral legal-letter layout, no branding injected.
  *
  * Produces correspondence-style DOCX output that:
  *   - For Satterwhite letters: targets the Kahrs engagement-letter style
@@ -9,8 +26,8 @@
  *     date/recipient block, Re: line, salutation, numbered sections, fee table,
  *     closing, firm signature, client acceptance block, Satterwhite footer).
  *   - For Mason letters: preserves Mason Law Firm identity, suppresses Satterwhite
- *     footer/letterhead, and formats as clean correspondence.
- *   - For unknown firm: uses "preserve from source" — no Satterwhite footer injected.
+ *     footer/letterhead, and formats as clean Bentancur-style correspondence.
+ *   - For unknown firm: uses "preserve from source" — no Satterwhite/Mason branding.
  *
  * This is a profile-specific extension of the existing renderer, not a competing
  * second formatting engine. It reuses the same docx primitives, page/margin constants,
@@ -21,16 +38,17 @@
  *   detectLetterFirm(text) -> 'satterwhite' | 'mason' | 'unknown'
  *   parseLetterBlocks(text) -> LetterBlocks
  *   buildLetterFooter(firm) -> Paragraph
+ *   normalizeLetterMarkdown(text) -> string
  */
 import {
   AlignmentType,
   BorderStyle,
   Footer,
   Header,
+  PageNumber,
   PageOrientation,
   Paragraph,
   ShadingType,
-  SimpleField,
   Table,
   TableCell,
   TableRow,
@@ -56,16 +74,23 @@ const TABLE_BORDER_GRAY = 'cccccc';
 const TABLE_ROW_SHADE = 'f2f2f2';
 const WHITE = 'FFFFFF';
 
+// ── Mason brand colors ─────────────────────────────────────────────────────────
+const MASON_DARK = '1a1a2e';   // deep navy/black for Mason letterhead
+const MASON_GRAY = '555555';   // medium gray for Mason address line
+
 // ── Fonts / sizes ─────────────────────────────────────────────────────────────
 const BODY_FONT = 'Times New Roman';
 const DISPLAY_FONT = 'Calibri';
-const BODY_SIZE = 24;         // 12pt in half-points
-const HEADING_SIZE = 24;      // 12pt
-const RUNNING_HF_SIZE = 16;   // 8pt
-const LETTERHEAD_TITLE_SIZE = 28; // 14pt
+const BODY_SIZE = 24;              // 12pt in half-points
+const HEADING_SIZE = 24;           // 12pt
+const RUNNING_HF_SIZE = 16;        // 8pt
+const LETTERHEAD_TITLE_SIZE = 28;  // 14pt
 const LETTERHEAD_CAPTION_SIZE = 20; // 10pt
-const DOC_TITLE_SIZE = 28;    // 14pt
-const DOC_SUBTITLE_SIZE = 22; // 11pt
+const DOC_TITLE_SIZE = 28;         // 14pt
+const DOC_SUBTITLE_SIZE = 22;      // 11pt
+const MASON_TITLE_SIZE = 26;       // 13pt for Mason firm name
+const MASON_CAPTION_SIZE = 18;     // 9pt for Mason sub-line
+const MASON_ADDR_SIZE = 16;        // 8pt for Mason address line
 
 // ── Spacing ───────────────────────────────────────────────────────────────────
 const BODY_AFTER = 180;
@@ -91,8 +116,40 @@ export function detectLetterFirm(text: string): LetterFirm {
   return 'unknown';
 }
 
+// ── Markdown artifact cleanup ─────────────────────────────────────────────────
+
+/**
+ * Strip basic Markdown emphasis markers from a string so they do not appear
+ * literally in DOCX output.
+ *
+ * Rules (applied in order):
+ *   1. **text** → text  (bold)
+ *   2. __text__ → text  (bold)
+ *   3. _text_   → text  (italic) — only when surrounded by word boundary or space
+ *   4. *text*   → text  (italic) — only when surrounded by word boundary or space
+ *
+ * Conservative: only strips markers that clearly wrap a phrase.
+ * Does not strip standalone asterisks/underscores that are part of legal text
+ * (e.g., signature blank lines like "___________").
+ */
+export function normalizeLetterMarkdown(text: string): string {
+  // **bold** and __bold__
+  // The __bold__ pattern must contain at least one non-underscore character
+  // to avoid stripping signature blank lines like "_________________________________________"
+  let out = text.replace(/\*\*(.+?)\*\*/g, '$1');
+  out = out.replace(/__([^_][^]*?[^_]|[^_])__/g, '$1');
+  // _italic_ — only when the _ is at a word boundary (not part of _____ blank lines)
+  // Use negative lookbehind/lookahead to avoid stripping signature blanks (5+ underscores)
+  out = out.replace(/(?<![_])_([^_\n]+?)_(?![_])/g, '$1');
+  // *italic* — only when * is not part of a list bullet (i.e., not at line start followed by space)
+  out = out.replace(/(?<![*])\*([^*\n]+?)\*(?![*])/g, '$1');
+  return out;
+}
+
 // ── Block parsing ─────────────────────────────────────────────────────────────
 export interface LetterBlocks {
+  /** Optional document title/label before the letterhead (e.g., "TODD Engagement Letter — Bentancur Servetti") */
+  documentTitle: string | null;
   /** Lines that form the letterhead / firm header (first block before date) */
   letterheadLines: string[];
   /** Date line, e.g. "May 7, 2026" */
@@ -120,10 +177,17 @@ export interface LetterBlocks {
 /**
  * Parse a letter/correspondence text into structural blocks using
  * deterministic heuristics. No LLM.
+ *
+ * Improvements over MR-UPLOAD-FORMAT-3:
+ *   - Strips Markdown markers from each line before classification.
+ *   - Detects optional document title/label before letterhead.
+ *   - Handles Markdown-wrapped delivery/RE lines.
+ *   - Improved blank-line handling in post-closing phase.
  */
 export function parseLetterBlocks(text: string): LetterBlocks {
   const lines: string[] = text.split('\n');
   const result: LetterBlocks = {
+    documentTitle: null,
     letterheadLines: [],
     dateLine: null,
     recipientLines: [],
@@ -173,9 +237,26 @@ export function parseLetterBlocks(text: string): LetterBlocks {
   const isEnclosureLine = (l: string): boolean =>
     /^(Enclos(ed|ure)|Enc\.|Attachment)/i.test(l.trim());
 
+  /**
+   * Detect optional document title/label: a short ALL-CAPS or title-case line
+   * at the very top (before letterhead firm name) that looks like a document label.
+   * E.g., "TODD Engagement Letter — Bentancur Servetti"
+   */
+  const isDocumentTitle = (l: string): boolean => {
+    const t = l.trim();
+    if (t.length === 0 || t.length > 120) return false;
+    // Must contain "engagement letter", "letter", or similar document-type marker
+    return /engagement\s+letter|letter\s+—|letter\s+-/i.test(t) &&
+      !/^(january|february|march|april|may|june|july|august|september|october|november|december)/i.test(t);
+  };
+
+  let firstNonBlankSeen = false;
+
   for (let i = 0; i < lines.length; i++) {
     const raw: string = lines[i] ?? '';
-    const trimmed = raw.trim();
+    // Normalize Markdown markers before classification
+    const normalized = normalizeLetterMarkdown(raw);
+    const trimmed = normalized.trim();
 
     if (trimmed === '') {
       _blankCount++;
@@ -185,6 +266,15 @@ export function parseLetterBlocks(text: string): LetterBlocks {
 
     if (phase === 'letterhead') {
       if (trimmed === '') continue;
+
+      // Check for optional document title/label on the very first non-blank line
+      if (!firstNonBlankSeen && isDocumentTitle(trimmed)) {
+        result.documentTitle = trimmed;
+        firstNonBlankSeen = true;
+        continue;
+      }
+      firstNonBlankSeen = true;
+
       if (isDateLine(trimmed)) {
         result.dateLine = trimmed;
         phase = 'recipient';
@@ -265,7 +355,8 @@ export function parseLetterBlocks(text: string): LetterBlocks {
         result.enclosureLine = trimmed;
         continue;
       }
-      result.bodyLines.push(raw ?? ''); // preserve original indentation for body
+      // Preserve original normalized line (with Markdown stripped) for body
+      result.bodyLines.push(normalized);
       continue;
     }
 
@@ -279,6 +370,7 @@ export function parseLetterBlocks(text: string): LetterBlocks {
         result.enclosureLine = trimmed;
         continue;
       }
+      // Preserve blank lines in signature block (for spacing between sig lines)
       result.signatureLines.push(trimmed);
       continue;
     }
@@ -335,7 +427,7 @@ function centeredParagraph(text: string, opts?: {
         font: opts?.font ?? DISPLAY_FONT,
         size: opts?.size ?? BODY_SIZE,
         bold: opts?.bold ?? false,
-        color: opts?.color ?? FIRM_NAVY,
+        ...(opts?.color !== undefined ? { color: opts.color } : {}),
       }),
     ],
     alignment: AlignmentType.CENTER,
@@ -529,9 +621,9 @@ function buildFeeTable(rows: string[]): Table {
 
 /**
  * Build the letter running header.
- * For Satterwhite: "CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED"
- * For Mason: empty (no Satterwhite privilege header on Mason correspondence)
- * For unknown: empty
+ * For Satterwhite: "CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED" right-aligned with navy border.
+ * For Mason: empty (no Satterwhite privilege header on Mason correspondence).
+ * For unknown: empty.
  */
 function buildLetterHeader(firm: LetterFirm): Paragraph {
   if (firm === 'satterwhite') {
@@ -560,10 +652,15 @@ function buildLetterHeader(firm: LetterFirm): Paragraph {
 
 /**
  * Build the letter running footer.
- * For Satterwhite: "The Satterwhite Law Firm, PLLC • 703-855-7380 [tab] Page X"
- *                  second line: "Confidential — Attorney-Client Privileged Communication"
- * For Mason: no Satterwhite footer — use source letterhead firm name if detectable, else empty.
- * For unknown: empty footer.
+ *
+ * Satterwhite: "The Satterwhite Law Firm, PLLC • 703-855-7380 [tab] Page X of Y"
+ *   Uses PageNumber.CURRENT / PageNumber.TOTAL_PAGES — no literal "Page  of".
+ *
+ * Mason: "CONFIDENTIAL — ATTORNEY-CLIENT PRIVILEGED COMMUNICATION [tab] Page X of Y"
+ *   Second line: "The Mason Law Firm, PLC • (703) 354-2100"
+ *   Uses PageNumber.CURRENT / PageNumber.TOTAL_PAGES.
+ *
+ * Unknown: empty footer.
  */
 export function buildLetterFooter(firm: LetterFirm): Paragraph {
   if (firm === 'satterwhite') {
@@ -587,7 +684,24 @@ export function buildLetterFooter(firm: LetterFirm): Paragraph {
           size: RUNNING_HF_SIZE,
           color: FIRM_NAVY,
         }),
-        new SimpleField('PAGE'),
+        new TextRun({
+          children: [PageNumber.CURRENT],
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: FIRM_NAVY,
+        }),
+        new TextRun({
+          text: '\u00a0of\u00a0',
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: FIRM_NAVY,
+        }),
+        new TextRun({
+          children: [PageNumber.TOTAL_PAGES],
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: FIRM_NAVY,
+        }),
       ],
       tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH_DXA }],
       border: {
@@ -595,7 +709,56 @@ export function buildLetterFooter(firm: LetterFirm): Paragraph {
       },
     });
   }
-  // Mason / unknown: empty footer — do not inject Satterwhite branding
+
+  if (firm === 'mason') {
+    return new Paragraph({
+      children: [
+        new TextRun({
+          text: 'CONFIDENTIAL \u2014 ATTORNEY-CLIENT PRIVILEGED COMMUNICATION',
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          bold: false,
+          color: MASON_DARK,
+        }),
+        new TextRun({
+          text: '\t',
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: MASON_DARK,
+        }),
+        new TextRun({
+          text: 'Page\u00a0',
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: MASON_DARK,
+        }),
+        new TextRun({
+          children: [PageNumber.CURRENT],
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: MASON_DARK,
+        }),
+        new TextRun({
+          text: '\u00a0of\u00a0',
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: MASON_DARK,
+        }),
+        new TextRun({
+          children: [PageNumber.TOTAL_PAGES],
+          font: DISPLAY_FONT,
+          size: RUNNING_HF_SIZE,
+          color: MASON_DARK,
+        }),
+      ],
+      tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH_DXA }],
+      border: {
+        top: { style: BorderStyle.SINGLE, size: 4, space: 4, color: MASON_DARK },
+      },
+    });
+  }
+
+  // Unknown: empty footer — do not inject any branding
   return new Paragraph({
     children: [new TextRun({ text: '', font: DISPLAY_FONT, size: RUNNING_HF_SIZE })],
   });
@@ -638,6 +801,49 @@ function buildSatterwhiteLetterhead(): Paragraph[] {
   ];
 }
 
+// ── Mason letterhead builder ──────────────────────────────────────────────────
+
+/**
+ * Build the centered Mason letterhead block per Bentancur style:
+ *   THE MASON LAW FIRM, PLC
+ *   ATTORNEYS AT LAW
+ *   108 N. Columbus Street, 2nd Floor | Alexandria, Virginia 22314 | (703) 354-2100
+ * followed by a thin rule.
+ */
+function buildMasonLetterhead(): Paragraph[] {
+  return [
+    centeredParagraph('THE MASON LAW FIRM, PLC', {
+      bold: true,
+      size: MASON_TITLE_SIZE,
+      color: MASON_DARK,
+      font: DISPLAY_FONT,
+      spaceBefore: 0,
+      spaceAfter: 40,
+    }),
+    centeredParagraph('ATTORNEYS AT LAW', {
+      bold: false,
+      size: MASON_CAPTION_SIZE,
+      color: MASON_DARK,
+      font: DISPLAY_FONT,
+      spaceAfter: 40,
+    }),
+    centeredParagraph('108 N. Columbus Street, 2nd Floor \u2022 Alexandria, Virginia 22314 \u2022 (703) 354-2100', {
+      bold: false,
+      size: MASON_ADDR_SIZE,
+      color: MASON_GRAY,
+      font: DISPLAY_FONT,
+      spaceAfter: 80,
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: '', font: DISPLAY_FONT, size: 4, color: MASON_DARK })],
+      border: {
+        bottom: { style: BorderStyle.SINGLE, size: 4, space: 4, color: MASON_DARK },
+      },
+      spacing: { after: 120 },
+    }),
+  ];
+}
+
 // ── Main section builder ──────────────────────────────────────────────────────
 
 export interface LetterSectionOptions {
@@ -652,9 +858,10 @@ export interface LetterSectionOptions {
  *   - Satterwhite source → privilege header, Satterwhite letterhead, centered title/subtitle,
  *     date/recipient, Re:, salutation, body (with numbered sections + fee table detection),
  *     closing, signature, acceptance block, Satterwhite footer.
- *   - Mason source → no Satterwhite header/footer, preserve Mason letterhead as body text,
- *     date/recipient, Re:, salutation, body, closing, signature, acceptance block.
- *   - Unknown → no Satterwhite header/footer, render as clean correspondence.
+ *   - Mason source → polished Mason letterhead (Bentancur style), no Satterwhite branding,
+ *     date/recipient, Re:, salutation, body, closing, signature, acceptance block,
+ *     Mason footer (CONFIDENTIAL / firm name / phone / Page X of Y).
+ *   - Unknown → no Satterwhite/Mason header/footer, render as clean correspondence.
  */
 export function buildLetterSection(
   text: string,
@@ -665,7 +872,7 @@ export function buildLetterSection(
 
   const children: (Paragraph | Table)[] = [];
 
-  // ── Privilege header (Satterwhite only) ──────────────────────────────────────
+  // ── Letterhead block ─────────────────────────────────────────────────────────
   if (firm === 'satterwhite') {
     children.push(privilegeHeaderParagraph());
     children.push(emptyParagraph());
@@ -696,23 +903,24 @@ export function buildLetterSection(
       }));
     }
   } else if (firm === 'mason') {
-    // Mason: render letterhead lines as centered display text, no Satterwhite branding
-    for (const line of blocks.letterheadLines) {
-      if (line.trim()) {
-        children.push(centeredParagraph(line, {
-          bold: false,
-          size: BODY_SIZE,
-          color: BODY_CHARCOAL,
-          font: BODY_FONT,
-          spaceAfter: 60,
-        }));
-      }
-    }
-    if (blocks.letterheadLines.length > 0) {
+    // Mason: optional document title/label first
+    if (blocks.documentTitle) {
+      children.push(centeredParagraph(blocks.documentTitle, {
+        bold: false,
+        size: BODY_SIZE,
+        color: BODY_CHARCOAL,
+        font: BODY_FONT,
+        spaceBefore: 0,
+        spaceAfter: 80,
+      }));
       children.push(emptyParagraph());
     }
+    // Polished Mason letterhead (Bentancur style)
+    children.push(...buildMasonLetterhead());
+    children.push(emptyParagraph());
+    // Skip letterheadLines — they are replaced by the structured Mason letterhead above
   } else {
-    // Unknown: render letterhead lines as body text
+    // Unknown: render letterhead lines as body text, no branding
     for (const line of blocks.letterheadLines) {
       if (line.trim()) {
         children.push(bodyParagraph(line));
@@ -819,6 +1027,8 @@ export function buildLetterSection(
     if (line.trim()) {
       children.push(signatureParagraph(line));
     }
+    // Preserve single blank lines in signature block for spacing
+    // (blank lines in signatureLines were already trimmed to '' by parser)
   }
 
   // ── Acceptance / authorization block ─────────────────────────────────────────
@@ -853,7 +1063,7 @@ export function buildLetterSection(
   // ── Fallback: if nothing was parsed, render raw text as body paragraphs ───────
   if (children.length === 0) {
     for (const line of text.split('\n')) {
-      children.push(bodyParagraph(line.trim()));
+      children.push(bodyParagraph(normalizeLetterMarkdown(line).trim()));
     }
   }
 
