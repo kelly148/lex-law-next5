@@ -383,21 +383,75 @@ app.get(
 );
 
 // ============================================================
-// POST /api/upload-format — MR-UPLOAD-FORMAT-1 stateless upload-and-format
+// POST /api/upload-format — MR-UPLOAD-FORMAT-2 stateless upload-and-format
 //
 // Accepts a multipart/form-data upload with a single 'file' field.
 // Supported types:
-//   .docx  — mammoth.extractRawText → buildSatterwhiteSection → DOCX download
+//   .docx  — mammoth.convertToHtml → htmlToMarkdown → buildSatterwhiteSection → DOCX download
 //   .txt   — UTF-8 read → buildSatterwhiteSection → DOCX download
 //   .md    — UTF-8 read → buildSatterwhiteSection → DOCX download
 //   .pdf   — not supported; returns 415 UNSUPPORTED_FILE_TYPE
 //   other  — returns 415 UNSUPPORTED_FILE_TYPE
+//
+// MR-UPLOAD-FORMAT-2 change: DOCX extraction now uses mammoth.convertToHtml
+// (not extractRawText) to preserve heading structure. The resulting HTML is
+// converted to Markdown via htmlToMarkdown() so that buildSatterwhiteSection
+// can apply section-heading formatting and infer the document title for the
+// running header, matching Matters/Finalize parity.
 //
 // Auth: userId drawn from iron-session cookie. Rejected with 401 if absent.
 // No DB persistence. No LLM calls. Reuses existing Satterwhite renderer.
 // File size limit: 50 MB.
 // Output filename: sanitized original name with -formatted.docx suffix.
 // ============================================================
+
+/**
+ * htmlToMarkdown — minimal HTML-to-Markdown converter for mammoth.convertToHtml output.
+ *
+ * Converts the subset of HTML produced by mammoth.convertToHtml to Markdown:
+ *   <h1>…</h1>  →  # …
+ *   <h2>…</h2>  →  ## …
+ *   <h3>…</h3>  →  ### …
+ *   <h4>…</h4>  →  #### …
+ *   <h5>…</h5>  →  ##### …
+ *   <h6>…</h6>  →  ###### …
+ *   <p>…</p>    →  paragraph text (blank line between)
+ *   <strong>…</strong> / <b>…</b>  →  **…**
+ *   <em>…</em> / <i>…</i>          →  _…_
+ *   <br>        →  newline
+ *   All other tags stripped.
+ *
+ * Intentionally narrow — handles only structural elements that affect
+ * buildSatterwhiteSection rendering.
+ */
+function stripHtmlTags(html: string): string {
+  return html.replace(/<[^>]+>/g, '');
+}
+
+function htmlToMarkdown(html: string): string {
+  let md = html.replace(/\r\n?/g, '\n');
+  // Headings
+  md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gis, (_m, inner: string) => `# ${stripHtmlTags(inner).trim()}`);
+  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gis, (_m, inner: string) => `## ${stripHtmlTags(inner).trim()}`);
+  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gis, (_m, inner: string) => `### ${stripHtmlTags(inner).trim()}`);
+  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gis, (_m, inner: string) => `#### ${stripHtmlTags(inner).trim()}`);
+  md = md.replace(/<h5[^>]*>(.*?)<\/h5>/gis, (_m, inner: string) => `##### ${stripHtmlTags(inner).trim()}`);
+  md = md.replace(/<h6[^>]*>(.*?)<\/h6>/gis, (_m, inner: string) => `###### ${stripHtmlTags(inner).trim()}`);
+  // Inline formatting
+  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gis, (_m, inner: string) => `**${stripHtmlTags(inner)}**`);
+  md = md.replace(/<b[^>]*>(.*?)<\/b>/gis, (_m, inner: string) => `**${stripHtmlTags(inner)}**`);
+  md = md.replace(/<em[^>]*>(.*?)<\/em>/gis, (_m, inner: string) => `_${stripHtmlTags(inner)}_`);
+  md = md.replace(/<i[^>]*>(.*?)<\/i>/gis, (_m, inner: string) => `_${stripHtmlTags(inner)}_`);
+  // Line breaks
+  md = md.replace(/<br\s*\/?>/gi, '\n');
+  // Paragraphs
+  md = md.replace(/<p[^>]*>(.*?)<\/p>/gis, (_m, inner: string) => `\n${stripHtmlTags(inner).trim()}\n`);
+  // Strip remaining tags
+  md = stripHtmlTags(md);
+  // Normalize multiple blank lines
+  md = md.replace(/\n{3,}/g, '\n\n');
+  return md.trim();
+}
 
 const uploadFormatMiddleware = multer({
   storage: multer.memoryStorage(),
@@ -464,19 +518,22 @@ app.post(
       return;
     }
     // ── Text extraction ───────────────────────────────────────────────────────
+    // MR-UPLOAD-FORMAT-2: DOCX uses convertToHtml → htmlToMarkdown to preserve
+    // heading structure for Matters/Finalize formatting parity.
     let extractedText: string;
     try {
       if (isDocx) {
-        const result = await mammoth.extractRawText({ buffer: file.buffer });
-        const raw = result.value ?? '';
-        if (raw.trim().length === 0) {
+        const result = await mammoth.convertToHtml({ buffer: file.buffer });
+        const html = result.value ?? '';
+        const md = htmlToMarkdown(html);
+        if (md.trim().length === 0) {
           res.status(422).json({
             error: 'EXTRACTION_FAILED',
             message: 'DOCX extraction produced no text. The file may be empty or image-only.',
           });
           return;
         }
-        extractedText = raw;
+        extractedText = md;
       } else {
         extractedText = file.buffer.toString('utf-8');
         if (extractedText.trim().length === 0) {
