@@ -18,7 +18,7 @@
  *     principal name, firm block, CONFIDENTIAL, page break.
  *   - Running header: right-aligned Calibri italic 8pt navy with bottom border.
  *   - Running footer: left firm text + right tab PAGE field, Calibri 8pt navy,
- *     top border, tab stop at 9360. Uses SimpleField("PAGE").
+ *     top border, tab stop at 9360. Uses PageNumber.CURRENT / PageNumber.TOTAL_PAGES.
  *   - Body paragraph: Times New Roman 12pt charcoal 404040, justified,
  *     line spacing 276 auto, after 180, no before, no first-line indent.
  *   - Bold heading normalization: strip ** markers from heading detection;
@@ -44,10 +44,10 @@ import {
   Header,
   HighlightColor,
   LineRuleType,
+  PageNumber,
   PageOrientation,
   Paragraph,
   ShadingType,
-  SimpleField,
   Table,
   TableCell,
   TableRow,
@@ -943,9 +943,9 @@ function buildRunningHeader(headerText: string, isWatermark: boolean): Paragraph
  * Build the running footer paragraph per spec:
  * Left firm text + right tab PAGE field.
  * Calibri 8pt navy, top border navy sz=4 space=4, tab stop right at 9360.
- * Uses SimpleField("PAGE") for real Word PAGE field.
+ * Uses PageNumber.CURRENT and PageNumber.TOTAL_PAGES for Page X of Y.
  */
-function buildRunningFooter(): Paragraph {
+export function buildRunningFooter(): Paragraph {
   return new Paragraph({
     children: [
       new TextRun({
@@ -966,7 +966,24 @@ function buildRunningFooter(): Paragraph {
         size: RUNNING_HF_SIZE,
         color: FIRM_NAVY,
       }),
-      new SimpleField('PAGE'),
+      new TextRun({
+        children: [PageNumber.CURRENT],
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
+      new TextRun({
+        text: '\u00a0of\u00a0',
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
+      new TextRun({
+        children: [PageNumber.TOTAL_PAGES],
+        font: DISPLAY_FONT,
+        size: RUNNING_HF_SIZE,
+        color: FIRM_NAVY,
+      }),
     ],
     tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH_DXA }],
     border: {
