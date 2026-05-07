@@ -174,12 +174,21 @@ export default function UploadFormatPage(): React.ReactElement {
       <div className="flex gap-3 mb-5">
         <button
           type="button"
-          onClick={() => { setUsePaste(false); clearState(); }}
+          onClick={() => {
+            if (!usePaste) {
+              // Already in upload mode — open the file picker directly
+              fileInputRef.current?.click();
+            } else {
+              setUsePaste(false);
+              clearState();
+            }
+          }}
           className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
             !usePaste
               ? 'bg-firm-navy text-white'
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
+          data-testid="upload-mode-button"
         >
           Upload File
         </button>
