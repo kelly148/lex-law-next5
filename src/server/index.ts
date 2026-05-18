@@ -26,6 +26,7 @@ import { telemetryEvents } from './db/schema.js';
 import { validateLlmConfig } from './llm/config.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
 import { getSession, extractUserId } from './middleware/session.js';
+import { isAuthBypassEnabled, getBypassUserId } from './middleware/authBypass.js';
 import { insertMaterial } from './db/queries/materials.js';
 import { getMatterById } from './db/queries/matters.js';
 import { getDocumentById } from './db/queries/documents.js';
@@ -145,8 +146,14 @@ app.post(
   },
   async (req: Request, res: Response): Promise<void> => {
     // ── Auth: extract userId from iron-session (Ch 35.2) ──────────────────────
-    const session = await getSession(req, res);
-    const userId = extractUserId(session);
+    // MR-AUTH-BYPASS-1: when AUTH_BYPASS_ENABLED=true, bypass session check.
+    let userId: string | null;
+    if (isAuthBypassEnabled()) {
+      userId = getBypassUserId();
+    } else {
+      const session = await getSession(req, res);
+      userId = extractUserId(session);
+    }
     if (!userId) {
       res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
       return;
@@ -284,16 +291,20 @@ app.post(
 app.get(
   '/api/documents/:documentId/export',
   async (req: Request, res: Response): Promise<void> => {
-    // ── Auth ──────────────────────────────────────────────────────────────────
-    const session = await getSession(req, res);
-    const userId = extractUserId(session);
+    // ── Auth ────────────────────────────────────────────────────────────────────────────
+    // MR-AUTH-BYPASS-1: when AUTH_BYPASS_ENABLED=true, bypass session check.
+    let userId: string | null;
+    if (isAuthBypassEnabled()) {
+      userId = getBypassUserId();
+    } else {
+      const session = await getSession(req, res);
+      userId = extractUserId(session);
+    }
     if (!userId) {
       res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
       return;
     }
-
     const { documentId } = req.params as { documentId: string };
-
     // ── Load document (ownership enforced by userId predicate) ────────────────
     const doc = await getDocumentById(documentId, userId);
     if (!doc) {
@@ -477,14 +488,20 @@ app.post(
     });
   },
   async (req: Request, res: Response): Promise<void> => {
-    // ── Auth ──────────────────────────────────────────────────────────────────
-    const session = await getSession(req, res);
-    const userId = extractUserId(session);
+    // ── Auth ──────────────────────────────────────────────────────────────────────────
+    // MR-AUTH-BYPASS-1: when AUTH_BYPASS_ENABLED=true, bypass session check.
+    let userId: string | null;
+    if (isAuthBypassEnabled()) {
+      userId = getBypassUserId();
+    } else {
+      const session = await getSession(req, res);
+      userId = extractUserId(session);
+    }
     if (!userId) {
       res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
       return;
     }
-    // ── File validation ───────────────────────────────────────────────────────
+    // ── File validation ────────────────────────────────────────────────────────────────────────────
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: 'MISSING_FILE', message: "A file field named 'file' is required" });
