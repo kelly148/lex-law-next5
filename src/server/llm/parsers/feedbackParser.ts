@@ -16,6 +16,11 @@
  */
 import { z } from 'zod';
 
+import {
+  FeedbackCardArraySchema,
+  type FeedbackCard,
+} from '../../../shared/schemas/feedbackCards.js';
+
 // ────────────────────────────────────────────────────────────
 // Schema — inline, matches the S1b prompt shape
 // ────────────────────────────────────────────────────────────
@@ -41,6 +46,19 @@ export interface ParsedFeedbackSuggestion {
 // Parser
 // ────────────────────────────────────────────────────────────
 
+function parseReviewerJson(raw: string): unknown {
+  try {
+    // Strip markdown code fences if the LLM wraps the JSON in ```json ... ```
+    const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    return JSON.parse(stripped);
+  } catch (err) {
+    throw new Error(
+      `REVIEWER_OUTPUT_MALFORMED: could not parse reviewer LLM output as JSON. ` +
+        `Parse error: ${String(err)}. Raw output (first 200 chars): ${raw.slice(0, 200)}`,
+    );
+  }
+}
+
 /**
  * Parse raw LLM reviewer output into validated, ID-stamped suggestions.
  *
@@ -51,17 +69,7 @@ export interface ParsedFeedbackSuggestion {
  */
 export function parseFeedbackOutput(raw: string): ParsedFeedbackSuggestion[] {
   // ── Step 1: JSON parse ──────────────────────────────────────
-  let parsed: unknown;
-  try {
-    // Strip markdown code fences if the LLM wraps the JSON in ```json ... ```
-    const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    parsed = JSON.parse(stripped);
-  } catch (err) {
-    throw new Error(
-      `REVIEWER_OUTPUT_MALFORMED: could not parse reviewer LLM output as JSON. ` +
-        `Parse error: ${String(err)}. Raw output (first 200 chars): ${raw.slice(0, 200)}`,
-    );
-  }
+  const parsed = parseReviewerJson(raw);
 
   // ── Step 2: Schema validation ───────────────────────────────
   const result = RawSuggestionsArraySchema.safeParse(parsed);
@@ -80,4 +88,26 @@ export function parseFeedbackOutput(raw: string): ParsedFeedbackSuggestion[] {
     body: item.body,
     severity: item.severity,
   }));
+}
+
+/**
+ * Parse raw LLM reviewer output into validated Phase 5 feedback cards.
+ *
+ * This is a separate MR-CAL-1 parser entry point. It does not replace or
+ * widen parseFeedbackOutput, which remains the legacy Phase 4b suggestion
+ * parser used by the existing reviewer path.
+ */
+export function parseFeedbackCardOutput(raw: string): FeedbackCard[] {
+  const parsed = parseReviewerJson(raw);
+  const result = FeedbackCardArraySchema.safeParse(parsed);
+
+  if (!result.success) {
+    throw new Error(
+      `REVIEWER_OUTPUT_MALFORMED: reviewer LLM feedback-card output failed schema validation. ` +
+        `Errors: ${result.error.message}. ` +
+        `Raw output (first 200 chars): ${raw.slice(0, 200)}`,
+    );
+  }
+
+  return result.data;
 }
