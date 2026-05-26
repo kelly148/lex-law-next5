@@ -22,8 +22,9 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
-import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey } from '../llm/config.js';
+import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
+import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
@@ -172,14 +173,9 @@ export const reviewSessionRouter = router({
             message: `REVIEWER_NOT_ENABLED: '${reviewerRole}' is not a valid reviewer identifier`,
           });
         }
-        // S1b (MR-1): Updated system prompt requests title/body/severity shape
-        const systemPrompt = [
-          `You are a legal document reviewer (${reviewerRole}).`,
-          'Review the document and provide structured feedback.',
-          'Return a JSON array of feedback items with this exact shape:',
-          '[{ "title": "Short issue title (under 80 characters)", "body": "Detailed feedback and recommendation", "severity": "critical"|"major"|"minor" }]',
-          'Return an empty array [] if you have no feedback. Do not include any text outside the JSON array.',
-        ].join('\n');
+        // MR-CAL-2: Calibrated four-track prompt while preserving the active legacy parser wrapper.
+        // Legacy wrapper keys remain "title", "body", and "severity" for RawSuggestionsArraySchema.
+        const systemPrompt = buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey);
         // S1a (MR-1): Include full document content in the userPrompt
         const userPrompt = [
           `Review session ${sessionId}, iteration ${iterationNumber}.`,
