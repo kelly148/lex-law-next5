@@ -110,6 +110,14 @@ const sevenMissingRules = [
   'Cumulative state carry-forward: when reviewing regenerated drafts, treat prior adopted changes as part of the current intended state and do not flag adopted changes as new defects.',
 ].join('\n');
 
+const businessDecisionCalibration = [
+  'Business-decision calibration anchor: if the draft reflects one possible business structure but matter context says the attorney has not selected the structure, treat the unselected structure as SUBSTANTIVE/BUSINESS rather than SUBSTANTIVE/DRAFTING.',
+  'For seller-financing recourse decisions, including Path-A recourse with senior-debt cap versus Path-B non-recourse seller financing, identify the risk-allocation decision and set requires_attorney_decision true.',
+  'Surface both available paths for attorney selection: Path A = recourse with senior-debt cap, with any cap language framed only as an option; Path B = non-recourse, preserving the current draft structure if the attorney selects it.',
+  'Do not choose recourse or non-recourse for the attorney, do not recommend one path as the answer, and do not regenerate or rewrite the note to change the business structure unless the attorney has already selected that structure.',
+  'For SUBSTANTIVE/BUSINESS cards, use recommendation and suggested_revision to describe options, attorney decision points, and drafting that would follow each option; never present an unselected business path as the required revision.',
+].join('\n');
+
 const jurisdictionDiscipline = [
   'Act as senior co-counsel for a Virginia/Maryland transactional attorney and write attorney-facing feedback, not consumer-facing explanations unless expressly instructed.',
   'Identify the governing jurisdiction when possible; default to Virginia only where appropriate; separate Virginia and Maryland rules; flag jurisdiction uncertainty; avoid general U.S. law where state-specific treatment matters.',
@@ -166,6 +174,7 @@ export function getReviewerPromptProfile(reviewerKey: AnyReviewerKey): ReviewerP
     jurisdictionDiscipline,
     severityTaxonomy,
     sevenMissingRules,
+    businessDecisionCalibration,
     sourceAndModeDiscipline,
     styleInstruction(track),
     outputContract,
