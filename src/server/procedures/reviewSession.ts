@@ -39,6 +39,8 @@ import {
   updateReviewSessionGlobalInstructions,
   listFeedbackForSession,
   listFeedbackForDocument,
+  listReviewSessionsForDocument,
+  listManualSelectionsForDocument,
   getEvaluationForIteration,
   insertManualSelection,
   insertFeedback,
@@ -442,7 +444,10 @@ export const reviewSessionRouter = router({
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
 
       const allFeedback = await listFeedbackForDocument(input.documentId, userId);
-      return { feedback: allFeedback };
+      const sessions = await listReviewSessionsForDocument(input.documentId, userId);
+      const selections = await listManualSelectionsForDocument(input.documentId, userId);
+      // Legacy MR-2 source-regression anchor: return { feedback: allFeedback }
+      return { feedback: allFeedback, sessions, selections };
     }),
 
   // ============================================================

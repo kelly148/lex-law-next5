@@ -653,6 +653,23 @@ export async function listManualSelectionsForSession(
   return rows.map((r) => parseFeedbackManualSelectionRow(r, { userId }));
 }
 
+export async function listManualSelectionsForDocument(
+  documentId: string,
+  userId: string,
+): Promise<FeedbackManualSelectionRow[]> {
+  const rows = await db
+    .select()
+    .from(feedbackManualSelections)
+    .where(
+      and(
+        eq(feedbackManualSelections.documentId, documentId),
+        eq(feedbackManualSelections.userId, userId),
+      ),
+    )
+    .orderBy(asc(feedbackManualSelections.iterationNumber), asc(feedbackManualSelections.createdAt));
+  return rows.map((r) => parseFeedbackManualSelectionRow(r, { userId }));
+}
+
 export async function insertManualSelection(data: {
   id?: string;
   userId: string;

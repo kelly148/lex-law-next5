@@ -52,6 +52,8 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     listFeedbackForDocument: vi.fn(),
+    listReviewSessionsForDocument: vi.fn(),
+    listManualSelectionsForDocument: vi.fn(),
     getEvaluationForIteration: vi.fn(),
     listManualSelectionsForSession: vi.fn(),
     insertManualSelection: vi.fn(),
@@ -405,6 +407,11 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     const iter1Row = makeFeedbackRow(FEEDBACK_1_ID, 1, 'claude');
     const iter2Row = makeFeedbackRow(FEEDBACK_2_ID, 2, 'gpt');
     vi.mocked(phase4bQueries.listFeedbackForDocument).mockResolvedValue([iter1Row, iter2Row]);
+    vi.mocked(phase4bQueries.listReviewSessionsForDocument).mockResolvedValue([
+      makeSessionRow(SESSION_1_ID, 1, 'claude', 'regenerated'),
+      makeSessionRow(SESSION_2_ID, 2, 'gpt', 'active'),
+    ]);
+    vi.mocked(phase4bQueries.listManualSelectionsForDocument).mockResolvedValue([]);
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_2_ID));
 
     const historyResult = await caller.reviewSession.getDocumentHistory({ documentId: DOC_ID });

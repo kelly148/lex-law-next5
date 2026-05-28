@@ -257,6 +257,8 @@ interface FeedbackCardProps {
     id: string;
     reviewerRole: string;
     reviewerTitle: string;
+    reviewerModel: string;
+    iterationNumber: number;
     suggestions: Array<{ suggestionId: string; title: string; body: string; severity?: string }>;
   };
   sessionId: string;
@@ -341,6 +343,8 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-firm-navy">{feedback.reviewerTitle}</span>
             <span className="text-xs text-gray-400">({feedback.reviewerRole})</span>
+            <span className="text-xs text-gray-400">Iteration {feedback.iterationNumber}</span>
+            <span className="text-xs text-gray-400">{feedback.reviewerModel}</span>
             <span className="text-xs text-gray-400">{feedback.suggestions.length} suggestion{feedback.suggestions.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
@@ -435,27 +439,46 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
 }
 
 // ============================================================
-// HistorySection — MR-2 §S2c
-// Shows prior-iteration feedback rows grouped by iterationNumber.
-// Rendered below the active-session feedback list.
+// HistorySection — MR-CAL-3C sequential comparison/provenance view
+// Shows prior-iteration feedback grouped by iteration and reviewer/session.
+// Historical rows are read-only; active-session selection controls remain above.
 // ============================================================
 interface HistorySectionProps {
   documentId: string;
   currentIterationNumber: number;
 }
 
+function formatReviewerLabel(role: string, title: string): string {
+  const label = REVIEWER_LABELS[role] ?? role;
+  return title && title !== role ? `${title} (${label})` : label;
+}
+
 function HistorySection({ documentId, currentIterationNumber }: HistorySectionProps): React.ReactElement | null {
   const [expanded, setExpanded] = useState(false);
-  // MR-3 §S5: Capture query error state for non-fatal error display.
+  // MR-CAL-3C: read-only comparison query; current session feedback remains rendered above.
   const { data, isLoading, isError } = trpc.reviewSession.getDocumentHistory.useQuery({ documentId });
-  // Filter out current iteration rows — those are shown in the active session view.
-  // NOTE: Both useMemo calls are unconditional (above early returns) per Rules of Hooks.
+
   const priorRows = React.useMemo(() => {
     if (!data) return [];
     return data.feedback.filter((fb) => fb.iterationNumber < currentIterationNumber);
   }, [data, currentIterationNumber]);
-  // Group by iterationNumber ascending (oldest first).
-  // Computed unconditionally here so no hook is called after an early return.
+
+  const sessionById = React.useMemo(() => {
+    const map = new Map<string, NonNullable<typeof data>['sessions'][number]>();
+    for (const session of data?.sessions ?? []) {
+      map.set(session.id, session);
+    }
+    return map;
+  }, [data]);
+
+  const selectionBySessionAndSuggestion = React.useMemo(() => {
+    const map = new Map<string, NonNullable<typeof data>['selections'][number]>();
+    for (const selection of data?.selections ?? []) {
+      map.set(`${selection.reviewSessionId}:${selection.suggestionId}`, selection);
+    }
+    return map;
+  }, [data]);
+
   const grouped = React.useMemo(() => {
     const map = new Map<number, typeof priorRows>();
     for (const fb of priorRows) {
@@ -463,10 +486,21 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
       arr.push(fb);
       map.set(fb.iterationNumber, arr);
     }
-    // Sort iteration keys ascending (oldest first).
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [priorRows]);
-  // MR-3 §S5: Loading state — show a minimal indicator rather than returning null.
+
+  const selectedCount = React.useMemo(() => {
+    let count = 0;
+    for (const fb of priorRows) {
+      for (const suggestion of fb.suggestions) {
+        if (fb.reviewSessionId && selectionBySessionAndSuggestion.has(`${fb.reviewSessionId}:${suggestion.suggestionId}`)) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }, [priorRows, selectionBySessionAndSuggestion]);
+
   if (isLoading) {
     return (
       <div className="border-t border-gray-200 px-4 py-2">
@@ -474,7 +508,6 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
       </div>
     );
   }
-  // MR-3 §S5: Error state — non-fatal; show a minimal error message.
   if (isError) {
     return (
       <div className="border-t border-gray-200 px-4 py-2">
@@ -482,7 +515,6 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
       </div>
     );
   }
-  // MR-3 §S5: Empty state — no prior iterations; render nothing (accordion would be empty).
   if (priorRows.length === 0) return null;
 
   return (
@@ -491,27 +523,70 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-500 hover:bg-gray-50"
       >
-        <span>Prior Feedback ({priorRows.length} row{priorRows.length !== 1 ? 's' : ''} across {grouped.length} iteration{grouped.length !== 1 ? 's' : ''})</span>
+        <span>
+          Prior Feedback ({priorRows.length} row{priorRows.length !== 1 ? 's' : ''} across {grouped.length} iteration{grouped.length !== 1 ? 's' : ''}) — Sequential Comparison ({selectedCount} selected suggestion{selectedCount !== 1 ? 's' : ''})
+        </span>
         {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
       </button>
       {expanded && (
         <div className="px-4 pb-4 space-y-4">
+          <p className="text-xs text-gray-400">
+            Current session feedback and attorney selection controls are shown above. Prior reviewer feedback below is read-only provenance for comparison.
+          </p>
           {grouped.map(([iterNum, rows]) => (
-            <div key={iterNum}>
-              <p className="text-xs font-medium text-gray-400 mb-1">Iteration {iterNum}</p>
-              <div className="space-y-2">
-                {rows.map((fb) => (
-                  <div key={fb.id} className="border border-gray-100 rounded p-2 bg-gray-50">
-                    <p className="text-xs font-semibold text-gray-700">{fb.reviewerTitle}</p>
-                    <p className="text-xs text-gray-500">{fb.suggestions.length} suggestion{fb.suggestions.length !== 1 ? 's' : ''}</p>
-                    <ul className="mt-1 space-y-0.5">
-                      {fb.suggestions.map((s) => (
-                        <li key={s.suggestionId} className="text-xs text-gray-600">• {s.title}</li>
-                      ))}
-                    </ul>
+            <div key={iterNum} className="space-y-2">
+              <p className="text-xs font-medium text-gray-500">Prior iteration {iterNum}</p>
+              {rows.map((fb) => {
+                const session = fb.reviewSessionId ? sessionById.get(fb.reviewSessionId) : null;
+                const sessionState = session?.state ?? 'historical';
+                return (
+                  <div key={fb.id} className="border border-gray-100 rounded p-3 bg-gray-50 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-700">{formatReviewerLabel(fb.reviewerRole, fb.reviewerTitle)}</p>
+                        <p className="text-[10px] text-gray-400">Role: {fb.reviewerRole} • Model: {fb.reviewerModel}</p>
+                        <p className="text-[10px] text-gray-400">Session: {fb.reviewSessionId ?? 'unattributed'} • Status: {sessionState}</p>
+                      </div>
+                      <span className={clsx(
+                        'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
+                        session?.state === 'regenerated' && 'bg-blue-100 text-blue-700',
+                        session?.state === 'active' && 'bg-green-100 text-green-700',
+                        !session && 'bg-gray-100 text-gray-500',
+                      )}>
+                        {session?.state === 'regenerated' ? 'regenerated' : 'prior'}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {fb.suggestions.map((s) => {
+                        const selection = fb.reviewSessionId
+                          ? selectionBySessionAndSuggestion.get(`${fb.reviewSessionId}:${s.suggestionId}`)
+                          : undefined;
+                        return (
+                          <div key={s.suggestionId} className="border border-gray-100 rounded bg-white p-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs font-medium text-gray-700">{s.title}</p>
+                              <span className={clsx(
+                                'text-[10px] px-1.5 py-0.5 rounded',
+                                selection ? 'bg-firm-navy text-white' : 'bg-gray-100 text-gray-500',
+                              )}>
+                                {selection ? 'selected' : 'not selected'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-0.5">{s.body}</p>
+                            <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-gray-400">
+                              <span>Severity: {s.severity ?? 'unspecified'}</span>
+                              <span>Suggestion ID: {s.suggestionId}</span>
+                            </div>
+                            {selection?.attorneyNote && (
+                              <p className="text-xs text-gray-500 italic mt-1">Attorney note: {selection.attorneyNote}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
           ))}
         </div>
