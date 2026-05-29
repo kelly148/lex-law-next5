@@ -41,7 +41,7 @@ import { insertMaterial, listMaterialsForMatter } from '../db/queries/materials.
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
-import { parseGeneratedMatrixItems } from './informationRequestParse.js';
+import { parseGeneratedMatrixItems, InformationRequestItemsSchema } from './informationRequestParse.js';
 
 
 const COMPLETED_QUESTIONNAIRE_TAG = 'completed_questionnaire';
@@ -131,12 +131,18 @@ export const informationRequestRouter = router({
           systemPrompt: [
             'You are a legal assistant helping to identify information needed for a legal matter.',
             'Generate a structured list of questions to gather the necessary information.',
-            'Return a JSON array of objects with fields: category (string), questionText (string).',
+            'Return ONLY a raw JSON array of objects with fields: category (string), questionText (string).',
+            'Do not wrap the array in an object, do not use markdown code fences, and do not include any prose before or after the JSON.',
             'Group related questions under the same category.',
           ].join('\n'),
           userPrompt: `Generate an information request matrix for a ${matter.practiceArea ?? 'legal'} matter: "${matter.title}".`,
           temperature: 0.2,
           maxTokens: 4096,
+          // MR-IR-GEN-2: enforce the array contract via the existing structured-output
+          // mechanism so the provider adapter strips fences and normalizes wrappers
+          // before returning. Tolerant parsing in parseGeneratedMatrixItems is the
+          // defensive second layer.
+          structuredOutputSchema: InformationRequestItemsSchema,
         }),
         txn2Commit: async ({ jobId, output }) => {
           const matrixId = closureMatrixId;
