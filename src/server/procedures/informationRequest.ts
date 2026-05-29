@@ -41,6 +41,7 @@ import { insertMaterial, listMaterialsForMatter } from '../db/queries/materials.
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+import { parseGeneratedMatrixItems } from './informationRequestParse.js';
 
 
 const COMPLETED_QUESTIONNAIRE_TAG = 'completed_questionnaire';
@@ -139,22 +140,11 @@ export const informationRequestRouter = router({
         }),
         txn2Commit: async ({ jobId, output }) => {
           const matrixId = closureMatrixId;
-          // Parse LLM output and insert items
-          let items: Array<{ category: string; questionText: string }> = [];
-          try {
-            const parsed = typeof output === 'string' ? JSON.parse(output) : output;
-            if (Array.isArray(parsed)) {
-              items = parsed.filter(
-                (item): item is { category: string; questionText: string } =>
-                  typeof item === 'object' &&
-                  item !== null &&
-                  typeof item.category === 'string' &&
-                  typeof item.questionText === 'string',
-              );
-            }
-          } catch {
-            // If parsing fails, leave matrix empty — attorney can add questions manually
-          }
+          // MR-IR-ERR-1: parse-or-throw. Malformed output or an empty usable-item
+          // set throws here, which executeCanonicalMutation converts into the
+          // txn2Revert + job-failed path — instead of silently committing an
+          // apparently-successful empty questionnaire.
+          const items = parseGeneratedMatrixItems(output);
           for (let i = 0; i < items.length; i++) {
             await insertInformationRequestItem({
               informationRequestId: matrixId,
@@ -170,6 +160,13 @@ export const informationRequestRouter = router({
           );
         },
         txn2Revert: async ({ jobId, errorClass, errorMessage }) => {
+          // MR-IR-ERR-1: a failed/empty/malformed generation must not leave an
+          // active empty questionnaire behind (it would be presented as usable
+          // and would block retry via the at-most-one-active-matrix guard).
+          // Archive the matrix created in txn1 so the attorney can retry cleanly.
+          if (closureMatrixId) {
+            await archiveInformationRequest(closureMatrixId, userId);
+          }
           void emitTelemetry(
             'job_failed',
             { jobType: 'information_request_generation', errorClass: errorClass ?? 'other', errorMessage: errorMessage ?? '' },
@@ -178,6 +175,17 @@ export const informationRequestRouter = router({
         },
         telemetryCtx: { userId, matterId: input.matterId, documentId: null, jobId: null },
       });
+      // MR-IR-ERR-1: surface generation failure to the caller rather than
+      // returning an apparently-successful result. A non-completed status means
+      // parse/empty/timeout/api failure; the matrix has been archived in
+      // txn2Revert. The client renders this as a visible failure.
+      if (result.status !== 'completed') {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message:
+            'IR_GENERATION_FAILED: question generation did not produce a usable questionnaire. Please try again.',
+        });
+      }
       return { jobId: result.jobId, status: result.status };
     }),
 
