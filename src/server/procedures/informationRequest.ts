@@ -37,9 +37,53 @@ import {
   deleteInformationRequestItem,
 } from '../db/queries/phase4b.js';
 import { getMatterById } from '../db/queries/matters.js';
+import { insertMaterial, listMaterialsForMatter } from '../db/queries/materials.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+
+
+const COMPLETED_QUESTIONNAIRE_TAG = 'completed_questionnaire';
+
+function informationRequestSourceTag(matrixId: string): string {
+  return `information_request:${matrixId}`;
+}
+
+function buildCompletedQuestionnaireMaterialText(args: {
+  matrixId: string;
+  matterId: string;
+  items: Array<{
+    category: string;
+    questionText: string;
+    answerText: string | null;
+    orderIndex: number;
+  }>;
+}): string {
+  const lines = [
+    'Completed Client Questionnaire',
+    `Information Request ID: ${args.matrixId}`,
+    `Matter ID: ${args.matterId}`,
+    '',
+  ];
+
+  const grouped = new Map<string, typeof args.items>();
+  for (const item of [...args.items].sort((a, b) => a.orderIndex - b.orderIndex)) {
+    const categoryItems = grouped.get(item.category) ?? [];
+    categoryItems.push(item);
+    grouped.set(item.category, categoryItems);
+  }
+
+  for (const [category, categoryItems] of grouped.entries()) {
+    lines.push(`## ${category}`);
+    for (const item of categoryItems) {
+      lines.push(`Q: ${item.questionText}`);
+      lines.push(`A: ${item.answerText?.trim() || '[No answer provided]'}`);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n').trimEnd() + '\n';
+}
 
 export const informationRequestRouter = router({
   // ============================================================
@@ -405,6 +449,73 @@ export const informationRequestRouter = router({
         { userId, matterId: matrix.matterId, documentId: null, jobId: null },
       );
       return { success: true };
+    }),
+
+
+  // ============================================================
+  // informationRequest.createMaterialFromCompleted — MR-UAT-MATERIALS-2
+  // Explicit attorney action that converts a completed questionnaire into
+  // a draft-visible matter material. Idempotent for one material per matrix.
+  // ============================================================
+  createMaterialFromCompleted: protectedProcedure
+    .input(z.object({ matrixId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const matrix = await getInformationRequestById(input.matrixId, userId);
+      if (!matrix || matrix.archivedAt) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Information request not found' });
+      }
+      if (matrix.status !== 'complete') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'QUESTIONNAIRE_NOT_COMPLETE: mark the questionnaire complete before creating a material',
+        });
+      }
+
+      const matter = await getMatterById(matrix.matterId, userId);
+      if (!matter || matter.archivedAt) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      const items = await listItemsForInformationRequest(input.matrixId, userId);
+      const answeredCount = items.filter((item) => item.answerText?.trim()).length;
+      if (answeredCount === 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'QUESTIONNAIRE_HAS_NO_ANSWERS: attach at least one answer before creating a material',
+        });
+      }
+
+      const sourceTag = informationRequestSourceTag(input.matrixId);
+      const existing = (await listMaterialsForMatter(matrix.matterId, userId)).find((material) =>
+        material.tags.includes(COMPLETED_QUESTIONNAIRE_TAG) && material.tags.includes(sourceTag),
+      );
+      if (existing) {
+        return { created: false, material: existing };
+      }
+
+      const material = await insertMaterial({
+        userId,
+        matterId: matrix.matterId,
+        filename: `Completed Questionnaire - ${input.matrixId}.txt`,
+        mimeType: 'text/plain',
+        fileSize: null,
+        storageKey: null,
+        textContent: buildCompletedQuestionnaireMaterialText({
+          matrixId: input.matrixId,
+          matterId: matrix.matterId,
+          items,
+        }),
+        extractionStatus: 'extracted',
+        extractionError: null,
+        tags: [COMPLETED_QUESTIONNAIRE_TAG, sourceTag],
+        description: 'Completed client questionnaire converted for document drafting context.',
+        pinned: false,
+        uploadSource: 'paste',
+        deletedAt: null,
+      });
+
+      return { created: true, material };
     }),
 
   // ============================================================
