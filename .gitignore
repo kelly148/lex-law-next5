@@ -51,3 +51,9 @@ src/server/db/migrations/meta/
 
 # Vitest
 .vitest-cache/
+
+# CodeGraph local index (generated; do not commit)
+.codegraph/
+
+# Claude Code personal/local settings (shared config lives in .claude/settings.json)
+.claude/settings.local.json

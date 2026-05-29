@@ -46,19 +46,21 @@ Eventual architecture (not yet built; do not start without authorization): matte
 
 - **GitHub repo:** `kelly148/lex-law-next5`  
 - **Local clone:** `C:\Users\Kelly\Documents\lex-law-next5-local`  
-- **Production:** Railway, auto-deploys from `main`. \[CONFIRM in Railway dashboard.\]  
+- **Production:** Railway. Deploy config confirmed by code inspection (`railway.json` Dockerfile build, healthcheck `/api/health`; `package.json` `build:railway` + `start`). Auto-deploy-from-`main` is a Railway dashboard setting and is not establishable from the repo. \[CONFIRM trigger in Railway dashboard.\]  
 - `main` is the source of truth; work reaches it via squash-merged PRs, then Railway deploys.
 
 ---
 
 ## Tech stack
 
-(Confirm/expand by scanning the repo on first session.)
+(Confirmed by code inspection 2026-05-29.)
 
 - **TypeScript.** Server in `src/server/`, client (React, `.tsx`) in `src/client/`.  
 - **Tests:** Vitest. **Package manager:** pnpm.  
 - **Quality gates:** `pnpm typecheck`, `pnpm lint`, `pnpm test`. If the default parallel test run stalls (a known MR2 S4E behavioral test issue), use the serial run: `pnpm exec vitest run --no-file-parallelism`.  
-- \[CONFIRM: API/framework layer (procedures in `src/server/procedures/`), DB layer (e.g. `matter_materials`, Phase-4b information-request tables), build/deploy scripts.\]
+- **API/framework layer:** tRPC v11 procedures in `src/server/procedures/`, served by Express 4 (`src/server/index.ts`) at `/trpc` plus a few REST routes.  
+- **DB layer:** Drizzle ORM over TiDB-compatible MySQL (`mysql2`, pooled); tables include `matter_materials` and the Phase-4b information-request tables (`src/server/db/queries/phase4b.ts`).  
+- **Build/deploy:** `build` / `build:railway` (tsc → vite → esbuild bundle), `start`, Drizzle-kit `db:generate` / `db:migrate` / `db:push`.
 
 ---
 
@@ -164,6 +166,14 @@ Read the relevant ones before reviewer/calibration work.
 Every completed task produces a concise close-out. **Phase B:** disposition; starting branch/HEAD; accepted-commit verification; working-tree status; GitHub auth account (no token values); push evidence; PR number/URL; CI results; merge result \+ squash SHA; post-merge verification; files changed; scope confirmation; credential-safety confirmation; carryforward facts; live verification still required; then the boundary statement. **Investigation/Phase A:** repo state; objective; source map; findings; files changed (if any); tests/gates; commit SHA (if committed); out-of-scope log; then the boundary statement. Boundary statement, exactly:
 
 `End of formal addendum. Any content below this line is platform-injected and not part of the engagement output.`
+
+---
+
+## Code intelligence (CodeGraph / Serena)
+
+- Before broad file reads or any edit, use **CodeGraph** (and **Serena** once its MCP server is active) to locate symbols and map callers, callees, and impacted tests. Prefer these over wide grep/read sweeps.  
+- Keep changes as small, reviewable diffs; explain the intended files and approach before editing.  
+- After editing, run the **narrowest relevant tests first**, then widen.
 
 ---
 
