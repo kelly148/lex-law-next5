@@ -51,8 +51,10 @@ describe('MR-IR-ERR-1 parseGeneratedMatrixItems — behavioral contract', () => 
     expect(() => parseGeneratedMatrixItems('not json at all')).toThrow(/IR_GENERATION_MALFORMED/);
   });
 
-  it('throws IR_GENERATION_MALFORMED when output is a JSON object, not an array', () => {
-    expect(() => parseGeneratedMatrixItems('{"feedback": []}')).toThrow(/IR_GENERATION_MALFORMED/);
+  it('throws IR_GENERATION_MALFORMED when output is a JSON object with no array value', () => {
+    // MR-IR-GEN-2: single-key array wrappers are now tolerated, so this case uses
+    // an object whose value is not an array — still rejected as malformed.
+    expect(() => parseGeneratedMatrixItems('{"feedback": "not an array"}')).toThrow(/IR_GENERATION_MALFORMED/);
   });
 
   it('throws IR_GENERATION_EMPTY for an empty array (no silent empty success)', () => {
@@ -77,7 +79,8 @@ describe('MR-IR-ERR-1 generate wiring — source audit', () => {
   );
 
   it('txn2Commit parses-or-throws via parseGeneratedMatrixItems (empty catch removed)', () => {
-    expect(procSource).toContain("import { parseGeneratedMatrixItems } from './informationRequestParse.js'");
+    expect(procSource).toContain('parseGeneratedMatrixItems');
+    expect(procSource).toContain("from './informationRequestParse.js'");
     expect(procSource).toContain('const items = parseGeneratedMatrixItems(output);');
     // The old silent fallback comment must be gone.
     expect(procSource).not.toContain('leave matrix empty — attorney can add questions manually');
