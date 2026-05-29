@@ -531,6 +531,12 @@ export default function InformationRequestPage(): React.ReactElement {
         void utils.informationRequest.list.invalidate({ matterId: matterId! });
         void utils.job.listForMatter.invalidate({ matterId: matterId! });
       },
+      // MR-IR-ERR-1: on a failed generation the server archives the empty matrix
+      // and throws; refresh list/jobs so the Generate button returns for retry.
+      onError: () => {
+        void utils.informationRequest.list.invalidate({ matterId: matterId! });
+        void utils.job.listForMatter.invalidate({ matterId: matterId! });
+      },
     }
   );
 
@@ -575,6 +581,15 @@ export default function InformationRequestPage(): React.ReactElement {
         <div className="mb-4 flex items-center gap-3 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
           <RefreshCw className="w-4 h-4 text-amber-600 animate-spin flex-shrink-0" />
           <span className="text-amber-800">Generating information request…</span>
+        </div>
+      )}
+
+      {/* MR-IR-ERR-1: visible generation-failure banner */}
+      {generateMutation.error && (
+        <div className="mb-4 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm">
+          <span className="text-red-800">
+            Question generation failed — the model did not return usable questions. Please try again.
+          </span>
         </div>
       )}
 
