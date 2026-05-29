@@ -27,7 +27,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Plus, Archive, CheckCircle, RefreshCw, Download,
+  ArrowLeft, Plus, Archive, CheckCircle, RefreshCw, Download, FileText,
   Edit2, Trash2, ChevronDown, ChevronUp, MessageSquare
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -212,6 +212,7 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
   const [newCategory, setNewCategory] = useState('');
   const [newQuestion, setNewQuestion] = useState('');
   const [exportedText, setExportedText] = useState<string | null>(null);
+  const [materialMessage, setMaterialMessage] = useState<string | null>(null);
 
   const { data, refetch } = trpc.informationRequest.get.useQuery({ matrixId });
 
@@ -238,6 +239,26 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
     {
       onSuccess: (result) => {
         setExportedText(result.text);
+      },
+    }
+  );
+
+
+  const createMaterialMutation = useGuardedMutation(
+    (input: { matrixId: string }) =>
+      utils.client.informationRequest.createMaterialFromCompleted.mutate(input),
+    {
+      onSuccess: (result) => {
+        setMaterialMessage(
+          result.created
+            ? 'Completed questionnaire saved to Client Materials.'
+            : 'Completed questionnaire material already exists.'
+        );
+        void utils.informationRequest.get.invalidate({ matrixId });
+        if (data?.matrix.matterId) {
+          void utils.informationRequest.list.invalidate({ matterId: data.matrix.matterId });
+          void utils.materials.list.invalidate({ matterId: data.matrix.matterId });
+        }
       },
     }
   );
@@ -286,6 +307,17 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
               Mark Complete
             </button>
           )}
+
+          {matrix.status === 'complete' && (
+            <button
+              onClick={() => createMaterialMutation.mutate({ matrixId })}
+              disabled={createMaterialMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-blue-900 disabled:opacity-50"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Add to Client Materials
+            </button>
+          )}
           <button
             onClick={() => exportTextMutation.mutate({ matrixId, format: 'text' })}
             disabled={exportTextMutation.isPending}
@@ -294,6 +326,12 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
             <Download className="w-3.5 h-3.5" />
             Export Text
           </button>
+        </div>
+      )}
+
+      {materialMessage && (
+        <div className="p-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded">
+          {materialMessage}
         </div>
       )}
 
