@@ -30,7 +30,7 @@ import { assembleContext } from '../context/pipeline.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
-import { OutlineSectionSchema } from '../../shared/schemas/phase4b.js';
+import { parseGeneratedOutlineSections, OutlineSectionsSchema } from './outlineParse.js';
 
 export const outlineRouter = router({
   // ============================================================
@@ -103,21 +103,22 @@ export const outlineRouter = router({
           ].filter(Boolean).join('\n'),
           temperature: 0.2,
           maxTokens: 4096,
+          // LLN-OUTLINE-GEN-1: enforce the array contract via the existing
+          // structured-output mechanism so the provider adapter strips fences and
+          // normalizes wrappers before returning. Tolerant parsing in
+          // parseGeneratedOutlineSections is the defensive second layer.
+          structuredOutputSchema: OutlineSectionsSchema,
         }),
         txn2Commit: async ({ jobId, output }) => {
           const outlineId = closureOutlineId;
-          let sections: Array<{ title: string; description: string; orderIndex: number }> = [];
-          try {
-            const parsed = typeof output === 'string' ? JSON.parse(output) : output;
-            if (Array.isArray(parsed)) {
-              sections = parsed
-                .map((s, i) => OutlineSectionSchema.safeParse({ ...s, orderIndex: i }))
-                .filter((r) => r.success)
-                .map((r) => r.data!);
-            }
-          } catch {
-            // Leave sections empty — attorney can edit manually
-          }
+          // LLN-OUTLINE-GEN-1: parse-or-throw. Malformed output or an empty usable
+          // section set throws here, which executeCanonicalMutation converts into
+          // the txn2Revert + job-failed path — instead of silently committing an
+          // apparently-successful empty outline.
+          const sections = parseGeneratedOutlineSections(output).map((s, i) => ({
+            ...s,
+            orderIndex: i,
+          }));
           await updateDocumentOutline(outlineId, userId, { sections });
           void emitTelemetry(
             'job_queued',
@@ -126,6 +127,13 @@ export const outlineRouter = router({
           );
         },
         txn2Revert: async ({ jobId, errorClass, errorMessage }) => {
+          // LLN-OUTLINE-GEN-1: a failed/empty/malformed generation must not leave
+          // a draft outline with empty sections behind — it would be presented as
+          // usable and would block retry via the at-most-one-outline guard. Mark
+          // the txn1-created outline 'skipped' so the attorney can retry cleanly.
+          if (closureOutlineId) {
+            await updateDocumentOutline(closureOutlineId, userId, { status: 'skipped' });
+          }
           void emitTelemetry(
             'job_failed',
             { jobType: 'outline_generation', errorClass: errorClass ?? 'other', errorMessage: errorMessage ?? '' },
@@ -134,6 +142,17 @@ export const outlineRouter = router({
         },
         telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
       });
+      // LLN-OUTLINE-GEN-1: surface generation failure to the caller rather than
+      // returning an apparently-successful result. A non-completed status means
+      // parse/empty/timeout/api failure; the outline has been marked skipped in
+      // txn2Revert. The client renders this as a visible, retryable failure.
+      if (result.status !== 'completed') {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message:
+            'OUTLINE_GENERATION_FAILED: outline generation did not produce a usable outline. Please try again.',
+        });
+      }
       return { jobId: result.jobId, status: result.status };
     }),
 
@@ -201,20 +220,17 @@ export const outlineRouter = router({
           ].filter(Boolean).join('\n'),
           temperature: 0.2,
           maxTokens: 4096,
+          // LLN-OUTLINE-GEN-1: enforce the array contract (see outline.generate).
+          structuredOutputSchema: OutlineSectionsSchema,
         }),
         txn2Commit: async ({ jobId, output }) => {
-          let sections: Array<{ title: string; description: string; orderIndex: number }> = [];
-          try {
-            const parsed = typeof output === 'string' ? JSON.parse(output) : output;
-            if (Array.isArray(parsed)) {
-              sections = parsed
-                .map((s, i) => OutlineSectionSchema.safeParse({ ...s, orderIndex: i }))
-                .filter((r) => r.success)
-                .map((r) => r.data!);
-            }
-          } catch {
-            // Leave sections empty
-          }
+          // LLN-OUTLINE-GEN-1: parse-or-throw. On malformed/empty output this throws
+          // before the update, so the existing outline is left untouched (not
+          // overwritten with empty sections) and the job is marked failed.
+          const sections = parseGeneratedOutlineSections(output).map((s, i) => ({
+            ...s,
+            orderIndex: i,
+          }));
           await updateDocumentOutline(input.outlineId, userId, { sections, status: 'draft' });
           void emitTelemetry(
             'job_queued',
@@ -231,6 +247,16 @@ export const outlineRouter = router({
         },
         telemetryCtx: { userId, matterId: doc.matterId, documentId: outline.documentId, jobId: null },
       });
+      // LLN-OUTLINE-GEN-1: surface regeneration failure rather than returning an
+      // apparently-successful result. On failure the prior outline is preserved
+      // unchanged (txn2Commit threw before the update).
+      if (result.status !== 'completed') {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message:
+            'OUTLINE_GENERATION_FAILED: outline regeneration did not produce a usable outline. Please try again.',
+        });
+      }
       return { jobId: result.jobId, status: result.status };
     }),
 
