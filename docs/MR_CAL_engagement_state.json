@@ -5,7 +5,12 @@
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
-    "LLN-REVIEW-DEFAULT-1"
+    "LLN-REVIEW-DEFAULT-1",
+    "MR-CAL-2F",
+    "MR-CAL-2G",
+    "MR-CAL-2I-LIVE",
+    "MR-CAL-3F-LIVE",
+    "MR-CAL-CORE-CLOSEOUT"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
@@ -14,11 +19,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-2F",
-    "MR-CAL-2G",
-    "MR-CAL-2I-LIVE",
-    "MR-CAL-3F-LIVE",
-    "MR-CAL-CORE-CLOSEOUT",
     "MR-CAL-4A",
     "MR-CAL-4B",
     "MR-CAL-4C-LIVE",
@@ -84,9 +84,63 @@
       "ts": "2026-05-30T14:56:16-04:00",
       "decision": "accept:LLN-REVIEW-DEFAULT-1",
       "notes": "Investigation-only engagement accepted and completed. Report at docs/engagements/LLN-REVIEW-DEFAULT-1-investigation.md. Findings: first-review default = Claude = drafter model -> legitimate \"no suggestions\". Recommended future Phase A: Option A (non-drafter default) + Option B (advisory). No code changed."
+    },
+    {
+      "ts": "2026-05-30T15:13:39-04:00",
+      "decision": "accept:MR-CAL-2F",
+      "notes": "Investigation accepted/completed. Root cause: openai.ts never persists raw output -> artifacts unreconstructable. Classes: P8-T1 parse/shape (indeterminate), P8-T6 substance, P8-T7/T10 PASS. Recommended next: artifact-preservation (observability) before any GPT prompt/parser/scoring change. Report: docs/engagements/MR-CAL-2F-investigation.md (uncommitted, to fold into next tracker-sync PR)."
+    },
+    {
+      "ts": "2026-05-30T15:24:15-04:00",
+      "decision": "accept:MR-CAL-2G",
+      "notes": "Phase A accepted; proceeding to Phase B (pending push approval)."
+    },
+    {
+      "ts": "2026-05-30T15:30:36-04:00",
+      "decision": "push:MR-CAL-2G",
+      "notes": "Branch feat/mr-cal-2g pushed; commit 932217d; PR #56 opened."
+    },
+    {
+      "ts": "2026-05-30T15:30:36-04:00",
+      "decision": "merge:MR-CAL-2G",
+      "notes": "PR #56 CI-green (Lint, Type Check + Tests); squash-merged as 8c48ee1; branch deleted. Operator requested live testing."
+    },
+    {
+      "ts": "2026-05-30T15:49:39-04:00",
+      "decision": "live-verified:MR-CAL-2G pass",
+      "notes": "Live-verified PASS (regression-safe) on production 8c48ee1 by Claude driving Chrome as kelly. Fresh GPT-5 review on POA iteration test completed cleanly (11 suggestions, no error), exercising the modified reviewer commit path; parse succeeded so capture emit fired (parseOk=true, count=11). CARRYFORWARD: telemetry_events row contents not directly inspected (no in-app view / no DB access) -> verify at MR-CAL-2I-LIVE or via operator DB query (eventType=reviewer_output_captured). Synthetic data: abandoned stale Gemini session, created GPT iteration-3 session on synthetic POA doc (adds to LLN-PROD-CLEANUP-1)."
+    },
+    {
+      "ts": "2026-05-30T16:00:45-04:00",
+      "decision": "risk-accept:MR-CAL-2I-LIVE",
+      "notes": "Operator accepted GPT P8-T1 (parse-class) and P8-T6 (substance-class) instability as documented risk. GPT does not pass all four cells; P8-T7/T10 PASS. No fresh live re-run (needs offline harness + DB access). MR-CAL-2G capture now makes a future P8-T1 failure auditable. CAL-7B gate consciously waived on a risk-accepted basis. Close-out: docs/engagements/MR-CAL-2I-LIVE-closeout.md (uncommitted). Engagement completed."
+    },
+    {
+      "ts": "2026-05-30T16:21:42-04:00",
+      "decision": "live-verified:MR-CAL-3F-LIVE pass",
+      "notes": "Full reviewer workflow live-verified PASS on production 8c48ee1 by Claude driving Chrome as kelly, on synthetic POA iteration test doc. Operator initially returned partial (2-track) -> coverage completed. ALL FOUR tracks freshly exercised: GPT(gpt-5) 11 sugg, Claude(opus-4-5) 7 sugg, Gemini(2.5-pro) 3 sugg, Grok(grok-4) ran clean/no-suggestions(graceful); plus GPT Lite 1 sugg. Mechanics PASS: create/render/select(1/11)/regenerate(v3)/iteration-advance(VH 2->3, review iters 3->7)/prior-feedback comparison(1 row->2 rows). No exceptions. Synthetic data: multiple abandoned review sessions + 1 regeneration on POA doc -> LLN-PROD-CLEANUP-1."
+    },
+    {
+      "ts": "2026-05-30T16:27:13-04:00",
+      "decision": "accept:MR-CAL-CORE-CLOSEOUT",
+      "notes": "Core legacy-wrapper reviewer workflow declared COMPLETE and signed off. Live-verified across 4 tracks (3F-LIVE). GPT P8-T1/T6 accepted risk. Deferred arcs (native cards, evaluator, memory, locked decisions, adopt ledger, sendability, CAL-7B) require operator scope approval. Close-out: docs/engagements/MR-CAL-CORE-CLOSEOUT.md. Engagement completed."
     }
   ],
-  "last_updated": "2026-05-30T14:56:16-04:00",
-  "last_updater": "operator-approve accept:LLN-REVIEW-DEFAULT-1",
-  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need."
+  "last_updated": "2026-05-30T16:27:13-04:00",
+  "last_updater": "operator-approve accept:MR-CAL-CORE-CLOSEOUT",
+  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need.",
+  "accepted_risks": [
+    {
+      "id": "GPT-P8-T1",
+      "desc": "GPT P8-T1 execution-blank suppression PARSE_FAILURE (parse/adapter/provider-shape, indeterminate). Captureable post-MR-CAL-2G.",
+      "accepted_at": "2026-05-30T16:00:45-04:00",
+      "engagement": "MR-CAL-2I-LIVE"
+    },
+    {
+      "id": "GPT-P8-T6",
+      "desc": "GPT P8-T6 counterparty over-disclosure substantive FAIL.",
+      "accepted_at": "2026-05-30T16:00:45-04:00",
+      "engagement": "MR-CAL-2I-LIVE"
+    }
+  ]
 }
