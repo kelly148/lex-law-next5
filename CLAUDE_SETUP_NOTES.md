@@ -52,7 +52,15 @@ Repo: `C:\Users\Kelly\Documents\lex-law-next5-local`  ·  Started: 2026-05-29  �
 - **Hooks (F):** created `.claude/hooks/guard.py` (Python; blocks `rm -rf`, `git reset --hard`, `git clean -f*`, force-push, `--no-verify`, `git restore .`, `git checkout -- `) + `.claude/settings.json` (PreToolUse→Bash→guard.py, exec form, `${CLAUDE_PROJECT_DIR}`). Active after next Claude Code restart. Does NOT touch existing `settings.local.json`.
   - Dropped the Stop "summary" hook: Stop stdout goes to debug log, not transcript (per docs) — no visible value.
   - lint/test/typecheck hooks still deferred until Node present.
-- **Node.js:** `winget install OpenJS.NodeJS.LTS` attempted from here (background job). Result + verification to be recorded on completion.
+- **Node.js:** `winget install OpenJS.NodeJS.LTS` attempted from here but **stalled — blocked on UAC elevation** (non-interactive). NOT installed. Operator must run it in an interactive terminal:
+  ```powershell
+  winget install OpenJS.NodeJS.LTS      # approve the UAC prompt
+  # then open a NEW terminal so PATH refreshes:
+  node -v
+  corepack enable pnpm
+  pnpm install                          # in the repo root
+  ```
+  After Node is present, lint/test/typecheck hooks (PostToolUse) can be added.
 
 ## Verification steps (operator)
 - **Serena:** restart Claude Code → approve the new `serena` MCP server when prompted (`.mcp.json`). First launch builds via uvx (already cached).
