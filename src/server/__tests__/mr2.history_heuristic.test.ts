@@ -199,7 +199,7 @@ describe('S4e: HistorySection component', () => {
   });
 
   it('is rendered inside ActiveSessionView', () => {
-    expect(reviewPane).toContain('<HistorySection documentId={documentId} currentIterationNumber={iterationNumber} />');
+    expect(reviewPane).toContain('<HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />');
   });
 
   it('returns null when there are no prior rows', () => {

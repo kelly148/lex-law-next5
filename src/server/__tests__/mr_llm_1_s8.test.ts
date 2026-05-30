@@ -36,6 +36,7 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getActiveReviewSessionForDocument: vi.fn(),
     insertReviewSession: vi.fn(),
     insertFeedback: vi.fn(),
+    getNextIterationNumberForDocument: vi.fn(),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
@@ -167,6 +168,8 @@ describe('MR-LLM-1 S8 Integration — api_error propagation to markJobFailed', (
 
     vi.mocked(phase4bQueries.getActiveReviewSessionForDocument).mockResolvedValue(null);
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_ID);
+    // MR-CAL-3E: create() now computes the iteration server-side via this helper.
+    vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
     vi.mocked(phase4bQueries.insertFeedback).mockResolvedValue(uuidv4());
   });
 

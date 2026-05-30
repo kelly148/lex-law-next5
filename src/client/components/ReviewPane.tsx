@@ -688,11 +688,10 @@ function FailedReviewView({
 interface ActiveSessionViewProps {
   sessionId: string;
   documentId: string;
-  iterationNumber: number;
   onClose: () => void;
 }
 
-function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: ActiveSessionViewProps): React.ReactElement {
+function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionViewProps): React.ReactElement {
   const utils = trpc.useUtils();
   const [editingInstructions, setEditingInstructions] = useState(false);
   // MR-4 P2: regenError state for SUGGESTION_NOT_RESOLVED and other regenerate errors.
@@ -920,7 +919,7 @@ function ActiveSessionView({ sessionId, documentId, iterationNumber, onClose }: 
       </div>
 
       {/* History section — MR-2 §S2c */}
-      <HistorySection documentId={documentId} currentIterationNumber={iterationNumber} />
+      <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
 
       {/* Footer actions */}
       {session.state === 'active' && (
@@ -998,7 +997,7 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         {/* Content */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {sessionId ? (
-            <ActiveSessionView sessionId={sessionId} documentId={documentId} iterationNumber={iterationNumber} onClose={onClose} />
+            <ActiveSessionView sessionId={sessionId} documentId={documentId} onClose={onClose} />
           ) : (
             <CreateSessionView
               documentId={documentId}

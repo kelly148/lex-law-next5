@@ -25,6 +25,7 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getActiveReviewSessionForDocument: vi.fn(),
     insertReviewSession: vi.fn(),
     insertFeedback: vi.fn(),
+    getNextIterationNumberForDocument: vi.fn(),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
@@ -192,6 +193,8 @@ describe('MR-1 Behavioral Persistence Test', () => {
     // Fix 5: insertReviewSession returns Promise<string> (the inserted row ID), not an object.
     // Schema ref: src/server/db/queries/phase4b.ts:676-683 (function signature).
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_ID);
+    // MR-CAL-3E: create() now computes the iteration server-side via this helper.
+    vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
 
     // Fix 6: insertFeedback returns Promise<string> (the inserted row ID).
     // mockResolvedValue() requires one argument.

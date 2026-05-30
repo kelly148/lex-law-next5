@@ -44,6 +44,7 @@ import {
   getEvaluationForIteration,
   insertManualSelection,
   insertFeedback,
+  getNextIterationNumberForDocument,
 } from '../db/queries/phase4b.js';
 import { assertNotComplete } from './documents.js';
 
@@ -143,8 +144,13 @@ export const reviewSessionRouter = router({
         });
       }
 
-      // Determine iteration number
-      const iterationNumber = input.iterationNumber;
+      // MR-CAL-3E: compute the review iteration server-side from prior review
+      // sessions for this document so it advances across review requests /
+      // regeneration cycles. The client-supplied input.iterationNumber is now
+      // advisory only — review iteration is decoupled from
+      // officialSubstantiveVersionNumber, which is what makes the HistorySection
+      // sequential-comparison view reachable (prior iterations < current exist).
+      const iterationNumber = await getNextIterationNumberForDocument(input.documentId);
 
       // Insert the review session row
       const sessionId = await insertReviewSession({
