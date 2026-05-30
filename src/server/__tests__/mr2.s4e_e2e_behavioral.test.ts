@@ -49,6 +49,7 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getActiveReviewSessionForDocument: vi.fn(),
     insertReviewSession: vi.fn(),
     insertFeedback: vi.fn(),
+    getNextIterationNumberForDocument: vi.fn(),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     listFeedbackForDocument: vi.fn(),
@@ -309,6 +310,8 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     // ── Step 1: Create iteration-1 session (reviewer A = claude) ─────────────
     vi.mocked(phase4bQueries.getActiveReviewSessionForDocument).mockResolvedValue(null);
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_1_ID);
+    // MR-CAL-3E: create() computes iteration server-side; iteration-1 session.
+    vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_1_ID));
     vi.mocked(versionQueries.getVersionById).mockResolvedValue(makeVersionRow(VERSION_1_ID, 1));
 
@@ -373,6 +376,8 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     // ── Step 3: Create iteration-2 session (reviewer B = gpt) ─────────────────
     vi.mocked(phase4bQueries.getActiveReviewSessionForDocument).mockResolvedValue(null);
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_2_ID);
+    // MR-CAL-3E: second review request advances to iteration 2 server-side.
+    vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(2);
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_2_ID));
     vi.mocked(versionQueries.getVersionById).mockResolvedValue(makeVersionRow(VERSION_2_ID, 2));
 
