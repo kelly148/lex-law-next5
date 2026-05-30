@@ -122,6 +122,9 @@ describe('MR-0G UI gate: ReviewPane.tsx single-select enforcement', () => {
   });
 
   it('description text says "Select a reviewer" not "Select reviewers"', () => {
-    expect(reviewPaneFile).toContain('Select a reviewer for iteration');
+    // LLN-UX-ITER-LABEL-1: the pre-creation label no longer hard-codes an
+    // iteration number (the server computes the real iteration since MR-CAL-3E).
+    // The single-reviewer ("Select a reviewer", singular) intent is preserved.
+    expect(reviewPaneFile).toContain('Select a reviewer for the next review');
   });
 });

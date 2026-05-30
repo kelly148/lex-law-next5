@@ -194,7 +194,7 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   return (
     <div className="p-6 space-y-4">
       <p className="text-sm text-gray-600">
-        Select a reviewer for iteration {iterationNumber}. Only enabled reviewers are shown.
+        Select a reviewer for the next review. Only enabled reviewers are shown.
       </p>
       <div className="space-y-2">
         {enabledReviewerList.length === 0 ? (
