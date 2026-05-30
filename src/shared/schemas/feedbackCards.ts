@@ -162,6 +162,48 @@ export type FeedbackCardArray = z.infer<typeof FeedbackCardArraySchema>;
 export type FeedbackSuggestion = z.infer<typeof FeedbackSuggestionSchema>;
 
 // ============================================================
+// MR-CAL-4B: lenient display projection of a native feedback card.
+//
+// Reviewers already emit STRUCTURED_FEEDBACK_CARDS embedded in the legacy
+// suggestion body (see reviewerPrompts.ts). For native rendering we extract and
+// surface whatever native fields are present, without requiring a fully-valid
+// canonical card. This is display-only: the strict FeedbackCardSchema remains the
+// contract for any future first-class persistence; this projection never replaces
+// it and never gates the legacy path.
+// ============================================================
+export const FeedbackCardDisplaySchema = z
+  .object({
+    feedback_id: z.string().optional(),
+    issue: z.string().optional(),
+    severity: z.string().optional(),
+    severity_subtype: z.string().nullish(),
+    critique_type: z.string().optional(),
+    target_section: z.string().optional(),
+    recommendation: z.string().optional(),
+    suggested_revision: z.string().nullish(),
+    requires_attorney_decision: z.boolean().optional(),
+    audience_affected: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type FeedbackCardDisplay = z.infer<typeof FeedbackCardDisplaySchema>;
+
+/**
+ * A display card is only worth surfacing if it carries at least one meaningful
+ * native field beyond an id. Keeps empty/degenerate objects from rendering.
+ */
+export function hasDisplayableNativeFields(card: FeedbackCardDisplay): boolean {
+  return Boolean(
+    card.issue ||
+      card.severity ||
+      card.critique_type ||
+      card.recommendation ||
+      card.suggested_revision ||
+      card.requires_attorney_decision === true ||
+      (card.audience_affected && card.audience_affected.length > 0),
+  );
+}
+
+// ============================================================
 // Legacy compatibility helpers
 // ============================================================
 
