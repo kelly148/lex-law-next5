@@ -92,7 +92,7 @@ Do not move to MR-CAL-3 yet. MR-CAL-2E-LIVE had not yet produced live validation
 
 ---
 
-# PART 2 — Current-state update (as of 2026-05-28)
+# PART 2 — Current-state update (as of 2026-05-30)
 
 Everything below happened after the original brief and supersedes its "current status," "blocker," and "decision posture" sections. Detailed evidence lives in the close-out documents in this `docs/` folder.
 
@@ -112,17 +112,29 @@ Result: **8 PASS / 1 FAIL / 1 PARSE\_FAILURE / 0 NOT\_RUN.**
 
 MR-CAL-2F attempted to reconstruct accepted GPT artifacts from preserved files and could not (no accepted-run raw/normalized GPT outputs available). MR-CAL-2G then tried a keyed GPT rerun, which Manus failed with `401 invalid_api_key`. Operator-side PowerShell validation proved the OpenAI key is **valid locally** (`/v1/models` PASS, `gpt-4.1-mini` visible, chat completion PASS). Conclusion: the key is good; Manus's 401 is a Manus-side credential-ingestion problem, not key validity. No GPT calibration rerun authorized on that basis. See `docs/MR-CAL-2G_formal_close_out.md`.
 
-## MR-CAL-3C — MERGED
+## MR-CAL-3C — MERGED + LIVE-VERIFIED (reachability delivered via MR-CAL-3E)
 
-Sequential reviewer comparison view. Phase B completed locally (git-bundle handoff from Manus → local push via GitHub CLI OAuth as `kelly148`). PR \#47 squash-merged into `main` at commit **`703ff40`**. Files: `ReviewPane.tsx`, `reviewSession.ts`, `phase4b.ts`, behavioral test. See `docs/MR-CAL-3C_Phase_B_addendum.md`.
+Sequential reviewer comparison view. Phase B completed locally (git-bundle handoff from Manus → local push via GitHub CLI OAuth as `kelly148`). PR \#47 squash-merged into `main` at commit **`703ff40`**. Files: `ReviewPane.tsx`, `reviewSession.ts`, `phase4b.ts`, behavioral test. See `docs/MR-CAL-3C_Phase_B_addendum.md`. **Live verification was initially blocked** because the comparison view (`HistorySection`) was never reachable — review iteration was always 1 — which became the MR-CAL-3D investigation and the MR-CAL-3E fix below. With MR-CAL-3E merged, the view is **live-reachable and verified PASS** on production at `dc1e98e`.
 
-## MR-UAT-MATERIALS-2 — MERGED
+## MR-CAL-3D — INVESTIGATION (root cause of comparison-view unreachability)
 
-Convert a completed questionnaire / information request into a draft-visible matter material. Phase A accepted commit `9c0a972a…`. Phase B completed locally via the same bundle-handoff \+ local-OAuth path. PR \#48 squash-merged into `main` at commit **`e4d7dd3`**. Files: `informationRequest.ts`, `InformationRequestPage.tsx`, `mr_uat_materials_2.code_audit.test.ts`. **Still pending: live Railway/UAT verification** that a completed questionnaire can be added to Client Materials and then used by POA drafting without a placeholder warning. See `docs/MR-UAT-MATERIALS-2_Phase_B_addendum.md`.
+Diagnosed why the MR-CAL-3C comparison view could not be reached: review iteration was derived from `(officialSubstantiveVersionNumber ?? 0) + 1`, which stays 1 throughout drafting, so `HistorySection` (which renders only prior-iteration feedback, `fb.iterationNumber < currentIterationNumber`) had no rows to show. Read-only; produced the fix specification consumed by MR-CAL-3E.
+
+## MR-CAL-3E — MERGED + LIVE-VERIFIED
+
+Decoupled review iteration from `officialSubstantiveVersionNumber`. `reviewSession.create` now computes the iteration server-side via `getNextIterationNumberForDocument(documentId)` (= max prior-session iteration + 1, else 1), and the client renders `HistorySection` against the real persisted `session.iterationNumber`. A second review pass creates **iteration 2** and the prior-feedback comparison section renders iteration-1 feedback. Phase B initially HALTED on CI (5 integration tests mocked `phase4b` but not the newly-called `getNextIterationNumberForDocument`); the test-only correction **FIX1** added the missing mock returns (no production change), after which Phase B resumed and squash-merged into `main` at commit **`dc1e98e`**. Live-verified PASS on production at `dc1e98e`.
+
+## MR-UAT-MATERIALS-2 — MERGED + LIVE-VERIFIED
+
+Convert a completed questionnaire / information request into a draft-visible matter material. Phase A accepted commit `9c0a972a…`. Phase B completed locally via the same bundle-handoff \+ local-OAuth path. PR \#48 squash-merged into `main` at commit **`e4d7dd3`**. Files: `informationRequest.ts`, `InformationRequestPage.tsx`, `mr_uat_materials_2.code_audit.test.ts`. **Live-verified PASS:** a completed questionnaire was added to Client Materials and consumed by POA drafting with no placeholder warning. See `docs/MR-UAT-MATERIALS-2_Phase_B_addendum.md`.
+
+## MR-IR-ERR-1 / MR-IR-GEN-2 — information-request generation repair (MERGED + LIVE-VERIFIED)
+
+Two-step repair of questionnaire (information-request) generation, which had been silently producing empty questionnaires. **MR-IR-ERR-1** (merge `832d569`) made failures visible: a failed/empty generation now surfaces a visible error, archives the empty matrix in the revert path, and stays retryable. **MR-IR-GEN-2** (merge `4a989ad`) fixed the underlying cause by enforcing structured output and adding tolerant parsing (`src/server/procedures/informationRequestParse.ts` → `parseGeneratedMatrixItems` + `InformationRequestItemsSchema`, passed as `structuredOutputSchema`). Both live-verified: generation now reliably produces usable questions. Note: outline generation shares the same latent JSON-contract pattern and has **not** been hardened.
 
 ## Current `main`
 
-`e4d7dd3` (or later if newer work has merged).
+`dc1e98e` (`dc1e98ebeeb0f82e67f0a5935fc32495f65a1fc1`) — or later if newer work has merged.
 
 ## Recurring lesson — credential handoff
 
@@ -132,6 +144,8 @@ The blockers across MR-CAL-2E-LIVE, 2G, and 3C were all the same class: credenti
 
 - P8-T10 is now live-validated under repaired scoring across all four tracks — the original blocker is cleared.  
 - GPT stability remains **not** established (open P8-T1 parse-shape and P8-T6 substantive issues).  
-- MR-UAT-MATERIALS-2 is code-merged but its live UAT verification is still outstanding.  
-- Whether to proceed to MR-CAL-3 depends on how the GPT-track open items are dispositioned; that decision is not yet made.
+- MR-UAT-MATERIALS-2 is merged **and live-verified** — the outstanding UAT item is closed.  
+- The MR-CAL-3C / 3D / 3E arc is **closed end-to-end**: the sequential comparison view is merged, reachable, and live-verified at `dc1e98e`.  
+- The information-request generation repair chain (MR-IR-ERR-1 → MR-IR-GEN-2) is merged and live-verified.  
+- No blocking item remains. Whether to proceed to MR-CAL-4 / CAL-7B or to disposition the GPT-track open items is an operator decision that is **not yet made**; do not begin either without authorization.
 

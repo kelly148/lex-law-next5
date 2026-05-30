@@ -28,17 +28,30 @@ Eventual architecture (not yet built; do not start without authorization): matte
 
 ---
 
-## Current state (as of 2026-05-28)
+## Current state (as of 2026-05-30)
 
-- **`main` is at `e4d7dd3`.**  
-- **MR-CAL-3C** (sequential reviewer comparison view): merged at `703ff40` (PR \#47), Railway deploy active. **Live verification still pending** — was interrupted by the materials defect below.  
-- **MR-UAT-MATERIALS-1**: diagnosed a materials/drafting defect — completed questionnaire answers live in Phase-4b information-request tables and are NOT auto-converted into `matter_materials`, so draft generation (which reads `matter_materials` via `assembleContext`) sees "no client materials" and warns it will draft with placeholders.  
-- **MR-UAT-MATERIALS-2** (the bridge fix): Phase A accepted commit `9c0a972a…`. **Phase B is COMPLETE — PR \#48 squash-merged into `main` at `e4d7dd3`.** (This supersedes the handoff doc, which predates the merge and still says Phase B is pending.)  
-- **MR-CAL-2E-LIVE**: completed. P8-T10 business-decision separation **fully validated across all four tracks**. **GPT stability NOT established** (P8-T1 parse failure, P8-T6 substantive failure, P8-T7 pass).
+- **`main` is at `dc1e98e`** (`dc1e98ebeeb0f82e67f0a5935fc32495f65a1fc1`).  
+- **MR-UAT-MATERIALS-2** (completed-questionnaire → draft-visible matter-material bridge): merged (PR \#48, `e4d7dd3`) and **live-verified PASS** — a completed questionnaire can be added to Client Materials and is then seen by POA drafting (no-materials/placeholder warning gone).  
+- **MR-IR-ERR-1** (information-request generation failure visibility): merged and **live-verified** — a failed/empty generation now surfaces a visible error, archives the empty matrix in the revert path, and stays retryable instead of silently producing an empty questionnaire.  
+- **MR-IR-GEN-2** (structured-output enforcement + tolerant parsing for questionnaire generation): merged and **live-verified PASS** — IR generation now reliably produces usable questions (via `informationRequestParse.ts` / `parseGeneratedMatrixItems` + `structuredOutputSchema`).  
+- **MR-CAL-3C / 3D / 3E arc — CLOSED end-to-end.** The sequential reviewer comparison view (`HistorySection` in `ReviewPane.tsx`) is now **live-reachable**: MR-CAL-3D diagnosed that review iteration was always 1 (it was derived from `officialSubstantiveVersionNumber`), and MR-CAL-3E (merge `dc1e98e`, plus test-harness correction FIX1) decoupled it — `reviewSession.create` now computes the iteration server-side via `getNextIterationNumberForDocument(documentId)`. A second review pass creates **iteration 2**, and the "Prior Feedback / Sequential Comparison" section renders iteration-1 feedback. Live-verified PASS on production at `dc1e98e`.  
+- **MR-CAL-2E-LIVE**: completed. P8-T10 business-decision separation **fully validated across all four tracks**. **GPT stability NOT established** (P8-T1 parse failure, P8-T6 substantive failure, P8-T7 pass) — unchanged.  
+- **Dev environment:** Serena MCP + CodeGraph are configured for this repo (`.mcp.json`, `.serena/`, `.codegraph/` index); a PreToolUse Bash guard hook blocks destructive commands (`.claude/settings.json`, `.claude/hooks/guard.py`). **A local Node/pnpm toolchain is NOT installed**, so quality gates cannot run locally — **CI has been the authoritative gate** for every merge in this arc.
 
 ### Immediate next action
 
-**Live Railway/UAT verification of MR-UAT-MATERIALS-2** (it is code-merged but not live-verified — Pattern 16): on the deployed app, create a synthetic matter → complete a questionnaire → click "Add to Client Materials" → confirm the material appears in the Materials Drawer → attempt a POA draft → confirm the no-materials/placeholder warning is gone and the draft receives questionnaire-derived context. Then resume MR-CAL-3C live verification. Do NOT redo MR-UAT-MATERIALS-2 Phase B — it is already merged.
+**No blocking item.** The information-request/materials repair chain (MR-UAT-MATERIALS-2 → MR-IR-ERR-1 → MR-IR-GEN-2) and the MR-CAL-3C comparison-view reachability (via MR-CAL-3D → 3E) are all merged and live-verified. Pick up the next operator-directed task. Non-blocking carryforwards are listed below.
+
+### Open carryforwards (non-blocking)
+
+- **Synthetic production test data** accumulated during live verifications (several "Synthetic …" matters + documents on production). Cleanup is a separate, currently-unauthorized task.  
+- **Cosmetic label:** the pre-creation reviewer-selection panel still labels the next review "iteration 1" even when the server will create iteration 2 (the authoritative active-session header is correct; `DocumentDetail.tsx` still passes a stale `iterationNumber` prop to `CreateSessionView`).  
+- **Default-reviewer-equals-drafter UX trap:** the review panel defaults to Claude, which is also the primary draft generator, so a default first-pass review legitimately returns "no suggestions." Not yet addressed.  
+- **Outline generation** shares the same latent JSON-contract brittleness that MR-IR-GEN-2 fixed for information requests (no `structuredOutputSchema`, fragile parse). Not addressed.  
+- **Auth bypass** (`AUTH_BYPASS_ENABLED`) intentionally skipped by operator; whether it is enabled in the Railway production environment is **not established** (see `docs/CODE_REVIEW_2026-05.md`).  
+- **`docs/Claude Code Project Handoff.docx`** predates this arc and may need a manual refresh (it is not editable from Claude Code).
+
+**Not started — do NOT mark as begun:** MR-CAL-4, CAL-7B, evaluator/multi-reviewer topology, native feedback-card runtime, matter memory, locked decisions, cumulative adopt ledger, sendability gate.
 
 ---
 
@@ -95,6 +108,9 @@ Eventual architecture (not yet built; do not start without authorization): matte
 | MR-CAL-2D | `50dbf25` |
 | MR-CAL-3C | `703ff40` |
 | MR-UAT-MATERIALS-2 | `e4d7dd3` |
+| MR-IR-ERR-1 | `832d569` |
+| MR-IR-GEN-2 | `4a989ad` |
+| MR-CAL-3E | `dc1e98e` |
 
 ---
 

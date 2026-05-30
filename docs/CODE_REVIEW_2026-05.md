@@ -4,6 +4,12 @@
 **Scope:** Read-only investigation. No source changed, no commits created. Findings only — no fixes recommended or applied.
 **Reviewer note on evidence language:** "Confirmed by code inspection" = I read the cited file/lines. "Per exploration agent" = surfaced by a delegated read-only search and not independently re-read by me. "Consistent with" = inference from observed behavior. "Not established" / "not reproduced" = could not be verified within this read-only pass.
 
+> **Status update (2026-05-30).** Several findings in this review have since been addressed and merged to `main` (now at `dc1e98e`):
+> - **Information-request generation silently producing empty questionnaires** — fixed by **MR-IR-ERR-1** (failure now visible + retryable) and **MR-IR-GEN-2** (structured-output enforcement + tolerant parsing). Both live-verified.
+> - **Sequential reviewer comparison view unreachable (review iteration always 1)** — diagnosed (MR-CAL-3D) and fixed (MR-CAL-3E, merge `dc1e98e`); review iteration is now computed server-side. Live-verified.
+>
+> **Still open from this review:** the **auth-bypass** flag (`AUTH_BYPASS_ENABLED`) was intentionally skipped and its production-env state is not established; and **outline generation** still shares the same JSON-contract brittleness that MR-IR-GEN-2 fixed for information requests. The findings below are preserved as written for the point-in-time record.
+
 ---
 
 ## 0. Priority summary
