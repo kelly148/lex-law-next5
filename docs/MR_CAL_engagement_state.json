@@ -1,8 +1,12 @@
 {
   "schema_version": 1,
   "current_engagement": null,
-  "current_phase": "stage-A-impl",
-  "completed_engagements": [],
+  "current_phase": "idle",
+  "completed_engagements": [
+    "LLN-OUTLINE-GEN-1",
+    "LLN-UX-ITER-LABEL-1",
+    "LLN-REVIEW-DEFAULT-1"
+  ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
@@ -10,9 +14,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "LLN-OUTLINE-GEN-1",
-    "LLN-UX-ITER-LABEL-1",
-    "LLN-REVIEW-DEFAULT-1",
     "MR-CAL-2F",
     "MR-CAL-2G",
     "MR-CAL-2I-LIVE",
@@ -38,8 +39,54 @@
     "CAL-7B-LIVE",
     "CAL-7B-CLOSEOUT"
   ],
-  "history": [],
-  "last_updated": null,
-  "last_updater": null,
-  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan §0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need."
+  "history": [
+    {
+      "ts": "2026-05-30T11:31:28-04:00",
+      "decision": "accept:LLN-OUTLINE-GEN-1",
+      "notes": "Phase A accepted by operator; proceeding to Phase B (branch/commit pending push approval)."
+    },
+    {
+      "ts": "2026-05-30T11:40:16-04:00",
+      "decision": "push:LLN-OUTLINE-GEN-1",
+      "notes": "Branch feat/lln-outline-gen-1 pushed; commit 81d7c82; PR #53 opened."
+    },
+    {
+      "ts": "2026-05-30T11:40:16-04:00",
+      "decision": "merge:LLN-OUTLINE-GEN-1",
+      "notes": "PR #53 CI-green (Lint, Type Check + Tests); squash-merged as 94daf8e; branch deleted. Now awaiting live verification."
+    },
+    {
+      "ts": "2026-05-30T11:42:20-04:00",
+      "decision": "live-verified:LLN-OUTLINE-GEN-1 waived",
+      "notes": "Operator WAIVED live verification; closure accepted on green CI + reuse of the already-live MR-IR-GEN-2 pattern. NOT asserted as live-tested. Merged at 94daf8e. Engagement completed."
+    },
+    {
+      "ts": "2026-05-30T11:46:05-04:00",
+      "decision": "accept:LLN-UX-ITER-LABEL-1",
+      "notes": "Phase A accepted; proceeding to Phase B (pending push approval)."
+    },
+    {
+      "ts": "2026-05-30T14:08:12-04:00",
+      "decision": "push:LLN-UX-ITER-LABEL-1",
+      "notes": "Branch feat/lln-ux-iter-label-1 pushed; commit 4211e4b; PR #54 opened."
+    },
+    {
+      "ts": "2026-05-30T14:08:12-04:00",
+      "decision": "merge:LLN-UX-ITER-LABEL-1",
+      "notes": "PR #54 CI-green; first merge hit transient TLS timeout (no state change), retry squash-merged as de2d7c2; branch deleted. Awaiting live verification."
+    },
+    {
+      "ts": "2026-05-30T14:39:28-04:00",
+      "decision": "live-verified:LLN-UX-ITER-LABEL-1 pass",
+      "notes": "Live-verified PASS on production (de2d7c2) by Claude driving Chrome as kelly. Review pane header reads \"Select a reviewer for the next review.\" with no iteration number. No test data created. Engagement completed."
+    },
+    {
+      "ts": "2026-05-30T14:56:16-04:00",
+      "decision": "accept:LLN-REVIEW-DEFAULT-1",
+      "notes": "Investigation-only engagement accepted and completed. Report at docs/engagements/LLN-REVIEW-DEFAULT-1-investigation.md. Findings: first-review default = Claude = drafter model -> legitimate \"no suggestions\". Recommended future Phase A: Option A (non-drafter default) + Option B (advisory). No code changed."
+    }
+  ],
+  "last_updated": "2026-05-30T14:56:16-04:00",
+  "last_updater": "operator-approve accept:LLN-REVIEW-DEFAULT-1",
+  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need."
 }
