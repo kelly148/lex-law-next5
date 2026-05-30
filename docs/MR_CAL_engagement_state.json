@@ -10,7 +10,9 @@
     "MR-CAL-2G",
     "MR-CAL-2I-LIVE",
     "MR-CAL-3F-LIVE",
-    "MR-CAL-CORE-CLOSEOUT"
+    "MR-CAL-CORE-CLOSEOUT",
+    "MR-CAL-4A",
+    "MR-CAL-4B"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
@@ -19,8 +21,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-4A",
-    "MR-CAL-4B",
     "MR-CAL-4C-LIVE",
     "MR-CAL-5A",
     "MR-CAL-5B",
@@ -124,10 +124,40 @@
       "ts": "2026-05-30T16:27:13-04:00",
       "decision": "accept:MR-CAL-CORE-CLOSEOUT",
       "notes": "Core legacy-wrapper reviewer workflow declared COMPLETE and signed off. Live-verified across 4 tracks (3F-LIVE). GPT P8-T1/T6 accepted risk. Deferred arcs (native cards, evaluator, memory, locked decisions, adopt ledger, sendability, CAL-7B) require operator scope approval. Close-out: docs/engagements/MR-CAL-CORE-CLOSEOUT.md. Engagement completed."
+    },
+    {
+      "ts": "2026-05-30T16:33:46-04:00",
+      "decision": "accept:MR-CAL-4A",
+      "notes": "Native feedback-card runtime investigation accepted/completed. Foundation already substantial: FeedbackCardSchema (~25 fields), native parser parseFeedbackCardOutput, bidirectional converters, and reviewers already emit STRUCTURED_FEEDBACK_CARDS embedded in legacy body. Migration = additive nullable JSON column (no destructive migration). Recommended: extract->validate->persist additively->render native w/ legacy fallback. MR-CAL-4B (impl) requires operator approve scope:MR-CAL-4B. Report: docs/engagements/MR-CAL-4A-investigation.md (uncommitted). Engagement completed."
+    },
+    {
+      "ts": "2026-05-30T16:35:03-04:00",
+      "decision": "scope:MR-CAL-4B",
+      "notes": "Operator approved scope to begin native feedback-card runtime implementation (MR-CAL-4B). Phase A planning next; no code until plan confirmed. Bounded per master plan 4B do-not-include list (no evaluator/memory/sendability/ledger/multi-reviewer-session changes)."
+    },
+    {
+      "ts": "2026-05-30T16:43:59-04:00",
+      "decision": "accept:MR-CAL-4B",
+      "notes": "Phase A (migration-free native feedback-card display increment) accepted; proceeding to Phase B (pending push approval)."
+    },
+    {
+      "ts": "2026-05-30T16:53:13-04:00",
+      "decision": "push:MR-CAL-4B",
+      "notes": "Branch feat/mr-cal-4b pushed; commit 25d4705; PR #58 opened."
+    },
+    {
+      "ts": "2026-05-30T16:53:13-04:00",
+      "decision": "merge:MR-CAL-4B",
+      "notes": "PR #58 CI-green (Lint, Type Check + Tests; type flow validated, 13 tests). Squash-merged as a748028; branch deleted. Operator requested live testing."
+    },
+    {
+      "ts": "2026-05-30T17:08:17-04:00",
+      "decision": "live-verified:MR-CAL-4B deferred",
+      "notes": "Operator chose to record. Code-level COMPLETE: merged a748028, CI-green (type flow + 13 tests), code confirmed correct, reviewer feedback bodies confirmed to contain STRUCTURED_FEEDBACK_CARDS. Live on-screen render NOT confirmed: Railway deploy had not landed after ~13min (prod still serving old bundle). Render verification DEFERRED -> folds into MR-CAL-4C-LIVE / next deploy. Engagement moved to completed on that basis."
     }
   ],
-  "last_updated": "2026-05-30T16:27:13-04:00",
-  "last_updater": "operator-approve accept:MR-CAL-CORE-CLOSEOUT",
+  "last_updated": "2026-05-30T17:08:17-04:00",
+  "last_updater": "operator: record MR-CAL-4B (live-render deferred pending deploy)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need.",
   "accepted_risks": [
     {
@@ -141,6 +171,15 @@
       "desc": "GPT P8-T6 counterparty over-disclosure substantive FAIL.",
       "accepted_at": "2026-05-30T16:00:45-04:00",
       "engagement": "MR-CAL-2I-LIVE"
+    }
+  ],
+  "deferred_verifications": [
+    {
+      "engagement": "MR-CAL-4B",
+      "item": "on-screen native feedback-card rendering",
+      "reason": "Railway deploy of a748028 had not landed at verification time (>13min; production still serving pre-a748028 bundle index-DXdOnjQl.js). Code merged + CI-green + embedded STRUCTURED_FEEDBACK_CARDS data confirmed present.",
+      "how_to_close": "After a748028 deploys, reload a reviewer session and confirm the native-card panel renders (severity/subtype, critique_type, attorney-decision flag, audience, suggested revision). Folds naturally into MR-CAL-4C-LIVE, which needs the same deploy.",
+      "recorded_at": "2026-05-30T17:08:17-04:00"
     }
   ]
 }
