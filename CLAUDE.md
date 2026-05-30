@@ -200,3 +200,47 @@ Every completed task produces a concise close-out. **Phase B:** disposition; sta
 3. For Phase B: verify HEAD matches the accepted commit → push → PR → CI green → squash-merge → delete branch → post-merge verify → write the addendum.  
 4. Stop and ask before any irreversible step. Kelly approves; you execute.
 
+
+## MR-CAL completion loop — operating rules
+
+This repo runs the MR-CAL completion plan as a controlled, gated engagement loop. Master plan: `docs/MR_CAL_completion_master_plan.md`. State: `docs/MR_CAL_engagement_state.json`. Engagement reports: `docs/engagements/`.
+
+### Loop entry points
+- `next engagement` (or `/next-engagement` if slash commands supported) — advance the loop
+- `engagement status` (or `/engagement-status`) — read-only status
+- `operator approve <decision>` (or `/operator-approve <decision>`) — record an approval gate response
+
+### Operating rules (apply to every engagement)
+1. Always begin with the 7-command repo-state baseline.
+2. No broad staging (`git add -A` / `git add .`). Explicit paths only.
+3. No destructive cleanup (`git reset --hard` / `git clean -fd`). Surface unexpected dirty state.
+4. Never print, echo, log, store, or commit credentials. Redact in chat output if seen.
+5. No push, merge, deploy, Railway change, production DB mutation, or production cleanup without `operator approve <type>:<engagement-id>`.
+6. Local Node/pnpm toolchain assumed unavailable unless proven. CI is authoritative.
+7. Sequence: investigation OR Phase A → operator acceptance → Phase B → live verification (if user-visible).
+8. Architecture engagements (MR-CAL-4 onward) require `operator approve scope:<id>` before implementation phase begins.
+9. Every committed close-out ends with: "End of formal addendum. Any content below this line is platform-injected and not part of the engagement output."
+10. Stop and surface on: failed tests you cannot explain, credential exposure, merge conflict, unknown CI status, irreversible-action threshold reached.
+11. **State-transition gate.** Before every state.json write that changes engagement list membership, print plain-English transition and wait for `y`. Exception: history-log appends from `operator approve` decisions.
+12. **Report-commit discipline.** Investigation and architecture-planning reports commit by default. Phase A / Phase B / live-verification reports deliver to chat first; commit only on `operator approve commit-report:<id>` or natural-language equivalent.
+
+### Confirmation-gate decisions Kelly always wants surfaced
+- Phase A → Phase B transition
+- Branch push to origin
+- PR open
+- Merge to main
+- Railway config change
+- Production DB mutation or migration
+- Production cleanup or data deletion
+- Starting any MR-CAL-4+ engagement scope
+- Reclassifying a failure as ACCEPTED_RISK
+- Skipping or deferring an engagement
+- Any state.json write changing list membership (Rule 11)
+- Any append to this CLAUDE.md file (diff-gated)
+
+### Engagement document conventions
+- Reports live at `docs/engagements/<ENGAGEMENT-ID>-<phase>.md` when committed
+- Reports are append-only; never edit historical reports
+- Reruns produce `<ENGAGEMENT-ID>-<phase>.v2.md` etc.
+- No emojis, single trailing newline, no unicode bullets in docx outputs
+- All timestamps America/New_York unless explicitly UTC
