@@ -75,7 +75,9 @@ type ReviewPaneEvent =
   | 'global_instructions_updated'
   | 'regeneration_started'
   | 'review_session_abandoned'
-  | 'reviewer_enablement_changed';
+  | 'reviewer_enablement_changed'
+  // MR-CAL-2G: raw reviewer-output capture for calibration auditability.
+  | 'reviewer_output_captured';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -250,6 +252,21 @@ export interface TelemetryPayload {
   reviewer_enablement_changed: {
     reviewer: 'claude' | 'gpt' | 'gemini' | 'grok';
     enabled: boolean;
+  };
+  // MR-CAL-2G: raw reviewer-output capture for calibration auditability.
+  // Emitted BEFORE the feedback parse so the raw artifact is preserved even when
+  // parsing fails (the P8-T1 PARSE_FAILURE case that MR-CAL-2F could not audit).
+  // rawOutput holds the full provider output; parsed* fields are populated only
+  // when the subsequent parse succeeds.
+  reviewer_output_captured: {
+    jobId: string;
+    reviewerRole: string;
+    reviewerModel: string;
+    iterationNumber: number;
+    rawOutput: string;
+    rawOutputLength: number;
+    parseOk: boolean;
+    parsedSuggestionCount: number | null;
   };
 
   // E.6 Materials library

@@ -218,7 +218,38 @@ export const reviewSessionRouter = router({
           // S3b (MR-1): Parse LLM output and persist to feedback table
           txn2Commit: async ({ jobId, output }) => {
             const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
-            const suggestions = parseFeedbackOutput(rawOutput);
+            // MR-CAL-2G: capture the raw reviewer output for calibration auditability
+            // BEFORE the parse can throw. The P8-T1 GPT failure is a PARSE_FAILURE, so
+            // parsing defensively here is the only way to preserve the raw artifact that
+            // MR-CAL-2F found was being lost. Parse-failure behavior is otherwise
+            // unchanged: the error is re-thrown below so the job still fails and reverts.
+            let parsedSuggestions: ReturnType<typeof parseFeedbackOutput> | null = null;
+            let parseError: unknown = null;
+            try {
+              parsedSuggestions = parseFeedbackOutput(rawOutput);
+            } catch (err) {
+              parseError = err;
+            }
+            void emitTelemetry(
+              'reviewer_output_captured',
+              {
+                jobId,
+                reviewerRole,
+                reviewerModel: modelString,
+                iterationNumber,
+                rawOutput,
+                rawOutputLength: rawOutput.length,
+                parseOk: parseError === null,
+                parsedSuggestionCount: parsedSuggestions ? parsedSuggestions.length : null,
+              },
+              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+            );
+            if (parseError !== null) {
+              throw parseError;
+            }
+            // parsedSuggestions is non-null here: it is only null when parseError
+            // was set, and that path threw above.
+            const suggestions = parsedSuggestions!;
             await insertFeedback({
               userId,
               documentId: input.documentId,
