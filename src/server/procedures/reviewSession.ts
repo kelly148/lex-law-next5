@@ -24,6 +24,7 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
+import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -454,7 +455,19 @@ export const reviewSessionRouter = router({
       const session = await getReviewSessionById(input.sessionId, userId);
       if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Review session not found' });
 
-      const feedback = await listFeedbackForSession(input.sessionId, userId);
+      const feedbackRows = await listFeedbackForSession(input.sessionId, userId);
+      // MR-CAL-4B: attach display-only native feedback cards derived from the
+      // STRUCTURED_FEEDBACK_CARDS already embedded in each suggestion body.
+      // Migration-free and legacy-safe: every suggestion is returned unchanged
+      // with an added nativeCards array (empty when none are present/parseable),
+      // so the legacy rendering path is unaffected.
+      const feedback = feedbackRows.map((row) => ({
+        ...row,
+        suggestions: row.suggestions.map((s) => ({
+          ...s,
+          nativeCards: extractEmbeddedFeedbackCards(s.body),
+        })),
+      }));
       const evaluation = await getEvaluationForIteration(
         session.documentId,
         session.iterationNumber,

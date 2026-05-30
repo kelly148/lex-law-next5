@@ -259,7 +259,24 @@ interface FeedbackCardProps {
     reviewerTitle: string;
     reviewerModel: string;
     iterationNumber: number;
-    suggestions: Array<{ suggestionId: string; title: string; body: string; severity?: string }>;
+    suggestions: Array<{
+      suggestionId: string;
+      title: string;
+      body: string;
+      severity?: string;
+      // MR-CAL-4B: display-only native feedback cards extracted server-side from
+      // the embedded STRUCTURED_FEEDBACK_CARDS. Optional; legacy rendering when absent.
+      nativeCards?: Array<{
+        severity?: string;
+        severity_subtype?: string | null;
+        critique_type?: string;
+        requires_attorney_decision?: boolean;
+        audience_affected?: string[];
+        suggested_revision?: string | null;
+        issue?: string;
+        recommendation?: string;
+      }>;
+    }>;
   };
   sessionId: string;
   // MR-4 P2: selections now keyed by suggestionId (canonical field after §3.3 normalization).
@@ -413,6 +430,36 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
                       )}>
                         {suggestion.severity}
                       </span>
+                    )}
+                    {/* MR-CAL-4B: native feedback-card fields, shown when present. */}
+                    {suggestion.nativeCards && suggestion.nativeCards.length > 0 && (
+                      <div className="mt-1.5 space-y-1.5">
+                        {suggestion.nativeCards.map((card, idx) => (
+                          <div key={idx} className="rounded border border-firm-navy/20 bg-firm-navy/5 px-2 py-1.5">
+                            <div className="flex flex-wrap items-center gap-1">
+                              {card.severity && (
+                                <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-firm-navy text-white">
+                                  {card.severity}{card.severity_subtype ? ` · ${card.severity_subtype}` : ''}
+                                </span>
+                              )}
+                              {card.critique_type && (
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-gray-200 text-gray-700">{card.critique_type}</span>
+                              )}
+                              {card.requires_attorney_decision && (
+                                <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-amber-200 text-amber-800">Attorney decision required</span>
+                              )}
+                              {card.audience_affected && card.audience_affected.length > 0 && (
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">audience: {card.audience_affected.join(', ')}</span>
+                              )}
+                            </div>
+                            {card.suggested_revision && (
+                              <p className="text-[11px] text-gray-700 mt-1">
+                                <span className="font-medium">Suggested revision:</span> {card.suggested_revision}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {evalDisposition?.synthesisBody && (
                       <p className="text-xs text-gray-500 italic mt-1">{evalDisposition.synthesisBody}</p>
