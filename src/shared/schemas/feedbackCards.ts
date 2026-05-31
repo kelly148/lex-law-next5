@@ -182,7 +182,15 @@ export const FeedbackCardDisplaySchema = z
     recommendation: z.string().optional(),
     suggested_revision: z.string().nullish(),
     requires_attorney_decision: z.boolean().optional(),
-    audience_affected: z.array(z.string()).optional(),
+    // MR-CAL-4B render fix: reviewers inconsistently emit audience_affected as
+    // either an array of strings or a single comma-joined string. The strict
+    // canonical FeedbackCardSchema keeps the array contract; this display-only
+    // projection must tolerate the string form, otherwise one off-contract field
+    // fails safeParse and the WHOLE card is dropped (no native render, silent
+    // fallback to the raw legacy body). Coerce a bare string to a one-element array.
+    audience_affected: z
+      .union([z.array(z.string()), z.string().transform((s) => [s])])
+      .optional(),
   })
   .passthrough();
 export type FeedbackCardDisplay = z.infer<typeof FeedbackCardDisplaySchema>;
