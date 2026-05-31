@@ -14,12 +14,11 @@
     "MR-CAL-4A",
     "MR-CAL-4B",
     "OPS-DEPLOY-PIPELINE-1",
-    "MR-CAL-4C-LIVE"
-  ],
-  "in_progress_engagement": null,
-  "awaiting_operator_acceptance": [
+    "MR-CAL-4C-LIVE",
     "MR-CAL-5A"
   ],
+  "in_progress_engagement": null,
+  "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
@@ -186,10 +185,15 @@
       "ts": "2026-05-31T15:45:00-04:00",
       "decision": "live-verified:MR-CAL-4C-LIVE pass",
       "notes": "Native-card render VERIFIED LIVE on production 5ad3be7 by Claude driving Chrome as kelly (UNIVERSALTITLE browser), synthetic 'POA iteration test' doc. The same previously-failing Gemini iteration-7 session now both PARSES (tRPC reviewSession.get: all 3 suggestions nativeCardsLen:1; audience_affected coerced string->array) and RENDERS: severity-subtype chip (SUBSTANTIVE - BUSINESS), critique_type chip (structural), 'Attorney decision required' amber badge, audience line, 'Suggested revision:' formatted content (3 cards). No data mutation needed (existing data rendered post-fix). Closes MR-CAL-4C-LIVE and the MR-CAL-4B deferred render. CARRYFORWARD: AUTH_BYPASS_ENABLED still ON in prod (operator to disable); synthetic data persists (LLN-PROD-CLEANUP-1)."
+    },
+    {
+      "ts": "2026-05-31T15:52:00-04:00",
+      "decision": "accept:MR-CAL-5A",
+      "notes": "Evaluator / multi-reviewer topology investigation accepted/completed. Findings: the evaluator is already scaffolded (feedback_evaluations table + dispositions JSON, insertFeedbackEvaluation/getEvaluationForIteration, EVALUATOR_MODEL=anthropic:claude-opus-4-5 per decision #41, an invocation block in reviewSession.create, and ReviewPane disposition/synthesis UI) but is DORMANT and INCOMPLETE, and was disabled on purpose. Two independent reasons it does not work: (1) the evaluator block is guarded by selectedReviewers.length > 1, but the MR-0G single-reviewer gate (.max(1) + UI radio) makes that never true; (2) even if it fired, the commit path only emits telemetry - it never parses evaluator output or calls insertFeedbackEvaluation, and prompts are placeholder-level. Standing it up depends on first repairing the MR-0G-gated multi-reviewer path (MR-0 D1-D5 defects) - the largest, riskiest part - so MR-CAL-5B (multi-reviewer session data model) is the true prerequisite. Recommended (NONE authorized; each needs operator approve scope:<id>): 5B multi-reviewer data model, 5C evaluator output contract (advisory-only, consume native cards), 5D-LIVE. PRODUCT-DIRECTION NOTE: activating evaluator/multi-reviewer synthesis is a product decision (current design makes the attorney the cross-iteration synthesizer; automated synthesis is optional), not just engineering. Report: docs/engagements/MR-CAL-5A-investigation.md."
     }
   ],
-  "last_updated": "2026-05-31T15:45:00-04:00",
-  "last_updater": "OPS-DEPLOY-PIPELINE-1 completed + MR-CAL-4C-LIVE live-verified PASS (docs-sync)",
+  "last_updated": "2026-05-31T15:52:00-04:00",
+  "last_updater": "accept:MR-CAL-5A (investigation completed; 5B/5C/5D-LIVE remain queued, scope-gated)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
