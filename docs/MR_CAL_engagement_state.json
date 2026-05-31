@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-5B",
+  "current_engagement": "LLN-FEEDBACK-CARD-UX-1",
   "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
@@ -15,9 +15,10 @@
     "MR-CAL-4B",
     "OPS-DEPLOY-PIPELINE-1",
     "MR-CAL-4C-LIVE",
-    "MR-CAL-5A"
+    "MR-CAL-5A",
+    "MR-CAL-5B"
   ],
-  "in_progress_engagement": "MR-CAL-5B",
+  "in_progress_engagement": "LLN-FEEDBACK-CARD-UX-1",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
@@ -209,10 +210,25 @@
       "ts": "2026-05-31T16:35:00-04:00",
       "decision": "progress:MR-CAL-5B-increment-2",
       "notes": "INCREMENT 2 (client exposure + flag-aware selection) complete. settings.get now returns multiReviewerEnabled (isMultiReviewerEnabled(), default OFF, read-only). ReviewPane CreateSessionView is flag-aware: reviewer-selection input is radio (single) when off, checkbox (multi) when on; selection state is now string[] with a flag-aware toggle (single replaces, multi toggles); header text adapts; create/disabled logic already array-based. KEY FINDING: the active-session display (feedback.map -> FeedbackCard per reviewer), prior-feedback comparison (HistorySection groups by iteration/row), and per-suggestion selection ALREADY handle N reviewers - the app was built multi-reviewer and MR-0G only gated the INPUT - so no display/comparison/selection rewrite was needed (validates Plan finding 2). mr0g.gate.test.ts UI assertions updated to the flag-aware contract; phase4b.acceptance.test.ts already expected Zod to allow 2 reviewers (compatible). Phase A (both increments) COMPLETE on branch lex-next/mr-cal-5b; default OFF = zero behavior change. Phase B (push/CI/merge) gated on operator approve push:MR-CAL-5B; live verification (MR-CAL-5D-LIVE) would follow with the flag enabled."
+    },
+    {
+      "ts": "2026-05-31T19:30:00-04:00",
+      "decision": "push+merge:MR-CAL-5B",
+      "notes": "Operator approved push then go-live. Branch lex-next/mr-cal-5b pushed; PR #65 opened; one CI failure fixed (mr3.behavioral.test.ts S6g regression guard asserted the old static .max(1) -> updated to the flag-aware gate); CI green (Lint + Type Check + Tests); squash-merged as f1c22ed; branch deleted."
+    },
+    {
+      "ts": "2026-05-31T19:35:00-04:00",
+      "decision": "live-verified:MR-CAL-5B pass",
+      "notes": "Live-verified PASS (toggle) on production f1c22ed by Claude via Chrome (auth bypass) + DOM/API inspection. MULTI_REVIEWER_ENABLED required a casing fix (operator initially set value 'True'; code checks ==='true' -> corrected to lowercase, redeployed; flag now reads true). With the flag ON: settings.get returns multiReviewerEnabled=true; the reviewer picker switched from single-select radio to 8 multi-select CHECKBOXES with the plural header 'Select one or more reviewers for the next review.'. Server count gate (accept >1 only when flag on) is CI unit-tested; multi-card display/comparison/selection is pre-existing code-proven (feedback.map -> one FeedbackCard per reviewer). NOT executed: a full 2-reviewer LLM run (TiDB/LLM quota conservation per LLN-PROD-CLEANUP-1; deeper multi-reviewer+evaluator end-to-end is MR-CAL-5D-LIVE, gated on 5C). Engagement completed. CARRYFORWARD: MULTI_REVIEWER_ENABLED=true is now LIVE in prod; AUTH_BYPASS_ENABLED also still ON. Optional deferred hardening: make the flag value check case-insensitive/trimmed so 'True'/'TRUE'/'1' also work."
+    },
+    {
+      "ts": "2026-05-31T19:50:00-04:00",
+      "decision": "queued:LLN-FEEDBACK-CARD-UX-1",
+      "notes": "Operator-directed; added to queue HEAD (ahead of MR-CAL-5C; reprioritizable). DEFINITION: front-end-only UI polish of ReviewPane FeedbackCard rendering. Problem observed live: the suggestion body (ReviewPane.tsx ~line 440, <p>{suggestion.body}</p>) dumps the full raw legacy body = NARRATIVE_REVIEWER_MEMO prose + the entire raw STRUCTURED_FEEDBACK_CARDS JSON blob, shown IN ADDITION to the MR-CAL-4B native card; the raw JSON is junk, and the native card under-itemizes (omits issue + recommendation; suggested_revision multi-path runs together). SCOPE: when a native card is present, suppress the raw JSON (show only clean narrative prose, drop the NARRATIVE_REVIEWER_MEMO label), and itemize the card into labeled rows (severity/subtype + critique_type + attorney-decision chips; Issue; Recommendation; Suggested revision with multi-path options as bullets; Audience). Client-only (ReviewPane FeedbackCard) + a render test; no server/DB/schema change. NOT YET SCOPED for implementation (operator to start)."
     }
   ],
-  "last_updated": "2026-05-31T16:35:00-04:00",
-  "last_updater": "MR-CAL-5B Phase A complete (increments 1+2, default OFF); Phase B push gated",
+  "last_updated": "2026-05-31T19:50:00-04:00",
+  "last_updater": "queued LLN-FEEDBACK-CARD-UX-1 (feedback-card UI polish) at queue head",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {

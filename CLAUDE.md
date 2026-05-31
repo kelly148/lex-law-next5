@@ -122,6 +122,7 @@ Every task is one of these scopes; **Kelly chooses the scope, you do not expand 
 - **Phase A — local implementation only.** Permitted (if authorized): modify allowlisted source files, add/update tests, run local gates, create a local commit. NOT permitted: push, PR, merge, Railway, production/staging DB, provider credentials, live testing, scope change.  
 - **Phase B — remote completion** after Phase A acceptance. Permitted (if authorized): push the accepted branch, open PR, wait for CI, squash-merge, delete branch, verify `main`. Must NOT author new source unless a correction cycle is authorized.  
 - **Live verification (Pattern 16\)** — code-level closure ≠ live closure. A user-visible feature is not closed until verified in the deployed app (or explicitly waived).
+- **Live-testing standard (operator directive, 2026-05-31):** do **enough** live testing to be reasonably confident the feature/product is functional — exercise the real end-to-end path (including LLM- and DB-touching runs on synthetic data) rather than under-testing to conserve quota. This **supersedes** the earlier "keep live-testing light" carryforward (the TiDB quota constraint that prompted it has been relaxed). The bar is "reasonably likely to be functional," not exhaustive coverage.
 
 ---
 
