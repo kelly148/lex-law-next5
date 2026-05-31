@@ -62,6 +62,28 @@ describe('MR-CAL-4B extractEmbeddedFeedbackCards - accepted', () => {
     expect(cards).toHaveLength(2);
   });
 
+  it('tolerates audience_affected emitted as a string (live regression: Gemini)', () => {
+    // Production reviewers (observed: Gemini) emit audience_affected as a single
+    // string rather than an array. Before the display-schema fix this failed
+    // safeParse and the entire card was dropped, so no native card rendered.
+    const cards = extractEmbeddedFeedbackCards(
+      bodyWith(
+        JSON.stringify([
+          {
+            severity: 'SUBSTANTIVE',
+            severity_subtype: 'DRAFTING',
+            issue: 'Internal contradiction re: power to change beneficiary',
+            requires_attorney_decision: true,
+            audience_affected: 'Agent, Third Parties (Financial Institutions)',
+          },
+        ]),
+      ),
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.audience_affected).toEqual(['Agent, Third Parties (Financial Institutions)']);
+    expect(cards[0]!.requires_attorney_decision).toBe(true);
+  });
+
   it('is brace-aware: brackets inside string values do not end the scan', () => {
     const cards = extractEmbeddedFeedbackCards(
       bodyWith(JSON.stringify([{ issue: 'see [Exhibit A] and [B]', severity: 'POLISH' }])),
