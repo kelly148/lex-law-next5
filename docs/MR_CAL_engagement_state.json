@@ -17,11 +17,12 @@
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
-  "blocked_engagements": [],
+  "blocked_engagements": [
+    "MR-CAL-4C-LIVE"
+  ],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-4C-LIVE",
     "MR-CAL-5A",
     "MR-CAL-5B",
     "MR-CAL-5C",
@@ -154,10 +155,15 @@
       "ts": "2026-05-30T17:08:17-04:00",
       "decision": "live-verified:MR-CAL-4B deferred",
       "notes": "Operator chose to record. Code-level COMPLETE: merged a748028, CI-green (type flow + 13 tests), code confirmed correct, reviewer feedback bodies confirmed to contain STRUCTURED_FEEDBACK_CARDS. Live on-screen render NOT confirmed: Railway deploy had not landed after ~13min (prod still serving old bundle). Render verification DEFERRED -> folds into MR-CAL-4C-LIVE / next deploy. Engagement moved to completed on that basis."
+    },
+    {
+      "ts": "2026-05-31T09:08:11-04:00",
+      "decision": "blocked:MR-CAL-4C-LIVE",
+      "notes": "Operator agreed to block. Native-card render NOT verifiable: Railway is serving a stale frontend build (index-DXdOnjQl.js unchanged across all deploys today) and is not deploying latest main (a748028/b579ee9). Code merged+CI-green+correct; card data present in feedback; Dockerfile correct -> root cause is Railway deploy orchestration, not code. Recommended follow-up OPS-DEPLOY-PIPELINE-1 (needs Railway build logs). Bypass left ON per operator (AUTH_BYPASS_ENABLED=true) for now. MR-CAL-4B render also remains deferred under same root cause."
     }
   ],
-  "last_updated": "2026-05-30T17:08:17-04:00",
-  "last_updater": "operator: record MR-CAL-4B (live-render deferred pending deploy)",
+  "last_updated": "2026-05-31T09:08:11-04:00",
+  "last_updater": "operator agree: block MR-CAL-4C-LIVE on Railway deploy-pipeline",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need.",
   "accepted_risks": [
     {
@@ -180,6 +186,22 @@
       "reason": "Railway deploy of a748028 had not landed at verification time (>13min; production still serving pre-a748028 bundle index-DXdOnjQl.js). Code merged + CI-green + embedded STRUCTURED_FEEDBACK_CARDS data confirmed present.",
       "how_to_close": "After a748028 deploys, reload a reviewer session and confirm the native-card panel renders (severity/subtype, critique_type, attorney-decision flag, audience, suggested revision). Folds naturally into MR-CAL-4C-LIVE, which needs the same deploy.",
       "recorded_at": "2026-05-30T17:08:17-04:00"
+    }
+  ],
+  "blocked_detail": {
+    "MR-CAL-4C-LIVE": {
+      "reason": "Railway is not building/serving the latest main commit. Served frontend bundle stayed index-DXdOnjQl.js across every deploy/redeploy today, despite native-card source changes merged in a748028/b579ee9 (a real rebuild would change the content-hashed filename). Dockerfile is correct (COPY . . then vite build), so the failure is in Railway deploy orchestration, not the code/Dockerfile.",
+      "evidence": "In-browser (logged-in, decompressed) bundle check: index-DXdOnjQl.js contains neither nativeCards nor \"Attorney decision required\"; reviewer feedback body DOES contain STRUCTURED_FEEDBACK_CARDS. So data present, code merged+CI-green, but not deployed.",
+      "unblock": "Inspect Railway build logs for the latest deployment: confirm a build for b579ee9 ran, executed vite build, and did not fail/skip; check auto-deploy trigger for main. Likely a dedicated OPS engagement (needs Railway dashboard access).",
+      "recorded_at": "2026-05-31T09:08:11-04:00"
+    }
+  },
+  "recommended_followups": [
+    {
+      "id": "OPS-DEPLOY-PIPELINE-1",
+      "title": "Investigate why Railway is not deploying latest main (stale frontend bundle)",
+      "why": "Blocks MR-CAL-4C-LIVE and every future user-visible change. Needs Railway build-log access.",
+      "recorded_at": "2026-05-31T09:08:11-04:00"
     }
   ]
 }
