@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: deps — install all dependencies (including devDeps)
 # ============================================================
-FROM node:22-alpine AS deps
+FROM node:22-alpine3.21 AS deps
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 # ============================================================
 # Stage 2: builder — compile client (Vite) + server (esbuild)
 # ============================================================
-FROM node:22-alpine AS builder
+FROM node:22-alpine3.21 AS builder
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
@@ -30,14 +30,15 @@ COPY --from=deps /app/package.json ./package.json
 # Copy full source
 COPY . .
 
-# OPS-DEPLOY-PIPELINE-1: cache-bust the client/server build.
+# OPS-DEPLOY-PIPELINE-1: cache-bust the client/server build PER COMMIT.
 # Railway's build-layer cache was reusing a stale `vite build`, serving a frontend
-# compiled before recent source changes (e.g. MR-CAL-4B native feedback cards) even
-# though those changes were merged to main. Introducing this ARG before the build
-# step invalidates the cached build layer, forcing a fresh `vite build` on deploy.
-# Bump CACHEBUST if a stale frontend ever recurs.
-ARG CACHEBUST=2
-RUN echo "client/server build cachebust=${CACHEBUST}"
+# compiled before merged source changes (e.g. MR-CAL-4B native feedback cards).
+# Railway injects RAILWAY_GIT_COMMIT_SHA at build; referencing it in this RUN makes
+# the layer's cache key change on every commit, forcing a fresh `vite build` so a
+# merged frontend change can never be masked by a stale cached layer again.
+# (NO_CACHE=1 is also set on the Railway service as a belt-and-suspenders.)
+ARG RAILWAY_GIT_COMMIT_SHA=local
+RUN echo "client/server build for commit ${RAILWAY_GIT_COMMIT_SHA}"
 
 # Build client (Vite) + server (esbuild) in one step
 # Uses local binaries from node_modules/.bin via pnpm exec
@@ -54,7 +55,7 @@ RUN pnpm exec tsc --noEmit && \
 # ============================================================
 # Stage 3: runner — production image (no devDeps, no source)
 # ============================================================
-FROM node:22-alpine AS runner
+FROM node:22-alpine3.21 AS runner
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
@@ -68,6 +69,12 @@ RUN pnpm install --frozen-lockfile --prod
 
 # Copy built artifacts from builder stage
 COPY --from=builder /app/dist ./dist
+
+# OPS-DEPLOY-PIPELINE-1: bake a version stamp into the image so /api/version can
+# report exactly which commit and build is running (stale-deploy detection).
+# Referencing the commit SHA keeps this layer fresh per commit.
+ARG RAILWAY_GIT_COMMIT_SHA=local
+RUN printf '{"commit":"%s","builtAt":"%s"}\n' "${RAILWAY_GIT_COMMIT_SHA}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ./dist/version.json
 
 # Railway injects PORT at runtime; default to 3001 for local testing
 ENV PORT=3001
