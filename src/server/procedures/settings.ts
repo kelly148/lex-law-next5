@@ -29,6 +29,7 @@ import {
 } from '../db/queries/userPreferences.js';
 import { ReviewerEnablementSchema, VoiceInputPreferencesSchema } from '../../shared/schemas/matters.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+import { isMultiReviewerEnabled } from '../config/featureFlags.js';
 
 export const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
@@ -36,6 +37,10 @@ export const settingsRouter = router({
     return {
       reviewerEnablement: prefs.preferences.reviewerEnablement,
       voiceInput: prefs.preferences.voiceInput,
+      // MR-CAL-5B: global multi-reviewer toggle (default OFF). Surfaced read-only so
+      // the review UI can offer multi-select when enabled; the server resolver is
+      // the authoritative gate regardless of this value.
+      multiReviewerEnabled: isMultiReviewerEnabled(),
     };
   }),
 

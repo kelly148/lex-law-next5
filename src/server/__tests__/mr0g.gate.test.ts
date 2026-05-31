@@ -107,42 +107,34 @@ describe('MR-CAL-5B count gate: isReviewerSelectionCountAllowed', () => {
   });
 });
 
-// ─── UI gate tests ────────────────────────────────────────────────────────────
-describe('MR-0G UI gate: ReviewPane.tsx single-select enforcement', () => {
+// ─── UI gate tests (flag-aware, MR-CAL-5B) ───────────────────────────────────
+describe('MR-CAL-5B UI gate: ReviewPane.tsx flag-aware reviewer selection', () => {
   const reviewPaneFile = fs.readFileSync(
     path.resolve('src/client/components/ReviewPane.tsx'),
     'utf-8',
   );
 
-  it('reviewer selection uses type="radio" not type="checkbox"', () => {
-    // Must have radio input for reviewer selection
-    expect(reviewPaneFile).toContain('type="radio"');
+  it('reviewer-selection input type is flag-conditional (radio when off, checkbox when on)', () => {
+    expect(reviewPaneFile).toContain("multiReviewerEnabled ? 'checkbox' : 'radio'");
     expect(reviewPaneFile).toContain('name="reviewer-selection"');
   });
 
-  it('reviewer selection does not use type="checkbox" for reviewer list', () => {
-    // The checkbox type must not appear in the reviewer selection list.
-    // (Other checkboxes elsewhere in the file are not in scope; we check
-    // that the reviewer-selection radio group has no checkbox sibling.)
-    // The radio input block must be present and the old checkbox pattern absent.
-    expect(reviewPaneFile).not.toContain('type="checkbox"\n                checked={selectedReviewer');
+  it('reads the multi-reviewer flag from settings (default OFF)', () => {
+    expect(reviewPaneFile).toContain('settings?.multiReviewerEnabled ?? false');
   });
 
-  it('state variable is a single string (selectedReviewer), not an array', () => {
-    // The MR-0G patch replaces the array state with a single string.
-    expect(reviewPaneFile).toContain('useState<string>(');
-    expect(reviewPaneFile).toContain('setSelectedReviewer(key)');
+  it('selection state is an array, toggled in a flag-aware way (single replaces, multi toggles)', () => {
+    expect(reviewPaneFile).toContain('useState<string[]>(');
+    expect(reviewPaneFile).toContain('toggleReviewer(key)');
+    // Single-select path replaces the selection with exactly the clicked key.
+    expect(reviewPaneFile).toContain('if (!multiReviewerEnabled) return [key];');
   });
 
-  it('selectedReviewers array is derived from the single string and is always length 0 or 1', () => {
-    // The derived array is constructed as: selectedReviewer ? [selectedReviewer] : []
-    expect(reviewPaneFile).toContain('selectedReviewer ? [selectedReviewer] : []');
-  });
-
-  it('description text says "Select a reviewer" not "Select reviewers"', () => {
-    // LLN-UX-ITER-LABEL-1: the pre-creation label no longer hard-codes an
-    // iteration number (the server computes the real iteration since MR-CAL-3E).
-    // The single-reviewer ("Select a reviewer", singular) intent is preserved.
+  it('default (flag OFF) description preserves the singular "Select a reviewer" label', () => {
+    // LLN-UX-ITER-LABEL-1: no hard-coded iteration number. The singular default
+    // label is kept for the single-reviewer (flag-off) path; a plural variant is
+    // shown when multi-reviewer is enabled.
     expect(reviewPaneFile).toContain('Select a reviewer for the next review');
+    expect(reviewPaneFile).toContain('Select one or more reviewers for the next review');
   });
 });
