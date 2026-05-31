@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-5B",
+  "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -17,14 +17,13 @@
     "MR-CAL-4C-LIVE",
     "MR-CAL-5A"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "MR-CAL-5B",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-5B",
     "MR-CAL-5C",
     "MR-CAL-5D-LIVE",
     "MR-CAL-6A",
@@ -195,10 +194,20 @@
       "ts": "2026-05-31T16:00:00-04:00",
       "decision": "design:MR-CAL-5B",
       "notes": "Operator product-direction decision (DESIGN ONLY; NOT scope authorization). Multi-reviewer + advisory evaluator will be TOGGLEABLE via a single GLOBAL on/off master flag, default OFF (= today's single-reviewer, attorney-as-synthesizer behavior; zero regression when off). When ON, the attorney may select multiple reviewers per review and the advisory evaluator engages (advisory only; never decision-making; attorney stays the final decision maker). Architecture must keep per-matter granularity (Option 2) addable later without rework. The toggle gates EXPOSURE only - it does NOT substitute for the MR-CAL-5B data-model repair. Build remains gated on operator approve scope:MR-CAL-5B and should BEGIN WITH A PHASE-A PLAN that re-derives the MR-0 D1-D5 defects (why multi-reviewer was disabled) and designs the flag + repaired data model for operator review before any code."
+    },
+    {
+      "ts": "2026-05-31T16:08:00-04:00",
+      "decision": "scope:MR-CAL-5B",
+      "notes": "Operator approved scope to begin MR-CAL-5B (multi-reviewer session data model). Per operator-accepted recommendation, 5B begins PLAN-FIRST: a Phase-A investigation that (1) re-derives the MR-0 D1-D5 defects (why MR-0G disabled multi-reviewer), (2) designs the repaired multi-reviewer session data model, and (3) designs the global on/off toggle (default off; per-matter addable later), delivered as a written plan for operator review BEFORE any implementation code. Bounded: 5B is data model + toggle only - NOT the evaluator output contract (5C), matter memory, locked decisions, adopt ledger, or sendability gate. Engagement moved queue-head -> in_progress; phase=investigation."
+    },
+    {
+      "ts": "2026-05-31T16:20:00-04:00",
+      "decision": "accept:MR-CAL-5B-plan",
+      "notes": "Operator accepted the MR-CAL-5B Phase-A plan (docs/engagements/MR-CAL-5B-plan.md) and authorized the bounded implementation on option (b) (code-derived risk list; authoritative MR-0 close-out not in repo). Implementation proceeds in two default-OFF-safe increments. INCREMENT 1 (this commit, server foundation): added src/server/config/featureFlags.ts (isMultiReviewerEnabled, isReviewerSelectionCountAllowed, isEvaluatorEnabled - all default OFF); moved the multi-reviewer COUNT gate out of the Zod schema into a flag-aware resolver check in reviewSession.create (default OFF reproduces MR-0G's MULTI_REVIEWER_DISABLED exactly); gated the incomplete (telemetry-only) evaluator dispatch behind isEvaluatorEnabled() (default OFF) so enabling multi-reviewer never fires a placeholder evaluator LLM call (evaluator completion remains MR-CAL-5C); updated mr0g.gate.test.ts to the flag-aware contract (UI single-select unchanged this increment). INCREMENT 2 (pending): UI multi-select behind the flag + multi-row read/display/comparison/selection. Phase B (push/CI/merge) gated. phase=implementation."
     }
   ],
-  "last_updated": "2026-05-31T16:00:00-04:00",
-  "last_updater": "design:MR-CAL-5B recorded (global on/off toggle, default off; build still scope-gated)",
+  "last_updated": "2026-05-31T16:20:00-04:00",
+  "last_updater": "accept:MR-CAL-5B-plan; implementation increment 1 (server foundation, default OFF)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {

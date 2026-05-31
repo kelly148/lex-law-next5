@@ -25,6 +25,11 @@ import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
+import {
+  isMultiReviewerEnabled,
+  isReviewerSelectionCountAllowed,
+  isEvaluatorEnabled,
+} from '../config/featureFlags.js';
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -76,13 +81,14 @@ export const reviewSessionRouter = router({
       z.object({
         documentId: z.string().uuid(),
         iterationNumber: z.number().int().min(1),
-        // Decision #42: required, non-empty
-        // MR-0G: max(1) gate — multi-reviewer path is structurally broken (MR-0 D1-D5).
-        // Reject at schema level before any LLM dispatch occurs.
+        // Decision #42: required, non-empty.
+        // MR-CAL-5B: the multi-reviewer COUNT gate is now flag-aware and enforced in
+        // the resolver (isReviewerSelectionCountAllowed below), not at the schema
+        // level. The schema keeps only the lower bound (at least one reviewer). When
+        // MULTI_REVIEWER_ENABLED is off (default), the resolver still rejects >1 with
+        // MULTI_REVIEWER_DISABLED — byte-identical to the prior MR-0G behavior.
         selectedReviewers: z.array(z.string().min(1)).min(1, {
           message: 'NO_REVIEWERS_SELECTED: at least one reviewer is required',
-        }).max(1, {
-          message: 'MULTI_REVIEWER_DISABLED: Multi-reviewer review is temporarily unavailable. Please select one reviewer.',
         }),
       }),
     )
@@ -97,6 +103,18 @@ export const reviewSessionRouter = router({
       // Fetch matter
       const matter = await getMatterById(doc.matterId, userId);
       if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+
+      // MR-CAL-5B: flag-aware multi-reviewer count gate (default OFF = MR-0G behavior).
+      // Enforced in the resolver (not the input schema) so a single global flag
+      // controls exposure. Rejects more than one reviewer with the exact
+      // MULTI_REVIEWER_DISABLED message when MULTI_REVIEWER_ENABLED is off.
+      if (!isReviewerSelectionCountAllowed(input.selectedReviewers.length, isMultiReviewerEnabled())) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'MULTI_REVIEWER_DISABLED: Multi-reviewer review is temporarily unavailable. Please select one reviewer.',
+        });
+      }
 
       // Validate selectedReviewers against user's enabled set (Decision #42)
       const prefs = await getUserPreferences(userId);
@@ -281,24 +299,20 @@ export const reviewSessionRouter = router({
         reviewerJobIds.push(reviewerResult.jobId);
       }
 
-      // EVALUATOR PATH — STRUCTURALLY INERT (MR-2 §S1)
+      // EVALUATOR PATH — INTENTIONALLY INERT IN MR-CAL-5B
       //
-      // This dispatch gate fires when input.selectedReviewers.length > 1.
-      // MR-0G's .max(1) constraint on the API schema makes this branch
-      // unreachable in supported workflow.
+      // MR-CAL-5B enables multi-reviewer SELECTION (behind MULTI_REVIEWER_ENABLED),
+      // but the evaluator output contract — a real prompt/schema, parsing the
+      // evaluator output, and persisting dispositions via insertFeedbackEvaluation —
+      // is MR-CAL-5C. The dispatch below is still telemetry-only and uses
+      // placeholder prompts, so it is gated behind isEvaluatorEnabled() (default
+      // OFF). This guarantees that turning ON multi-reviewer never fires a
+      // placeholder evaluator LLM call. The block is retained (not deleted) so
+      // MR-CAL-5C can complete it in place and flip the default.
       //
-      // The evaluator system/user prompts and persistence path are not
-      // part of the sequential single-reviewer product model per
-      // Operating Plan v1.2 §1.3. The attorney is the synthesizer
-      // across iterations; automated cross-synthesis is not required.
-      //
-      // If future product evidence supports automated synthesis,
-      // evaluator repair or full decommissioning should be scoped as a
-      // separate engagement (post-MR-3 cleanup or new feature work).
-      //
-      // References: MR-0 close-out (D3, D4 evaluator-path defects);
-      // MR-0G acceptance (multi-reviewer gate); MR-2 close-out.
-      if (input.selectedReviewers.length > 1) {
+      // References: MR-0 close-out (D3, D4 evaluator-path defects); MR-CAL-5A
+      // investigation; design:MR-CAL-5B (advisory-only; attorney remains decider).
+      if (isEvaluatorEnabled() && input.selectedReviewers.length > 1) {
       const evaluatorModelString = EVALUATOR_MODEL;
       void executeCanonicalMutation({
         userId,
