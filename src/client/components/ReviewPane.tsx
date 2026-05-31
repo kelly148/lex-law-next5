@@ -30,6 +30,7 @@ import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { deriveCompletionState } from '../utils/reviewState.js';
+import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/feedbackCardDisplay.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -414,6 +415,10 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
           {feedback.suggestions.map((suggestion) => {
             const evalDisposition = evaluation?.find((e) => e.suggestionId === suggestion.suggestionId);
             const isChecked = selectedSuggestionIds.has(suggestion.suggestionId);
+            // LLN-FEEDBACK-CARD-UX-1: show only the clean narrative prose; the raw
+            // STRUCTURED_FEEDBACK_CARDS JSON is stripped (structured fields render as
+            // the itemized native card below).
+            const narrativeMemo = stripEmbeddedCardsJson(suggestion.body);
             return (
               <div key={suggestion.suggestionId} className={clsx(
                 'px-4 py-3',
@@ -437,7 +442,9 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-gray-800">{suggestion.title}</p>
-                    <p className="text-xs text-gray-600 mt-0.5">{suggestion.body}</p>
+                    {narrativeMemo && (
+                      <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-line">{narrativeMemo}</p>
+                    )}
                     {suggestion.severity && (
                       <span className={clsx(
                         'text-xs px-1 py-0.5 rounded mt-1 inline-block',
@@ -469,10 +476,29 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
                                 <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">audience: {card.audience_affected.join(', ')}</span>
                               )}
                             </div>
-                            {card.suggested_revision && (
+                            {card.issue && (
                               <p className="text-[11px] text-gray-700 mt-1">
-                                <span className="font-medium">Suggested revision:</span> {card.suggested_revision}
+                                <span className="font-medium">Issue:</span> {card.issue}
                               </p>
+                            )}
+                            {card.recommendation && (
+                              <p className="text-[11px] text-gray-700 mt-1">
+                                <span className="font-medium">Recommendation:</span> {card.recommendation}
+                              </p>
+                            )}
+                            {card.suggested_revision && (
+                              <div className="text-[11px] text-gray-700 mt-1">
+                                <span className="font-medium">Suggested revision:</span>
+                                {splitSuggestedRevisionPaths(card.suggested_revision).length > 1 ? (
+                                  <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
+                                    {splitSuggestedRevisionPaths(card.suggested_revision).map((p, i) => (
+                                      <li key={i}>{p}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <span className="whitespace-pre-line"> {card.suggested_revision}</span>
+                                )}
+                              </div>
                             )}
                           </div>
                         ))}
