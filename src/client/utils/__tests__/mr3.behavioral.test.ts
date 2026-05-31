@@ -280,10 +280,13 @@ describe('§S6f: HistorySection edge cases (S5)', () => {
 // ============================================================
 
 describe('§S6g: regression preservation — MR-0G deliverables', () => {
-  it('MR-0G: .max(1) gate on selectedReviewers is still present in reviewSession.ts', () => {
-    // MR-0G gate is in reviewSession.ts (the create procedure), not settings.ts.
+  it('MR-0G→MR-CAL-5B: the multi-reviewer count gate is preserved (now flag-aware in the resolver)', () => {
+    // MR-CAL-5B replaced the static .max(1) Zod gate with a flag-aware resolver
+    // check: with MULTI_REVIEWER_ENABLED off (default) the resolver still rejects
+    // >1 reviewer (MR-0G behavior). The gate is preserved in its new form, not removed.
     const reviewSession = readSrc('server/procedures/reviewSession.ts');
-    expect(reviewSession).toContain('.max(1)');
+    expect(reviewSession).toContain('isReviewerSelectionCountAllowed');
+    expect(reviewSession).toContain('isMultiReviewerEnabled');
   });
 
   it('MR-0G: MULTI_REVIEWER_DISABLED message is still present in reviewSession.ts', () => {
