@@ -14,6 +14,7 @@
 
 import 'dotenv/config';
 import path from 'path';
+import { readFileSync } from 'fs';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import multer from 'multer';
@@ -75,6 +76,29 @@ app.use(express.urlencoded({ extended: true }));
 // ============================================================
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============================================================
+// Version stamp (OPS-DEPLOY-PIPELINE-1)
+//
+// Reports the git commit and build time baked into the image at build time
+// (see Dockerfile runner stage, which writes dist/version.json). This lets a
+// deployed build be matched against a known commit — making a stale/cached
+// deploy detectable in one request instead of inferring it from bundle hashes.
+// Defaults gracefully when version.json is absent (local dev / pre-build).
+// ============================================================
+app.get('/api/version', (_req, res) => {
+  let version: { commit: string; builtAt: string } = {
+    commit: 'unknown',
+    builtAt: 'unknown',
+  };
+  try {
+    const raw = readFileSync(path.join(process.cwd(), 'dist', 'version.json'), 'utf8');
+    version = JSON.parse(raw) as { commit: string; builtAt: string };
+  } catch {
+    // version.json absent (local dev or pre-build) — return defaults.
+  }
+  res.json(version);
 });
 
 // ============================================================
