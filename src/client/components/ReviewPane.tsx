@@ -131,21 +131,36 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
     return enabledReviewers[(idx + 1) % enabledReviewers.length] ?? fallback;
   }, [enabledReviewers, mostRecentPriorRow]);
 
-  // MR-0G: single-reviewer gate. Multi-reviewer path is structurally broken (MR-0 D1-D5).
-  // State holds at most one reviewer key (empty string = none selected).
+  // MR-CAL-5B: multi-reviewer is flag-gated (default OFF). When off, selection is
+  // single (radio); when on, multiple reviewers may be selected (checkbox). The
+  // server resolver remains the authoritative gate regardless of this client value.
+  const multiReviewerEnabled = settings?.multiReviewerEnabled ?? false;
+  // State holds the selected reviewer keys (length 0 or 1 while multi is off).
   // Initialise from derivedDefault once history data is available.
-  const [selectedReviewer, setSelectedReviewer] = useState<string>('');
-  // Sync selectedReviewer to derivedDefault when it resolves (once only).
+  const [selectedReviewerKeys, setSelectedReviewerKeys] = useState<string[]>([]);
+  // Sync to derivedDefault when it resolves (once only).
   const defaultApplied = React.useRef(false);
   React.useEffect(() => {
     if (!defaultApplied.current && derivedDefault) {
-      setSelectedReviewer(derivedDefault);
+      setSelectedReviewerKeys([derivedDefault]);
       defaultApplied.current = true;
     }
   }, [derivedDefault]);
 
-  // Derive the array form expected by the API (always length 0 or 1).
-  const selectedReviewers = selectedReviewer ? [selectedReviewer] : [];
+  // Toggle a reviewer key, respecting the flag: single-select replaces the
+  // selection; multi-select toggles membership.
+  const toggleReviewer = React.useCallback(
+    (key: string): void => {
+      setSelectedReviewerKeys((prev) => {
+        if (!multiReviewerEnabled) return [key];
+        return prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      });
+    },
+    [multiReviewerEnabled],
+  );
+
+  // Array form expected by the API.
+  const selectedReviewers = selectedReviewerKeys;
 
   // Advisory text: Case 1 only — prior reviewer identified, rotation applied.
   // Shows prior reviewer label, suggested next reviewer label, and override invitation.
@@ -194,7 +209,9 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   return (
     <div className="p-6 space-y-4">
       <p className="text-sm text-gray-600">
-        Select a reviewer for the next review. Only enabled reviewers are shown.
+        {multiReviewerEnabled
+          ? 'Select one or more reviewers for the next review. Only enabled reviewers are shown.'
+          : 'Select a reviewer for the next review. Only enabled reviewers are shown.'}
       </p>
       <div className="space-y-2">
         {enabledReviewerList.length === 0 ? (
@@ -205,10 +222,10 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
             const rows = [
               <label key={key} className="flex items-center gap-3 cursor-pointer">
                 <input
-                  type="radio"
+                  type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                   name="reviewer-selection"
-                  checked={selectedReviewer === key}
-                  onChange={() => setSelectedReviewer(key)}
+                  checked={selectedReviewerKeys.includes(key)}
+                  onChange={() => toggleReviewer(key)}
                   className="rounded"
                 />
                 <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>
@@ -219,10 +236,10 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
               rows.push(
                 <label key={liteKey} className="flex items-center gap-3 cursor-pointer pl-6">
                   <input
-                    type="radio"
+                    type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                     name="reviewer-selection"
-                    checked={selectedReviewer === liteKey}
-                    onChange={() => setSelectedReviewer(liteKey)}
+                    checked={selectedReviewerKeys.includes(liteKey)}
+                    onChange={() => toggleReviewer(liteKey)}
                     className="rounded"
                   />
                   <span className="text-sm text-gray-500">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
