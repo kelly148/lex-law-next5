@@ -30,6 +30,15 @@ COPY --from=deps /app/package.json ./package.json
 # Copy full source
 COPY . .
 
+# OPS-DEPLOY-PIPELINE-1: cache-bust the client/server build.
+# Railway's build-layer cache was reusing a stale `vite build`, serving a frontend
+# compiled before recent source changes (e.g. MR-CAL-4B native feedback cards) even
+# though those changes were merged to main. Introducing this ARG before the build
+# step invalidates the cached build layer, forcing a fresh `vite build` on deploy.
+# Bump CACHEBUST if a stale frontend ever recurs.
+ARG CACHEBUST=2
+RUN echo "client/server build cachebust=${CACHEBUST}"
+
 # Build client (Vite) + server (esbuild) in one step
 # Uses local binaries from node_modules/.bin via pnpm exec
 RUN pnpm exec tsc --noEmit && \
