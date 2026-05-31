@@ -190,10 +190,15 @@
       "ts": "2026-05-31T15:52:00-04:00",
       "decision": "accept:MR-CAL-5A",
       "notes": "Evaluator / multi-reviewer topology investigation accepted/completed. Findings: the evaluator is already scaffolded (feedback_evaluations table + dispositions JSON, insertFeedbackEvaluation/getEvaluationForIteration, EVALUATOR_MODEL=anthropic:claude-opus-4-5 per decision #41, an invocation block in reviewSession.create, and ReviewPane disposition/synthesis UI) but is DORMANT and INCOMPLETE, and was disabled on purpose. Two independent reasons it does not work: (1) the evaluator block is guarded by selectedReviewers.length > 1, but the MR-0G single-reviewer gate (.max(1) + UI radio) makes that never true; (2) even if it fired, the commit path only emits telemetry - it never parses evaluator output or calls insertFeedbackEvaluation, and prompts are placeholder-level. Standing it up depends on first repairing the MR-0G-gated multi-reviewer path (MR-0 D1-D5 defects) - the largest, riskiest part - so MR-CAL-5B (multi-reviewer session data model) is the true prerequisite. Recommended (NONE authorized; each needs operator approve scope:<id>): 5B multi-reviewer data model, 5C evaluator output contract (advisory-only, consume native cards), 5D-LIVE. PRODUCT-DIRECTION NOTE: activating evaluator/multi-reviewer synthesis is a product decision (current design makes the attorney the cross-iteration synthesizer; automated synthesis is optional), not just engineering. Report: docs/engagements/MR-CAL-5A-investigation.md."
+    },
+    {
+      "ts": "2026-05-31T16:00:00-04:00",
+      "decision": "design:MR-CAL-5B",
+      "notes": "Operator product-direction decision (DESIGN ONLY; NOT scope authorization). Multi-reviewer + advisory evaluator will be TOGGLEABLE via a single GLOBAL on/off master flag, default OFF (= today's single-reviewer, attorney-as-synthesizer behavior; zero regression when off). When ON, the attorney may select multiple reviewers per review and the advisory evaluator engages (advisory only; never decision-making; attorney stays the final decision maker). Architecture must keep per-matter granularity (Option 2) addable later without rework. The toggle gates EXPOSURE only - it does NOT substitute for the MR-CAL-5B data-model repair. Build remains gated on operator approve scope:MR-CAL-5B and should BEGIN WITH A PHASE-A PLAN that re-derives the MR-0 D1-D5 defects (why multi-reviewer was disabled) and designs the flag + repaired data model for operator review before any code."
     }
   ],
-  "last_updated": "2026-05-31T15:52:00-04:00",
-  "last_updater": "accept:MR-CAL-5A (investigation completed; 5B/5C/5D-LIVE remain queued, scope-gated)",
+  "last_updated": "2026-05-31T16:00:00-04:00",
+  "last_updater": "design:MR-CAL-5B recorded (global on/off toggle, default off; build still scope-gated)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
