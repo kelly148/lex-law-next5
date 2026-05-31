@@ -12,18 +12,18 @@
     "MR-CAL-3F-LIVE",
     "MR-CAL-CORE-CLOSEOUT",
     "MR-CAL-4A",
-    "MR-CAL-4B"
+    "MR-CAL-4B",
+    "OPS-DEPLOY-PIPELINE-1",
+    "MR-CAL-4C-LIVE",
+    "MR-CAL-5A"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
-  "blocked_engagements": [
-    "MR-CAL-4C-LIVE"
-  ],
+  "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-5A",
     "MR-CAL-5B",
     "MR-CAL-5C",
     "MR-CAL-5D-LIVE",
@@ -160,11 +160,46 @@
       "ts": "2026-05-31T09:08:11-04:00",
       "decision": "blocked:MR-CAL-4C-LIVE",
       "notes": "Operator agreed to block. Native-card render NOT verifiable: Railway is serving a stale frontend build (index-DXdOnjQl.js unchanged across all deploys today) and is not deploying latest main (a748028/b579ee9). Code merged+CI-green+correct; card data present in feedback; Dockerfile correct -> root cause is Railway deploy orchestration, not code. Recommended follow-up OPS-DEPLOY-PIPELINE-1 (needs Railway build logs). Bypass left ON per operator (AUTH_BYPASS_ENABLED=true) for now. MR-CAL-4B render also remains deferred under same root cause."
+    },
+    {
+      "ts": "2026-05-31T09:23:07-04:00",
+      "decision": "start:OPS-DEPLOY-PIPELINE-1",
+      "notes": "Operator-directed. Repo-side investigation CLEAN: railway.json correct with no watchPatterns; Dockerfile correct (COPY . . then vite build); CI workflow passes and does not deploy. Conclusion: deploy failure is in Railway service config/orchestration, not the repo. Needs operator to pull Railway build logs + service settings. Note: deploys worked through de2d7c2 (label verified live) then stopped; bundle frozen at index-DXdOnjQl.js since. MR-CAL-5A remains awaiting_operator_acceptance."
+    },
+    {
+      "ts": "2026-05-31T15:30:00-04:00",
+      "decision": "fix+merge:OPS-DEPLOY-PIPELINE-1",
+      "notes": "Root cause isolated via operator-supplied Railway build logs: Railway's Dockerfile build-LAYER cache reused a stale `vite build` (the `COPY --from=builder /app/dist ./dist` step logged as 'cached'; identical/partial image reuse). Service-variable workarounds were INEFFECTIVE: static ARG CACHEBUST (#61) ignored, and NO_CACHE=1 applies to Railpack not Dockerfile builds (it produced a new image but the dist layer stayed cached). Fix PR #62 squash-merged d37ba10: (1) pinned base image node:22-alpine -> node:22-alpine3.21 on all stages to break the cached layer chain and force a full rebuild incl. vite build; (2) replaced static CACHEBUST with RAILWAY_GIT_COMMIT_SHA so the build cache key changes every commit automatically; (3) added /api/version (commit + build time baked into dist/version.json at build) for one-request deploy verification (/api/health left byte-identical, T-S4-7 green). CI-green. Deploy landed clean in ~45s; /api/version confirmed d37ba10 live."
+    },
+    {
+      "ts": "2026-05-31T15:35:00-04:00",
+      "decision": "diagnosis:MR-CAL-4B-render",
+      "notes": "The persistent 'stale frontend' signal was largely a MEASUREMENT ARTIFACT: the client code-splits by route, so the native-card code lives in the lazily-loaded DocumentDetail-*.js chunk, NOT in the entry index-*.js bundle that was being grepped (both in-browser and via curl). The deployed chunk contained the markers. The genuine defect, found via live tRPC inspection (reviewSession.get): the render path is fully wired (nativeCards attached, render code deployed) but extractEmbeddedFeedbackCards returned 0 cards (nativeCardsLen:0) because reviewers (observed: Gemini) emit audience_affected as a STRING while the lenient FeedbackCardDisplaySchema typed it as z.array(z.string()) -> safeParse fails on that one field -> the WHOLE card is dropped -> silent fallback to the legacy raw body."
+    },
+    {
+      "ts": "2026-05-31T15:40:00-04:00",
+      "decision": "fix+merge:MR-CAL-4B-render",
+      "notes": "Fix PR #63 squash-merged 5ad3be7: FeedbackCardDisplaySchema.audience_affected now z.union([z.array(z.string()), z.string().transform(s=>[s])]).optional() (display-only projection; the strict canonical FeedbackCardSchema array contract is unchanged). Regression test added using the exact production card shape. CI-green. Deployed clean via the new per-commit cache-bust pipeline (~45s); /api/version confirmed 5ad3be7 live."
+    },
+    {
+      "ts": "2026-05-31T15:45:00-04:00",
+      "decision": "live-verified:MR-CAL-4C-LIVE pass",
+      "notes": "Native-card render VERIFIED LIVE on production 5ad3be7 by Claude driving Chrome as kelly (UNIVERSALTITLE browser), synthetic 'POA iteration test' doc. The same previously-failing Gemini iteration-7 session now both PARSES (tRPC reviewSession.get: all 3 suggestions nativeCardsLen:1; audience_affected coerced string->array) and RENDERS: severity-subtype chip (SUBSTANTIVE - BUSINESS), critique_type chip (structural), 'Attorney decision required' amber badge, audience line, 'Suggested revision:' formatted content (3 cards). No data mutation needed (existing data rendered post-fix). Closes MR-CAL-4C-LIVE and the MR-CAL-4B deferred render. CARRYFORWARD: AUTH_BYPASS_ENABLED still ON in prod (operator to disable); synthetic data persists (LLN-PROD-CLEANUP-1)."
+    },
+    {
+      "ts": "2026-05-31T15:52:00-04:00",
+      "decision": "accept:MR-CAL-5A",
+      "notes": "Evaluator / multi-reviewer topology investigation accepted/completed. Findings: the evaluator is already scaffolded (feedback_evaluations table + dispositions JSON, insertFeedbackEvaluation/getEvaluationForIteration, EVALUATOR_MODEL=anthropic:claude-opus-4-5 per decision #41, an invocation block in reviewSession.create, and ReviewPane disposition/synthesis UI) but is DORMANT and INCOMPLETE, and was disabled on purpose. Two independent reasons it does not work: (1) the evaluator block is guarded by selectedReviewers.length > 1, but the MR-0G single-reviewer gate (.max(1) + UI radio) makes that never true; (2) even if it fired, the commit path only emits telemetry - it never parses evaluator output or calls insertFeedbackEvaluation, and prompts are placeholder-level. Standing it up depends on first repairing the MR-0G-gated multi-reviewer path (MR-0 D1-D5 defects) - the largest, riskiest part - so MR-CAL-5B (multi-reviewer session data model) is the true prerequisite. Recommended (NONE authorized; each needs operator approve scope:<id>): 5B multi-reviewer data model, 5C evaluator output contract (advisory-only, consume native cards), 5D-LIVE. PRODUCT-DIRECTION NOTE: activating evaluator/multi-reviewer synthesis is a product decision (current design makes the attorney the cross-iteration synthesizer; automated synthesis is optional), not just engineering. Report: docs/engagements/MR-CAL-5A-investigation.md."
+    },
+    {
+      "ts": "2026-05-31T16:00:00-04:00",
+      "decision": "design:MR-CAL-5B",
+      "notes": "Operator product-direction decision (DESIGN ONLY; NOT scope authorization). Multi-reviewer + advisory evaluator will be TOGGLEABLE via a single GLOBAL on/off master flag, default OFF (= today's single-reviewer, attorney-as-synthesizer behavior; zero regression when off). When ON, the attorney may select multiple reviewers per review and the advisory evaluator engages (advisory only; never decision-making; attorney stays the final decision maker). Architecture must keep per-matter granularity (Option 2) addable later without rework. The toggle gates EXPOSURE only - it does NOT substitute for the MR-CAL-5B data-model repair. Build remains gated on operator approve scope:MR-CAL-5B and should BEGIN WITH A PHASE-A PLAN that re-derives the MR-0 D1-D5 defects (why multi-reviewer was disabled) and designs the flag + repaired data model for operator review before any code."
     }
   ],
-  "last_updated": "2026-05-31T09:08:11-04:00",
-  "last_updater": "operator agree: block MR-CAL-4C-LIVE on Railway deploy-pipeline",
-  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan \u00c2\u00a70.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need.",
+  "last_updated": "2026-05-31T16:00:00-04:00",
+  "last_updater": "design:MR-CAL-5B recorded (global on/off toggle, default off; build still scope-gated)",
+  "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
       "id": "GPT-P8-T1",
@@ -179,29 +214,26 @@
       "engagement": "MR-CAL-2I-LIVE"
     }
   ],
-  "deferred_verifications": [
-    {
-      "engagement": "MR-CAL-4B",
-      "item": "on-screen native feedback-card rendering",
-      "reason": "Railway deploy of a748028 had not landed at verification time (>13min; production still serving pre-a748028 bundle index-DXdOnjQl.js). Code merged + CI-green + embedded STRUCTURED_FEEDBACK_CARDS data confirmed present.",
-      "how_to_close": "After a748028 deploys, reload a reviewer session and confirm the native-card panel renders (severity/subtype, critique_type, attorney-decision flag, audience, suggested revision). Folds naturally into MR-CAL-4C-LIVE, which needs the same deploy.",
-      "recorded_at": "2026-05-30T17:08:17-04:00"
-    }
-  ],
-  "blocked_detail": {
-    "MR-CAL-4C-LIVE": {
-      "reason": "Railway is not building/serving the latest main commit. Served frontend bundle stayed index-DXdOnjQl.js across every deploy/redeploy today, despite native-card source changes merged in a748028/b579ee9 (a real rebuild would change the content-hashed filename). Dockerfile is correct (COPY . . then vite build), so the failure is in Railway deploy orchestration, not the code/Dockerfile.",
-      "evidence": "In-browser (logged-in, decompressed) bundle check: index-DXdOnjQl.js contains neither nativeCards nor \"Attorney decision required\"; reviewer feedback body DOES contain STRUCTURED_FEEDBACK_CARDS. So data present, code merged+CI-green, but not deployed.",
-      "unblock": "Inspect Railway build logs for the latest deployment: confirm a build for b579ee9 ran, executed vite build, and did not fail/skip; check auto-deploy trigger for main. Likely a dedicated OPS engagement (needs Railway dashboard access).",
-      "recorded_at": "2026-05-31T09:08:11-04:00"
-    }
-  },
+  "deferred_verifications": [],
+  "blocked_detail": {},
   "recommended_followups": [
     {
-      "id": "OPS-DEPLOY-PIPELINE-1",
-      "title": "Investigate why Railway is not deploying latest main (stale frontend bundle)",
-      "why": "Blocks MR-CAL-4C-LIVE and every future user-visible change. Needs Railway build-log access.",
-      "recorded_at": "2026-05-31T09:08:11-04:00"
+      "id": "AUTH-BYPASS-DISABLE",
+      "title": "Disable AUTH_BYPASS_ENABLED in Railway production (left ON for the native-card live verification)",
+      "why": "Security: leaves the public production URL unauthenticated. Operator action (Railway dashboard).",
+      "recorded_at": "2026-05-31T15:45:00-04:00"
+    },
+    {
+      "id": "REVIEWER-AUDIENCE-ARRAY",
+      "title": "Align reviewer prompts to emit audience_affected as an array",
+      "why": "The display schema now tolerates a single string (coerced to a one-element array), but the canonical FeedbackCardSchema still requires an array. Aligning the prompt keeps reviewer output closer to the contract. Minor.",
+      "recorded_at": "2026-05-31T15:45:00-04:00"
+    },
+    {
+      "id": "TELEMETRY-RETENTION",
+      "title": "telemetry_events size/retention follow-up (MR-CAL-2G writes full raw reviewer output on every review)",
+      "why": "Storage growth on TiDB serverless (was quota-exhausted earlier in this arc).",
+      "recorded_at": "2026-05-31T15:45:00-04:00"
     }
   ]
 }
