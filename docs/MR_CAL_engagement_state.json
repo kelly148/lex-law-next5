@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-7A",
-  "current_phase": "awaiting-acceptance",
+  "current_engagement": "MR-CAL-7B",
+  "current_phase": "awaiting-plan-acceptance",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -22,18 +22,16 @@
     "MR-CAL-5D-LIVE",
     "MR-CAL-6A",
     "MR-CAL-6B",
-    "MR-CAL-6C-LIVE"
-  ],
-  "in_progress_engagement": "MR-CAL-7A",
-  "awaiting_operator_acceptance": [
+    "MR-CAL-6C-LIVE",
     "MR-CAL-7A"
   ],
+  "in_progress_engagement": "MR-CAL-7B",
+  "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-7B",
     "MR-CAL-7C-LIVE",
     "MR-CAL-8A",
     "MR-CAL-8B",
@@ -297,10 +295,25 @@
       "ts": "2026-06-01T11:10:00-04:00",
       "decision": "investigation-complete:MR-CAL-7A",
       "notes": "Cumulative adopt-ledger investigation (read-only; no code changed). Report committed at docs/engagements/MR-CAL-7A-investigation.md. KEY FINDINGS: the system has ADOPTION RECORDING (feedback_manual_selections: per-iteration, POINTER-only suggestionId + optional attorneyNote, positive-selection only, no text/no status/no version link) and DECISION LOCKING (locked_decisions, new in 6B) but NO cumulative adopt ledger. GREENFIELD fields: adopted/modified TEXT, target document version, regeneration result, current survival status, superseded status, and cumulative-adoption prompt injection. NOTABLE: reviewerPrompts.ts already carries a 'Cumulative state carry-forward' instruction ('treat prior adopted changes as part of the current intended state; do not flag adopted changes as new defects') but NOTHING feeds it data -- the single clearest place a ledger plugs in, exactly mirroring how 6B fed locked decisions into the same reviewer userPrompt. RELATIONSHIP TO LOCKS (acceptance criterion): the locked_decisions origin='adopted' row is a PARTIAL adopt entry; recommendation = keep ledger and locks as SEPARATE tables with DISTINCT semantics (locks = 'do not re-raise' suppression; ledger = 'this was adopted; carry forward + track survival'), reviewer prompt carries BOTH sections, NO silent auto-coupling. RECOMMENDATION (options surfaced, NOT decided): new additive adopt_ledger table (Option A; version-aware; disposition adopted_verbatim|adopted_modified; status active|superseded|resolved|unresolved; targetVersionId), reusing the proven 6B table+query+prompt-injection pattern. HONEST HARD PART: 'did the adopted change survive in the latest draft?' is unreliable to auto-diff (LLM paraphrases) -> Phase A should record targetVersionId deterministically and treat survival as best-effort/attorney-confirmable. PRIVACY: ledger text would flow to LLM providers (no redaction layer; same as 6B). DEPLOY NOTE: 7B adds a table -> prod migration must be applied out-of-band before 7C-LIVE (carryforward DEPLOY-MIGRATIONS-NOT-AUTOMATIC). All three 6.1 acceptance criteria addressed (data model+UI / relationship-to-locks / implementation path). Moved queue-head -> awaiting_operator_acceptance; phase=awaiting-acceptance. Accept with operator approve accept:MR-CAL-7A."
+    },
+    {
+      "ts": "2026-06-01T11:30:00-04:00",
+      "decision": "accept:MR-CAL-7A",
+      "notes": "Operator accepted the adopt-ledger investigation (operator approve accept:MR-CAL-7A). MR-CAL-7A awaiting_operator_acceptance -> completed_engagements. Report of record: docs/engagements/MR-CAL-7A-investigation.md (merged 861807b, PR #81)."
+    },
+    {
+      "ts": "2026-06-01T11:30:00-04:00",
+      "decision": "scope:MR-CAL-7B",
+      "notes": "Operator approved scope to begin MR-CAL-7B (Adopt ledger implementation; Type=Phase A implementation), plan-first. Per the established pattern, three product decisions must be settled with the operator BEFORE the Phase-A plan is written: (1) modified-adopt capture (store adopted text + a verbatim/modified flag, or pointer-only?); (2) reviewer-prompt injection of a 'Previously Adopted' section (feed the existing but-unfed 'cumulative state carry-forward' instruction, or persist-only in Phase A?); (3) survival/superseded status policy (best-effort/attorney-confirmable vs attempt auto-detection) given LLM paraphrase makes auto-diff unreliable. Ledger-vs-locks relationship already settled at 7A: SEPARATE tables, distinct semantics, no auto-coupling. Engagement moved queue-head -> in_progress; phase=scope-approved-planning (awaiting design decisions, then Phase-A plan)."
+    },
+    {
+      "ts": "2026-06-01T11:45:00-04:00",
+      "decision": "plan:MR-CAL-7B",
+      "notes": "Operator design decisions settled: (1) store adopted TEXT + verbatim/modified flag (+ keep original for provenance); (2) YES inject a bounded 'Previously Adopted' section into the reviewer userPrompt (feeds the existing cumulative-state-carry-forward instruction); (3) ATTEMPT AUTO-DETECTION of survival/superseded -- built DEFENSIVELY per plan-author caveat: advisory status only (statusSource auto|attorney), never delete/hide an entry, attorney can override, auto never overwrites an attorney-set status; operator to confirm defensive framing at plan acceptance (may downgrade to deterministic-version-tag-only). Ledger vs locks: SEPARATE tables, no auto-coupling (7A). Phase-A plan delivered (NO code): docs/engagements/MR-CAL-7B-plan.md. PLAN SPINE: additive adopt_ledger table (migration 0003; id/userId/documentId/matterId/sourceSuggestionId/sourceReviewerRole/sourceIterationNumber/reviewSessionId/disposition[adopted_verbatim|adopted_modified]/originalText/adoptedText/adoptedIntoVersionId/producedVersionId/status[active|superseded|resolved|unresolved]/statusSource[auto|attorney]/timestamps; unique (reviewSessionId, sourceSuggestionId)); Zod-Wall Row + userId-scoped queries; capture-on-adopt at the existing regenerate commit point alongside insertManualSelection (additive; selections unchanged); on regen commit set producedVersionId + advisory survival auto-detect; reviewer-prompt injection of bounded '## Previously Adopted' section in reviewSession.create (OMITTED when empty => byte-identical to pre-7B); tRPC listAdoptLedger / updateAdoptLedgerStatus (pure DB; evaluator never writes); ReviewPane adopt-edit field + Adopted-changes panel with status override. Two default-safe increments. DO-NOT-TOUCH: locked_decisions/6B, evaluator scoring, severity taxonomy, calibration text, feedback parser/card contract, multi-reviewer gating, sendability, matter-level rollout, native card runtime. REGRESSION LESSON FROM 6B: create-path behavioral tests vi.resetAllMocks() + mock phase4b -> the new prompt-load query must be stubbed in BOTH the mock factory AND beforeEach. DEPLOY: migration 0003 must be applied to prod TiDB out-of-band before MR-CAL-7C-LIVE. Accept with operator approve accept:MR-CAL-7B-plan to authorize implementation; Phase B (push/PR/CI/merge) separately gated."
     }
   ],
-  "last_updated": "2026-06-01T11:10:00-04:00",
-  "last_updater": "MR-CAL-7A adopt-ledger investigation complete -> awaiting_operator_acceptance; report at docs/engagements/MR-CAL-7A-investigation.md; next queued = MR-CAL-7B",
+  "last_updated": "2026-06-01T11:30:00-04:00",
+  "last_updater": "MR-CAL-7A accepted; MR-CAL-7B Phase-A plan delivered (docs/engagements/MR-CAL-7B-plan.md; adopted-text+flag, prompt injection, advisory auto-detect survival) -> awaiting operator approve accept:MR-CAL-7B-plan; queue head MR-CAL-7C-LIVE",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
