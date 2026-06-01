@@ -322,9 +322,15 @@ describe('§S6g: regression preservation — MR-1 deliverables', () => {
 describe('§S6g: regression preservation — MR-2 deliverables', () => {
   const reviewPane = readSrc('client/components/ReviewPane.tsx');
 
-  it('MR-2 §S1: evaluator path is inert (comment present)', () => {
+  it('MR-2 §S1 → MR-CAL-5C: evaluator is advisory and default-OFF (no longer inert)', () => {
+    // MR-2 §S1 originally required the evaluator path to be INERT. MR-CAL-5C
+    // completed it as an ADVISORY output contract, gated OFF by default
+    // (isEvaluatorEnabled) so it never runs unless explicitly enabled, and it only
+    // persists an advisory evaluation (insertFeedbackEvaluation) — never the
+    // attorney's selection. The inert guarantee is preserved in its new form.
     const reviewSession = readSrc('server/procedures/reviewSession.ts');
-    expect(reviewSession).toContain('INERT');
+    expect(reviewSession).toContain('isEvaluatorEnabled()');
+    expect(reviewSession).toContain('insertFeedbackEvaluation(');
   });
 
   it('MR-2 §S2a: listFeedbackForDocument is exported from phase4b.ts', () => {

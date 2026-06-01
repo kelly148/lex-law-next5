@@ -41,6 +41,17 @@ export const EvaluatorDispositionSchema = z.object({
 export type EvaluatorDisposition = z.infer<typeof EvaluatorDispositionSchema>;
 
 /**
+ * MR-CAL-5C: the evaluator's structured LLM output contract. The evaluator emits one
+ * advisory disposition per reviewer suggestionId. This is the structuredOutputSchema
+ * enforced on the evaluator LLM call and the shape parsed before persistence via
+ * insertFeedbackEvaluation (dispositions column). Advisory only — never a decision.
+ */
+export const EvaluatorOutputSchema = z.object({
+  dispositions: z.array(EvaluatorDispositionSchema),
+});
+export type EvaluatorOutput = z.infer<typeof EvaluatorOutputSchema>;
+
+/**
  * A single selection in a review session (Ch 4.8)
  *
  * MR-4 §3.3 alias normalization: accepts both legacy { feedbackId } and

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-5C",
+  "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -19,14 +19,13 @@
     "MR-CAL-5B",
     "LLN-FEEDBACK-CARD-UX-1"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "MR-CAL-5C",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-5C",
     "MR-CAL-5D-LIVE",
     "MR-CAL-6A",
     "MR-CAL-6B",
@@ -231,10 +230,15 @@
       "ts": "2026-05-31T20:00:00-04:00",
       "decision": "start+push+merge+live-verified:LLN-FEEDBACK-CARD-UX-1 pass",
       "notes": "Phase A implemented (front-end only) and live-verified PASS. Added src/client/utils/feedbackCardDisplay.ts (+ unit tests): stripEmbeddedCardsJson (show only clean narrative prose; drop the raw STRUCTURED_FEEDBACK_CARDS JSON + NARRATIVE_REVIEWER_MEMO label; legacy-safe) and splitSuggestedRevisionPaths (itemize multi-Path revisions). ReviewPane FeedbackCard: render cleaned narrative instead of raw body; itemize native card into labeled rows (severity/subtype + critique_type + attorney-decision chips, then Issue, Recommendation, Suggested revision with multi-path bullets). Branch lex-next/lln-feedback-card-ux-1; PR #66 (first merge attempt hit a transient GitHub 502, retried clean); CI green (Lint + Type Check + Tests incl. new feedbackCardDisplay tests); squash-merged as a742d8a; branch deleted. The PR's docs commit also persisted the MR-CAL-5B closure + CLAUDE.md live-testing directive. LIVE-VERIFIED PASS on production a742d8a (new live-testing standard) via Chrome DOM inspection on the iteration-8 GPT Lite card: rendered card shows BLOCKER / legal_sufficiency / 'Attorney decision required' / audience chips, then itemized Issue / Recommendation / Suggested revision rows, with NO raw JSON (rawJsonPresent=false). Engagement completed. CARRYFORWARD: multi-reviewer (MR-CAL-5B) Gemini-Lite non-return on the 2-reviewer run is an open reviewer-reliability follow-up (not a feature defect)."
+    },
+    {
+      "ts": "2026-05-31T20:10:00-04:00",
+      "decision": "scope:MR-CAL-5C",
+      "notes": "Operator approved scope to begin MR-CAL-5C (evaluator output contract). Per operator-accepted recommendation, 5C begins PLAN-FIRST: a Phase-A plan designing the evaluator prompt, structured output schema, parse + persist (insertFeedbackEvaluation / dispositions JSON), advisory-only display, the non-decisionmaking guardrails (P8-T10: surface consensus/conflict/priority; never decide, never auto-adopt, flag business decisions for the attorney), and enablement via isEvaluatorEnabled (added OFF in 5B). Delivered for operator review BEFORE implementation. Engagement moved queue-head -> in_progress; phase=investigation."
     }
   ],
-  "last_updated": "2026-05-31T20:00:00-04:00",
-  "last_updater": "LLN-FEEDBACK-CARD-UX-1 merged (a742d8a) + live-verified PASS; clean itemized feedback cards LIVE",
+  "last_updated": "2026-05-31T20:10:00-04:00",
+  "last_updater": "scope:MR-CAL-5C approved; in_progress, plan-first Phase-A (evaluator output contract)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
