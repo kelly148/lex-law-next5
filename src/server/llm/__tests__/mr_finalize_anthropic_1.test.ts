@@ -307,7 +307,7 @@ describe('MR-CAL-5D: Anthropic structured output validates object schemas withou
 
     // The returned content must still be the object (re-parses to { dispositions: [...] }),
     // NOT a bare array — i.e. the normalizer did not unwrap it.
-    const parsed = JSON.parse(result.content);
+    const parsed = JSON.parse(String(result.content));
     expect(Array.isArray(parsed)).toBe(false);
     expect(parsed.dispositions).toHaveLength(1);
     expect(parsed.dispositions[0].suggestionId).toBe('s1');
@@ -329,7 +329,7 @@ describe('MR-CAL-5D: Anthropic structured output validates object schemas withou
       signal: AbortSignal.timeout(5000),
     });
 
-    const parsed = JSON.parse(result.content);
+    const parsed = JSON.parse(String(result.content));
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(2);
     expect(parsed[0].title).toBe('Issue A');
