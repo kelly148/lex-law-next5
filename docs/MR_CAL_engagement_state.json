@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-6A",
-  "current_phase": "awaiting-acceptance",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -19,12 +19,11 @@
     "MR-CAL-5B",
     "LLN-FEEDBACK-CARD-UX-1",
     "MR-CAL-5C",
-    "MR-CAL-5D-LIVE"
-  ],
-  "in_progress_engagement": "MR-CAL-6A",
-  "awaiting_operator_acceptance": [
+    "MR-CAL-5D-LIVE",
     "MR-CAL-6A"
   ],
+  "in_progress_engagement": null,
+  "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
@@ -262,10 +261,15 @@
       "ts": "2026-06-01T09:15:00-04:00",
       "decision": "investigation-complete:MR-CAL-6A",
       "notes": "Matter memory investigation (read-only; no code changed). Report committed at docs/engagements/MR-CAL-6A-investigation.md. KEY FINDINGS: (1) Foundation exists -- attorney adoptions persist today in feedback_manual_selections (schema.ts 877-902; document-iteration scoped, POSITIVE-SELECTION ONLY, unique index on (reviewSessionId, suggestionId)); evaluator advisory dispositions in feedback_evaluations (857-875); single budgeted context path assembleContext (src/server/context/pipeline.ts, R14); Zod-Wall + userId ownership on all reads (phase4b.ts). (2) CORE GAP: rejections are IMPLICIT (absence of a manual-selection row) -> today there is NO way to record 'considered & declined / do not re-raise', and nothing injects prior decisions into later prompts. (3) PRE-WIRED but DISABLED: reviewerPrompts.ts already names matter-memory / future_memory_instruction / persistence_count / persistence_chain / matter_memory_correction and has a 'mode discipline' line that explicitly DISABLES matter-memory storage -> low downstream prompt risk to enable. (4) RECOMMENDATION (options surfaced, NOT decided): new additive matter-level table matter_decisions (Option A), matter-level primary + document scope flag, attorney-authored only, status lifecycle active->superseded->retired, injected as a bounded high-priority prompt tier into BOTH reviewer and drafter prompts. (5) PRIVACY FLAG: memory content WILL flow to third-party LLM providers (no redaction layer exists today) -> write rationales accordingly or add an internal-only class. (6) PATH maps directly onto MR-CAL-6B (locked decisions Phase A). All four 5.1 acceptance criteria addressed (data-model options / UI+provenance / privacy+security / implementation path). Moved queue-head -> awaiting_operator_acceptance; phase=awaiting-acceptance. Accept with operator approve accept:MR-CAL-6A (investigation reports commit by default per Rule 12; this report + the tracker transition are being persisted via a gated docs PR)."
+    },
+    {
+      "ts": "2026-06-01T09:30:00-04:00",
+      "decision": "accept:MR-CAL-6A",
+      "notes": "Operator accepted the matter-memory investigation (operator approve accept:MR-CAL-6A). Engagement complete; awaiting_operator_acceptance -> completed_engagements; current/in_progress cleared to idle. Report of record: docs/engagements/MR-CAL-6A-investigation.md (merged e7bf5f0, PR #75). NEXT = MR-CAL-6B (Locked decisions Phase A; Type=Implementation). 6B is an architecture/implementation engagement -> requires operator approve scope:MR-CAL-6B before any code, and per the established pattern should BEGIN WITH A PHASE-A PLAN (additive matter_decisions table per Option A + reviewer/drafter prompt injection + lock/decline action) delivered for operator review before implementation. No product decision (matter-vs-document scope, capture UX, retirement policy) is pre-made; those are operator/attorney calls at 6B scope time."
     }
   ],
-  "last_updated": "2026-06-01T09:15:00-04:00",
-  "last_updater": "MR-CAL-6A investigation complete -> awaiting_operator_acceptance; report at docs/engagements/MR-CAL-6A-investigation.md; next queued = MR-CAL-6B",
+  "last_updated": "2026-06-01T09:30:00-04:00",
+  "last_updater": "MR-CAL-6A accepted (investigation complete); next = MR-CAL-6B (locked decisions Phase A — implementation; needs operator approve scope:MR-CAL-6B, plan-first)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
