@@ -101,6 +101,12 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     insertManualSelection: vi.fn(),
     updateReviewSessionState: vi.fn(),
     updateReviewSessionSelections: vi.fn(),
+    // MR-CAL-7B: regenerate captures adopt-ledger entries + applies survival; create
+    // injects the carryforward. Stub them so the real DB queries are not hit (returns
+    // undefined; non-throwing — adopt-ledger bookkeeping is additive/best-effort here).
+    insertAdoptLedgerEntry: vi.fn(),
+    applyRegenerationToAdoptLedger: vi.fn(),
+    listAdoptLedgerForPrompt: vi.fn(),
   };
 });
 vi.mock('../db/queries/documents.js', async (importOriginal) => {

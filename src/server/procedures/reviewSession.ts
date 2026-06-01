@@ -61,6 +61,12 @@ import {
   getLockedDecisionById,
   unlockLockedDecision,
   updateLockedDecision,
+  insertAdoptLedgerEntry,
+  listAdoptLedgerForDocument,
+  listAdoptLedgerForPrompt,
+  getAdoptLedgerEntryById,
+  updateAdoptLedgerStatus,
+  applyRegenerationToAdoptLedger,
 } from '../db/queries/phase4b.js';
 import { assertNotComplete } from './documents.js';
 
@@ -236,6 +242,36 @@ export const reviewSessionRouter = router({
         ].filter((s) => s !== '').join('\n');
       }
 
+      // MR-CAL-7B: load this document's adopt-ledger entries (status active|unresolved)
+      // and build a bounded "## Previously Adopted" section. This finally feeds the
+      // reviewerPrompts.ts "Cumulative state carry-forward" instruction real data:
+      // reviewers should treat adopted changes as intended state, not new defects.
+      // Empty ledger => previouslyAdoptedSection is '' => prompt byte-identical to pre-7B.
+      const MAX_ADOPTED_IN_PROMPT = 50;
+      const ADOPTED_TEXT_MAX_CHARS = 500;
+      const adoptLedgerForPrompt = await listAdoptLedgerForPrompt(input.documentId, userId);
+      let previouslyAdoptedSection = '';
+      if (adoptLedgerForPrompt.length > 0) {
+        const shownA = adoptLedgerForPrompt.slice(0, MAX_ADOPTED_IN_PROMPT);
+        const linesA = shownA.map((e, i) => {
+          const txt = (e.adoptedText ?? '').replace(/\s+/g, ' ').trim().slice(0, ADOPTED_TEXT_MAX_CHARS);
+          const modFlag = e.disposition === 'adopted_modified' ? ' (modified)' : '';
+          return `${i + 1}.${modFlag} ${txt}`;
+        });
+        const omittedA = adoptLedgerForPrompt.length - shownA.length;
+        const omittedNoteA = omittedA > 0 ? `\n(${omittedA} additional adopted item(s) omitted for length.)` : '';
+        previouslyAdoptedSection = [
+          '',
+          '## Previously Adopted (treat as intended current state — do not re-flag as new defects)',
+          'The supervising attorney has already ADOPTED the following changes for THIS document',
+          '(verbatim or modified). Treat them as part of the intended draft. Do not flag an adopted',
+          'change as a new defect. You may still flag a genuine NEW problem the adopted text introduces,',
+          'but say explicitly that it arises from the adopted change.',
+          ...linesA,
+          omittedNoteA,
+        ].filter((s) => s !== '').join('\n');
+      }
+
       // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation)
       const reviewerJobIds: string[] = [];
       for (const reviewerRole of input.selectedReviewers) {
@@ -261,6 +297,9 @@ export const reviewSessionRouter = router({
           // Only present when there are active locked decisions; otherwise omitted
           // entirely so the prompt is byte-identical to pre-6B behavior.
           ...(lockedDecisionsSection ? [lockedDecisionsSection] : []),
+          // MR-CAL-7B: only present when the adopt ledger has carryforward entries;
+          // otherwise omitted entirely so the prompt is byte-identical to pre-7B.
+          ...(previouslyAdoptedSection ? [previouslyAdoptedSection] : []),
         ].join('\n');
         const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
         const reviewerResult = await executeCanonicalMutation({
@@ -454,6 +493,8 @@ export const reviewSessionRouter = router({
             // SessionSelectionSchema at the DB read layer.
             suggestionId: z.string().uuid(),
             note: z.string().nullable(),
+            // MR-CAL-7B: optional attorney-edited adopted text (present => modified adopt).
+            adoptedText: z.string().optional(),
           }),
         ),
       }),
@@ -626,8 +667,8 @@ export const reviewSessionRouter = router({
       // MR-4 P1: Build itemized prompt from full suggestion text.
       // Fetch all feedback rows for this session to resolve suggestionId → suggestion data.
       const allFeedbackForPrompt = await listFeedbackForSession(input.sessionId, userId);
-      // Build a flat map: suggestionId → { title, body, severity, reviewerTitle }
-      const suggestionMap = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string }>();
+      // Build a flat map: suggestionId → { title, body, severity, reviewerTitle, reviewerRole }
+      const suggestionMap = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string; reviewerRole: string }>();
       for (const feedbackRow of allFeedbackForPrompt) {
         for (const suggestion of feedbackRow.suggestions) {
           suggestionMap.set(suggestion.suggestionId, {
@@ -635,6 +676,7 @@ export const reviewSessionRouter = router({
             body: suggestion.body,
             ...(suggestion.severity !== undefined ? { severity: suggestion.severity } : {}),
             reviewerTitle: feedbackRow.reviewerTitle,
+            reviewerRole: feedbackRow.reviewerRole,
           });
         }
       }
@@ -648,8 +690,22 @@ export const reviewSessionRouter = router({
         }
       }
 
+      // MR-CAL-7B: adopt_ledger anchors each adoption to the current (input) version.
+      if (!doc.currentVersionId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'NO_CURRENT_VERSION: document has no current version',
+        });
+      }
+      const adoptedIntoVersionId = doc.currentVersionId;
+
       // Commit feedback_manual_selections rows (R5: positive-selection only)
-      for (const sel of selections) {
+      // MR-CAL-7B: additively record an adopt_ledger entry per selection (text-bearing,
+      // version-anchored). The ledger is separate from selections; selections keep their
+      // per-iteration role. status='unresolved' until this regeneration produces a version
+      // (applyRegenerationToAdoptLedger flips it to active/superseded after commit).
+      const selWithText = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
+      for (const sel of selWithText) {
         await insertManualSelection({
           userId,
           documentId: session.documentId,
@@ -658,6 +714,31 @@ export const reviewSessionRouter = router({
           suggestionId: sel.suggestionId,
           attorneyNote: sel.note,
         });
+        const s = suggestionMap.get(sel.suggestionId)!;
+        const edited = sel.adoptedText !== undefined && sel.adoptedText.trim() !== '' && sel.adoptedText !== s.body;
+        const adoptLedgerId = await insertAdoptLedgerEntry({
+          userId,
+          documentId: session.documentId,
+          matterId: doc.matterId,
+          sourceSuggestionId: sel.suggestionId,
+          sourceReviewerRole: s.reviewerRole,
+          sourceIterationNumber: session.iterationNumber,
+          reviewSessionId: input.sessionId,
+          disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+          originalText: s.body,
+          adoptedText: edited ? sel.adoptedText! : s.body,
+          adoptedIntoVersionId,
+        });
+        void emitTelemetry(
+          'adopt_ledger_entry_created',
+          {
+            adoptLedgerId,
+            sourceSuggestionId: sel.suggestionId,
+            disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+            iterationNumber: session.iterationNumber,
+          },
+          { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
+        );
       }
 
       // Transition session to 'regenerated'
@@ -752,7 +833,7 @@ export const reviewSessionRouter = router({
       // MR-4: guard is now on all selections (Option B), not reviewer-filtered subset.
       // MR-4 P1: Build itemized prompt from full suggestion text (same path as regenerate).
       const allFeedbackForPromptSingle = await listFeedbackForSession(input.sessionId, userId);
-      const suggestionMapSingle = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string }>();
+      const suggestionMapSingle = new Map<string, { title: string; body: string; severity?: string; reviewerTitle: string; reviewerRole: string }>();
       for (const feedbackRow of allFeedbackForPromptSingle) {
         for (const suggestion of feedbackRow.suggestions) {
           suggestionMapSingle.set(suggestion.suggestionId, {
@@ -760,6 +841,7 @@ export const reviewSessionRouter = router({
             body: suggestion.body,
             ...(suggestion.severity !== undefined ? { severity: suggestion.severity } : {}),
             reviewerTitle: feedbackRow.reviewerTitle,
+            reviewerRole: feedbackRow.reviewerRole,
           });
         }
       }
@@ -772,8 +854,19 @@ export const reviewSessionRouter = router({
           });
         }
       }
+      // MR-CAL-7B: adopt_ledger anchors each adoption to the current (input) version.
+      if (!doc.currentVersionId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'NO_CURRENT_VERSION: document has no current version',
+        });
+      }
+      const adoptedIntoVersionIdSingle = doc.currentVersionId;
+
       // Commit all selections (R5: positive-selection only)
-      for (const sel of selections) {
+      // MR-CAL-7B: additively record adopt_ledger entries (same path as regenerate).
+      const selWithTextSingle = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
+      for (const sel of selWithTextSingle) {
         await insertManualSelection({
           userId,
           documentId: session.documentId,
@@ -782,6 +875,31 @@ export const reviewSessionRouter = router({
           suggestionId: sel.suggestionId,
           attorneyNote: sel.note,
         });
+        const s = suggestionMapSingle.get(sel.suggestionId)!;
+        const edited = sel.adoptedText !== undefined && sel.adoptedText.trim() !== '' && sel.adoptedText !== s.body;
+        const adoptLedgerId = await insertAdoptLedgerEntry({
+          userId,
+          documentId: session.documentId,
+          matterId: doc.matterId,
+          sourceSuggestionId: sel.suggestionId,
+          sourceReviewerRole: s.reviewerRole,
+          sourceIterationNumber: session.iterationNumber,
+          reviewSessionId: input.sessionId,
+          disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+          originalText: s.body,
+          adoptedText: edited ? sel.adoptedText! : s.body,
+          adoptedIntoVersionId: adoptedIntoVersionIdSingle,
+        });
+        void emitTelemetry(
+          'adopt_ledger_entry_created',
+          {
+            adoptLedgerId,
+            sourceSuggestionId: sel.suggestionId,
+            disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+            iterationNumber: session.iterationNumber,
+          },
+          { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
+        );
       }
 
       // Transition session to 'regenerated'
@@ -972,6 +1090,50 @@ export const reviewSessionRouter = router({
 
       return { lockedDecisionId: input.lockedDecisionId };
     }),
+
+  // ============================================================
+  // MR-CAL-7B — cumulative adopt ledger (read + attorney status override)
+  //
+  // Ledger entries are CAPTURED inside regenerate/regenerateSingleReviewer (one
+  // commit point with the adoption) and updated on regeneration commit; these
+  // procedures are the read path and the attorney's status override. Pure DB.
+  // ============================================================
+
+  // listAdoptLedger — all ledger entries for a document (any status), newest first.
+  listAdoptLedger: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const doc = await getDocumentById(input.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      const adoptLedger = await listAdoptLedgerForDocument(input.documentId, userId);
+      return { adoptLedger };
+    }),
+
+  // updateAdoptLedgerStatus — attorney override (statusSource -> 'attorney'; auto-detection
+  // will never overwrite an attorney-set status thereafter).
+  updateAdoptLedgerStatus: protectedProcedure
+    .input(
+      z.object({
+        adoptLedgerId: z.string().uuid(),
+        status: z.enum(['active', 'superseded', 'resolved', 'unresolved']),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const existing = await getAdoptLedgerEntryById(input.adoptLedgerId, userId);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Adopt-ledger entry not found' });
+
+      await updateAdoptLedgerStatus(input.adoptLedgerId, userId, input.status);
+
+      void emitTelemetry(
+        'adopt_ledger_status_overridden',
+        { adoptLedgerId: input.adoptLedgerId, status: input.status },
+        { userId, matterId: existing.matterId, documentId: existing.documentId, jobId: null },
+      );
+
+      return { adoptLedgerId: input.adoptLedgerId };
+    }),
 });
 
 // ─── internal helper: invoke document.regenerate logic ────────────────────────
@@ -1057,6 +1219,25 @@ async function _invokeDocumentRegenerate(params: {
         iterationNumber: nextIterationNumber,
       });
       await updateDocumentCurrentVersion(documentId, userId, newVersion.id);
+      // MR-CAL-7B: mark adopt-ledger entries carried into this produced version and run
+      // the ADVISORY survival heuristic (auto-status only; never touches attorney-set rows,
+      // never deletes/hides). Failure here must NOT fail the regeneration (the new version is
+      // already committed); wrap defensively.
+      try {
+        const ledgerResult = await applyRegenerationToAdoptLedger({
+          documentId,
+          userId,
+          producedVersionId: newVersion.id,
+          newContent: content,
+        });
+        void emitTelemetry(
+          'adopt_ledger_regeneration_applied',
+          { producedVersionId: newVersion.id, carried: ledgerResult.carried, superseded: ledgerResult.superseded },
+          { userId, matterId, documentId, jobId },
+        );
+      } catch {
+        // Advisory ledger bookkeeping is best-effort; never block a committed regeneration.
+      }
       void emitTelemetry(
         'generation_completed',
         { jobId, operation: 'regeneration', newVersionNumber: versionNumber },

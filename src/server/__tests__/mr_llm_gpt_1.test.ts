@@ -53,6 +53,8 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getNextIterationNumberForDocument: vi.fn(),
     // MR-CAL-6B: reviewSession.create loads active locked decisions; default to none.
     listActiveLockedDecisionsForDocument: vi.fn().mockResolvedValue([]),
+    // MR-CAL-7B: reviewSession.create loads adopt-ledger carryforward; default none.
+    listAdoptLedgerForPrompt: vi.fn().mockResolvedValue([]),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),

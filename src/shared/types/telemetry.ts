@@ -81,7 +81,11 @@ type ReviewPaneEvent =
   // MR-CAL-6B: locked-decision lifecycle (document-scoped attorney locks).
   | 'locked_decision_created'
   | 'locked_decision_unlocked'
-  | 'locked_decision_updated';
+  | 'locked_decision_updated'
+  // MR-CAL-7B: cumulative adopt-ledger lifecycle.
+  | 'adopt_ledger_entry_created'
+  | 'adopt_ledger_regeneration_applied'
+  | 'adopt_ledger_status_overridden';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -283,6 +287,22 @@ export interface TelemetryPayload {
   locked_decision_updated: {
     lockedDecisionId: string;
     fields: string[];
+  };
+  // MR-CAL-7B: cumulative adopt-ledger lifecycle.
+  adopt_ledger_entry_created: {
+    adoptLedgerId: string;
+    sourceSuggestionId: string;
+    disposition: 'adopted_verbatim' | 'adopted_modified';
+    iterationNumber: number;
+  };
+  adopt_ledger_regeneration_applied: {
+    producedVersionId: string;
+    carried: number;
+    superseded: number;
+  };
+  adopt_ledger_status_overridden: {
+    adoptLedgerId: string;
+    status: 'active' | 'superseded' | 'resolved' | 'unresolved';
   };
 
   // E.6 Materials library

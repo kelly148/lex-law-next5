@@ -71,6 +71,10 @@ export const SessionSelectionSchema = z
     // written before MR-4. Normalized to suggestionId at parse time.
     feedbackId: z.string().uuid().optional(),
     note: z.string().nullable(),
+    // MR-CAL-7B: optional attorney-edited adopted text. When present, the adoption
+    // is "modified"; when absent, it is verbatim. Additive + backward-compatible:
+    // pre-7B selections simply omit it. Drives the adopt_ledger disposition.
+    adoptedText: z.string().optional(),
   })
   .superRefine((raw, ctx) => {
     // MR-4 §3.3 alias conflict guard: reject rows where both keys are present
@@ -92,6 +96,8 @@ export const SessionSelectionSchema = z
     // Prefer canonical suggestionId; fall back to legacy feedbackId alias.
     suggestionId: (raw.suggestionId ?? raw.feedbackId) as string,
     note: raw.note,
+    // MR-CAL-7B: carry the optional edited text through normalization.
+    ...(raw.adoptedText !== undefined ? { adoptedText: raw.adoptedText } : {}),
   }))
   .refine((v) => typeof v.suggestionId === 'string' && v.suggestionId.length > 0, {
     message: 'SessionSelection must include either suggestionId or feedbackId',
@@ -242,3 +248,30 @@ export const LockedDecisionRowSchema = z.object({
   updatedAt: z.date(),
 });
 export type LockedDecisionRow = z.infer<typeof LockedDecisionRowSchema>;
+
+// ============================================================
+// adopt_ledger (MR-CAL-7B)
+// ============================================================
+// Cumulative record of adopted reviewer suggestions (verbatim or modified),
+// tracked across regeneration. Separate from locked_decisions (MR-CAL-7A).
+
+export const AdoptLedgerRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  documentId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  sourceSuggestionId: z.string(),
+  sourceReviewerRole: z.string(),
+  sourceIterationNumber: z.number().int().nonnegative(),
+  reviewSessionId: z.string().uuid(),
+  disposition: z.enum(['adopted_verbatim', 'adopted_modified']),
+  originalText: z.string(),
+  adoptedText: z.string(),
+  adoptedIntoVersionId: z.string().uuid(),
+  producedVersionId: z.string().uuid().nullable(),
+  status: z.enum(['active', 'superseded', 'resolved', 'unresolved']),
+  statusSource: z.enum(['auto', 'attorney']),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type AdoptLedgerRow = z.infer<typeof AdoptLedgerRowSchema>;
