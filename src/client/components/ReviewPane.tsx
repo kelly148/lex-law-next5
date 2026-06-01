@@ -379,6 +379,7 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
   // MR-CAL-7B: build the canonical selection list from server state + pending local
   // note and adopted-text edits. Used by toggle/note/adopted-text handlers so no edit
   // is dropped on a concurrent change. adoptedText is included only when set.
+  // This prevents the race where a note typed before a checkbox toggle is dropped.
   const buildLatestSelections = (): Array<{ suggestionId: string; note: string | null; adoptedText?: string }> =>
     selections.map((sel) => {
       const note = noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note;

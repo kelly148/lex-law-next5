@@ -1124,12 +1124,11 @@ export async function applyRegenerationToAdoptLedger(params: {
         inArray(adoptLedger.status, ['active', 'unresolved']),
       ),
     );
-  const normalizedContent = normalizeForSurvival(newContent);
   let carried = 0;
   let superseded = 0;
   for (const r of rows) {
     const parsed = parseAdoptLedgerRow(r, { userId });
-    const present = survivalHeuristicPresent(parsed.adoptedText, normalizedContent);
+    const present = survivalHeuristicPresent(parsed.adoptedText, newContent);
     const nextStatus: 'active' | 'superseded' = present ? 'active' : 'superseded';
     if (nextStatus === 'active') carried++;
     else superseded++;
@@ -1168,17 +1167,20 @@ function normalizeForSurvival(text: string): string {
   return text.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-export function survivalHeuristicPresent(adoptedText: string, normalizedContent: string): boolean {
+export function survivalHeuristicPresent(adoptedText: string, content: string): boolean {
   const a = normalizeForSurvival(adoptedText);
   if (a.length === 0) return true; // nothing to find -> don't flag as lost
+  // Normalize content here too so the function is correct whether the caller passes
+  // raw or already-normalized content (normalizeForSurvival is idempotent).
+  const c = normalizeForSurvival(content);
   // Direct containment of a reasonably long adopted snippet.
-  if (a.length <= 200 && normalizedContent.includes(a)) return true;
+  if (a.length <= 200 && c.includes(a)) return true;
   // Token-overlap fallback for longer/paraphrased text: how many of the adopted
   // text's distinctive tokens appear in the new content.
   const tokens = a.split(' ').filter((t) => t.length >= 5);
   if (tokens.length === 0) {
-    return normalizedContent.includes(a);
+    return c.includes(a);
   }
-  const hits = tokens.filter((t) => normalizedContent.includes(t)).length;
+  const hits = tokens.filter((t) => c.includes(t)).length;
   return hits / tokens.length >= 0.6;
 }
