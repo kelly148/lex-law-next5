@@ -247,10 +247,15 @@
       "ts": "2026-05-31T21:30:00-04:00",
       "decision": "blocked:MR-CAL-5D-LIVE",
       "notes": "Operator approved blocking (Rule-11 transition confirmed). Live verification of the advisory evaluator could NOT be performed because the reviewer-completion path is currently broken for ALL reviewers, independent of the evaluator. With EVALUATOR_ENABLED=true and MULTI_REVIEWER_ENABLED=true on prod (b7ae166; /api/version + /api/health 200; settings.get multiReviewerEnabled=true), four controlled reviews on the synthetic POA iteration test doc all hung with status=in_progress, feedbackCount=0, evaluation=null and no browser console errors: iter9 GPT Lite + Claude Lite (evaluator path) ~12min; iter10 GPT Lite + Grok Lite (evaluator path) ~6min; iter11 GPT Lite ALONE (single reviewer, evaluator NOT triggered) ~6min; iter12 Grok Lite ALONE (single reviewer, evaluator NOT triggered) ~5min. CONFIRMED: single-reviewer evaluator-off runs hang identically to 2-reviewer evaluator-on runs -> the MR-CAL-5C evaluator code is NOT implicated; 5D-LIVE is simply not performable now. CONSISTENT WITH (not confirmed, no server-log/DB access): a hanging DB write/commit (sessions insert as in_progress but never flip to complete; feedback never commits; in-app Abandon did not persist a status change -> all 4 still in_progress). Coincident with the EVALUATOR_ENABLED env-change redeploy but not caused by evaluator code. Operator follow-ups (operator domain; not Claude actions): inspect Railway service logs since b7ae166 redeploy; check TiDB/DB health (connections/quota/locks); a restart/redeploy may clear it, after which a single-reviewer smoke test gates resuming 5D-LIVE. 4 stuck synthetic sessions (iter9-12) added to LLN-PROD-CLEANUP-1. Engagement queue-head -> blocked_engagements."
+    },
+    {
+      "ts": "2026-06-01T06:45:00-04:00",
+      "decision": "blocked-diagnosis-corrected:MR-CAL-5D-LIVE",
+      "notes": "CORRECTION (operator-directed) of the 2026-05-31T21:30 blocked diagnosis. The prior 'infra/DB reviewer-completion hang for ALL reviewers' conclusion was WRONG -- it was a MEASUREMENT ARTIFACT plus a stuck-session interaction, not an outage. Two root errors in the prior reading: (1) status was being polled via a tRPC path 'reviewSession.list' that DOES NOT EXIST (the real read endpoints are reviewSession.getDocumentHistory / reviewSession.get) -- every such probe 404'd ('No procedure found on path reviewSession.list', visible in Railway Deploy Logs as dozens of identical red lines, all self-inflicted, NOT reviewer failures); and (2) an earlier flaky-reviewer failure had left a session stuck state=active, so each new create hit SESSION_ALREADY_EXISTS (409) -- which looked like 'hanging' but was 'blocked by a leftover active session'. INFRA CONFIRMED HEALTHY this session: TiDB Cloud dashboard Active, RU/storage ~0, billed $0.12/$50, query duration ~5-20ms; Railway Network Flow Logs show healthy DB egress (75.2.85.188:4000 / 99.83.147.192:4000, all OK, ~8ms); Railway upgraded to Pro; clean container start at 20:54 EDT; Deploy Logs show NO timeout/fetch-failed/ENOTFOUND/provider errors. POSITIVE EVIDENCE the reviewer path works: a single-reviewer GPT Lite run RETURNED feedback (1 suggestion); GPT Lite returned in EVERY run it was in. THE ACTUAL BLOCKER is multi-reviewer reliability + a stuck-session bug: (a) Gemini Lite returned INVALID JSON for structured output ('SyntaxError: Expected , or } ... position 1284') and failed its session; (b) on a clean GPT Lite + Claude Lite retry (iter11, driven by Claude), GPT Lite committed 1 suggestion but Claude Lite never returned within >12min, leaving the session state=active, evaluation=NULL; (c) when any one reviewer fails/never-returns, the WHOLE multi-reviewer session fails AND is left stuck 'active' (no failed-state transition), which is also what produces the SESSION_ALREADY_EXISTS that blocks the next attempt. NET: the MR-CAL-5C evaluator is NOT implicated and is NOT YET live-verified -- across all attempts we never got two reviewers to both succeed in one session, so the evaluator never fired (evaluation=NULL throughout). 5D-LIVE remains BLOCKED, but on reviewer reliability + the stuck-active-session bug, NOT on infra. New synthetic sessions accrued (iter 9-11 active/abandoned) -> LLN-PROD-CLEANUP-1. Evidence: live reviewer feedback + reviewSession.getDocumentHistory/get reads via Chrome (UNIVERSALTITLE) on doc cbf83ad7-a437-4aa7-9ecb-7a31d7985a95; Railway Deploy Logs + Network Flow Logs + TiDB dashboard screenshots (operator-supplied)."
     }
   ],
-  "last_updated": "2026-05-31T21:30:00-04:00",
-  "last_updater": "MR-CAL-5D-LIVE BLOCKED on infra/DB reviewer-completion hang (evaluator code not implicated); next runnable = MR-CAL-6A",
+  "last_updated": "2026-06-01T06:45:00-04:00",
+  "last_updater": "MR-CAL-5D-LIVE still BLOCKED but diagnosis CORRECTED: infra healthy (prior 'infra/DB hang' was a measurement artifact); real blocker = multi-reviewer reliability (Gemini bad-JSON, Claude-Lite no-return) + stuck-active-session bug; evaluator not implicated and not yet verified",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -270,14 +275,16 @@
   "blocked_detail": {
     "MR-CAL-5D-LIVE": {
       "blocked_at": "2026-05-31T21:30:00-04:00",
-      "reason": "Reviewer-completion path broken for ALL reviewers (single or multi, evaluator on or off). 4 controlled runs on synthetic POA iteration test doc hung at status=in_progress, feedbackCount=0, no console errors. Evaluator code (MR-CAL-5C) exonerated: single-reviewer evaluator-off runs hang identically.",
-      "evidence_class": "Reviewer hang CONFIRMED by live tRPC inspection; DB-write-hang root cause CONSISTENT WITH symptoms but NOT confirmed (no server-log/DB access).",
+      "diagnosis_corrected_at": "2026-06-01T06:45:00-04:00",
+      "superseded_reason": "ORIGINAL (WRONG) reason recorded 2026-05-31: 'reviewer-completion path broken for ALL reviewers; consistent with a hanging DB write'. This was a measurement artifact (status polled via a non-existent endpoint reviewSession.list) compounded by a stuck active session (SESSION_ALREADY_EXISTS). Superseded by the corrected diagnosis below.",
+      "reason": "Infra is HEALTHY; the reviewer path works (single-reviewer GPT Lite returns feedback reliably). The real blocker is (1) multi-reviewer RELIABILITY -- Gemini Lite returns invalid JSON for structured output and fails; Claude Lite intermittently never returns -- and (2) a STUCK-SESSION BUG: when any one reviewer in a multi-reviewer session fails or never returns, the whole session fails AND is left state=active (no failed-state transition), which both prevents the evaluator from firing and blocks the next attempt with SESSION_ALREADY_EXISTS. The MR-CAL-5C evaluator is NOT implicated and is NOT YET live-verified: across all attempts two reviewers never both succeeded in one session, so the evaluator never fired (evaluation=NULL throughout).",
+      "evidence_class": "Infra-healthy CONFIRMED (TiDB dashboard + Railway Network Flow/Deploy Logs + live GPT Lite feedback returned). Reviewer-reliability failures CONFIRMED (Gemini Lite invalid-JSON error on screen; Claude Lite no-return >12min with session left active, evaluation=NULL via reviewSession.get). Evaluator behavior NOT YET OBSERVED (never reached).",
       "operator_followups": [
-        "Inspect Railway service logs since the b7ae166 EVALUATOR_ENABLED env-change redeploy.",
-        "Check TiDB/DB health (connections, quota, locks) - signature is a write/commit that never returns.",
-        "Restart/redeploy may clear it; then a single-reviewer smoke test gates resuming MR-CAL-5D-LIVE."
+        "Resume requires TWO reviewers to both succeed in one session so the evaluator fires; pick the most reliable pair (GPT Lite + GPT, or GPT Lite + Claude) and retry; avoid Gemini (invalid JSON).",
+        "Fix the stuck-active-session bug: a failed/timed-out reviewer should transition the session to a failed/abandoned state, not leave it active (it blocks retries via SESSION_ALREADY_EXISTS).",
+        "Reviewer reliability follow-up: Gemini structured-output invalid JSON (same JSON-contract brittleness MR-IR-GEN-2 fixed for questionnaires); Claude Lite intermittent non-return."
       ],
-      "cleanup": "4 stuck synthetic sessions (iter9-12) added to LLN-PROD-CLEANUP-1."
+      "cleanup": "Synthetic sessions on doc cbf83ad7-a437-4aa7-9ecb-7a31d7985a95 (iter 8-12, mix of active/abandoned/regenerated) added to LLN-PROD-CLEANUP-1; the prior note's 'd_poa_iter_001' was an incorrect doc id used by the broken probe."
     }
   },
   "recommended_followups": [
@@ -298,6 +305,18 @@
       "title": "telemetry_events size/retention follow-up (MR-CAL-2G writes full raw reviewer output on every review)",
       "why": "Storage growth on TiDB serverless (was quota-exhausted earlier in this arc).",
       "recorded_at": "2026-05-31T15:45:00-04:00"
+    },
+    {
+      "id": "STUCK-ACTIVE-SESSION-ON-REVIEWER-FAILURE",
+      "title": "A failed/timed-out reviewer leaves the review session stuck state=active (no failed-state transition)",
+      "why": "When any one reviewer in a multi-reviewer session fails or never returns, the whole session fails but is left 'active', which blocks the next create with SESSION_ALREADY_EXISTS and forces a manual abandon/regenerate to clear. Surfaced repeatedly during MR-CAL-5D-LIVE attempts (Gemini Lite invalid JSON; Claude Lite non-return). Robustness fix: transition to a failed/abandoned state on reviewer failure/timeout. Likely also blocks the evaluator from ever firing.",
+      "recorded_at": "2026-06-01T06:45:00-04:00"
+    },
+    {
+      "id": "GEMINI-STRUCTURED-OUTPUT-INVALID-JSON",
+      "title": "Gemini reviewers return invalid JSON for structured output (reviewer reliability)",
+      "why": "Live MR-CAL-5D-LIVE attempt: gemini-2.5-flash failed with 'response is not valid JSON for structured output: SyntaxError: Expected , or } ... position 1284', failing the whole session. Same JSON-contract brittleness class that MR-IR-GEN-2 fixed for information-request generation (structuredOutputSchema + tolerant parse), still affecting the Gemini reviewer adapter. Until addressed, avoid Gemini for multi-reviewer/evaluator runs; prefer GPT/GPT Lite/Claude.",
+      "recorded_at": "2026-06-01T06:45:00-04:00"
     }
   ]
 }
