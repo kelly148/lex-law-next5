@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-8B",
+  "current_phase": "awaiting-plan-acceptance",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -28,14 +28,13 @@
     "MR-CAL-7C-LIVE",
     "MR-CAL-8A"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "MR-CAL-8B",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-8B",
     "MR-CAL-8C-LIVE",
     "CAL-7B-PLAN",
     "CAL-7B-LIVE",
@@ -336,10 +335,20 @@
       "ts": "2026-06-01T14:00:00-04:00",
       "decision": "accept:MR-CAL-8A",
       "notes": "Operator accepted the sendability-gate investigation (operator approve accept:MR-CAL-8A). MR-CAL-8A awaiting_operator_acceptance -> completed_engagements; current/in_progress cleared to idle. Report of record: docs/engagements/MR-CAL-8A-investigation.md (merged b16127d, PR #86). NEXT = MR-CAL-8B (Sendability gate implementation; Type=Phase A implementation) -> requires operator approve scope:MR-CAL-8B and begins PLAN-FIRST; carries product decisions for the operator (aggregator vs LLM classifier; advisory-with-ack framing; override storage Option A table vs Option B documents columns; UI surfaces) and the prod-migrate step if it adds a table."
+    },
+    {
+      "ts": "2026-06-01T14:20:00-04:00",
+      "decision": "scope:MR-CAL-8B",
+      "notes": "Operator approved scope to begin MR-CAL-8B (Sendability gate implementation), plan-first. FINAL design decisions settled with the operator (one revised mid-discussion): (1) ENGINE = LLM CLASSIFIER (a new model call reads the whole document for a sendability verdict; built defensively so failure never breaks finalize); (2) STRICTNESS = ADVISORY-ONLY, NO GATE (verdict displays; no acknowledge step; never blocks finalize); (3) OVERRIDE STORE = NONE in Phase A (the operator REVISED an initial 'new sendability_overrides table' choice to 'advisory-only, drop the table' to resolve the advisory-vs-override tension -> no new table -> no migration -> no prod-migrate step before 8C-LIVE; only trace is telemetry); (4) UI = BOTH surfaces (SendabilitySection in ReviewPane + verdict at the DocumentDetail finalize boundary). Engagement moved queue-head -> in_progress; phase=awaiting-plan-acceptance."
+    },
+    {
+      "ts": "2026-06-01T14:20:00-04:00",
+      "decision": "plan:MR-CAL-8B",
+      "notes": "Phase-A plan delivered for operator review (NO code): docs/engagements/MR-CAL-8B-plan.md. PLAN SPINE: a new READ-ONLY tRPC query (e.g. document.checkSendability) that assembles the current version content + latest-iteration reviewer feedback and runs an LLM classifier (EVALUATOR_MODEL, explicit 300s timeout per the 5D lesson) returning a structured SendabilityVerdictSchema { sendable, blockers:[{category,severity,summary}], notes? }; new sendabilityPrompt.ts (advisory, non-decisionmaking, enumerates the 8A gate categories) + tolerant sendabilityOutputParse.ts that DEGRADES to 'unavailable' on malformed output (never throws to the finalize path) -- directly mitigating the reviewer-reliability issues seen live in 5D/6C/7C; telemetry 'sendability_checked'. Finalize/acceptSubstantive/acceptSubstantiveUnformatted procedures are NOT modified (classifier is a separate query; advisory-only, cannot affect the finalize transaction). Client: useSendability hook (on-demand, not auto-run) + SendabilitySection in ReviewPane (beside 6B/7B sections) + compact verdict on the DocumentDetail finalize surface; finalize buttons NOT gated/disabled. Two additive increments. NO new table, NO migration. DO-NOT-TOUCH: finalize procedures, locked_decisions/6B, adopt_ledger/7B, evaluator scoring, reviewer scoring/taxonomy, feedback parser/card contract, multi-reviewer gating. HONEST RISKS: LLM-classifier non-determinism + provider reliability (mitigated: advisory + best-effort degrade + 300s timeout + 5D object-schema parse fix); extra Opus call per check (mitigated: on-demand); no audit trace beyond telemetry (per decision #3). Accept with operator approve accept:MR-CAL-8B-plan to authorize implementation; Phase B (push/PR/CI/merge) separately gated."
     }
   ],
-  "last_updated": "2026-06-01T14:00:00-04:00",
-  "last_updater": "MR-CAL-8A accepted (completed); next = MR-CAL-8B (sendability gate implementation; needs operator approve scope:MR-CAL-8B, plan-first); queue head MR-CAL-8B",
+  "last_updated": "2026-06-01T14:20:00-04:00",
+  "last_updater": "MR-CAL-8B scope approved (LLM classifier; advisory-only no gate; no override table; both UI surfaces); Phase-A plan delivered (docs/engagements/MR-CAL-8B-plan.md) -> awaiting operator approve accept:MR-CAL-8B-plan; queue head MR-CAL-8C-LIVE",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
