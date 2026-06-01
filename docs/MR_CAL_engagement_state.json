@@ -23,18 +23,17 @@
     "MR-CAL-6A",
     "MR-CAL-6B",
     "MR-CAL-6C-LIVE",
-    "MR-CAL-7A"
+    "MR-CAL-7A",
+    "MR-CAL-7B",
+    "MR-CAL-7C-LIVE"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
-  "awaiting_live_verification": [
-    "MR-CAL-7B"
-  ],
+  "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-7C-LIVE",
     "MR-CAL-8A",
     "MR-CAL-8B",
     "MR-CAL-8C-LIVE",
@@ -317,10 +316,20 @@
       "ts": "2026-06-01T12:30:00-04:00",
       "decision": "accept+push+merge:MR-CAL-7B",
       "notes": "Operator accepted Phase A (operator approve accept:MR-CAL-7B), approved push (push:MR-CAL-7B) and merge (merge:MR-CAL-7B). Adopt ledger merged to main as 1868e20 (PR #83, squash). Delivered the accepted plan: additive adopt_ledger table (migration 0003, no ALTER/DROP) + Zod-Wall AdoptLedgerRowSchema + userId-scoped queries (insert/list/list-for-prompt/get/applyRegenerationToAdoptLedger/updateAdoptLedgerStatus); SessionSelectionSchema gained optional adoptedText (backward-compatible); capture-on-adopt at both regenerate commit points (alongside insertManualSelection; selections unchanged); on regen commit set producedVersionId + ADVISORY survival auto-detect (auto-status only, never overwrites attorney-set, never deletes/hides, best-effort try/catch so it cannot fail a committed regeneration); reviewer-prompt injection of bounded '## Previously Adopted' section in reviewSession.create (OMITTED when empty => byte-identical to pre-7B); tRPC listAdoptLedger / updateAdoptLedgerStatus; telemetry adopt_ledger_entry_created/_regeneration_applied/_status_overridden; ReviewPane edit-before-adopting textarea + Adopted-changes panel (status, auto/attorney source, Resolve/Mark-present overrides). CI: first run failed on THREE issues, all fixed (77749f9): (a) a real bug -- survivalHeuristicPresent assumed pre-normalized content; now normalizes internally; (b) the buildLatestSelections refactor dropped a comment a source-inspection test (mr4.s2 C7.d) anchors on -> restored; (c) a fifth create/regenerate behavioral test (mr4.s2) mocks phase4b + resetAllMocks -> stubbed insertAdoptLedgerEntry/applyRegenerationToAdoptLedger/listAdoptLedgerForPrompt in the factory. CI green; squash-merged; branch deleted; main 1868e20. Separate from locked decisions (no auto-coupling). DO-NOT-TOUCH respected. DEPLOY CAVEAT: migration 0003 must be applied to prod TiDB out-of-band (TiDB SQL editor or Railway one-off pnpm db:migrate) before MR-CAL-7C-LIVE or the ledger 500s (same as 6B/0002). Engagement in_progress -> awaiting_live_verification (user-visible; behavior verified at MR-CAL-7C-LIVE)."
+    },
+    {
+      "ts": "2026-06-01T13:15:00-04:00",
+      "decision": "migration-applied:0003-adopt-ledger",
+      "notes": "DEPLOY CAVEAT RESOLVED. Confirmed via reviewSession.listAdoptLedger that prod was missing the table (HTTP 500), consistent with Railway not auto-running migrations. Operator applied migration 0003 manually (CREATE TABLE IF NOT EXISTS adopt_ledger, additive/idempotent) in the TiDB Cloud SQL editor against lex_law_next (Query OK). Re-verified: listAdoptLedger returns HTTP 200 empty list. Same out-of-band pattern as 0002 (locked_decisions); recorded follow-up DEPLOY-MIGRATIONS-NOT-AUTOMATIC remains open (consider a deploy-time migrate step)."
+    },
+    {
+      "ts": "2026-06-01T13:15:00-04:00",
+      "decision": "live-verified:MR-CAL-7C-LIVE pass",
+      "notes": "Operator-accepted PASS. Cumulative adopt ledger live-verified on production b4ebc51 (table created this session). TEST on synthetic doc cbf83ad7 (driven via tRPC; GPT Lite flaky this session -- one parse_error + slow runs, a reviewer-reliability issue NOT a 7B problem -- one review retried then produced a suggestion): (1) review produced suggestion 8a13cf8c 'Ambiguity in Agent Delegation Authorization Section'; (2) selected + regenerated -> adopt_ledger entry 62f132c1 created (disposition=adopted_verbatim, linked suggestion, adopted text, status=unresolved pre-regen); (3) regeneration produced version ff59ebde -> entry auto-transitioned unresolved->SUPERSEDED with producedVersionId set, statusSource=auto (correct true-positive of the LLM-paraphrase limitation: the adopted item was a reviewer MEMO, not literal draft text, so the drafter paraphrased and exact text was not found -- exactly the advisory case the design anticipates); (4) ATTORNEY OVERRIDE via updateAdoptLedgerStatus -> active, statusSource auto->attorney (and auto will not overwrite attorney thereafter); (5) NEW review created with the entry active -> 1 carryforward entry loaded into the '## Previously Adopted' prompt injection; entry PERSISTED across the cycle (active/attorney held). ACCEPTANCE (6.3): select->regenerate->review preserves the adopted item PASS; system distinguishes adopted/unresolved/superseded/active PASS (all transitions observed); attorney understands what was adopted + what remains open PASS (text+disposition+status+source+override+carryforward). QUALIFICATIONS (honest): single-trial single-reviewer, API-driven (renderer timed out on the heavy regenerate call but mutations landed, verified by reads); survival auto-status is advisory (paraphrase => false-supersede expected, hence attorney override); prompt injection confirmed at data layer (carryforward set loaded) + CI source-audit tests (job input not exposed via API). Closes MR-CAL-7B (awaiting_live_verification) and MR-CAL-7C-LIVE -> completed; Phase 6 (cumulative adopt ledger) complete. Synthetic sessions + adopt_ledger entry 62f132c1 on cbf83ad7 -> LLN-PROD-CLEANUP-1. Queue head now MR-CAL-8A (sendability gate)."
     }
   ],
-  "last_updated": "2026-06-01T12:30:00-04:00",
-  "last_updater": "MR-CAL-7B merged (1868e20, PR #83) -> awaiting_live_verification (MR-CAL-7C-LIVE). DEPLOY CAVEAT: migration 0003 must run on prod TiDB before live verify.",
+  "last_updated": "2026-06-01T13:15:00-04:00",
+  "last_updater": "MR-CAL-7B + MR-CAL-7C-LIVE COMPLETE (adopt ledger live-verified PASS; prod migration 0003 applied). Phase 6 done. Next = MR-CAL-8A (sendability gate).",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
