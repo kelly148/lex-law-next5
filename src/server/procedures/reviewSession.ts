@@ -24,6 +24,9 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
+import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
+import { parseEvaluatorOutput } from '../llm/parsers/evaluatorOutputParse.js';
+import { EvaluatorOutputSchema } from '../../shared/schemas/phase4b.js';
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
 import {
   isMultiReviewerEnabled,
@@ -44,6 +47,7 @@ import {
   updateReviewSessionSelections,
   updateReviewSessionGlobalInstructions,
   listFeedbackForSession,
+  insertFeedbackEvaluation,
   listFeedbackForDocument,
   listReviewSessionsForDocument,
   listManualSelectionsForDocument,
@@ -299,56 +303,75 @@ export const reviewSessionRouter = router({
         reviewerJobIds.push(reviewerResult.jobId);
       }
 
-      // EVALUATOR PATH — INTENTIONALLY INERT IN MR-CAL-5B
+      // EVALUATOR PATH — MR-CAL-5C (advisory output contract; default OFF)
       //
-      // MR-CAL-5B enables multi-reviewer SELECTION (behind MULTI_REVIEWER_ENABLED),
-      // but the evaluator output contract — a real prompt/schema, parsing the
-      // evaluator output, and persisting dispositions via insertFeedbackEvaluation —
-      // is MR-CAL-5C. The dispatch below is still telemetry-only and uses
-      // placeholder prompts, so it is gated behind isEvaluatorEnabled() (default
-      // OFF). This guarantees that turning ON multi-reviewer never fires a
-      // placeholder evaluator LLM call. The block is retained (not deleted) so
-      // MR-CAL-5C can complete it in place and flip the default.
+      // Gated behind isEvaluatorEnabled() (env EVALUATOR_ENABLED, default OFF) AND
+      // more than one selected reviewer. The reviewer loop above runs inline and
+      // sequentially (executeCanonicalMutation awaits each LLM + persist), so by the
+      // time we reach here ALL reviewer feedback for this iteration is persisted and
+      // can be read to build the evaluator prompt.
       //
-      // References: MR-0 close-out (D3, D4 evaluator-path defects); MR-CAL-5A
-      // investigation; design:MR-CAL-5B (advisory-only; attorney remains decider).
+      // The evaluator is ADVISORY ONLY: it emits one disposition (adopt/reject/
+      // neutral) + a short synthesis per reviewer suggestion, persisted to
+      // feedback_evaluations and rendered as advisory icons in ReviewPane. It never
+      // writes the attorney's selection, never auto-adopts, never regenerates, and
+      // flags business decisions for the attorney (P8-T10). The attorney decides.
+      //
+      // References: MR-CAL-5A investigation; MR-CAL-5C plan; decision #41 (EVALUATOR_MODEL).
       if (isEvaluatorEnabled() && input.selectedReviewers.length > 1) {
-      const evaluatorModelString = EVALUATOR_MODEL;
-      void executeCanonicalMutation({
-        userId,
-        jobType: 'evaluator',
-        modelString: evaluatorModelString,
-        matterId: doc.matterId,
-        documentId: input.documentId,
-        txn1Enqueue: async (jobId) => {
-          return { jobId, preEnqueueState: doc.workflowState };
-        },
-        buildLlmParams: (_jobId) => ({
-          systemPrompt: [
-            'You are a legal document evaluation AI.',
-            'Evaluate the reviewer feedback and produce structured dispositions.',
-            'Return a JSON object: { "dispositions": [{ "feedbackId": string, "disposition": "adopt"|"reject"|"defer", "rationale": string }] }',
-          ].join('\n'),
-          userPrompt: `Evaluate feedback for review session ${sessionId}, iteration ${iterationNumber}.`,
-          temperature: 0.2,
-          maxTokens: 4096,
-        }),
-        txn2Commit: async ({ jobId }) => {
-          void emitTelemetry(
-            'generation_completed',
-            { jobId, operation: 'evaluator', newVersionNumber: iterationNumber },
-            { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
-          );
-        },
-        txn2Revert: async ({ jobId, errorClass }) => {
-          void emitTelemetry(
-            'generation_reset',
-            { jobId, operation: 'evaluator', reason: errorClass === 'timeout' ? 'timeout' : 'failure' },
-            { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
-          );
-        },
-        telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-      });
+        const evaluatorModelString = EVALUATOR_MODEL;
+        // Read the just-persisted reviewer feedback for this iteration/session.
+        const evaluatorFeedbackRows = await listFeedbackForSession(sessionId, userId);
+        const evaluatorSystemPrompt = buildEvaluatorSystemPrompt();
+        const evaluatorUserPrompt = buildEvaluatorUserPrompt({
+          documentTitle: doc.title,
+          iterationNumber,
+          feedbackRows: evaluatorFeedbackRows,
+        });
+        await executeCanonicalMutation({
+          userId,
+          jobType: 'evaluator',
+          modelString: evaluatorModelString,
+          matterId: doc.matterId,
+          documentId: input.documentId,
+          txn1Enqueue: async (jobId) => {
+            return { jobId, preEnqueueState: doc.workflowState };
+          },
+          buildLlmParams: (_jobId) => ({
+            systemPrompt: evaluatorSystemPrompt,
+            userPrompt: evaluatorUserPrompt,
+            temperature: 0.2,
+            maxTokens: 8192,
+            structuredOutputSchema: EvaluatorOutputSchema,
+          }),
+          txn2Commit: async ({ jobId, output }) => {
+            // Parse + validate the advisory dispositions. parseEvaluatorOutput throws
+            // on malformed/non-conforming output, which fails the evaluator job and
+            // runs txn2Revert — persisting NOTHING. Reviewer feedback is unaffected
+            // (the evaluator is purely additive).
+            const dispositions = parseEvaluatorOutput(output);
+            await insertFeedbackEvaluation({
+              userId,
+              documentId: input.documentId,
+              iterationNumber,
+              jobId,
+              dispositions,
+            });
+            void emitTelemetry(
+              'generation_completed',
+              { jobId, operation: 'evaluator', newVersionNumber: iterationNumber },
+              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+            );
+          },
+          txn2Revert: async ({ jobId, errorClass }) => {
+            void emitTelemetry(
+              'generation_reset',
+              { jobId, operation: 'evaluator', reason: errorClass === 'timeout' ? 'timeout' : 'failure' },
+              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+            );
+          },
+          telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+        });
       } // end evaluator conditional
       void emitTelemetry(
         'review_session_created',
