@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-5C",
-  "current_phase": "implementation",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -17,9 +17,10 @@
     "MR-CAL-4C-LIVE",
     "MR-CAL-5A",
     "MR-CAL-5B",
-    "LLN-FEEDBACK-CARD-UX-1"
+    "LLN-FEEDBACK-CARD-UX-1",
+    "MR-CAL-5C"
   ],
-  "in_progress_engagement": "MR-CAL-5C",
+  "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
@@ -235,10 +236,15 @@
       "ts": "2026-05-31T20:10:00-04:00",
       "decision": "scope:MR-CAL-5C",
       "notes": "Operator approved scope to begin MR-CAL-5C (evaluator output contract). Per operator-accepted recommendation, 5C begins PLAN-FIRST: a Phase-A plan designing the evaluator prompt, structured output schema, parse + persist (insertFeedbackEvaluation / dispositions JSON), advisory-only display, the non-decisionmaking guardrails (P8-T10: surface consensus/conflict/priority; never decide, never auto-adopt, flag business decisions for the attorney), and enablement via isEvaluatorEnabled (added OFF in 5B). Delivered for operator review BEFORE implementation. Engagement moved queue-head -> in_progress; phase=investigation."
+    },
+    {
+      "ts": "2026-05-31T20:40:00-04:00",
+      "decision": "accept+push+merge:MR-CAL-5C",
+      "notes": "Operator accepted the plan and approved push+merge. MR-CAL-5C (advisory evaluator output contract) implemented and merged. Added EvaluatorOutputSchema (shared/schemas/phase4b.ts); evaluatorPrompt.ts (advisory, non-decisionmaking system prompt + per-suggestionId user prompt from the cycle's reviewer feedback); evaluatorOutputParse.ts (tolerant parse, strict schema, throws->job fails->persists nothing); wired reviewSession.create evaluator block to read the just-persisted reviewer feedback (executeCanonicalMutation runs inline/sequentially so feedback is available), enforce EvaluatorOutputSchema, and on commit parse + insertFeedbackEvaluation (replaced the telemetry-only stub). Dual-gated: isEvaluatorEnabled() (env EVALUATOR_ENABLED, default OFF) AND >1 reviewer. Display already exists (ReviewPane disposition icons + synthesis). Tests: mr_cal_5c_evaluator.test.ts (parse/schema/prompts/source-audit). Two CI fixes: exactOptionalPropertyTypes (severity?: string|undefined) and updated the MR-2 §S1 'evaluator inert' regression guard (mr3.behavioral.test.ts) to assert the now-advisory default-OFF form. CI green; squash-merged as 74870ba; branch deleted. DEFAULT OFF = zero production behavior change. Engagement code-complete. LIVE verification is MR-CAL-5D-LIVE (separate; needs EVALUATOR_ENABLED=true + two reliable reviewers; mind the Gemini-Lite non-return)."
     }
   ],
-  "last_updated": "2026-05-31T20:10:00-04:00",
-  "last_updater": "scope:MR-CAL-5C approved; in_progress, plan-first Phase-A (evaluator output contract)",
+  "last_updated": "2026-05-31T20:40:00-04:00",
+  "last_updater": "MR-CAL-5C merged (74870ba), default OFF; next = MR-CAL-5D-LIVE (evaluator live verification)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
