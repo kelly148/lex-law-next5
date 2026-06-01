@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-8B",
-  "current_phase": "awaiting-plan-acceptance",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -28,9 +28,11 @@
     "MR-CAL-7C-LIVE",
     "MR-CAL-8A"
   ],
-  "in_progress_engagement": "MR-CAL-8B",
+  "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
-  "awaiting_live_verification": [],
+  "awaiting_live_verification": [
+    "MR-CAL-8B"
+  ],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
@@ -345,10 +347,15 @@
       "ts": "2026-06-01T14:20:00-04:00",
       "decision": "plan:MR-CAL-8B",
       "notes": "Phase-A plan delivered for operator review (NO code): docs/engagements/MR-CAL-8B-plan.md. PLAN SPINE: a new READ-ONLY tRPC query (e.g. document.checkSendability) that assembles the current version content + latest-iteration reviewer feedback and runs an LLM classifier (EVALUATOR_MODEL, explicit 300s timeout per the 5D lesson) returning a structured SendabilityVerdictSchema { sendable, blockers:[{category,severity,summary}], notes? }; new sendabilityPrompt.ts (advisory, non-decisionmaking, enumerates the 8A gate categories) + tolerant sendabilityOutputParse.ts that DEGRADES to 'unavailable' on malformed output (never throws to the finalize path) -- directly mitigating the reviewer-reliability issues seen live in 5D/6C/7C; telemetry 'sendability_checked'. Finalize/acceptSubstantive/acceptSubstantiveUnformatted procedures are NOT modified (classifier is a separate query; advisory-only, cannot affect the finalize transaction). Client: useSendability hook (on-demand, not auto-run) + SendabilitySection in ReviewPane (beside 6B/7B sections) + compact verdict on the DocumentDetail finalize surface; finalize buttons NOT gated/disabled. Two additive increments. NO new table, NO migration. DO-NOT-TOUCH: finalize procedures, locked_decisions/6B, adopt_ledger/7B, evaluator scoring, reviewer scoring/taxonomy, feedback parser/card contract, multi-reviewer gating. HONEST RISKS: LLM-classifier non-determinism + provider reliability (mitigated: advisory + best-effort degrade + 300s timeout + 5D object-schema parse fix); extra Opus call per check (mitigated: on-demand); no audit trace beyond telemetry (per decision #3). Accept with operator approve accept:MR-CAL-8B-plan to authorize implementation; Phase B (push/PR/CI/merge) separately gated."
+    },
+    {
+      "ts": "2026-06-01T14:45:00-04:00",
+      "decision": "accept+push+merge:MR-CAL-8B",
+      "notes": "Operator accepted Phase A (operator approve accept:MR-CAL-8B), approved push (push:MR-CAL-8B) and merge (merge:MR-CAL-8B). Advisory sendability classifier merged to main as 4260e77 (PR #89, squash). Delivered the accepted plan: SendabilityVerdictSchema + gate-category/severity enums; sendabilityPrompt.ts (advisory, non-decisionmaking, non-blocking; enumerates 8A categories; don't-flag-routine-blanks); sendabilityOutputParse.ts (tolerant; throws on malformed). reviewSession.checkSendability is a READ-ONLY QUERY (no persistence, no job, NOT wired into finalize) running resolveAdapter(EVALUATOR_MODEL) with an explicit 300s timeout, DEGRADING to { available:false } on any classifier/parse failure (never throws into client/finalize) + telemetry sendability_checked / sendability_check_failed. Client: SendabilitySection in ReviewPane (on-demand, enabled:false + Check button) + verdict at the DocumentDetail finalize boundary; finalize/accept buttons NOT gated. CI: first run failed on ONE source-audit test (my brittle 2600-char slice window missed the catch-path string 'sendability_check_failed'); fixed test-only (widen to 3600 + assert the unique string against the whole file). CI green; squash-merged; branch deleted; main 4260e77. NO new table -> NO migration -> no prod-migrate step before 8C-LIVE (just the Railway deploy). DO-NOT-TOUCH respected (finalize procedures + 6B/7B + evaluator + reviewer scoring/taxonomy unchanged). HONEST: LLM-classifier verdict is non-deterministic + advisory (8C-LIVE acceptance 'known blocker detected; non-blocker not over-escalated' is probabilistic); only audit trace is telemetry (no override store, decision #3). Engagement in_progress -> awaiting_live_verification (user-visible; behavior verified at MR-CAL-8C-LIVE)."
     }
   ],
-  "last_updated": "2026-06-01T14:20:00-04:00",
-  "last_updater": "MR-CAL-8B scope approved (LLM classifier; advisory-only no gate; no override table; both UI surfaces); Phase-A plan delivered (docs/engagements/MR-CAL-8B-plan.md) -> awaiting operator approve accept:MR-CAL-8B-plan; queue head MR-CAL-8C-LIVE",
+  "last_updated": "2026-06-01T14:45:00-04:00",
+  "last_updater": "MR-CAL-8B merged (4260e77, PR #89) -> awaiting_live_verification (MR-CAL-8C-LIVE). No migration needed (no new table); just Railway deploy.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
