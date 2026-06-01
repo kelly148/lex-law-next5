@@ -51,6 +51,56 @@ export const EvaluatorOutputSchema = z.object({
 });
 export type EvaluatorOutput = z.infer<typeof EvaluatorOutputSchema>;
 
+// ============================================================
+// MR-CAL-8B — sendability verdict (advisory; LLM classifier output)
+// ============================================================
+// The sendability classifier reads the current draft + latest reviewer feedback
+// and returns an ADVISORY verdict for the supervising attorney. It NEVER blocks
+// finalize/export and never decides; it surfaces potential pre-send blockers.
+// Categories mirror the MR-CAL-8A investigation list.
+export const SENDABILITY_BLOCKER_CATEGORY_VALUES = [
+  'jurisdiction_mismatch',
+  'missing_material_terms',
+  'unresolved_blanks',
+  'missing_party_or_capacity',
+  'conflicting_provisions',
+  'business_decision_needed',
+  'execution_signature_defect',
+  'counterparty_over_disclosure',
+  'other',
+] as const;
+export type SendabilityBlockerCategory =
+  (typeof SENDABILITY_BLOCKER_CATEGORY_VALUES)[number];
+
+// Severity reuses the reviewer/native-card vocabulary for consistency.
+export const SENDABILITY_BLOCKER_SEVERITY_VALUES = [
+  'BLOCKER',
+  'SUBSTANTIVE',
+  'STRUCTURAL',
+  'PRECISION',
+  'POLISH',
+] as const;
+export type SendabilityBlockerSeverity =
+  (typeof SENDABILITY_BLOCKER_SEVERITY_VALUES)[number];
+
+export const SendabilityBlockerSchema = z.object({
+  category: z.enum(SENDABILITY_BLOCKER_CATEGORY_VALUES),
+  severity: z.enum(SENDABILITY_BLOCKER_SEVERITY_VALUES),
+  summary: z.string(),
+});
+export type SendabilityBlocker = z.infer<typeof SendabilityBlockerSchema>;
+
+/**
+ * MR-CAL-8B: the sendability classifier's structured LLM output contract.
+ * Advisory only — the attorney always decides; this never blocks finalize/export.
+ */
+export const SendabilityVerdictSchema = z.object({
+  sendable: z.boolean(),
+  blockers: z.array(SendabilityBlockerSchema),
+  notes: z.string().optional(),
+});
+export type SendabilityVerdict = z.infer<typeof SendabilityVerdictSchema>;
+
 /**
  * A single selection in a review session (Ch 4.8)
  *

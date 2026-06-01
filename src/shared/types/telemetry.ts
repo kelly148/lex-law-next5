@@ -85,7 +85,10 @@ type ReviewPaneEvent =
   // MR-CAL-7B: cumulative adopt-ledger lifecycle.
   | 'adopt_ledger_entry_created'
   | 'adopt_ledger_regeneration_applied'
-  | 'adopt_ledger_status_overridden';
+  | 'adopt_ledger_status_overridden'
+  // MR-CAL-8B: advisory sendability classifier.
+  | 'sendability_checked'
+  | 'sendability_check_failed';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -304,6 +307,13 @@ export interface TelemetryPayload {
     adoptLedgerId: string;
     status: 'active' | 'superseded' | 'resolved' | 'unresolved';
   };
+  // MR-CAL-8B: advisory sendability classifier.
+  sendability_checked: {
+    sendable: boolean;
+    blockerCount: number;
+    blockerCategories: string[];
+  };
+  sendability_check_failed: { errorMessage: string };
 
   // E.6 Materials library
   material_uploaded: {

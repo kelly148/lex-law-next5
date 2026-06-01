@@ -26,8 +26,11 @@ import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewe
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
 import { parseEvaluatorOutput } from '../llm/parsers/evaluatorOutputParse.js';
-import { EvaluatorOutputSchema } from '../../shared/schemas/phase4b.js';
+import { EvaluatorOutputSchema, SendabilityVerdictSchema } from '../../shared/schemas/phase4b.js';
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
+import { buildSendabilitySystemPrompt, buildSendabilityUserPrompt } from '../llm/prompts/sendabilityPrompt.js';
+import { parseSendabilityOutput } from '../llm/parsers/sendabilityOutputParse.js';
+import { resolveAdapter } from '../llm/registry.js';
 import {
   isMultiReviewerEnabled,
   isReviewerSelectionCountAllowed,
@@ -1133,6 +1136,97 @@ export const reviewSessionRouter = router({
       );
 
       return { adoptLedgerId: input.adoptLedgerId };
+    }),
+
+  // ============================================================
+  // MR-CAL-8B — sendability check (ADVISORY classifier; read-only)
+  //
+  // Runs an LLM classifier over the current draft (+ latest reviewer feedback as
+  // signal) and returns an advisory verdict. It is a QUERY: no persistence, no job
+  // row, and it is NOT wired into finalize/export — so it can never block or affect
+  // the send transaction (advisory-only, MR-CAL-8B decisions #1/#2/#3).
+  //
+  // DEGRADE-TO-UNAVAILABLE: any classifier/parse failure returns { available:false }
+  // rather than throwing, so a flaky/slow/parse-failing model surfaces "sendability
+  // check unavailable" and NEVER errors into the client/finalize path. The only audit
+  // trace is the 'sendability_checked' telemetry event (no override store in Phase A).
+  // ============================================================
+  checkSendability: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      const doc = await getDocumentById(input.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      if (!doc.currentVersionId) {
+        return { available: false as const, reason: 'NO_CURRENT_VERSION' as const };
+      }
+      const currentVersion = await getVersionById(doc.currentVersionId, userId);
+      if (!currentVersion) {
+        return { available: false as const, reason: 'NO_CURRENT_VERSION' as const };
+      }
+
+      // Latest-iteration reviewer feedback as classifier signal (best-effort).
+      const allFeedback = await listFeedbackForDocument(input.documentId, userId);
+      const latestIteration = allFeedback.reduce(
+        (max, f) => (f.iterationNumber > max ? f.iterationNumber : max),
+        0,
+      );
+      const feedbackRows = allFeedback
+        .filter((f) => f.iterationNumber === latestIteration)
+        .map((f) => ({
+          reviewerRole: f.reviewerRole,
+          reviewerTitle: f.reviewerTitle,
+          suggestions: f.suggestions.map((s) => ({
+            suggestionId: s.suggestionId,
+            title: s.title,
+            body: s.body,
+            ...(s.severity !== undefined ? { severity: s.severity } : {}),
+          })),
+        }));
+
+      const systemPrompt = buildSendabilitySystemPrompt();
+      const userPrompt = buildSendabilityUserPrompt({
+        documentTitle: doc.title,
+        documentType: doc.documentType,
+        iterationNumber: currentVersion.iterationNumber,
+        content: currentVersion.content,
+        feedbackRows,
+      });
+
+      // DEGRADE-TO-UNAVAILABLE: wrap the whole LLM call + parse so nothing throws to
+      // the client. Advisory-only; failure must never affect finalize/export.
+      try {
+        const adapter = resolveAdapter(EVALUATOR_MODEL);
+        // MR-CAL-5D lesson: set an explicit 300s timeout (do not inherit the 120s default).
+        const signal = AbortSignal.timeout(300_000);
+        const llmResult = await adapter.generate({
+          systemPrompt,
+          userPrompt,
+          temperature: 0.2,
+          maxTokens: 4096,
+          structuredOutputSchema: SendabilityVerdictSchema,
+          signal,
+        });
+        const verdict = parseSendabilityOutput(llmResult.content);
+        void emitTelemetry(
+          'sendability_checked',
+          {
+            sendable: verdict.sendable,
+            blockerCount: verdict.blockers.length,
+            blockerCategories: verdict.blockers.map((b) => b.category),
+          },
+          { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+        );
+        return { available: true as const, verdict };
+      } catch (err) {
+        void emitTelemetry(
+          'sendability_check_failed',
+          { errorMessage: err instanceof Error ? err.message : String(err) },
+          { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
+        );
+        return { available: false as const, reason: 'CLASSIFIER_UNAVAILABLE' as const };
+      }
     }),
 });
 

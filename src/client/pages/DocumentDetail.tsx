@@ -48,7 +48,7 @@ import {
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
-import ReviewPane from '../components/ReviewPane.js';
+import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 
 // ============================================================
@@ -1019,6 +1019,16 @@ export default function DocumentDetail(): React.ReactElement {
           </div>
         )}
       </div>
+
+      {/* MR-CAL-8B: advisory sendability checkpoint at the finalize boundary.
+          Shown in pre-send states (drafting / substantively_accepted) when a current
+          version exists. Advisory only — does not gate the Finalize/Accept buttons above. */}
+      {doc.currentVersionId &&
+        (doc.workflowState === 'drafting' || doc.workflowState === 'substantively_accepted') && (
+          <div className="mb-3 border border-gray-200 rounded-lg overflow-hidden">
+            <SendabilitySection documentId={documentId} />
+          </div>
+        )}
 
       {/* Regeneration band — collapsible, above document workspace */}
       {isIterative && doc.workflowState === 'drafting' && doc.currentVersionId && (
