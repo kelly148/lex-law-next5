@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-7A",
+  "current_phase": "awaiting-acceptance",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -24,14 +24,15 @@
     "MR-CAL-6B",
     "MR-CAL-6C-LIVE"
   ],
-  "in_progress_engagement": null,
-  "awaiting_operator_acceptance": [],
+  "in_progress_engagement": "MR-CAL-7A",
+  "awaiting_operator_acceptance": [
+    "MR-CAL-7A"
+  ],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-7A",
     "MR-CAL-7B",
     "MR-CAL-7C-LIVE",
     "MR-CAL-8A",
@@ -291,10 +292,15 @@
       "ts": "2026-06-01T10:45:00-04:00",
       "decision": "live-verified:MR-CAL-6C-LIVE pass",
       "notes": "Operator-accepted PASS. Locked decisions live-verified on production (code 75d864f; table created this session). TEST on synthetic doc cbf83ad7: (1) Review 1 (GPT Lite) produced suggestion 'Agent Identification Fields Must Be Completed Before Execution' (blank agent-ID fields); (2) decline-&-locked it (lockedDecision 45dfac64, origin=declined, status=active, sourceSuggestionId linked); (3) Review 2 (GPT Lite, same doc, lock active) produced a DIFFERENT issue 'Clarify agent delegation authorization initialing requirement' (Article IV 4.2 delegation initialing) and did NOT re-raise the locked agent-ID-blank topic (verified by reading the memo body). ACCEPTANCE (5.3): reviewer respects locked decision PASS; reviewer still flags a true/different issue PASS; prior locked issue not re-raised on next cycle PASS. QUALIFICATIONS (honest): single-trial, single-reviewer behavioral run -- 'respect unless new facts' is a prompt-level instruction (probabilistic, not a hard guarantee); the prompt-injection itself is verified by CI-green source-audit tests rather than reading the live job input (job.input not exposed via API), and live-confirmed indirectly by the locked topic disappearing from Review 2. Closes both MR-CAL-6C-LIVE and the MR-CAL-6B awaiting_live_verification. Synthetic sessions + lockedDecision 45dfac64 persist on cbf83ad7 -> LLN-PROD-CLEANUP-1. MR-CAL-6B + MR-CAL-6C-LIVE -> completed_engagements; queue head now MR-CAL-7A."
+    },
+    {
+      "ts": "2026-06-01T11:10:00-04:00",
+      "decision": "investigation-complete:MR-CAL-7A",
+      "notes": "Cumulative adopt-ledger investigation (read-only; no code changed). Report committed at docs/engagements/MR-CAL-7A-investigation.md. KEY FINDINGS: the system has ADOPTION RECORDING (feedback_manual_selections: per-iteration, POINTER-only suggestionId + optional attorneyNote, positive-selection only, no text/no status/no version link) and DECISION LOCKING (locked_decisions, new in 6B) but NO cumulative adopt ledger. GREENFIELD fields: adopted/modified TEXT, target document version, regeneration result, current survival status, superseded status, and cumulative-adoption prompt injection. NOTABLE: reviewerPrompts.ts already carries a 'Cumulative state carry-forward' instruction ('treat prior adopted changes as part of the current intended state; do not flag adopted changes as new defects') but NOTHING feeds it data -- the single clearest place a ledger plugs in, exactly mirroring how 6B fed locked decisions into the same reviewer userPrompt. RELATIONSHIP TO LOCKS (acceptance criterion): the locked_decisions origin='adopted' row is a PARTIAL adopt entry; recommendation = keep ledger and locks as SEPARATE tables with DISTINCT semantics (locks = 'do not re-raise' suppression; ledger = 'this was adopted; carry forward + track survival'), reviewer prompt carries BOTH sections, NO silent auto-coupling. RECOMMENDATION (options surfaced, NOT decided): new additive adopt_ledger table (Option A; version-aware; disposition adopted_verbatim|adopted_modified; status active|superseded|resolved|unresolved; targetVersionId), reusing the proven 6B table+query+prompt-injection pattern. HONEST HARD PART: 'did the adopted change survive in the latest draft?' is unreliable to auto-diff (LLM paraphrases) -> Phase A should record targetVersionId deterministically and treat survival as best-effort/attorney-confirmable. PRIVACY: ledger text would flow to LLM providers (no redaction layer; same as 6B). DEPLOY NOTE: 7B adds a table -> prod migration must be applied out-of-band before 7C-LIVE (carryforward DEPLOY-MIGRATIONS-NOT-AUTOMATIC). All three 6.1 acceptance criteria addressed (data model+UI / relationship-to-locks / implementation path). Moved queue-head -> awaiting_operator_acceptance; phase=awaiting-acceptance. Accept with operator approve accept:MR-CAL-7A."
     }
   ],
-  "last_updated": "2026-06-01T10:45:00-04:00",
-  "last_updater": "MR-CAL-6B + MR-CAL-6C-LIVE COMPLETE (locked decisions live-verified PASS; prod migration 0002 applied manually). Next = MR-CAL-7A.",
+  "last_updated": "2026-06-01T11:10:00-04:00",
+  "last_updater": "MR-CAL-7A adopt-ledger investigation complete -> awaiting_operator_acceptance; report at docs/engagements/MR-CAL-7A-investigation.md; next queued = MR-CAL-7B",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
