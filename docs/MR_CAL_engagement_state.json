@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-6A",
+  "current_phase": "awaiting-acceptance",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -21,14 +21,15 @@
     "MR-CAL-5C",
     "MR-CAL-5D-LIVE"
   ],
-  "in_progress_engagement": null,
-  "awaiting_operator_acceptance": [],
+  "in_progress_engagement": "MR-CAL-6A",
+  "awaiting_operator_acceptance": [
+    "MR-CAL-6A"
+  ],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-6A",
     "MR-CAL-6B",
     "MR-CAL-6C-LIVE",
     "MR-CAL-7A",
@@ -256,10 +257,15 @@
       "ts": "2026-06-01T08:40:00-04:00",
       "decision": "live-verified:MR-CAL-5D-LIVE pass-qualified",
       "notes": "Operator-accepted QUALIFIED PASS. The advisory evaluator is live-verified working on production d5a836a. ACTUAL ROOT CAUSE of every prior evaluation=NULL was found by code investigation this session and fixed: the Anthropic adapter's normalizeAnthropicStructuredOutput (built for reviewer BARE-ARRAY output) unwrapped the evaluator's correct object output { dispositions: [...] } into a bare array [...], which then failed the evaluator's object-shaped EvaluatorOutputSchema -> parse_error -> evaluator job failed -> nothing persisted -> evaluation=NULL. Fix (PR #73, squash-merged d5a836a): validate the raw parsed value against the target schema FIRST, fall back to array-unwrap only if that fails; object schemas (evaluator) pass untouched, reviewer bare-array unwrap preserved as fallback; +3 adapter tests. NOTE the earlier evaluator-timeout fix (PR #72, 6a4c995, evaluator 120s->300s) was a real discrepancy but NOT the root cause; it is harmless and retained. Also note PRs #72/#73 superseded the 06:45 'reviewer reliability + stuck-session' framing: the true 5D blocker was this adapter parse bug. LIVE RUN iter-14 (GPT Lite + Grok Lite, the fast reliable pair): both reviewers fed the evaluator (gpt_lite 1 suggestion, grok_lite 0), and for the FIRST TIME evaluation PRESENT -- one disposition, value 'neutral' (schema-valid adopt|reject|neutral), 415-char synthesisBody. ACCEPTANCE CRITERIA: (1) >=2 reviewers feed evaluator PASS; (2) summarizes usefully PASS (synthesis persisted); (3) NO automatic legal/business decision PASS (disposition 'neutral' flags for the attorney; evaluator writes ONLY feedback_evaluations, selection model untouched); (4) attorney can still select/disposition PASS (selection model untouched, per 5C source audit); (5) no single-reviewer regression PASS. Deploy Logs clean (no Zod/timeout/provider errors); /api/version=d5a836a (Railway deploy-id 751dd8b6 is NOT a git commit, benign). VERIFIED at the data/contract + logs layer via reviewSession.get; the QUALIFICATION: the on-screen ReviewPane synthesis render was NOT separately screenshotted (the active-session drawer kept reopening as the new-review selector). Recorded as follow-up EVALUATOR-RENDER-EYEBALL (minor). Synthetic sessions iter 13-14 on doc cbf83ad7 added to LLN-PROD-CLEANUP-1 (iter-14 left active as the verification artifact). Engagement blocked_engagements -> completed_engagements."
+    },
+    {
+      "ts": "2026-06-01T09:15:00-04:00",
+      "decision": "investigation-complete:MR-CAL-6A",
+      "notes": "Matter memory investigation (read-only; no code changed). Report committed at docs/engagements/MR-CAL-6A-investigation.md. KEY FINDINGS: (1) Foundation exists -- attorney adoptions persist today in feedback_manual_selections (schema.ts 877-902; document-iteration scoped, POSITIVE-SELECTION ONLY, unique index on (reviewSessionId, suggestionId)); evaluator advisory dispositions in feedback_evaluations (857-875); single budgeted context path assembleContext (src/server/context/pipeline.ts, R14); Zod-Wall + userId ownership on all reads (phase4b.ts). (2) CORE GAP: rejections are IMPLICIT (absence of a manual-selection row) -> today there is NO way to record 'considered & declined / do not re-raise', and nothing injects prior decisions into later prompts. (3) PRE-WIRED but DISABLED: reviewerPrompts.ts already names matter-memory / future_memory_instruction / persistence_count / persistence_chain / matter_memory_correction and has a 'mode discipline' line that explicitly DISABLES matter-memory storage -> low downstream prompt risk to enable. (4) RECOMMENDATION (options surfaced, NOT decided): new additive matter-level table matter_decisions (Option A), matter-level primary + document scope flag, attorney-authored only, status lifecycle active->superseded->retired, injected as a bounded high-priority prompt tier into BOTH reviewer and drafter prompts. (5) PRIVACY FLAG: memory content WILL flow to third-party LLM providers (no redaction layer exists today) -> write rationales accordingly or add an internal-only class. (6) PATH maps directly onto MR-CAL-6B (locked decisions Phase A). All four 5.1 acceptance criteria addressed (data-model options / UI+provenance / privacy+security / implementation path). Moved queue-head -> awaiting_operator_acceptance; phase=awaiting-acceptance. Accept with operator approve accept:MR-CAL-6A (investigation reports commit by default per Rule 12; this report + the tracker transition are being persisted via a gated docs PR)."
     }
   ],
-  "last_updated": "2026-06-01T08:40:00-04:00",
-  "last_updater": "MR-CAL-5D-LIVE COMPLETE (qualified PASS): evaluator live-verified on d5a836a after the Anthropic object-schema parse fix (#73); next runnable = MR-CAL-6A",
+  "last_updated": "2026-06-01T09:15:00-04:00",
+  "last_updater": "MR-CAL-6A investigation complete -> awaiting_operator_acceptance; report at docs/engagements/MR-CAL-6A-investigation.md; next queued = MR-CAL-6B",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
