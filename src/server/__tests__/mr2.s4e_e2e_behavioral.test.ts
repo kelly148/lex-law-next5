@@ -314,6 +314,9 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_1_ID);
     // MR-CAL-3E: create() computes iteration server-side; iteration-1 session.
     vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
+    // MR-CAL-6B: reviewSession.create loads active locked decisions; reset clears the
+    // factory default, so set it here too (default no locks => prior behavior).
+    vi.mocked(phase4bQueries.listActiveLockedDecisionsForDocument).mockResolvedValue([]);
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_1_ID));
     vi.mocked(versionQueries.getVersionById).mockResolvedValue(makeVersionRow(VERSION_1_ID, 1));
 

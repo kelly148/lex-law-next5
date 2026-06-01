@@ -197,6 +197,9 @@ describe('MR-1 Behavioral Persistence Test', () => {
     vi.mocked(phase4bQueries.insertReviewSession).mockResolvedValue(SESSION_ID);
     // MR-CAL-3E: create() now computes the iteration server-side via this helper.
     vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
+    // MR-CAL-6B: reviewSession.create loads active locked decisions; reset clears the
+    // factory default, so set it here too (default no locks => prior behavior).
+    vi.mocked(phase4bQueries.listActiveLockedDecisionsForDocument).mockResolvedValue([]);
 
     // Fix 6: insertFeedback returns Promise<string> (the inserted row ID).
     // mockResolvedValue() requires one argument.
