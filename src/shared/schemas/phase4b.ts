@@ -218,3 +218,27 @@ export const ReviewSessionRowSchema = z.object({
   updatedAt: z.date(),
 });
 export type ReviewSessionRow = z.infer<typeof ReviewSessionRowSchema>;
+
+// ============================================================
+// locked_decisions (MR-CAL-6B)
+// ============================================================
+// Document-scoped attorney-locked decisions reviewers should respect.
+// scope is reserved for a future matter-level rollout (Phase A: 'document' only).
+
+export const LockedDecisionRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  documentId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  scope: z.enum(['document']),
+  origin: z.enum(['declined', 'adopted']),
+  sourceSuggestionId: z.string().nullable(),
+  sourceIterationNumber: z.number().int().nonnegative().nullable(),
+  reviewSessionId: z.string().uuid().nullable(),
+  summary: z.string(),
+  rationale: z.string().nullable(),
+  status: z.enum(['active', 'unlocked']),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type LockedDecisionRow = z.infer<typeof LockedDecisionRowSchema>;

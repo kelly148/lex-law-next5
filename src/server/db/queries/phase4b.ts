@@ -19,6 +19,7 @@ import {
   feedbackEvaluations,
   feedbackManualSelections,
   reviewSessions,
+  lockedDecisions,
   type InformationRequest,
   type InformationRequestItem,
   type DocumentOutline,
@@ -26,6 +27,7 @@ import {
   type FeedbackEvaluation,
   type FeedbackManualSelection,
   type ReviewSession,
+  type LockedDecision,
 } from '../schema.js';
 import {
   InformationRequestRowSchema,
@@ -35,6 +37,7 @@ import {
   FeedbackEvaluationRowSchema,
   FeedbackManualSelectionRowSchema,
   ReviewSessionRowSchema,
+  LockedDecisionRowSchema,
   type InformationRequestRow,
   type InformationRequestItemRow,
   type DocumentOutlineRow,
@@ -42,6 +45,7 @@ import {
   type FeedbackEvaluationRow,
   type FeedbackManualSelectionRow,
   type ReviewSessionRow,
+  type LockedDecisionRow,
 } from '../../../shared/schemas/phase4b.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -836,4 +840,141 @@ export async function getNextIterationNumberForDocument(
     .limit(1);
   if (rows.length === 0) return 1;
   return (rows[0]!.iterationNumber) + 1;
+}
+
+// ============================================================
+// locked_decisions queries (MR-CAL-6B)
+// ============================================================
+
+function parseLockedDecisionRow(
+  raw: LockedDecision,
+  ctx: { userId: string },
+): LockedDecisionRow {
+  try {
+    return LockedDecisionRowSchema.parse(raw);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      void emitTelemetry(
+        'zod_parse_failed',
+        {
+          schemaName: 'LockedDecisionRowSchema',
+          tableName: 'locked_decisions',
+          errorPath: err.errors[0]?.path.join('.') ?? '',
+          errorMessage: err.errors[0]?.message ?? 'ZodError',
+        },
+        { userId: ctx.userId, matterId: null, documentId: null, jobId: null },
+      );
+    }
+    throw err;
+  }
+}
+
+export async function insertLockedDecision(data: {
+  id?: string;
+  userId: string;
+  documentId: string;
+  matterId: string;
+  origin: 'declined' | 'adopted';
+  summary: string;
+  rationale?: string | null;
+  sourceSuggestionId?: string | null;
+  sourceIterationNumber?: number | null;
+  reviewSessionId?: string | null;
+}): Promise<string> {
+  const id = data.id ?? uuidv4();
+  await db.insert(lockedDecisions).values({
+    id,
+    userId: data.userId,
+    documentId: data.documentId,
+    matterId: data.matterId,
+    scope: 'document',
+    origin: data.origin,
+    summary: data.summary,
+    rationale: data.rationale ?? null,
+    sourceSuggestionId: data.sourceSuggestionId ?? null,
+    sourceIterationNumber: data.sourceIterationNumber ?? null,
+    reviewSessionId: data.reviewSessionId ?? null,
+    status: 'active',
+  });
+  return id;
+}
+
+export async function getLockedDecisionById(
+  id: string,
+  userId: string,
+): Promise<LockedDecisionRow | null> {
+  const rows = await db
+    .select()
+    .from(lockedDecisions)
+    .where(and(eq(lockedDecisions.id, id), eq(lockedDecisions.userId, userId)))
+    .limit(1);
+  if (rows.length === 0) return null;
+  return parseLockedDecisionRow(rows[0]!, { userId });
+}
+
+/** All locked decisions for a document (any status), newest first. */
+export async function listLockedDecisionsForDocument(
+  documentId: string,
+  userId: string,
+): Promise<LockedDecisionRow[]> {
+  const rows = await db
+    .select()
+    .from(lockedDecisions)
+    .where(
+      and(
+        eq(lockedDecisions.documentId, documentId),
+        eq(lockedDecisions.userId, userId),
+      ),
+    )
+    .orderBy(desc(lockedDecisions.createdAt));
+  return rows.map((r) => parseLockedDecisionRow(r, { userId }));
+}
+
+/**
+ * Active locked decisions for a document — the read path for reviewer-prompt
+ * injection. Ordered oldest-first (asc createdAt) for stable prompt ordering.
+ */
+export async function listActiveLockedDecisionsForDocument(
+  documentId: string,
+  userId: string,
+): Promise<LockedDecisionRow[]> {
+  const rows = await db
+    .select()
+    .from(lockedDecisions)
+    .where(
+      and(
+        eq(lockedDecisions.documentId, documentId),
+        eq(lockedDecisions.userId, userId),
+        eq(lockedDecisions.status, 'active'),
+      ),
+    )
+    .orderBy(asc(lockedDecisions.createdAt));
+  return rows.map((r) => parseLockedDecisionRow(r, { userId }));
+}
+
+/** Unlock (status -> 'unlocked'; row preserved for audit). */
+export async function unlockLockedDecision(
+  id: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .update(lockedDecisions)
+    .set({ status: 'unlocked' })
+    .where(and(eq(lockedDecisions.id, id), eq(lockedDecisions.userId, userId)));
+}
+
+/** Edit a locked decision's summary/rationale (attorney can modify). */
+export async function updateLockedDecision(
+  id: string,
+  userId: string,
+  fields: { summary?: string; rationale?: string | null },
+): Promise<void> {
+  const set: { summary?: string; rationale?: string | null } = {};
+  if (fields.summary !== undefined) set.summary = fields.summary;
+  if (fields.rationale !== undefined) set.rationale = fields.rationale;
+  if (Object.keys(set).length === 0) return;
+  await db
+    .update(lockedDecisions)
+    .set(set)
+    .where(and(eq(lockedDecisions.id, id), eq(lockedDecisions.userId, userId)));
 }
