@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-7B",
-  "current_phase": "awaiting-plan-acceptance",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -25,9 +25,11 @@
     "MR-CAL-6C-LIVE",
     "MR-CAL-7A"
   ],
-  "in_progress_engagement": "MR-CAL-7B",
+  "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
-  "awaiting_live_verification": [],
+  "awaiting_live_verification": [
+    "MR-CAL-7B"
+  ],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
@@ -310,10 +312,15 @@
       "ts": "2026-06-01T11:45:00-04:00",
       "decision": "plan:MR-CAL-7B",
       "notes": "Operator design decisions settled: (1) store adopted TEXT + verbatim/modified flag (+ keep original for provenance); (2) YES inject a bounded 'Previously Adopted' section into the reviewer userPrompt (feeds the existing cumulative-state-carry-forward instruction); (3) ATTEMPT AUTO-DETECTION of survival/superseded -- built DEFENSIVELY per plan-author caveat: advisory status only (statusSource auto|attorney), never delete/hide an entry, attorney can override, auto never overwrites an attorney-set status; operator to confirm defensive framing at plan acceptance (may downgrade to deterministic-version-tag-only). Ledger vs locks: SEPARATE tables, no auto-coupling (7A). Phase-A plan delivered (NO code): docs/engagements/MR-CAL-7B-plan.md. PLAN SPINE: additive adopt_ledger table (migration 0003; id/userId/documentId/matterId/sourceSuggestionId/sourceReviewerRole/sourceIterationNumber/reviewSessionId/disposition[adopted_verbatim|adopted_modified]/originalText/adoptedText/adoptedIntoVersionId/producedVersionId/status[active|superseded|resolved|unresolved]/statusSource[auto|attorney]/timestamps; unique (reviewSessionId, sourceSuggestionId)); Zod-Wall Row + userId-scoped queries; capture-on-adopt at the existing regenerate commit point alongside insertManualSelection (additive; selections unchanged); on regen commit set producedVersionId + advisory survival auto-detect; reviewer-prompt injection of bounded '## Previously Adopted' section in reviewSession.create (OMITTED when empty => byte-identical to pre-7B); tRPC listAdoptLedger / updateAdoptLedgerStatus (pure DB; evaluator never writes); ReviewPane adopt-edit field + Adopted-changes panel with status override. Two default-safe increments. DO-NOT-TOUCH: locked_decisions/6B, evaluator scoring, severity taxonomy, calibration text, feedback parser/card contract, multi-reviewer gating, sendability, matter-level rollout, native card runtime. REGRESSION LESSON FROM 6B: create-path behavioral tests vi.resetAllMocks() + mock phase4b -> the new prompt-load query must be stubbed in BOTH the mock factory AND beforeEach. DEPLOY: migration 0003 must be applied to prod TiDB out-of-band before MR-CAL-7C-LIVE. Accept with operator approve accept:MR-CAL-7B-plan to authorize implementation; Phase B (push/PR/CI/merge) separately gated."
+    },
+    {
+      "ts": "2026-06-01T12:30:00-04:00",
+      "decision": "accept+push+merge:MR-CAL-7B",
+      "notes": "Operator accepted Phase A (operator approve accept:MR-CAL-7B), approved push (push:MR-CAL-7B) and merge (merge:MR-CAL-7B). Adopt ledger merged to main as 1868e20 (PR #83, squash). Delivered the accepted plan: additive adopt_ledger table (migration 0003, no ALTER/DROP) + Zod-Wall AdoptLedgerRowSchema + userId-scoped queries (insert/list/list-for-prompt/get/applyRegenerationToAdoptLedger/updateAdoptLedgerStatus); SessionSelectionSchema gained optional adoptedText (backward-compatible); capture-on-adopt at both regenerate commit points (alongside insertManualSelection; selections unchanged); on regen commit set producedVersionId + ADVISORY survival auto-detect (auto-status only, never overwrites attorney-set, never deletes/hides, best-effort try/catch so it cannot fail a committed regeneration); reviewer-prompt injection of bounded '## Previously Adopted' section in reviewSession.create (OMITTED when empty => byte-identical to pre-7B); tRPC listAdoptLedger / updateAdoptLedgerStatus; telemetry adopt_ledger_entry_created/_regeneration_applied/_status_overridden; ReviewPane edit-before-adopting textarea + Adopted-changes panel (status, auto/attorney source, Resolve/Mark-present overrides). CI: first run failed on THREE issues, all fixed (77749f9): (a) a real bug -- survivalHeuristicPresent assumed pre-normalized content; now normalizes internally; (b) the buildLatestSelections refactor dropped a comment a source-inspection test (mr4.s2 C7.d) anchors on -> restored; (c) a fifth create/regenerate behavioral test (mr4.s2) mocks phase4b + resetAllMocks -> stubbed insertAdoptLedgerEntry/applyRegenerationToAdoptLedger/listAdoptLedgerForPrompt in the factory. CI green; squash-merged; branch deleted; main 1868e20. Separate from locked decisions (no auto-coupling). DO-NOT-TOUCH respected. DEPLOY CAVEAT: migration 0003 must be applied to prod TiDB out-of-band (TiDB SQL editor or Railway one-off pnpm db:migrate) before MR-CAL-7C-LIVE or the ledger 500s (same as 6B/0002). Engagement in_progress -> awaiting_live_verification (user-visible; behavior verified at MR-CAL-7C-LIVE)."
     }
   ],
-  "last_updated": "2026-06-01T11:30:00-04:00",
-  "last_updater": "MR-CAL-7A accepted; MR-CAL-7B Phase-A plan delivered (docs/engagements/MR-CAL-7B-plan.md; adopted-text+flag, prompt injection, advisory auto-detect survival) -> awaiting operator approve accept:MR-CAL-7B-plan; queue head MR-CAL-7C-LIVE",
+  "last_updated": "2026-06-01T12:30:00-04:00",
+  "last_updater": "MR-CAL-7B merged (1868e20, PR #83) -> awaiting_live_verification (MR-CAL-7C-LIVE). DEPLOY CAVEAT: migration 0003 must run on prod TiDB before live verify.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
