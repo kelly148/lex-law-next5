@@ -344,6 +344,12 @@ export const reviewSessionRouter = router({
             maxTokens: 8192,
             structuredOutputSchema: EvaluatorOutputSchema,
           }),
+          // MR-CAL-5D: the evaluator (EVALUATOR_MODEL = Claude Opus) reasons over the
+          // combined feedback of ALL reviewers in one call, so it needs the same headroom
+          // as a reviewer job. Without this it falls back to the global 120 000 ms default
+          // and can time out before persisting, leaving evaluation=null on otherwise
+          // successful multi-reviewer runs. Matches the reviewer_feedback 300 000 ms budget.
+          timeoutMs: 300_000,
           txn2Commit: async ({ jobId, output }) => {
             // Parse + validate the advisory dispositions. parseEvaluatorOutput throws
             // on malformed/non-conforming output, which fails the evaluator job and

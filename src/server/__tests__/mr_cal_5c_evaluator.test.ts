@@ -108,4 +108,14 @@ describe('MR-CAL-5C wiring — reviewSession.create source audit', () => {
     expect(evalBlock).not.toContain('updateSelection');
     expect(evalBlock).not.toContain('regenerateDocument');
   });
+
+  // MR-CAL-5D: the evaluator must be given the same 300 000 ms budget as reviewers.
+  // Without an explicit timeoutMs it falls back to the global 120 000 ms default and can
+  // time out before persisting (evaluation=null on otherwise successful multi-reviewer
+  // runs). Guard against regressing back to the default.
+  it('evaluator job is given an explicit 300_000 ms timeout (not the 120_000 ms default)', () => {
+    const evalBlockStart = src.indexOf('EVALUATOR PATH — MR-CAL-5C');
+    const evalBlock = src.slice(evalBlockStart, evalBlockStart + 3000);
+    expect(evalBlock).toMatch(/timeoutMs:\s*300_000/);
+  });
 });
