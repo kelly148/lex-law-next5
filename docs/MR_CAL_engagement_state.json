@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "LLN-FEEDBACK-CARD-UX-1",
-  "current_phase": "implementation",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -16,9 +16,10 @@
     "OPS-DEPLOY-PIPELINE-1",
     "MR-CAL-4C-LIVE",
     "MR-CAL-5A",
-    "MR-CAL-5B"
+    "MR-CAL-5B",
+    "LLN-FEEDBACK-CARD-UX-1"
   ],
-  "in_progress_engagement": "LLN-FEEDBACK-CARD-UX-1",
+  "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
@@ -225,10 +226,15 @@
       "ts": "2026-05-31T19:50:00-04:00",
       "decision": "queued:LLN-FEEDBACK-CARD-UX-1",
       "notes": "Operator-directed; added to queue HEAD (ahead of MR-CAL-5C; reprioritizable). DEFINITION: front-end-only UI polish of ReviewPane FeedbackCard rendering. Problem observed live: the suggestion body (ReviewPane.tsx ~line 440, <p>{suggestion.body}</p>) dumps the full raw legacy body = NARRATIVE_REVIEWER_MEMO prose + the entire raw STRUCTURED_FEEDBACK_CARDS JSON blob, shown IN ADDITION to the MR-CAL-4B native card; the raw JSON is junk, and the native card under-itemizes (omits issue + recommendation; suggested_revision multi-path runs together). SCOPE: when a native card is present, suppress the raw JSON (show only clean narrative prose, drop the NARRATIVE_REVIEWER_MEMO label), and itemize the card into labeled rows (severity/subtype + critique_type + attorney-decision chips; Issue; Recommendation; Suggested revision with multi-path options as bullets; Audience). Client-only (ReviewPane FeedbackCard) + a render test; no server/DB/schema change. NOT YET SCOPED for implementation (operator to start)."
+    },
+    {
+      "ts": "2026-05-31T20:00:00-04:00",
+      "decision": "start+push+merge+live-verified:LLN-FEEDBACK-CARD-UX-1 pass",
+      "notes": "Phase A implemented (front-end only) and live-verified PASS. Added src/client/utils/feedbackCardDisplay.ts (+ unit tests): stripEmbeddedCardsJson (show only clean narrative prose; drop the raw STRUCTURED_FEEDBACK_CARDS JSON + NARRATIVE_REVIEWER_MEMO label; legacy-safe) and splitSuggestedRevisionPaths (itemize multi-Path revisions). ReviewPane FeedbackCard: render cleaned narrative instead of raw body; itemize native card into labeled rows (severity/subtype + critique_type + attorney-decision chips, then Issue, Recommendation, Suggested revision with multi-path bullets). Branch lex-next/lln-feedback-card-ux-1; PR #66 (first merge attempt hit a transient GitHub 502, retried clean); CI green (Lint + Type Check + Tests incl. new feedbackCardDisplay tests); squash-merged as a742d8a; branch deleted. The PR's docs commit also persisted the MR-CAL-5B closure + CLAUDE.md live-testing directive. LIVE-VERIFIED PASS on production a742d8a (new live-testing standard) via Chrome DOM inspection on the iteration-8 GPT Lite card: rendered card shows BLOCKER / legal_sufficiency / 'Attorney decision required' / audience chips, then itemized Issue / Recommendation / Suggested revision rows, with NO raw JSON (rawJsonPresent=false). Engagement completed. CARRYFORWARD: multi-reviewer (MR-CAL-5B) Gemini-Lite non-return on the 2-reviewer run is an open reviewer-reliability follow-up (not a feature defect)."
     }
   ],
-  "last_updated": "2026-05-31T19:50:00-04:00",
-  "last_updater": "queued LLN-FEEDBACK-CARD-UX-1 (feedback-card UI polish) at queue head",
+  "last_updated": "2026-05-31T20:00:00-04:00",
+  "last_updater": "LLN-FEEDBACK-CARD-UX-1 merged (a742d8a) + live-verified PASS; clean itemized feedback cards LIVE",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
