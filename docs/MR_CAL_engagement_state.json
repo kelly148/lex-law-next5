@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "MR-CAL-6B",
+  "current_phase": "awaiting-plan-acceptance",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -22,14 +22,13 @@
     "MR-CAL-5D-LIVE",
     "MR-CAL-6A"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "MR-CAL-6B",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-6B",
     "MR-CAL-6C-LIVE",
     "MR-CAL-7A",
     "MR-CAL-7B",
@@ -266,10 +265,20 @@
       "ts": "2026-06-01T09:30:00-04:00",
       "decision": "accept:MR-CAL-6A",
       "notes": "Operator accepted the matter-memory investigation (operator approve accept:MR-CAL-6A). Engagement complete; awaiting_operator_acceptance -> completed_engagements; current/in_progress cleared to idle. Report of record: docs/engagements/MR-CAL-6A-investigation.md (merged e7bf5f0, PR #75). NEXT = MR-CAL-6B (Locked decisions Phase A; Type=Implementation). 6B is an architecture/implementation engagement -> requires operator approve scope:MR-CAL-6B before any code, and per the established pattern should BEGIN WITH A PHASE-A PLAN (additive matter_decisions table per Option A + reviewer/drafter prompt injection + lock/decline action) delivered for operator review before implementation. No product decision (matter-vs-document scope, capture UX, retirement policy) is pre-made; those are operator/attorney calls at 6B scope time."
+    },
+    {
+      "ts": "2026-06-01T09:45:00-04:00",
+      "decision": "scope:MR-CAL-6B",
+      "notes": "Operator approved scope to begin MR-CAL-6B (Locked decisions Phase A), plan-first. Three product decisions settled with the operator BEFORE planning: (1) SCOPE = DOCUMENT-LEVEL ONLY (a lock applies only to the document it was made on; data model still carries a scope column so matter-level is addable later without destructive migration); (2) CAPTURE = two entry points, 'decline & lock' (record a considered-and-declined suggestion as do-not-re-raise -- the new capability) AND 'lock on adopt' (mark an adopted suggestion as a remembered decision); NO direct standing-entry in Phase A; (3) STRICTNESS = 'respect unless new facts' (reviewers instructed not to re-raise a locked item absent a material new fact, flag deliberate re-raises rather than silently suppress), NOT hard-suppress. Engagement moved queue-head -> in_progress; phase=awaiting-plan-acceptance."
+    },
+    {
+      "ts": "2026-06-01T09:45:00-04:00",
+      "decision": "plan:MR-CAL-6B",
+      "notes": "Phase-A plan delivered for operator review (NO code written): docs/engagements/MR-CAL-6B-plan.md. PLAN SPINE: additive document-scoped locked_decisions table (id/userId/documentId/matterId/scope['document']/origin['declined'|'adopted']/sourceSuggestionId/sourceIterationNumber/reviewSessionId/summary/rationale/status['active'|'unlocked']/timestamps; Zod-Wall Row schema + userId-scoped queries; additive migration, no existing-table change); tRPC writes declineAndLock / lockOnAdopt / unlock / update / listForDocument (pure DB, no LLM job; evaluator never writes here); read+inject active locks into the reviewer userPrompt in reviewSession.create as a bounded '## Locked Decisions (do not re-raise absent new facts)' section; narrow ONLY the reviewerPrompts.ts:128 'mode discipline' line to allow CONSUMING provided locked decisions (the :107 'do not re-raise ... locked decisions absent material change' rule already exists) WITHOUT enabling persistence storage / sendability / cumulative ledgers. Client (ReviewPane): decline&lock + lock-on-adopt controls + per-document locked-decisions list with provenance + unlock/modify. Two increments (server foundation, then client), each default-SAFE (zero locks => byte-identical to today). DO-NOT-TOUCH: evaluator scoring, severity taxonomy, business-decision calibration text, feedback parser/card contract, multi-reviewer gating, sendability, cumulative ledger, matter-level rollout, native card runtime. HONEST CAVEATS: 'respect unless new facts' is a prompt-level instruction (deterministic at the data/injection layer; model adherence verified at MR-CAL-6C-LIVE); privacy -- lock summary/rationale flow to third-party LLM providers (no redaction layer; flagged in 6A). Accept with operator approve accept:MR-CAL-6B-plan to authorize implementation; Phase B (push/PR/CI/merge) remains separately gated."
     }
   ],
-  "last_updated": "2026-06-01T09:30:00-04:00",
-  "last_updater": "MR-CAL-6A accepted (investigation complete); next = MR-CAL-6B (locked decisions Phase A — implementation; needs operator approve scope:MR-CAL-6B, plan-first)",
+  "last_updated": "2026-06-01T09:45:00-04:00",
+  "last_updater": "MR-CAL-6B scope approved (document-level; decline&lock + lock-on-adopt; respect-unless-new-facts); Phase-A plan delivered (docs/engagements/MR-CAL-6B-plan.md) -> awaiting operator approve accept:MR-CAL-6B-plan",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
