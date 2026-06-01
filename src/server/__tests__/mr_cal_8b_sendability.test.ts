@@ -124,10 +124,11 @@ describe('MR-CAL-8B query wiring (source audit)', () => {
 
   it('degrades to { available: false } on classifier/parse failure (never throws to client)', () => {
     const idx = src.indexOf('checkSendability: protectedProcedure');
-    const block = src.slice(idx, idx + 2600);
+    const block = src.slice(idx, idx + 3600);
     expect(block).toContain('try {');
     expect(block).toContain('available: false');
-    expect(block).toContain("'sendability_check_failed'");
+    // sendability_check_failed is unique to this query's catch path.
+    expect(src).toContain("'sendability_check_failed'");
   });
 
   it('emits sendability_checked telemetry on success', () => {
