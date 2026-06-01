@@ -298,7 +298,7 @@ interface FeedbackCardProps {
   };
   sessionId: string;
   // MR-4 P2: selections now keyed by suggestionId (canonical field after §3.3 normalization).
-  selections: Array<{ suggestionId: string; note: string | null }>;
+  selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
   evaluation: Array<{ suggestionId: string; disposition: 'adopt' | 'reject' | 'neutral'; synthesisBody?: string }> | null;
   onRefresh: () => void;
   // MR-CAL-6B: documentId for locked-decision list invalidation; suggestionIds already
@@ -311,6 +311,10 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
   const [expanded, setExpanded] = useState(true);
   // MR-4 P2: per-suggestion note inputs keyed by suggestionId.
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
+  // MR-CAL-7B: per-suggestion "edit before adopting" text keyed by suggestionId.
+  // When present + different from the suggestion body, the adoption is recorded as
+  // 'adopted_modified' in the adopt ledger; otherwise verbatim.
+  const [adoptedTextInputs, setAdoptedTextInputs] = useState<Record<string, string>>({});
   const utils = trpc.useUtils();
 
   // MR-4 P2: Build a Set of selected suggestionIds for O(1) lookup.
@@ -319,7 +323,7 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
   const selectedCount = feedback.suggestions.filter((sg) => selectedSuggestionIds.has(sg.suggestionId)).length;
 
   const updateSelectionMutation = useGuardedMutation(
-    (input: { sessionId: string; selections: Array<{ suggestionId: string; note: string | null }> }) =>
+    (input: { sessionId: string; selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }> }) =>
       utils.client.reviewSession.updateSelection.mutate(input),
     {
       onSuccess: () => {
@@ -328,6 +332,17 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
       },
     }
   );
+
+  // MR-CAL-7B: resolve the effective adopted text for a selection, preferring a
+  // pending local edit, then the server-confirmed value. Returned only when set,
+  // so verbatim adoptions stay { suggestionId, note } (backward-compatible).
+  const effectiveAdoptedText = (
+    suggestionId: string,
+    serverVal: string | undefined,
+  ): string | undefined => {
+    const local = adoptedTextInputs[suggestionId];
+    return local !== undefined ? local : serverVal;
+  };
 
   const regenerateSingleMutation = useGuardedMutation(
     (input: { sessionId: string; reviewerRole: string }) =>
@@ -361,31 +376,45 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
   // MR-4 P2: Toggle a single suggestion's selection state.
   // Latest-local-state merge: builds payload from server selections merged with
   // pending noteInputs state, so unsaved note edits are preserved on toggle.
+  // MR-CAL-7B: build the canonical selection list from server state + pending local
+  // note and adopted-text edits. Used by toggle/note/adopted-text handlers so no edit
+  // is dropped on a concurrent change. adoptedText is included only when set.
+  const buildLatestSelections = (): Array<{ suggestionId: string; note: string | null; adoptedText?: string }> =>
+    selections.map((sel) => {
+      const note = noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note;
+      const adoptedText = effectiveAdoptedText(sel.suggestionId, sel.adoptedText);
+      return adoptedText !== undefined
+        ? { suggestionId: sel.suggestionId, note, adoptedText }
+        : { suggestionId: sel.suggestionId, note };
+    });
+
   const toggleSuggestion = (suggestionId: string): void => {
     const isCurrentlySelected = selectedSuggestionIds.has(suggestionId);
-    // Derive latest canonical selections: server selections + any pending local note edits.
-    // This prevents the race where a note typed before a checkbox toggle is dropped.
-    const latestSelections: Array<{ suggestionId: string; note: string | null }> = selections.map((sel) => ({
-      suggestionId: sel.suggestionId,
-      // Prefer local pending note input if present; fall back to server-confirmed note.
-      note: noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note,
-    }));
+    const latestSelections = buildLatestSelections();
+    const adoptedText = adoptedTextInputs[suggestionId];
     const newSelections = isCurrentlySelected
       ? latestSelections.filter((s) => s.suggestionId !== suggestionId)
-      : [...latestSelections, { suggestionId, note: noteInputs[suggestionId] ?? null }];
+      : [...latestSelections, adoptedText !== undefined
+          ? { suggestionId, note: noteInputs[suggestionId] ?? null, adoptedText }
+          : { suggestionId, note: noteInputs[suggestionId] ?? null }];
     updateSelectionMutation.mutate({ sessionId, selections: newSelections });
   };
 
   // MR-4 P2: Update note for a single suggestion, preserving all other selections.
   const updateNote = (suggestionId: string, value: string): void => {
     setNoteInputs((prev) => ({ ...prev, [suggestionId]: value }));
-    // Build payload from latest local state: all current selections with updated note.
-    const latestSelections: Array<{ suggestionId: string; note: string | null }> = selections.map((sel) => ({
-      suggestionId: sel.suggestionId,
-      note: sel.suggestionId === suggestionId
-        ? (value || null)
-        : (noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note),
-    }));
+    const latestSelections = buildLatestSelections().map((s) =>
+      s.suggestionId === suggestionId ? { ...s, note: value || null } : s,
+    );
+    updateSelectionMutation.mutate({ sessionId, selections: latestSelections });
+  };
+
+  // MR-CAL-7B: update the adopted (edited) text for a selected suggestion.
+  const updateAdoptedText = (suggestionId: string, value: string): void => {
+    setAdoptedTextInputs((prev) => ({ ...prev, [suggestionId]: value }));
+    const latestSelections = buildLatestSelections().map((s) =>
+      s.suggestionId === suggestionId ? { ...s, adoptedText: value } : s,
+    );
     updateSelectionMutation.mutate({ sessionId, selections: latestSelections });
   };
 
@@ -539,6 +568,18 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
                         className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
                       />
                     )}
+                    {/* MR-CAL-7B: optional "edit before adopting" — leave blank to adopt verbatim.
+                        When edited, the adoption is recorded as 'modified' in the adopt ledger.
+                        Note: adopted text is shared with the AI reviewers on later passes. */}
+                    {isChecked && (
+                      <textarea
+                        value={adoptedTextInputs[suggestion.suggestionId] ?? (selections.find((s) => s.suggestionId === suggestion.suggestionId)?.adoptedText ?? '')}
+                        onChange={(e) => updateAdoptedText(suggestion.suggestionId, e.target.value)}
+                        placeholder="Optional: edit the adopted text (blank = adopt verbatim). Shared with reviewers on later passes."
+                        rows={2}
+                        className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
+                      />
+                    )}
                     {/* MR-CAL-6B: lock controls — decline-&-lock or lock-on-adopt.
                         A lock tells future reviewers not to re-raise this absent a new fact. */}
                     {lockedSuggestionIds.has(suggestion.suggestionId) ? (
@@ -632,6 +673,89 @@ function LockedDecisionsSection({ documentId }: LockedDecisionsSectionProps): Re
       </div>
       <p className="text-[10px] text-gray-400 mt-2">
         Note: locked-decision text is shared with the AI reviewers. Avoid privileged side-notes here.
+      </p>
+    </div>
+  );
+}
+
+// ============================================================
+// AdoptLedgerSection — MR-CAL-7B
+// Per-document cumulative adopt ledger: what was adopted (verbatim/modified),
+// which version it targeted, and its status (active / unresolved / superseded /
+// resolved). Survival status is ADVISORY (auto) and attorney-overridable.
+// ============================================================
+interface AdoptLedgerSectionProps {
+  documentId: string;
+}
+
+const ADOPT_STATUS_LABELS: Record<string, string> = {
+  active: 'Active (present)',
+  unresolved: 'Adopted (pending regeneration)',
+  superseded: 'Superseded (auto — verify)',
+  resolved: 'Resolved',
+};
+
+function AdoptLedgerSection({ documentId }: AdoptLedgerSectionProps): React.ReactElement | null {
+  const utils = trpc.useUtils();
+  const { data } = trpc.reviewSession.listAdoptLedger.useQuery({ documentId });
+  const entries = data?.adoptLedger ?? [];
+
+  const statusMutation = useGuardedMutation(
+    (input: { adoptLedgerId: string; status: 'active' | 'superseded' | 'resolved' | 'unresolved' }) =>
+      utils.client.reviewSession.updateAdoptLedgerStatus.mutate(input),
+    { onSuccess: () => { void utils.reviewSession.listAdoptLedger.invalidate({ documentId }); } }
+  );
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="px-4 py-3 border-t border-gray-200">
+      <div className="flex items-center gap-2 mb-2">
+        <CheckCircle className="w-3.5 h-3.5 text-firm-navy" />
+        <span className="text-xs font-semibold text-firm-navy">
+          Adopted changes ({entries.length}) — carried into later reviews as intended state
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {entries.map((e) => (
+          <div key={e.id} className="rounded border border-gray-200 px-2 py-1.5">
+            <p className="text-[11px] text-gray-800 whitespace-pre-line">{e.adoptedText}</p>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
+              <p className="text-[10px] text-gray-400">
+                {e.disposition === 'adopted_modified' ? 'Modified' : 'Verbatim'}
+                {` · from iteration ${e.sourceIterationNumber}`}
+                {` · ${ADOPT_STATUS_LABELS[e.status] ?? e.status}`}
+                {e.statusSource === 'auto' ? ' · auto' : ' · attorney-set'}
+              </p>
+              <div className="flex-shrink-0 flex items-center gap-1">
+                {e.status !== 'resolved' && (
+                  <button
+                    onClick={() => statusMutation.mutate({ adoptLedgerId: e.id, status: 'resolved' })}
+                    disabled={statusMutation.isPending}
+                    title="Mark resolved (handled/closed)"
+                    className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-500 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+                  >
+                    Resolve
+                  </button>
+                )}
+                {e.status === 'superseded' && (
+                  <button
+                    onClick={() => statusMutation.mutate({ adoptLedgerId: e.id, status: 'active' })}
+                    disabled={statusMutation.isPending}
+                    title="Override: this adopted change is still present"
+                    className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-500 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+                  >
+                    Mark present
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-2">
+        &quot;Superseded&quot; is an automatic best-effort guess (the drafter may paraphrase) — verify and
+        override as needed. Adopted text is shared with the AI reviewers.
       </p>
     </div>
   );
@@ -1130,6 +1254,9 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
 
       {/* MR-CAL-6B: locked decisions for this document */}
       <LockedDecisionsSection documentId={documentId} />
+
+      {/* MR-CAL-7B: cumulative adopt ledger for this document */}
+      <AdoptLedgerSection documentId={documentId} />
 
       {/* History section — MR-2 §S2c */}
       <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />

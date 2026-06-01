@@ -52,6 +52,10 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     getNextIterationNumberForDocument: vi.fn(),
     // MR-CAL-6B: reviewSession.create loads active locked decisions; default to none.
     listActiveLockedDecisionsForDocument: vi.fn().mockResolvedValue([]),
+    // MR-CAL-7B: create loads adopt-ledger carryforward; regenerate captures + applies it.
+    listAdoptLedgerForPrompt: vi.fn().mockResolvedValue([]),
+    insertAdoptLedgerEntry: vi.fn(),
+    applyRegenerationToAdoptLedger: vi.fn(),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     listFeedbackForDocument: vi.fn(),
@@ -317,6 +321,9 @@ describe('MR-2 S4e: End-to-End Cross-Iteration Behavioral Test', () => {
     // MR-CAL-6B: reviewSession.create loads active locked decisions; reset clears the
     // factory default, so set it here too (default no locks => prior behavior).
     vi.mocked(phase4bQueries.listActiveLockedDecisionsForDocument).mockResolvedValue([]);
+    vi.mocked(phase4bQueries.listAdoptLedgerForPrompt).mockResolvedValue([]);
+    vi.mocked(phase4bQueries.insertAdoptLedgerEntry).mockResolvedValue(uuidv4());
+    vi.mocked(phase4bQueries.applyRegenerationToAdoptLedger).mockResolvedValue({ carried: 0, superseded: 0 });
     vi.mocked(documentQueries.getDocumentById).mockResolvedValue(makeDocRow(VERSION_1_ID));
     vi.mocked(versionQueries.getVersionById).mockResolvedValue(makeVersionRow(VERSION_1_ID, 1));
 

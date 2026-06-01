@@ -1049,6 +1049,90 @@ export const lockedDecisions = mysqlTable(
 );
 
 // ============================================================
+// MR-CAL-7B — adopt_ledger
+// ============================================================
+// Cumulative record of reviewer suggestions the attorney ADOPTED (verbatim or
+// modified), tracked across regeneration. Separate from locked_decisions (6B):
+// locks = "do not re-raise" (suppression); ledger = "this was adopted; carry it
+// forward + track survival". No auto-coupling between the two (MR-CAL-7A).
+//
+// Captured at the existing adopt/regenerate commit point alongside
+// feedback_manual_selections (additive; selections keep their per-iteration role).
+//
+// disposition: adopted_verbatim | adopted_modified (adoptedText == originalText when verbatim).
+// status: active | superseded | resolved | unresolved.
+//   unresolved = adopted but not yet carried into a regeneration (no producedVersion).
+//   active     = adopted and believed present in the current draft.
+//   superseded = a newer version exists and advisory auto-detection no longer finds the text.
+//   resolved   = attorney explicitly closed it.
+// statusSource: auto | attorney. Auto-detection NEVER overwrites an attorney-set status,
+//   never deletes/hides a row; the attorney can always override (advisory by design — LLM
+//   drafter paraphrase makes exact survival detection unreliable; MR-CAL-7A/7B).
+//
+// Indexes:
+//   idx_adopt_ledger_document (documentId, status) — prompt-injection + UI read path
+//   idx_adopt_ledger_user_document (userId, documentId)
+//   uniq_adopt_ledger_session_suggestion (reviewSessionId, sourceSuggestionId)
+// ============================================================
+export const ADOPT_LEDGER_DISPOSITION_VALUES = ['adopted_verbatim', 'adopted_modified'] as const;
+export type AdoptLedgerDisposition =
+  (typeof ADOPT_LEDGER_DISPOSITION_VALUES)[number];
+
+export const ADOPT_LEDGER_STATUS_VALUES = ['active', 'superseded', 'resolved', 'unresolved'] as const;
+export type AdoptLedgerStatus =
+  (typeof ADOPT_LEDGER_STATUS_VALUES)[number];
+
+export const ADOPT_LEDGER_STATUS_SOURCE_VALUES = ['auto', 'attorney'] as const;
+export type AdoptLedgerStatusSource =
+  (typeof ADOPT_LEDGER_STATUS_SOURCE_VALUES)[number];
+
+export const adoptLedger = mysqlTable(
+  'adopt_ledger',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }).notNull(),
+    sourceReviewerRole: varchar('sourceReviewerRole', { length: 64 }).notNull(),
+    sourceIterationNumber: int('sourceIterationNumber').notNull(),
+    reviewSessionId: char('reviewSessionId', { length: 36 }).notNull(),
+    disposition: mysqlEnum('disposition', ADOPT_LEDGER_DISPOSITION_VALUES).notNull(),
+    // The suggestion text as the reviewer wrote it (provenance).
+    originalText: text('originalText').notNull(),
+    // What the attorney actually adopted (== originalText when verbatim). Flows to LLM providers.
+    adoptedText: text('adoptedText').notNull(),
+    // The document version current at adopt time (the regeneration INPUT version).
+    adoptedIntoVersionId: char('adoptedIntoVersionId', { length: 36 }).notNull(),
+    // The version produced by the regeneration that consumed this adoption (set when known).
+    producedVersionId: char('producedVersionId', { length: 36 }),
+    status: mysqlEnum('status', ADOPT_LEDGER_STATUS_VALUES).notNull().default('unresolved'),
+    statusSource: mysqlEnum('statusSource', ADOPT_LEDGER_STATUS_SOURCE_VALUES)
+      .notNull()
+      .default('auto'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxAdoptLedgerDocument: index('idx_adopt_ledger_document').on(
+      table.documentId,
+      table.status,
+    ),
+    idxAdoptLedgerUserDocument: index('idx_adopt_ledger_user_document').on(
+      table.userId,
+      table.documentId,
+    ),
+    uniqAdoptLedgerSessionSuggestion: uniqueIndex('uniq_adopt_ledger_session_suggestion').on(
+      table.reviewSessionId,
+      table.sourceSuggestionId,
+    ),
+  }),
+);
+
+// ============================================================
 // Type exports for use in query wrappers and procedures
 // ============================================================
 export type User = typeof users.$inferSelect;
@@ -1091,3 +1175,5 @@ export type ReviewSession = typeof reviewSessions.$inferSelect;
 export type NewReviewSession = typeof reviewSessions.$inferInsert;
 export type LockedDecision = typeof lockedDecisions.$inferSelect;
 export type NewLockedDecision = typeof lockedDecisions.$inferInsert;
+export type AdoptLedger = typeof adoptLedger.$inferSelect;
+export type NewAdoptLedger = typeof adoptLedger.$inferInsert;

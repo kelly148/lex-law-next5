@@ -8,7 +8,7 @@
  * All rows pass through the corresponding Zod schema before returning.
  * JSON columns are parsed strictly.
  */
-import { eq, and, isNull, desc, asc } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import {
@@ -20,6 +20,7 @@ import {
   feedbackManualSelections,
   reviewSessions,
   lockedDecisions,
+  adoptLedger,
   type InformationRequest,
   type InformationRequestItem,
   type DocumentOutline,
@@ -28,6 +29,7 @@ import {
   type FeedbackManualSelection,
   type ReviewSession,
   type LockedDecision,
+  type AdoptLedger,
 } from '../schema.js';
 import {
   InformationRequestRowSchema,
@@ -38,6 +40,7 @@ import {
   FeedbackManualSelectionRowSchema,
   ReviewSessionRowSchema,
   LockedDecisionRowSchema,
+  AdoptLedgerRowSchema,
   type InformationRequestRow,
   type InformationRequestItemRow,
   type DocumentOutlineRow,
@@ -46,6 +49,7 @@ import {
   type FeedbackManualSelectionRow,
   type ReviewSessionRow,
   type LockedDecisionRow,
+  type AdoptLedgerRow,
 } from '../../../shared/schemas/phase4b.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -977,4 +981,204 @@ export async function updateLockedDecision(
     .update(lockedDecisions)
     .set(set)
     .where(and(eq(lockedDecisions.id, id), eq(lockedDecisions.userId, userId)));
+}
+
+// ============================================================
+// adopt_ledger queries (MR-CAL-7B)
+// ============================================================
+
+function parseAdoptLedgerRow(
+  raw: AdoptLedger,
+  ctx: { userId: string },
+): AdoptLedgerRow {
+  try {
+    return AdoptLedgerRowSchema.parse(raw);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      void emitTelemetry(
+        'zod_parse_failed',
+        {
+          schemaName: 'AdoptLedgerRowSchema',
+          tableName: 'adopt_ledger',
+          errorPath: err.errors[0]?.path.join('.') ?? '',
+          errorMessage: err.errors[0]?.message ?? 'ZodError',
+        },
+        { userId: ctx.userId, matterId: null, documentId: null, jobId: null },
+      );
+    }
+    throw err;
+  }
+}
+
+export async function insertAdoptLedgerEntry(data: {
+  id?: string;
+  userId: string;
+  documentId: string;
+  matterId: string;
+  sourceSuggestionId: string;
+  sourceReviewerRole: string;
+  sourceIterationNumber: number;
+  reviewSessionId: string;
+  disposition: 'adopted_verbatim' | 'adopted_modified';
+  originalText: string;
+  adoptedText: string;
+  adoptedIntoVersionId: string;
+  status?: 'active' | 'superseded' | 'resolved' | 'unresolved';
+}): Promise<string> {
+  const id = data.id ?? uuidv4();
+  await db.insert(adoptLedger).values({
+    id,
+    userId: data.userId,
+    documentId: data.documentId,
+    matterId: data.matterId,
+    sourceSuggestionId: data.sourceSuggestionId,
+    sourceReviewerRole: data.sourceReviewerRole,
+    sourceIterationNumber: data.sourceIterationNumber,
+    reviewSessionId: data.reviewSessionId,
+    disposition: data.disposition,
+    originalText: data.originalText,
+    adoptedText: data.adoptedText,
+    adoptedIntoVersionId: data.adoptedIntoVersionId,
+    status: data.status ?? 'unresolved',
+    statusSource: 'auto',
+  });
+  return id;
+}
+
+export async function getAdoptLedgerEntryById(
+  id: string,
+  userId: string,
+): Promise<AdoptLedgerRow | null> {
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(and(eq(adoptLedger.id, id), eq(adoptLedger.userId, userId)))
+    .limit(1);
+  if (rows.length === 0) return null;
+  return parseAdoptLedgerRow(rows[0]!, { userId });
+}
+
+/** All ledger entries for a document (any status), newest first (UI). */
+export async function listAdoptLedgerForDocument(
+  documentId: string,
+  userId: string,
+): Promise<AdoptLedgerRow[]> {
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(
+      and(
+        eq(adoptLedger.documentId, documentId),
+        eq(adoptLedger.userId, userId),
+      ),
+    )
+    .orderBy(desc(adoptLedger.createdAt));
+  return rows.map((r) => parseAdoptLedgerRow(r, { userId }));
+}
+
+/**
+ * Ledger entries to carry into a reviewer prompt: status in (active, unresolved),
+ * oldest-first for stable prompt ordering. The read path for prompt injection.
+ */
+export async function listAdoptLedgerForPrompt(
+  documentId: string,
+  userId: string,
+): Promise<AdoptLedgerRow[]> {
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(
+      and(
+        eq(adoptLedger.documentId, documentId),
+        eq(adoptLedger.userId, userId),
+        inArray(adoptLedger.status, ['active', 'unresolved']),
+      ),
+    )
+    .orderBy(asc(adoptLedger.createdAt));
+  return rows.map((r) => parseAdoptLedgerRow(r, { userId }));
+}
+
+/**
+ * On regeneration commit: mark the consumed unresolved entries as carried into
+ * the produced version (producedVersionId set, status -> 'active'), then run the
+ * ADVISORY survival heuristic against the new content. Auto-detection only ever
+ * sets statusSource='auto' rows; it NEVER touches statusSource='attorney' rows,
+ * and never deletes/hides. Returns counts for telemetry.
+ */
+export async function applyRegenerationToAdoptLedger(params: {
+  documentId: string;
+  userId: string;
+  producedVersionId: string;
+  newContent: string;
+}): Promise<{ carried: number; superseded: number }> {
+  const { documentId, userId, producedVersionId, newContent } = params;
+  // Consider all auto-status entries for this document that are active/unresolved.
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(
+      and(
+        eq(adoptLedger.documentId, documentId),
+        eq(adoptLedger.userId, userId),
+        eq(adoptLedger.statusSource, 'auto'),
+        inArray(adoptLedger.status, ['active', 'unresolved']),
+      ),
+    );
+  const normalizedContent = normalizeForSurvival(newContent);
+  let carried = 0;
+  let superseded = 0;
+  for (const r of rows) {
+    const parsed = parseAdoptLedgerRow(r, { userId });
+    const present = survivalHeuristicPresent(parsed.adoptedText, normalizedContent);
+    const nextStatus: 'active' | 'superseded' = present ? 'active' : 'superseded';
+    if (nextStatus === 'active') carried++;
+    else superseded++;
+    await db
+      .update(adoptLedger)
+      .set({
+        producedVersionId,
+        status: nextStatus,
+        // statusSource stays 'auto'
+      })
+      .where(and(eq(adoptLedger.id, parsed.id), eq(adoptLedger.userId, userId)));
+  }
+  return { carried, superseded };
+}
+
+/** Attorney override of a ledger entry's status (statusSource -> 'attorney'). */
+export async function updateAdoptLedgerStatus(
+  id: string,
+  userId: string,
+  status: 'active' | 'superseded' | 'resolved' | 'unresolved',
+): Promise<void> {
+  await db
+    .update(adoptLedger)
+    .set({ status, statusSource: 'attorney' })
+    .where(and(eq(adoptLedger.id, id), eq(adoptLedger.userId, userId)));
+}
+
+// --- adopt_ledger survival heuristic (ADVISORY; MR-CAL-7B) -------------------
+// Exact-match survival detection against an LLM drafter that paraphrases is
+// inherently unreliable; this heuristic is conservative and ADVISORY only
+// (status it sets is overridable by the attorney). It normalizes whitespace/case
+// and treats an adopted snippet as "present" if a substantial normalized token
+// run overlaps the new content. Kept deliberately simple + transparent.
+
+function normalizeForSurvival(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+export function survivalHeuristicPresent(adoptedText: string, normalizedContent: string): boolean {
+  const a = normalizeForSurvival(adoptedText);
+  if (a.length === 0) return true; // nothing to find -> don't flag as lost
+  // Direct containment of a reasonably long adopted snippet.
+  if (a.length <= 200 && normalizedContent.includes(a)) return true;
+  // Token-overlap fallback for longer/paraphrased text: how many of the adopted
+  // text's distinctive tokens appear in the new content.
+  const tokens = a.split(' ').filter((t) => t.length >= 5);
+  if (tokens.length === 0) {
+    return normalizedContent.includes(a);
+  }
+  const hits = tokens.filter((t) => normalizedContent.includes(t)).length;
+  return hits / tokens.length >= 0.6;
 }
