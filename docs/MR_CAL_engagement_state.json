@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "MR-CAL-8A",
-  "current_phase": "awaiting-acceptance",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -25,12 +25,11 @@
     "MR-CAL-6C-LIVE",
     "MR-CAL-7A",
     "MR-CAL-7B",
-    "MR-CAL-7C-LIVE"
-  ],
-  "in_progress_engagement": "MR-CAL-8A",
-  "awaiting_operator_acceptance": [
+    "MR-CAL-7C-LIVE",
     "MR-CAL-8A"
   ],
+  "in_progress_engagement": null,
+  "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
@@ -332,10 +331,15 @@
       "ts": "2026-06-01T13:45:00-04:00",
       "decision": "investigation-complete:MR-CAL-8A",
       "notes": "Sendability-gate investigation (read-only; no code changed). Report committed at docs/engagements/MR-CAL-8A-investigation.md. HEADLINE: the system already DEFINES sendability -- reviewerPrompts.ts:94 instructs verbatim 'BLOCKER = sendability fail or issue that prevents responsible attorney release.' So the concept exists at the top severity tier; missing pieces are (a) an AGGREGATOR (BLOCKERs -> one document-level verdict), (b) a pre-send CHECKPOINT UI, (c) an OVERRIDE RECORD. ~60% infra-ready. CATEGORIES: most 8A categories map onto existing severity=BLOCKER + critique_type + flags (requires_attorney_decision, routine_blank_flag, audience_affected, severity_subtype BUSINESS); genuinely-new = a few deterministic rule checks (jurisdiction set, non-routine blanks, execution defects) + the aggregator. ANSWERS (7.1): gate role = a DETERMINISTIC aggregator over persisted BLOCKER signal at the finalize checkpoint (Option A; no new LLM call -> avoids the reviewer-reliability problems seen live in 5D/6C/7C; LLM classifier is a possible Phase 2); advisory-vs-blocking = ADVISORY-WITH-ACKNOWLEDGMENT, never silent/hard block (required by attorney-authority principle + 8B acceptance 'gate does not silently block'); UI = SendabilitySection in ReviewPane (beside 6B locked-decisions + 7B adopt-ledger) PLUS the authoritative checkpoint at the finalize boundary on DocumentDetail (WorkflowControlsSection, near FinalizeDiagnosticBanner); dependencies = NOT blocked on native-card runtime (severity=BLOCKER readable today via extractEmbeddedFeedbackCards; finer flags are softer/best-effort), reuses the EXISTING staleness_acknowledged acknowledge-before-finalize gate (documents4a.ts ~930/1028) and the 6B/7B override+provenance pattern, plus a new table needs the prod-migrate step (carryforward DEPLOY-MIGRATIONS-NOT-AUTOMATIC). DATA MODEL (surfaced): additive sendability_overrides table (Option A) vs documents columns (Option B); verdict recomputed on demand, not persisted in Phase A. Lifecycle: finalize/acceptSubstantive/acceptSubstantiveUnformatted in documents4a.ts; last human step before send = Finalize/Accept-Unformatted then export DOCX. All four 7.1 acceptance criteria addressed. Moved queue-head -> awaiting_operator_acceptance; phase=awaiting-acceptance. Accept with operator approve accept:MR-CAL-8A."
+    },
+    {
+      "ts": "2026-06-01T14:00:00-04:00",
+      "decision": "accept:MR-CAL-8A",
+      "notes": "Operator accepted the sendability-gate investigation (operator approve accept:MR-CAL-8A). MR-CAL-8A awaiting_operator_acceptance -> completed_engagements; current/in_progress cleared to idle. Report of record: docs/engagements/MR-CAL-8A-investigation.md (merged b16127d, PR #86). NEXT = MR-CAL-8B (Sendability gate implementation; Type=Phase A implementation) -> requires operator approve scope:MR-CAL-8B and begins PLAN-FIRST; carries product decisions for the operator (aggregator vs LLM classifier; advisory-with-ack framing; override storage Option A table vs Option B documents columns; UI surfaces) and the prod-migrate step if it adds a table."
     }
   ],
-  "last_updated": "2026-06-01T13:45:00-04:00",
-  "last_updater": "MR-CAL-8A sendability-gate investigation complete -> awaiting_operator_acceptance; report at docs/engagements/MR-CAL-8A-investigation.md; next queued = MR-CAL-8B",
+  "last_updated": "2026-06-01T14:00:00-04:00",
+  "last_updater": "MR-CAL-8A accepted (completed); next = MR-CAL-8B (sendability gate implementation; needs operator approve scope:MR-CAL-8B, plan-first); queue head MR-CAL-8B",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
