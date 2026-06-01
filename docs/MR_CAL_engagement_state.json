@@ -23,11 +23,12 @@
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
-  "blocked_engagements": [],
+  "blocked_engagements": [
+    "MR-CAL-5D-LIVE"
+  ],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-5D-LIVE",
     "MR-CAL-6A",
     "MR-CAL-6B",
     "MR-CAL-6C-LIVE",
@@ -241,10 +242,15 @@
       "ts": "2026-05-31T20:40:00-04:00",
       "decision": "accept+push+merge:MR-CAL-5C",
       "notes": "Operator accepted the plan and approved push+merge. MR-CAL-5C (advisory evaluator output contract) implemented and merged. Added EvaluatorOutputSchema (shared/schemas/phase4b.ts); evaluatorPrompt.ts (advisory, non-decisionmaking system prompt + per-suggestionId user prompt from the cycle's reviewer feedback); evaluatorOutputParse.ts (tolerant parse, strict schema, throws->job fails->persists nothing); wired reviewSession.create evaluator block to read the just-persisted reviewer feedback (executeCanonicalMutation runs inline/sequentially so feedback is available), enforce EvaluatorOutputSchema, and on commit parse + insertFeedbackEvaluation (replaced the telemetry-only stub). Dual-gated: isEvaluatorEnabled() (env EVALUATOR_ENABLED, default OFF) AND >1 reviewer. Display already exists (ReviewPane disposition icons + synthesis). Tests: mr_cal_5c_evaluator.test.ts (parse/schema/prompts/source-audit). Two CI fixes: exactOptionalPropertyTypes (severity?: string|undefined) and updated the MR-2 §S1 'evaluator inert' regression guard (mr3.behavioral.test.ts) to assert the now-advisory default-OFF form. CI green; squash-merged as 74870ba; branch deleted. DEFAULT OFF = zero production behavior change. Engagement code-complete. LIVE verification is MR-CAL-5D-LIVE (separate; needs EVALUATOR_ENABLED=true + two reliable reviewers; mind the Gemini-Lite non-return)."
+    },
+    {
+      "ts": "2026-05-31T21:30:00-04:00",
+      "decision": "blocked:MR-CAL-5D-LIVE",
+      "notes": "Operator approved blocking (Rule-11 transition confirmed). Live verification of the advisory evaluator could NOT be performed because the reviewer-completion path is currently broken for ALL reviewers, independent of the evaluator. With EVALUATOR_ENABLED=true and MULTI_REVIEWER_ENABLED=true on prod (b7ae166; /api/version + /api/health 200; settings.get multiReviewerEnabled=true), four controlled reviews on the synthetic POA iteration test doc all hung with status=in_progress, feedbackCount=0, evaluation=null and no browser console errors: iter9 GPT Lite + Claude Lite (evaluator path) ~12min; iter10 GPT Lite + Grok Lite (evaluator path) ~6min; iter11 GPT Lite ALONE (single reviewer, evaluator NOT triggered) ~6min; iter12 Grok Lite ALONE (single reviewer, evaluator NOT triggered) ~5min. CONFIRMED: single-reviewer evaluator-off runs hang identically to 2-reviewer evaluator-on runs -> the MR-CAL-5C evaluator code is NOT implicated; 5D-LIVE is simply not performable now. CONSISTENT WITH (not confirmed, no server-log/DB access): a hanging DB write/commit (sessions insert as in_progress but never flip to complete; feedback never commits; in-app Abandon did not persist a status change -> all 4 still in_progress). Coincident with the EVALUATOR_ENABLED env-change redeploy but not caused by evaluator code. Operator follow-ups (operator domain; not Claude actions): inspect Railway service logs since b7ae166 redeploy; check TiDB/DB health (connections/quota/locks); a restart/redeploy may clear it, after which a single-reviewer smoke test gates resuming 5D-LIVE. 4 stuck synthetic sessions (iter9-12) added to LLN-PROD-CLEANUP-1. Engagement queue-head -> blocked_engagements."
     }
   ],
-  "last_updated": "2026-05-31T20:40:00-04:00",
-  "last_updater": "MR-CAL-5C merged (74870ba), default OFF; next = MR-CAL-5D-LIVE (evaluator live verification)",
+  "last_updated": "2026-05-31T21:30:00-04:00",
+  "last_updater": "MR-CAL-5D-LIVE BLOCKED on infra/DB reviewer-completion hang (evaluator code not implicated); next runnable = MR-CAL-6A",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -261,7 +267,19 @@
     }
   ],
   "deferred_verifications": [],
-  "blocked_detail": {},
+  "blocked_detail": {
+    "MR-CAL-5D-LIVE": {
+      "blocked_at": "2026-05-31T21:30:00-04:00",
+      "reason": "Reviewer-completion path broken for ALL reviewers (single or multi, evaluator on or off). 4 controlled runs on synthetic POA iteration test doc hung at status=in_progress, feedbackCount=0, no console errors. Evaluator code (MR-CAL-5C) exonerated: single-reviewer evaluator-off runs hang identically.",
+      "evidence_class": "Reviewer hang CONFIRMED by live tRPC inspection; DB-write-hang root cause CONSISTENT WITH symptoms but NOT confirmed (no server-log/DB access).",
+      "operator_followups": [
+        "Inspect Railway service logs since the b7ae166 EVALUATOR_ENABLED env-change redeploy.",
+        "Check TiDB/DB health (connections, quota, locks) - signature is a write/commit that never returns.",
+        "Restart/redeploy may clear it; then a single-reviewer smoke test gates resuming MR-CAL-5D-LIVE."
+      ],
+      "cleanup": "4 stuck synthetic sessions (iter9-12) added to LLN-PROD-CLEANUP-1."
+    }
+  },
   "recommended_followups": [
     {
       "id": "AUTH-BYPASS-DISABLE",
