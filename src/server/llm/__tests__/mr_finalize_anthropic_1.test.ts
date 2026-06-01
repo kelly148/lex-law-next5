@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { z } from 'zod';
 import { AnthropicAdapter } from '../anthropic.js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -244,5 +245,110 @@ describe('T-FINALIZE-ANTHROPIC-1-4: Finalize workflow still uses formatting jobT
     // This test confirms the adapter constructor still accepts the model string.
     const adapter = new AnthropicAdapter('claude-opus-4-7');
     expect(adapter).toBeInstanceOf(AnthropicAdapter);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MR-CAL-5D — structured-output validate-before-normalize
+//
+// The evaluator's schema is object-shaped ({ dispositions: [...] }). The
+// reviewer-era normalizer unwraps a single-key object whose value is an array,
+// which would turn the evaluator's correct object into a bare array and then
+// fail the object schema (parse_error -> evaluator job fails -> evaluation=null).
+// These tests prove the adapter now validates the raw parsed value FIRST (so
+// object schemas pass untouched) while still unwrapping for bare-array schemas.
+// ---------------------------------------------------------------------------
+
+function makeMockFetchReturning(text: string) {
+  return vi.fn().mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      id: 'msg_test',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      model: 'claude-opus-4-5',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+    text: async () => '',
+  }));
+}
+
+describe('MR-CAL-5D: Anthropic structured output validates object schemas without unwrapping', () => {
+  // Mirrors the evaluator's EvaluatorOutputSchema shape.
+  const evaluatorLikeSchema = z.object({
+    dispositions: z.array(
+      z.object({
+        suggestionId: z.string(),
+        disposition: z.enum(['adopt', 'reject', 'neutral']),
+        synthesisBody: z.string().optional(),
+      }),
+    ),
+  });
+
+  it('preserves an object-shaped { dispositions: [...] } result intact (no unwrap to bare array)', async () => {
+    const payload = {
+      dispositions: [
+        { suggestionId: 's1', disposition: 'adopt', synthesisBody: 'Both reviewers agree.' },
+      ],
+    };
+    vi.stubGlobal('fetch', makeMockFetchReturning(JSON.stringify(payload)));
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+
+    const adapter = new AnthropicAdapter('claude-opus-4-5');
+    const result = await adapter.generate({
+      systemPrompt: 'Evaluator.',
+      userPrompt: 'Synthesize.',
+      maxTokens: 8192,
+      structuredOutputSchema: evaluatorLikeSchema,
+      signal: AbortSignal.timeout(5000),
+    });
+
+    // The returned content must still be the object (re-parses to { dispositions: [...] }),
+    // NOT a bare array — i.e. the normalizer did not unwrap it.
+    const parsed = JSON.parse(String(result.content));
+    expect(Array.isArray(parsed)).toBe(false);
+    expect(parsed.dispositions).toHaveLength(1);
+    expect(parsed.dispositions[0].suggestionId).toBe('s1');
+  });
+
+  it('still unwraps a single-key object wrapper for a bare-array schema (reviewer path preserved)', async () => {
+    const arraySchema = z.array(z.object({ title: z.string() }));
+    // Model wraps the array in a single-key object, as reviewers sometimes do.
+    const wrapped = { suggestions: [{ title: 'Issue A' }, { title: 'Issue B' }] };
+    vi.stubGlobal('fetch', makeMockFetchReturning(JSON.stringify(wrapped)));
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+
+    const adapter = new AnthropicAdapter('claude-sonnet-4-5');
+    const result = await adapter.generate({
+      systemPrompt: 'Reviewer.',
+      userPrompt: 'Review.',
+      maxTokens: 8192,
+      structuredOutputSchema: arraySchema,
+      signal: AbortSignal.timeout(5000),
+    });
+
+    const parsed = JSON.parse(String(result.content));
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].title).toBe('Issue A');
+  });
+
+  it('throws parse_error when neither the raw value nor the normalized value matches the schema', async () => {
+    const arraySchema = z.array(z.object({ title: z.string() }));
+    vi.stubGlobal('fetch', makeMockFetchReturning(JSON.stringify({ unexpected: 'shape' })));
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+
+    const adapter = new AnthropicAdapter('claude-sonnet-4-5');
+    await expect(
+      adapter.generate({
+        systemPrompt: 'Reviewer.',
+        userPrompt: 'Review.',
+        maxTokens: 8192,
+        structuredOutputSchema: arraySchema,
+        signal: AbortSignal.timeout(5000),
+      }),
+    ).rejects.toThrow(/Zod validation/);
   });
 });

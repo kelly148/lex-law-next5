@@ -218,23 +218,43 @@ export class AnthropicAdapter implements LlmClient {
         );
       }
 
-      // MR-LLM-LITE-2: normalize object wrapper before Zod validation.
-      const normalized = normalizeAnthropicStructuredOutput(parsed);
+      // MR-CAL-5D: validate the parsed value against the target schema FIRST, and only
+      // fall back to array-unwrap normalization if that direct validation fails.
+      //
+      // normalizeAnthropicStructuredOutput was written for the reviewer use case, where
+      // the schema is a BARE ARRAY and the model wraps it in a single-key object. But its
+      // single-key-unwrap rule also unwraps a legitimately object-shaped result such as the
+      // evaluator's { dispositions: [...] } into the bare array [...], which then fails the
+      // evaluator's object-shaped EvaluatorOutputSchema (parse_error -> job fails -> nothing
+      // persisted -> evaluation=null). Validating the raw parsed value first lets object
+      // schemas pass untouched; the array-unwrap path remains as a fallback for the reviewer
+      // schemas it was built for.
+      const schema = structuredOutputSchema as z.ZodSchema;
+      const direct = schema.safeParse(parsed);
 
-      // Validate against the Zod schema (Ch 22.7)
-      const result = (structuredOutputSchema as z.ZodSchema).safeParse(normalized);
-      if (!result.success) {
-        throw new LlmProviderError(
-          'parse_error',
-          `Anthropic structured output failed Zod validation: ${result.error.message}`,
-          result.error,
-        );
+      let validated: unknown;
+      let usedNormalization: boolean;
+      if (direct.success) {
+        validated = parsed;
+        usedNormalization = false;
+      } else {
+        const normalized = normalizeAnthropicStructuredOutput(parsed);
+        const result = schema.safeParse(normalized);
+        if (!result.success) {
+          throw new LlmProviderError(
+            'parse_error',
+            `Anthropic structured output failed Zod validation: ${result.error.message}`,
+            result.error,
+          );
+        }
+        validated = normalized;
+        usedNormalization = normalized !== parsed;
       }
 
       // MR-LLM-LITE-2: return content as string (consistent with OpenAI/Google/xAI).
-      // Re-serialize if normalization extracted a wrapper.
-      const contentText = normalized !== parsed
-        ? JSON.stringify(normalized)
+      // Re-serialize only if normalization actually transformed the value.
+      const contentText = usedNormalization
+        ? JSON.stringify(validated)
         : effectiveText;
 
       return {
