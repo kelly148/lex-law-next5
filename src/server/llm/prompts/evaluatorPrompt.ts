@@ -16,7 +16,7 @@ export interface EvaluatorPromptFeedbackRow {
     suggestionId: string;
     title: string;
     body: string;
-    severity?: string;
+    severity?: string | undefined;
   }>;
 }
 
