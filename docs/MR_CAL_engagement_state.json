@@ -20,18 +20,17 @@
     "LLN-FEEDBACK-CARD-UX-1",
     "MR-CAL-5C",
     "MR-CAL-5D-LIVE",
-    "MR-CAL-6A"
+    "MR-CAL-6A",
+    "MR-CAL-6B",
+    "MR-CAL-6C-LIVE"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
-  "awaiting_live_verification": [
-    "MR-CAL-6B"
-  ],
+  "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "MR-CAL-6C-LIVE",
     "MR-CAL-7A",
     "MR-CAL-7B",
     "MR-CAL-7C-LIVE",
@@ -282,10 +281,20 @@
       "ts": "2026-06-01T10:15:00-04:00",
       "decision": "accept+push+merge:MR-CAL-6B",
       "notes": "Operator accepted Phase A (operator approve accept:MR-CAL-6B-plan then accept:MR-CAL-6B), approved push (operator approve push:MR-CAL-6B) and merge (operator approve merge:MR-CAL-6B). Implementation merged to main as 75d864f (PR #78, squash). Delivered exactly the accepted plan: additive document-scoped locked_decisions table (migration 0002, no ALTER/DROP) + Zod-Wall LockedDecisionRowSchema + userId-scoped queries (insert/list/list-active/get/unlock/update); reviewSession tRPC procedures lockDecision (origin declined|adopted) / listLockedDecisions / unlockDecision / updateDecision (pure DB; evaluator never writes); reviewSession.create loads active locks and injects a bounded '## Locked Decisions (do not re-raise absent a material new fact)' section into each reviewer userPrompt, OMITTED entirely when zero locks (byte-identical to pre-6B); narrowed the reviewerPrompts mode-discipline line to ALLOW consuming locked decisions while still excluding persistence/sendability/cumulative ledgers; telemetry locked_decision_created/_unlocked/_updated; ReviewPane decline-&-lock + lock-on-adopt controls + per-document Locked Decisions panel with provenance + Unlock (+ note that lock text is shared with reviewers). CI: first run failed -- 4 create-path behavioral tests (mr1.addendum, mr2.s4e, mr_llm_1_s8, mr_llm_gpt_1) mock phase4b and did not stub the new listActiveLockedDecisionsForDocument; fixed test-only in two steps (factory stub, then per-test mock since those tests vi.resetAllMocks() in beforeEach). CI green; squash-merged; branch deleted; main verified 75d864f. DEPLOY CAVEAT: PR adds DB migration 0002 -> production TiDB must run db:migrate for the table to exist; whether Railway runs migrations on deploy is not established here and MUST be confirmed before/at MR-CAL-6C-LIVE (the live verify will fail if the table is absent). Engagement in_progress -> awaiting_live_verification (user-visible; behavior verified at MR-CAL-6C-LIVE). DO-NOT-TOUCH respected."
+    },
+    {
+      "ts": "2026-06-01T10:45:00-04:00",
+      "decision": "migration-applied:0002-locked-decisions",
+      "notes": "DEPLOY CAVEAT RESOLVED. Confirmed via the app read endpoint (reviewSession.listLockedDecisions) that production was MISSING the table (HTTP 500 'Table lex_law_next.locked_decisions doesn't exist') -> Railway deploy does NOT run migrations automatically (start command launches the server only). Operator applied migration 0002 manually by running its CREATE TABLE IF NOT EXISTS (additive, idempotent) in the TiDB Cloud SQL editor against the lex_law_next production DB (Query OK). Re-verified: listLockedDecisions now returns HTTP 200 with an empty list. NOTE for future schema-bearing engagements: migrations must be applied to prod TiDB out-of-band (TiDB SQL editor or a Railway one-off pnpm db:migrate); raw-SQL apply does not write Drizzle's migration-tracking row, but 0002 is IF NOT EXISTS so a later db:migrate is a safe no-op. Standing follow-up worth considering: a deploy-time migration step."
+    },
+    {
+      "ts": "2026-06-01T10:45:00-04:00",
+      "decision": "live-verified:MR-CAL-6C-LIVE pass",
+      "notes": "Operator-accepted PASS. Locked decisions live-verified on production (code 75d864f; table created this session). TEST on synthetic doc cbf83ad7: (1) Review 1 (GPT Lite) produced suggestion 'Agent Identification Fields Must Be Completed Before Execution' (blank agent-ID fields); (2) decline-&-locked it (lockedDecision 45dfac64, origin=declined, status=active, sourceSuggestionId linked); (3) Review 2 (GPT Lite, same doc, lock active) produced a DIFFERENT issue 'Clarify agent delegation authorization initialing requirement' (Article IV 4.2 delegation initialing) and did NOT re-raise the locked agent-ID-blank topic (verified by reading the memo body). ACCEPTANCE (5.3): reviewer respects locked decision PASS; reviewer still flags a true/different issue PASS; prior locked issue not re-raised on next cycle PASS. QUALIFICATIONS (honest): single-trial, single-reviewer behavioral run -- 'respect unless new facts' is a prompt-level instruction (probabilistic, not a hard guarantee); the prompt-injection itself is verified by CI-green source-audit tests rather than reading the live job input (job.input not exposed via API), and live-confirmed indirectly by the locked topic disappearing from Review 2. Closes both MR-CAL-6C-LIVE and the MR-CAL-6B awaiting_live_verification. Synthetic sessions + lockedDecision 45dfac64 persist on cbf83ad7 -> LLN-PROD-CLEANUP-1. MR-CAL-6B + MR-CAL-6C-LIVE -> completed_engagements; queue head now MR-CAL-7A."
     }
   ],
-  "last_updated": "2026-06-01T10:15:00-04:00",
-  "last_updater": "MR-CAL-6B merged (75d864f, PR #78) -> awaiting_live_verification (MR-CAL-6C-LIVE). DEPLOY CAVEAT: migration 0002 must run on prod TiDB before live verify.",
+  "last_updated": "2026-06-01T10:45:00-04:00",
+  "last_updater": "MR-CAL-6B + MR-CAL-6C-LIVE COMPLETE (locked decisions live-verified PASS; prod migration 0002 applied manually). Next = MR-CAL-7A.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -320,6 +329,12 @@
     }
   },
   "recommended_followups": [
+    {
+      "id": "DEPLOY-MIGRATIONS-NOT-AUTOMATIC",
+      "title": "Railway deploy does NOT run DB migrations; schema-bearing engagements need a manual prod migrate step",
+      "why": "Confirmed at MR-CAL-6B/6C-LIVE: migration 0002 (locked_decisions) was absent on prod after deploy (start command launches the server only). Resolved by running the CREATE TABLE in the TiDB SQL editor. Going forward, any engagement adding/altering tables must apply the migration to prod TiDB out-of-band (TiDB SQL editor or a Railway one-off `pnpm db:migrate`) as part of its live verification. Consider adding a deploy-time migrate step (e.g. release/predeploy hook) so this is automatic. Note: raw-SQL apply does not record Drizzle's migration-tracking row, but IF NOT EXISTS migrations make a later db:migrate a safe no-op.",
+      "recorded_at": "2026-06-01T10:45:00-04:00"
+    },
     {
       "id": "EVALUATOR-RENDER-EYEBALL",
       "title": "Visually confirm the evaluator advisory disposition/synthesis renders in ReviewPane",
