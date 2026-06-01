@@ -55,6 +55,12 @@ import {
   insertManualSelection,
   insertFeedback,
   getNextIterationNumberForDocument,
+  insertLockedDecision,
+  listLockedDecisionsForDocument,
+  listActiveLockedDecisionsForDocument,
+  getLockedDecisionById,
+  unlockLockedDecision,
+  updateLockedDecision,
 } from '../db/queries/phase4b.js';
 import { assertNotComplete } from './documents.js';
 
@@ -194,6 +200,42 @@ export const reviewSessionRouter = router({
       if (!currentVersion) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
       }
+
+      // MR-CAL-6B: load this document's ACTIVE locked decisions and build a bounded
+      // "## Locked Decisions" section to inject into each reviewer's userPrompt. The
+      // reviewer system prompt already instructs "do not re-raise locked decisions
+      // absent material change" (reviewerPrompts.ts); this provides the data. When
+      // there are no active locks, lockedDecisionsSection is '' and the prompt is
+      // byte-identical to the pre-6B behavior. Bounded for token safety: cap the
+      // number of locks listed and truncate each rationale.
+      const MAX_LOCKED_DECISIONS_IN_PROMPT = 50;
+      const LOCKED_RATIONALE_MAX_CHARS = 500;
+      const activeLockedDecisions = await listActiveLockedDecisionsForDocument(
+        input.documentId,
+        userId,
+      );
+      let lockedDecisionsSection = '';
+      if (activeLockedDecisions.length > 0) {
+        const shown = activeLockedDecisions.slice(0, MAX_LOCKED_DECISIONS_IN_PROMPT);
+        const lines = shown.map((ld, i) => {
+          const rationale = (ld.rationale ?? '').replace(/\s+/g, ' ').trim().slice(0, LOCKED_RATIONALE_MAX_CHARS);
+          const rationalePart = rationale ? ` Rationale: ${rationale}` : '';
+          return `${i + 1}. [${ld.origin}] ${ld.summary}${rationalePart}`;
+        });
+        const omitted = activeLockedDecisions.length - shown.length;
+        const omittedNote = omitted > 0 ? `\n(${omitted} additional locked decision(s) omitted for length.)` : '';
+        lockedDecisionsSection = [
+          '',
+          '## Locked Decisions (attorney-locked — do not re-raise absent a material new fact)',
+          'The supervising attorney has already decided the following for THIS document. Do not',
+          're-raise these as new defects. If a genuine NEW fact in the current draft materially',
+          'changes one of these, you may raise it, but mark it explicitly as a deliberate re-raise',
+          '(persistence) and state the new fact — do not raise it silently.',
+          ...lines,
+          omittedNote,
+        ].filter((s) => s !== '').join('\n');
+      }
+
       // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation)
       const reviewerJobIds: string[] = [];
       for (const reviewerRole of input.selectedReviewers) {
@@ -207,13 +249,18 @@ export const reviewSessionRouter = router({
         // MR-CAL-2: Calibrated four-track prompt while preserving the active legacy parser wrapper.
         // Legacy wrapper keys remain "title", "body", and "severity" for RawSuggestionsArraySchema.
         const systemPrompt = buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey);
-        // S1a (MR-1): Include full document content in the userPrompt
+        // S1a (MR-1): Include full document content in the userPrompt.
+        // MR-CAL-6B: append the active locked-decisions section (empty string when
+        // there are none, so default behavior is unchanged).
         const userPrompt = [
           `Review session ${sessionId}, iteration ${iterationNumber}.`,
           `Document title: ${doc.title}`,
           '',
           '## Document Content',
           currentVersion.content,
+          // Only present when there are active locked decisions; otherwise omitted
+          // entirely so the prompt is byte-identical to pre-6B behavior.
+          ...(lockedDecisionsSection ? [lockedDecisionsSection] : []),
         ].join('\n');
         const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
         const reviewerResult = await executeCanonicalMutation({
@@ -801,6 +848,129 @@ export const reviewSessionRouter = router({
       );
 
       return { session: updatedSession };
+    }),
+
+  // ============================================================
+  // MR-CAL-6B — locked decisions (document-scoped)
+  //
+  // Attorney-authored locks a reviewer should respect ("do not re-raise absent
+  // a material new fact"). These are PURE DB writes — no LLM call/job. The
+  // advisory evaluator never writes here; only the attorney does. The reviewer
+  // PROMPT already instructs "do not re-raise locked decisions absent material
+  // change" (reviewerPrompts.ts); reviewSession.create injects active locks into
+  // the reviewer userPrompt so that instruction has data to act on.
+  // Strictness is "respect unless new facts" (NOT hard-suppress): we never
+  // filter reviewer output; a deliberate re-raise can still surface a true blocker.
+  // ============================================================
+
+  // lockDecision — create a locked decision from a reviewer suggestion.
+  // origin 'declined' = decline-&-lock; origin 'adopted' = lock-on-adopt.
+  lockDecision: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        suggestionId: z.string().min(1),
+        origin: z.enum(['declined', 'adopted']),
+        summary: z.string().min(1).max(2000),
+        rationale: z.string().max(4000).nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      const session = await getReviewSessionById(input.sessionId, userId);
+      if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Review session not found' });
+
+      const doc = await getDocumentById(session.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      assertNotComplete(doc.workflowState, 'reviewSession.lockDecision');
+
+      const lockedDecisionId = await insertLockedDecision({
+        userId,
+        documentId: session.documentId,
+        matterId: doc.matterId,
+        origin: input.origin,
+        summary: input.summary,
+        rationale: input.rationale ?? null,
+        sourceSuggestionId: input.suggestionId,
+        sourceIterationNumber: session.iterationNumber,
+        reviewSessionId: input.sessionId,
+      });
+
+      void emitTelemetry(
+        'locked_decision_created',
+        {
+          lockedDecisionId,
+          origin: input.origin,
+          sourceSuggestionId: input.suggestionId,
+          iterationNumber: session.iterationNumber,
+        },
+        { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
+      );
+
+      return { lockedDecisionId };
+    }),
+
+  // listLockedDecisions — all locked decisions for a document (any status).
+  listLockedDecisions: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const doc = await getDocumentById(input.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      const lockedDecisions = await listLockedDecisionsForDocument(input.documentId, userId);
+      return { lockedDecisions };
+    }),
+
+  // unlockDecision — status -> 'unlocked' (row preserved for audit).
+  unlockDecision: protectedProcedure
+    .input(z.object({ lockedDecisionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const existing = await getLockedDecisionById(input.lockedDecisionId, userId);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Locked decision not found' });
+
+      await unlockLockedDecision(input.lockedDecisionId, userId);
+
+      void emitTelemetry(
+        'locked_decision_unlocked',
+        { lockedDecisionId: input.lockedDecisionId },
+        { userId, matterId: existing.matterId, documentId: existing.documentId, jobId: null },
+      );
+
+      return { lockedDecisionId: input.lockedDecisionId };
+    }),
+
+  // updateDecision — edit summary/rationale (attorney can modify).
+  updateDecision: protectedProcedure
+    .input(
+      z.object({
+        lockedDecisionId: z.string().uuid(),
+        summary: z.string().min(1).max(2000).optional(),
+        rationale: z.string().max(4000).nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      const existing = await getLockedDecisionById(input.lockedDecisionId, userId);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Locked decision not found' });
+
+      const fields: { summary?: string; rationale?: string | null } = {};
+      if (input.summary !== undefined) fields.summary = input.summary;
+      if (input.rationale !== undefined) fields.rationale = input.rationale;
+      if (Object.keys(fields).length === 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'No fields to update' });
+      }
+
+      await updateLockedDecision(input.lockedDecisionId, userId, fields);
+
+      void emitTelemetry(
+        'locked_decision_updated',
+        { lockedDecisionId: input.lockedDecisionId, fields: Object.keys(fields) },
+        { userId, matterId: existing.matterId, documentId: existing.documentId, jobId: null },
+      );
+
+      return { lockedDecisionId: input.lockedDecisionId };
     }),
 });
 

@@ -969,6 +969,86 @@ export const reviewSessions = mysqlTable(
 );
 
 // ============================================================
+// MR-CAL-6B — locked_decisions
+// ============================================================
+// Attorney-locked decisions a reviewer should respect ("do not re-raise
+// absent a material new fact"). Phase A: DOCUMENT-LEVEL scope only (a lock
+// applies to the document it was made on). The `scope` column exists so a
+// future matter-level rollout is additive (no destructive migration).
+//
+// Created via two attorney actions (origin):
+//   'declined' — decline-&-lock: a considered-and-declined suggestion
+//   'adopted'  — lock-on-adopt: an adopted suggestion remembered as a decision
+//
+// Provenance: userId (who), sourceSuggestionId / sourceIterationNumber /
+// reviewSessionId (where it came from), timestamps.
+//
+// Lifecycle: status 'active' -> 'unlocked' (unlock preserves the row for audit).
+//
+// Indexes:
+//   idx_locked_decisions_document (documentId, status) — prompt-injection read path
+//   idx_locked_decisions_user_document (userId, documentId)
+//   uniq_locked_decision_suggestion (documentId, sourceSuggestionId)
+// ============================================================
+export const LOCKED_DECISION_SCOPE_VALUES = ['document'] as const;
+export type LockedDecisionScope =
+  (typeof LOCKED_DECISION_SCOPE_VALUES)[number];
+
+export const LOCKED_DECISION_ORIGIN_VALUES = ['declined', 'adopted'] as const;
+export type LockedDecisionOrigin =
+  (typeof LOCKED_DECISION_ORIGIN_VALUES)[number];
+
+export const LOCKED_DECISION_STATUS_VALUES = ['active', 'unlocked'] as const;
+export type LockedDecisionStatus =
+  (typeof LOCKED_DECISION_STATUS_VALUES)[number];
+
+export const lockedDecisions = mysqlTable(
+  'locked_decisions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    // Denormalized for a future matter-level rollout + scoping.
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Phase A is always 'document'; column reserved for future matter-level.
+    scope: mysqlEnum('scope', LOCKED_DECISION_SCOPE_VALUES)
+      .notNull()
+      .default('document'),
+    origin: mysqlEnum('origin', LOCKED_DECISION_ORIGIN_VALUES).notNull(),
+    // Provenance link to the originating feedback suggestion (nullable for safety).
+    sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }),
+    sourceIterationNumber: int('sourceIterationNumber'),
+    reviewSessionId: char('reviewSessionId', { length: 36 }),
+    // Short attorney-facing statement of what should not be re-raised.
+    summary: text('summary').notNull(),
+    // Attorney rationale (provenance). NOTE: flows to LLM providers (no redaction).
+    rationale: text('rationale'),
+    status: mysqlEnum('status', LOCKED_DECISION_STATUS_VALUES)
+      .notNull()
+      .default('active'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxLockedDecisionsDocument: index('idx_locked_decisions_document').on(
+      table.documentId,
+      table.status,
+    ),
+    idxLockedDecisionsUserDocument: index('idx_locked_decisions_user_document').on(
+      table.userId,
+      table.documentId,
+    ),
+    uniqLockedDecisionSuggestion: uniqueIndex('uniq_locked_decision_suggestion').on(
+      table.documentId,
+      table.sourceSuggestionId,
+    ),
+  }),
+);
+
+// ============================================================
 // Type exports for use in query wrappers and procedures
 // ============================================================
 export type User = typeof users.$inferSelect;
@@ -1009,3 +1089,5 @@ export type FeedbackManualSelection = typeof feedbackManualSelections.$inferSele
 export type NewFeedbackManualSelection = typeof feedbackManualSelections.$inferInsert;
 export type ReviewSession = typeof reviewSessions.$inferSelect;
 export type NewReviewSession = typeof reviewSessions.$inferInsert;
+export type LockedDecision = typeof lockedDecisions.$inferSelect;
+export type NewLockedDecision = typeof lockedDecisions.$inferInsert;

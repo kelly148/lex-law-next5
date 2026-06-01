@@ -77,7 +77,11 @@ type ReviewPaneEvent =
   | 'review_session_abandoned'
   | 'reviewer_enablement_changed'
   // MR-CAL-2G: raw reviewer-output capture for calibration auditability.
-  | 'reviewer_output_captured';
+  | 'reviewer_output_captured'
+  // MR-CAL-6B: locked-decision lifecycle (document-scoped attorney locks).
+  | 'locked_decision_created'
+  | 'locked_decision_unlocked'
+  | 'locked_decision_updated';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -267,6 +271,18 @@ export interface TelemetryPayload {
     rawOutputLength: number;
     parseOk: boolean;
     parsedSuggestionCount: number | null;
+  };
+  // MR-CAL-6B: locked-decision lifecycle (document-scoped attorney locks).
+  locked_decision_created: {
+    lockedDecisionId: string;
+    origin: 'declined' | 'adopted';
+    sourceSuggestionId: string | null;
+    iterationNumber: number | null;
+  };
+  locked_decision_unlocked: { lockedDecisionId: string };
+  locked_decision_updated: {
+    lockedDecisionId: string;
+    fields: string[];
   };
 
   // E.6 Materials library

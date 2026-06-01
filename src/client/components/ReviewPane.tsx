@@ -25,7 +25,7 @@
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
 import React, { useState } from 'react';
-import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, AlertCircle, Lock, Unlock } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -301,9 +301,13 @@ interface FeedbackCardProps {
   selections: Array<{ suggestionId: string; note: string | null }>;
   evaluation: Array<{ suggestionId: string; disposition: 'adopt' | 'reject' | 'neutral'; synthesisBody?: string }> | null;
   onRefresh: () => void;
+  // MR-CAL-6B: documentId for locked-decision list invalidation; suggestionIds already
+  // locked on this document (so the UI can show a "Locked" state and avoid duplicates).
+  documentId: string;
+  lockedSuggestionIds: Set<string>;
 }
 
-function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }: FeedbackCardProps): React.ReactElement {
+function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, documentId, lockedSuggestionIds }: FeedbackCardProps): React.ReactElement {
   const [expanded, setExpanded] = useState(true);
   // MR-4 P2: per-suggestion note inputs keyed by suggestionId.
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
@@ -335,6 +339,24 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
       },
     }
   );
+
+  // MR-CAL-6B: lock a decision from a suggestion (decline-&-lock or lock-on-adopt).
+  const lockDecisionMutation = useGuardedMutation(
+    (input: { sessionId: string; suggestionId: string; origin: 'declined' | 'adopted'; summary: string }) =>
+      utils.client.reviewSession.lockDecision.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.reviewSession.listLockedDecisions.invalidate({ documentId });
+        onRefresh();
+      },
+    }
+  );
+
+  const lockSuggestion = (suggestionId: string, title: string, origin: 'declined' | 'adopted'): void => {
+    // Summary defaults to the suggestion title; the attorney can edit it later via the
+    // Locked Decisions panel. (Phase A keeps the capture lightweight — title is the lock summary.)
+    lockDecisionMutation.mutate({ sessionId, suggestionId, origin, summary: title });
+  };
 
   // MR-4 P2: Toggle a single suggestion's selection state.
   // Latest-local-state merge: builds payload from server selections merged with
@@ -517,6 +539,34 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
                         className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
                       />
                     )}
+                    {/* MR-CAL-6B: lock controls — decline-&-lock or lock-on-adopt.
+                        A lock tells future reviewers not to re-raise this absent a new fact. */}
+                    {lockedSuggestionIds.has(suggestion.suggestionId) ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-firm-navy">
+                        <Lock className="w-3 h-3" /> Locked — reviewers asked not to re-raise this (manage below)
+                      </span>
+                    ) : (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <button
+                          onClick={() => lockSuggestion(suggestion.suggestionId, suggestion.title, 'declined')}
+                          disabled={lockDecisionMutation.isPending}
+                          title="Record this as considered &amp; declined; reviewers should not re-raise it absent a new fact"
+                          className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+                        >
+                          <Lock className="w-3 h-3" /> Decline &amp; lock
+                        </button>
+                        {isChecked && (
+                          <button
+                            onClick={() => lockSuggestion(suggestion.suggestionId, suggestion.title, 'adopted')}
+                            disabled={lockDecisionMutation.isPending}
+                            title="Remember this adopted decision; reviewers should not re-raise it absent a new fact"
+                            className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+                          >
+                            <Lock className="w-3 h-3" /> Lock on adopt
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -524,6 +574,65 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh }
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// LockedDecisionsSection — MR-CAL-6B
+// Per-document list of attorney-locked decisions with provenance + unlock/modify.
+// ============================================================
+interface LockedDecisionsSectionProps {
+  documentId: string;
+}
+
+function LockedDecisionsSection({ documentId }: LockedDecisionsSectionProps): React.ReactElement | null {
+  const utils = trpc.useUtils();
+  const { data } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
+  const all = data?.lockedDecisions ?? [];
+  const active = all.filter((d) => d.status === 'active');
+
+  const unlockMutation = useGuardedMutation(
+    (input: { lockedDecisionId: string }) =>
+      utils.client.reviewSession.unlockDecision.mutate(input),
+    { onSuccess: () => { void utils.reviewSession.listLockedDecisions.invalidate({ documentId }); } }
+  );
+
+  if (active.length === 0) return null;
+
+  return (
+    <div className="px-4 py-3 border-t border-gray-200">
+      <div className="flex items-center gap-2 mb-2">
+        <Lock className="w-3.5 h-3.5 text-firm-navy" />
+        <span className="text-xs font-semibold text-firm-navy">
+          Locked decisions ({active.length}) — reviewers are asked not to re-raise these absent a new fact
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {active.map((d) => (
+          <div key={d.id} className="flex items-start justify-between gap-2 rounded border border-gray-200 px-2 py-1.5">
+            <div className="min-w-0">
+              <p className="text-[11px] text-gray-800">{d.summary}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {d.origin === 'declined' ? 'Declined & locked' : 'Locked on adopt'}
+                {d.sourceIterationNumber != null ? ` · from iteration ${d.sourceIterationNumber}` : ''}
+              </p>
+              {d.rationale && <p className="text-[10px] text-gray-500 mt-0.5 italic">{d.rationale}</p>}
+            </div>
+            <button
+              onClick={() => unlockMutation.mutate({ lockedDecisionId: d.id })}
+              disabled={unlockMutation.isPending}
+              title="Unlock — reviewers may raise this topic again"
+              className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-500 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+            >
+              <Unlock className="w-3 h-3" /> Unlock
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-2">
+        Note: locked-decision text is shared with the AI reviewers. Avoid privileged side-notes here.
+      </p>
     </div>
   );
 }
@@ -882,6 +991,15 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
   const { session, feedback, evaluation } = data;
   const evalDispositions = evaluation?.dispositions ?? null;
 
+  // MR-CAL-6B: active locked decisions for this document, used to mark already-locked
+  // suggestions in the cards and to render the Locked Decisions panel.
+  const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
+  const lockedSuggestionIds = new Set(
+    (lockedData?.lockedDecisions ?? [])
+      .filter((d) => d.status === 'active' && d.sourceSuggestionId)
+      .map((d) => d.sourceSuggestionId as string),
+  );
+
   // MR-3 §S1a: Derive completion state from feedback rows + job status.
   const jobs = jobsData?.jobs ?? [];
   const completionState = deriveCompletionState(feedback, jobs);
@@ -980,6 +1098,8 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
               selections={session.selections}
               evaluation={evalDispositions}
               onRefresh={() => void refetch()}
+              documentId={documentId}
+              lockedSuggestionIds={lockedSuggestionIds}
             />
           ))
         )}
@@ -1007,6 +1127,9 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
           />
         )}
       </div>
+
+      {/* MR-CAL-6B: locked decisions for this document */}
+      <LockedDecisionsSection documentId={documentId} />
 
       {/* History section — MR-2 §S2c */}
       <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />

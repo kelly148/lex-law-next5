@@ -37,6 +37,8 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     insertReviewSession: vi.fn(),
     insertFeedback: vi.fn(),
     getNextIterationNumberForDocument: vi.fn(),
+    // MR-CAL-6B: reviewSession.create loads active locked decisions; default to none.
+    listActiveLockedDecisionsForDocument: vi.fn().mockResolvedValue([]),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
@@ -171,6 +173,9 @@ describe('MR-LLM-1 S8 Integration — api_error propagation to markJobFailed', (
     // MR-CAL-3E: create() now computes the iteration server-side via this helper.
     vi.mocked(phase4bQueries.getNextIterationNumberForDocument).mockResolvedValue(1);
     vi.mocked(phase4bQueries.insertFeedback).mockResolvedValue(uuidv4());
+    // MR-CAL-6B: reviewSession.create loads active locked decisions; reset clears the
+    // factory default, so set it here too (default no locks => prior behavior).
+    vi.mocked(phase4bQueries.listActiveLockedDecisionsForDocument).mockResolvedValue([]);
   });
 
   afterEach(() => {

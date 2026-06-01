@@ -125,7 +125,7 @@ const jurisdictionDiscipline = [
 
 const sourceAndModeDiscipline = [
   'Apply source hierarchy and source-basis discipline: tie each issue to document text, provided matter context, governing law, or another identified source; do not invent unsupported facts or authorities.',
-  'Mode discipline: default to legal-review. If supplied later, respect formatting-only, second-opinion, and sendability-only mode instructions without implementing evaluator mode, matter-memory storage, persistence storage, sendability gates, or cumulative adopt ledgers in this prompt.',
+  'Mode discipline: default to legal-review. If supplied later, respect formatting-only, second-opinion, and sendability-only mode instructions. You MAY consume any provided "Locked Decisions" context (attorney-locked decisions for this document) and must respect it per the Matter-memory awareness rule; do not, however, implement evaluator mode, persistence storage, sendability gates, or cumulative adopt ledgers in this prompt.',
   'No model specialization: do not treat this reviewer as research only, evaluator only, structural only, primary reviewer only, or second-opinion only. Each track has equivalent functional capability.',
 ].join('\n');
 
