@@ -763,6 +763,100 @@ function AdoptLedgerSection({ documentId }: AdoptLedgerSectionProps): React.Reac
 }
 
 // ============================================================
+// SendabilitySection — MR-CAL-8B
+// ADVISORY pre-send classifier verdict. On-demand (not auto-run): the attorney
+// clicks "Check sendability". Advisory only — never blocks finalize/export.
+// ============================================================
+interface SendabilitySectionProps {
+  documentId: string;
+}
+
+const SENDABILITY_CATEGORY_LABELS: Record<string, string> = {
+  jurisdiction_mismatch: 'Jurisdiction mismatch',
+  missing_material_terms: 'Missing material terms',
+  unresolved_blanks: 'Unresolved blanks',
+  missing_party_or_capacity: 'Missing party / capacity',
+  conflicting_provisions: 'Conflicting provisions',
+  business_decision_needed: 'Business decision needed',
+  execution_signature_defect: 'Execution / signature defect',
+  counterparty_over_disclosure: 'Counterparty over-disclosure',
+  other: 'Other',
+};
+
+export function SendabilitySection({ documentId }: SendabilitySectionProps): React.ReactElement {
+  // On-demand: enabled=false until the attorney triggers a check (avoids an Opus
+  // call on every render). refetch() runs the classifier query.
+  const { data, isFetching, refetch } = trpc.reviewSession.checkSendability.useQuery(
+    { documentId },
+    { enabled: false },
+  );
+
+  return (
+    <div className="px-4 py-3 border-t border-gray-200">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-xs font-semibold text-firm-navy">
+          Sendability (advisory — does not block finalize)
+        </span>
+        <button
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="text-[11px] px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
+        >
+          {isFetching ? 'Checking…' : 'Check sendability'}
+        </button>
+      </div>
+
+      {data && data.available === false && (
+        <p className="text-[11px] text-gray-500 italic">
+          Sendability check unavailable right now — proceed with attorney judgment.
+        </p>
+      )}
+
+      {data && data.available === true && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            {data.verdict.sendable ? (
+              <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+            ) : (
+              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+            )}
+            <span className="text-xs font-medium text-gray-800">
+              {data.verdict.sendable ? 'No blockers detected' : 'Potential blockers — review before sending'}
+            </span>
+          </div>
+          {data.verdict.blockers.length > 0 && (
+            <div className="space-y-1">
+              {data.verdict.blockers.map((b, i) => (
+                <div key={i} className="rounded border border-gray-200 px-2 py-1">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className={clsx(
+                      'text-[10px] font-semibold px-1 py-0.5 rounded',
+                      b.severity === 'BLOCKER' ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-700',
+                    )}>
+                      {b.severity}
+                    </span>
+                    <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {SENDABILITY_CATEGORY_LABELS[b.category] ?? b.category}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-700 mt-0.5">{b.summary}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.verdict.notes && (
+            <p className="text-[10px] text-gray-500 italic">{data.verdict.notes}</p>
+          )}
+          <p className="text-[10px] text-gray-400">
+            Advisory only — you decide. This does not block finalize/export. Document text is shared with the AI.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // HistorySection — MR-CAL-3C sequential comparison/provenance view
 // Shows prior-iteration feedback grouped by iteration and reviewer/session.
 // Historical rows are read-only; active-session selection controls remain above.
@@ -1258,6 +1352,9 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
 
       {/* MR-CAL-7B: cumulative adopt ledger for this document */}
       <AdoptLedgerSection documentId={documentId} />
+
+      {/* MR-CAL-8B: advisory sendability checkpoint */}
+      <SendabilitySection documentId={documentId} />
 
       {/* History section — MR-2 §S2c */}
       <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
