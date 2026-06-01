@@ -101,7 +101,7 @@ describe('MR-CAL-5C wiring — reviewSession.create source audit', () => {
 
   it('evaluator persists only the advisory evaluation, not attorney selections (advisory-only)', () => {
     const evalBlockStart = src.indexOf('EVALUATOR PATH — MR-CAL-5C');
-    const evalBlock = src.slice(evalBlockStart, evalBlockStart + 3000);
+    const evalBlock = src.slice(evalBlockStart, evalBlockStart + 4000);
     expect(evalBlock).toContain('insertFeedbackEvaluation(');
     // Must not write the attorney's selection model or invoke regeneration mutations.
     expect(evalBlock).not.toContain('insertManualSelection');
@@ -115,7 +115,7 @@ describe('MR-CAL-5C wiring — reviewSession.create source audit', () => {
   // runs). Guard against regressing back to the default.
   it('evaluator job is given an explicit 300_000 ms timeout (not the 120_000 ms default)', () => {
     const evalBlockStart = src.indexOf('EVALUATOR PATH — MR-CAL-5C');
-    const evalBlock = src.slice(evalBlockStart, evalBlockStart + 3000);
+    const evalBlock = src.slice(evalBlockStart, evalBlockStart + 4000);
     expect(evalBlock).toMatch(/timeoutMs:\s*300_000/);
   });
 });
