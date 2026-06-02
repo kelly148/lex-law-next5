@@ -15,13 +15,14 @@ import { runChecks, decideExitCode, performRollback, rollbackInstructions, parse
 type HttpRes = { status: number; json: unknown; headers: Record<string, string> };
 
 /** A scripted transport: healthy prod by default; overrides tweak specific routes. */
-function makeFakeHttp(overrides: Record<string, (req: { method: string; path: string; headers: Record<string, string>; body?: string }) => HttpRes> = {}) {
+function makeFakeHttp(overrides: Record<string, (req: { method: string; path: string; headers: Record<string, string>; body: string | undefined }) => HttpRes> = {}) {
   const calls: { method: string; path: string }[] = [];
   const http = async (method: string, path: string, opts: { headers?: Record<string, string>; body?: string } = {}): Promise<HttpRes> => {
     const headers = opts.headers ?? {};
     calls.push({ method, path });
     const key = `${method} ${path.split('?')[0]}`;
-    if (overrides[key]) return overrides[key]({ method, path, headers, body: opts.body });
+    const override = overrides[key];
+    if (override) return override({ method, path, headers, body: opts.body });
 
     if (key === 'GET /api/health') return { status: 200, json: { status: 'ok' }, headers: {} };
     if (key === 'GET /api/ready') return { status: 200, json: { status: 'ready' }, headers: {} };
@@ -34,7 +35,7 @@ function makeFakeHttp(overrides: Record<string, (req: { method: string; path: st
       return { status: 200, json: [{ result: { data: { userId: 'u1', displayName: 'K' } } }], headers: { 'set-cookie': 'lln_session=abc; Path=/; HttpOnly' } };
     }
     if (key === 'POST /trpc/auth.changePassword') {
-      const body = opts.body ? (JSON.parse(opts.body) as { 0: { currentPassword: string; newPassword: string } }) : null;
+      const body = opts.body ? (JSON.parse(opts.body) as { '0': { currentPassword: string; newPassword: string } }) : null;
       const input = body ? body['0'] : null;
       if (input && input.currentPassword === 'definitely-not-the-password') return { status: 401, json: [{ error: { data: { code: 'UNAUTHORIZED' } } }], headers: {} };
       if (input && input.newPassword === 'short') return { status: 400, json: [{ error: { data: { code: 'BAD_REQUEST' } } }], headers: {} };
