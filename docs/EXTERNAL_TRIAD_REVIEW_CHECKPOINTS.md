@@ -31,13 +31,13 @@ The symmetry with Whereas's own reviewer topology (Claude default-primary, other
 
 ### Class S — Scheduled ("before we pour concrete")
 
-Fires when Claude Code has produced a **design artifact** (an `-investigation.md` or a `-plan.md`) that fixes a load-bearing decision, and the **next step is code that is costly to reverse**. Concretely, fire S when the artifact decides any of:
+Fires when Claude Code has produced a **design artifact** (an `-investigation.md` or a `-plan.md`) that **establishes or changes a load-bearing decision meeting the §3.1 three-prong criterion** (hard to reverse · not CI-caught · access-control/privilege/ethics/send-safety/data-destruction risk), and the **next step is code that is costly to reverse**. Examples that typically qualify:
 
 - a new or changed **DB table / migration** (e.g. `locked_decisions`, `adopt_ledger`, matter-memory tables);
-- a **prompt-injection or output-contract** change (what gets fed to reviewers/drafter; schema of returned cards);
+- a **new** **prompt-injection or output-contract** (not an extension of a proven one);
 - an **advisory-vs-blocking / decision-authority** call (sendability gate, evaluator behavior);
 - the **calibration regression grid**;
-- **any architecture engagement in the fold** (auth replacement, Layer 1 matter memory, Layer 0 intake, knowledge base, integrations).
+- a **fold engagement that itself fixes a new load-bearing architecture decision** meeting the criterion (auth/access-control, the matter-memory data model, intake/conflicts, knowledge-base privilege handling, data migration) — **NOT every fold engagement**: a downstream engagement that only implements an already-reviewed design rides the parent's review and does not fire (see §3.1).
 
 One review per design decision, at the **last design artifact before code** — usually the `-plan.md`. If an `-investigation.md` itself carries the architecture fork (e.g. sendability advisory-vs-blocking), review at the investigation and don't separately re-review the plan unless the plan reopened a fork.
 
@@ -56,37 +56,27 @@ Rule of thumb: **S = before expensive work. T = when the work fights back.**
 
 ---
 
-## 3.1 Checkpoint triage — deciding whether S fires (keep it rare)
+## 3.1 Checkpoint triage — deciding whether a checkpoint fires (keep it rare)
 
 Class-T triggers are objective and always fire — they're the moments the build already told you it's in trouble. All the judgment lives in Class S, so screen every S candidate through this triage at plan/investigation acceptance, *before* implementation. **The bias is deliberately toward NOT firing.** External review is worth its round-trip only when being wrong is expensive and hard to undo; reversible, low-stakes work is built and fixed forward, not reviewed.
 
-**Step 1 — Always fire (any one item; no scoring needed):**
+The prior version of this triage fired on "any fold architecture engagement," which swept in nearly the whole queue and defeated the signal. The criterion below (operator-tightened 2026-06-02) replaces that.
 
-- a new or changed **DB migration / persisted data shape**;
-- **auth, security, secrets,** or anything exposing **client data or privilege**;
-- a **decision-authority** call — advisory-vs-blocking, or anything that could make or alter a legal/business decision (sendability, evaluator behavior);
-- a **new** prompt-injection or output contract (not an extension of a proven one);
-- the **calibration regression grid**;
-- any **fold architecture engagement** (auth, Layer 0, Layer 1, knowledge base, integrations).
+**The FIRE criterion — all three prongs must hold.** An engagement fires the triad review ONLY if it **establishes or changes a load-bearing decision** that is:
 
-**Step 2 — Never fire:**
+- **(a) hard to reverse once shipped** — a persisted data shape, a security/access-control posture, a published/external contract; not something you can edit-forward in a later PR;
+- **(b) not caught by CI** — being right here is a human / legal / design judgment, not something `tsc` + `vitest` + `eslint` can catch; AND
+- **(c) carries access-control, privilege/confidentiality, ethics/conflicts, client-send-safety, or data-destruction risk.**
 
-- UI copy / labels / cosmetic changes;
-- test-only changes, docs, config toggles with no data effect;
-- reuse of a pattern already built **and live-verified** in this repo.
+If any one prong is absent, **do not fire.** Build it under the normal reversible-lane automation (auto-merge on green CI per CLAUDE.md Rule 15; stop only on a surfaced decision or a hard stop).
 
-**Step 3 — The ambiguous middle (score each 0 / 1 / 2; fire if the total is ≥ 4):**
+**Ride-the-parent — explicitly do NOT fire.** A downstream engagement that **implements an already-triad-reviewed design** rides its parent's review and does not re-fire. **Mechanical, additive, or reversible** build does not fire. You **MAY** re-flag such an engagement as FIRE only if it introduces a **new** load-bearing irreversible / records-management (RPC) / ethics decision its parent's review did not cover — and you must **state why** in the triage line.
 
-- **Reversibility** — 0 trivial to undo … 2 costly or irreversible;
-- **Blast radius** — 0 one component … 2 cross-cutting contract or schema;
-- **Novelty** — 0 reuses a live-verified pattern … 2 a genuinely new approach;
-- **Stakes if wrong** — 0 cosmetic … 2 legal correctness, data integrity, or sendability.
+**Never fire:** UI copy / labels / cosmetics; test-only changes, docs, config toggles with no data effect; reuse of a pattern already built **and live-verified** in this repo; any engagement that only implements a parent's already-reviewed design.
 
-A total ≥ 4 means at least two heavy dimensions are in play — fire. Otherwise, build it.
+**Output.** At each engagement's start, Claude Code prints one line alongside the repo-state baseline: `Checkpoint triage: [FIRE | skip] — <reason>`. On a re-flag, the reason must name the new uncovered decision. The operator can override either way.
 
-**Output.** At each engagement's start, Claude Code prints one line alongside the repo-state baseline: `Checkpoint triage: [FIRE | skip] — <reason>`. The operator can override either way. If a Step-1 item and a low Step-3 score disagree, **Step 1 wins (fire).**
-
-**Worked calls.** MR-CAL-7B adopt ledger (new table + prompt injection) → Step 1, **FIRE**. CAL-7B grid → Step 1, **FIRE**. Auth replacement → Step 1, **FIRE**. Layer 1 matter memory → Step 1, **FIRE**. The pre-creation iteration-label fix (LLN-UX-ITER-LABEL-1) → Step 2, **skip**. Adding one more optional field to an already-live card schema → Step 3, score ~2, **skip**. Across the entire fold you should expect a handful of fires, not one per engagement.
+**Worked calls (tightened criterion).** FOLD-AUTH-1 (access-control posture; irreversible-ish; CI can't judge) → **FIRE**. FOLD-GOV-1 (audit + privilege-egress governance; confidentiality + records) → **FIRE**. FOLD-L1-1 (matter-memory data model + injection — the substrate everything rides) → **FIRE**. FOLD-MIGRATE-1 (data migration; data-destruction risk) → **FIRE**. By contrast: FOLD-TIER-1 (mechanical rename; CI-caught; reversible) → **skip**. FOLD-PERSIST-1 (additive scaffold; placeholders; no destructive SQL) → **skip**. FOLD-L1-2…L1-5 (implement the FOLD-L1-1-reviewed Matter-State design) → **skip — ride parent**. FOLD-PM-1/2/3 (additive engines / CI-testable ingestion / entity model) → **skip**. Across the whole fold expect the §8 survivors to fire — a handful — not one per engagement.
 
 **Interaction with `/autopilot-next`.** A §3.1 **FIRE** is a HARD STOP under the controlled autopilot (`docs/AUTOPILOT_NEXT_SPEC.md`). Autopilot runs this triage at startup, prints `Checkpoint triage: [FIRE | skip] — <reason>`, and on FIRE halts for external triad review *before* implementation — it does not self-approve past a fired checkpoint. This is what stops autopilot from blowing past the high-stakes plans the protocol exists to catch.
 
@@ -172,15 +162,23 @@ This is the canonical, self-extending schedule. It lists the remaining MR-CAL st
 
 MR-CAL is at its final steps. The tracker JSON (`MR_CAL_engagement_state.json`, last updated 2026-06-01) understates progress: the `engagements/` folder and `CAL-7B-PLAN-plan.md` (2026-06-02, operator-accepted) show 7A/7B/8A/8B planned and all five advisory features (4C/5D/6C/7C/8C) built and live-verified. So the live checkpoints from here are few in MR-CAL and many in the fold.
 
-| Item | Class | Fire? | Notes |
-| :--- | :--- | :--- | :--- |
-| CAL-7B-LIVE (run the grid) | T | **on result** | Review the grid **results** before closeout — specifically any `unstable`, `FAIL`, `PARSE_FAILURE`, or a GPT-P8-T1/T6 cell that moved in either direction (§5 of the grid plan flags improvement as loudly as regression). Manifest: calibration add-set + the produced `CAL-7B-LIVE-closeout.md`. |
-| CAL-7B-CLOSEOUT | S (light) | **yes** | Independent read of the final MR-CAL posture against the master plan's "Definition of MR-CAL complete." Cheap insurance on the program-closing artifact. |
-| **Fold — auth replacement** | S | **yes** | Replaces `AUTH_BYPASS`; security-critical, irreversible-ish. High-value external review. |
-| **Fold — Layer 1 matter memory** | S | **yes** | The spine of the product (gap-map Appendix C). New data model + prompt injection. |
-| **Fold — Layer 0 intake/analysis** | S | **yes** | Resolves non-artifact closure (Appendix A). |
-| **Fold — practice knowledge base** | S | **yes** | Per-PA prompts + practice memos, currency/privilege handling (Appendix D). |
-| **Fold — integrations** | S/T | **as they arise** | Each external system is a fork worth a look. |
+Current snapshot under the tightened §3.1 criterion (operator-set 2026-06-02). MR-CAL tail (CAL-7B-LIVE results review, CAL-7B-CLOSEOUT) is **complete** — historical, no longer pending.
+
+| Engagement | Fire? | Why (which prong) |
+| :--- | :--- | :--- |
+| **FOLD-AUTH-1** | **FIRE** | access-control posture; irreversible-ish; CI can't judge correctness |
+| **FOLD-GOV-1** | **FIRE** | privilege/confidentiality + immutable Matter Record; egress posture |
+| **FOLD-L1-1** | **FIRE** | matter-memory data model + injection — the substrate downstream rides |
+| **FOLD-L0-1** | **FIRE** | intake + conflicts-at-intake (ethics/conflicts); RPC-mandatory |
+| **FOLD-KB-1** | **FIRE** | knowledge-base privilege/currency; no auto-use in outbound assertions |
+| **FOLD-SEND-1** | **FIRE** | advisory→blocking sendability gate (client-send-safety, decision-authority) |
+| **FOLD-INTEG-1** | **FIRE** (each) | new external contract + egress surface |
+| **FOLD-MIGRATE-1** | **FIRE** | data migration — data-destruction risk |
+| FOLD-TIER-1 · FOLD-PERSIST-1 · FOLD-L1-2…L1-5 · FOLD-DRAFT-1 · FOLD-PM-1/2/3 | **skip** (normal automation) | implement an already-reviewed design, or mechanical/additive/reversible build — ride the parent's review; auto-merge on green CI per Rule 15 |
+| FOLD-ORCH-1 | **FIRE** (re-flagged; operator to confirm) | introduces a **new** decision-authority / judgment-automation contract (bulk-adopt must require acknowledgment; divergent items can't auto-close) not covered by FOLD-L1-3's shared-context substrate review — §3.1 re-flag, reason stated |
+| FOLD-REBASELINE-1 | **FIRE** (parent design map; complete) | the re-baseline design others build against; already reviewed/waived |
+| FOLD-PM-4 · FOLD-SEED-1 | **skip / triage-per-entry** | UI over existing data; library seeding rides FOLD-KB-1's review |
+| FOLD-VERIFY-1 | n/a | end-to-end live verification, operator-driven (Pattern 16) |
 
 The CAL-7B-LIVE grid run is also a standing **T** source: if cells stick (the `SESSION_ALREADY_EXISTS` bug), or Gemini throws invalid JSON, that's a difficulty signal — but those are *known* carryforwards, so they only warrant a fresh external review if they block the grid rather than just degrade a cell.
 
@@ -287,8 +285,8 @@ The other fold engagements (Layer 1 matter memory, Layer 0 intake, knowledge bas
 
 ## 13. Honest limitations
 
-- This adds **operator latency only at the checkpoints that fire.** The §3.1 triage is biased toward *not* firing, so across the whole fold expect a handful — auth, Layer 1, knowledge base, the calibration grid — not one per engagement. Reversible, low-stakes work is built and fixed forward, never reviewed.
+- This adds **operator latency only at the checkpoints that fire.** Under the tightened §3.1 criterion (all three prongs), the §8 fire set is a handful — auth, governance/egress, the Layer-1 matter-memory model, intake/conflicts, the knowledge base, the sendability hard gate, integrations, data migration — not one per engagement. Downstream implementers and mechanical/additive/reversible work are built and fixed forward under normal reversible-lane automation (Rule 15), never reviewed.
 - External reviewers see a **snapshot**, not the live repo. They can't run the code. Their value is design judgment, omission-spotting, and constraint-checking — not finding runtime bugs.
-- The protocol depends on Claude Code **running the §3.1 triage honestly.** The Class-T triggers (blocked / failed / corrected / 2×-failed) and the Step-1 always-fire list are objective; only the Step-3 middle carries judgment, and it's scored and printed as a one-line `FIRE | skip` decision you can override in the moment — so a borderline call is visible up front, not discovered as a missed checkpoint later. When Step 1 and a low score disagree, Step 1 wins.
+- The protocol depends on Claude Code **running the §3.1 triage honestly.** The Class-T triggers (blocked / failed / corrected / 2×-failed) are objective; the three-prong FIRE criterion carries judgment but is conjunctive (all three prongs, or it does not fire) and is printed as a one-line `FIRE | skip — <reason>` decision you can override in the moment — so a borderline call is visible up front, not discovered as a missed checkpoint later. A re-flag must name the new uncovered decision; when in genuine doubt whether all three prongs hold, fire.
 
 End of protocol.

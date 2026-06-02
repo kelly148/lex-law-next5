@@ -30,7 +30,7 @@ These must be cleared before the queue opens. The first two are independent of t
 
 ## Engagement queue
 
-Naming: `FOLD-*` series, extending the MR-CAL engagement harness. Each entry: type · checkpoint class · objective · key acceptance · do-not-touch. **FIRE** = §3.1 external triad review before implementation.
+Naming: `FOLD-*` series, extending the MR-CAL engagement harness. Each entry: type · checkpoint class · objective · key acceptance · do-not-touch. **FIRE** = §3.1 external triad review before implementation. **Re-flagged 2026-06-02 to the tightened §3.1 criterion:** FIRE only when ALL THREE prongs hold — (a) hard to reverse once shipped, (b) not caught by CI, (c) access-control / privilege-confidentiality / ethics-conflicts / client-send-safety / data-destruction risk. A downstream engagement that only implements an already-triad-reviewed design, and any mechanical/additive/reversible build, is **normal automation** (rides the parent's review; auto-merges on green CI per Rule 15) — it does not fire.
 
 ### Phase 0 — Re-baseline (F.2)
 
@@ -44,7 +44,7 @@ Re-run the gap map at build-card granularity against the MR-CAL-complete repo: m
 Real per-user authentication for a small set of trusted attorney accounts; remove the single-operator bypass. **Owner/user key on all core objects**, every read/write filters by current user, **private-by-default**; nullable key backfilled to the operator and enforced when a 2nd account is added. Model ownership as a first-class relationship — do **not** hardcode "owner = only viewer" (latent default-off sharing layer addable later). NOT SSO/enterprise IdP/RBAC.
 *Acceptance:* auth live-verified; owner key present and enforced on core objects; default access private. *Do-not-touch:* no org/RBAC/multi-tenant model; no sharing logic.
 
-**FOLD-TIER-1** · Implementation · **FIRE** · [gate G4/E-3]
+**FOLD-TIER-1** · Implementation · **normal automation** (mechanical rename; CI-caught; reversible) · [gate G4/E-3]
 Rename the two "tier" meanings in code and schema before any matter-state schema work. Suggested: `pinned_context / explicit_context / recency_context` for context-window priority; `source_authority_tier` (operative / current-draft / counterparty / superseded …) for source-of-truth authority.
 *Acceptance:* distinct names in code and schema; no query conflates the two senses. *Do-not-touch:* no behavioral change to context budgeting.
 
@@ -52,7 +52,7 @@ Rename the two "tier" meanings in code and schema before any matter-state schema
 Audit logging as a **first-class Matter Record** (what each model said, what was adopted/rejected/locked/sent/withheld, what authority was verified, what required judgment), not telemetry. Model-output governance enforcement (tier + confidence + verification before pass). Instrumentation. **Privilege-egress posture:** document each provider's retention/training terms; per-matter (or per-provider) control over what *category* of material egresses; context-preview before a newly toggled lane receives matter content (RPC precondition, not a carryforward).
 *Acceptance:* immutable per-matter audit record; egress control + pre-send context preview specified and built; model-only claims cannot clear the gate unverified. *Do-not-touch:* no internal-wall RPC model (single-operator scale).
 
-**FOLD-PERSIST-1** · Implementation · scope narrowed (operator, 2026-06-02) — triad SKIP for the narrowed scope
+**FOLD-PERSIST-1** · Implementation · **normal automation** (additive scaffold; placeholders; no destructive SQL — operator scope-narrow 2026-06-02; §3.1 skip)
 **Scoped to (Option a):** (1) a documented retention/deletion/client-file-return/DR-backup **posture scaffold** for the existing matter-state spine (values `PENDING ATTORNEY SIGN-OFF`); (2) a **minimal, default-safe** retention/deletion mechanism on the existing spine (placeholder policy; read-only purge-eligibility; soft-delete/archive leveraged; hard-delete operator-gated, no destructive SQL, never auto-run). **No mass creation of the seven remaining per-object schemas.** AuditEvent already built (FOLD-GOV-1a).
 **Object → owning-engagement deferral map** (each table is created by the engagement that defines its shape): Source → FOLD-L1 (carries the tier-name-collision constraint: context-priority `contextPriority` vs source-of-truth authority "tier 1–8" must be disambiguated in the data model before the Source schema); OpenItem → FOLD-L1; Provision, Package → FOLD-DRAFT; LibraryEntry → FOLD-KB; JurisdictionRule, SendabilityRule → FOLD-SEND.
 *Acceptance (revised — NOT "schema complete"):* retention/client-file-return/DR posture **scaffold documented** + a **minimal retention/deletion mechanism** live + **soft-delete/default-safe** behavior + a clear **deferral map** for the remaining per-object schemas. *Do-not-touch:* no destructive migration of existing tables; no hard-delete execution (operator-gated); retention policy values are attorney sign-off, not model-chosen.
@@ -63,19 +63,19 @@ Audit logging as a **first-class Matter Record** (what each model said, what was
 Extend matter memory to full Layer 1: **source-of-truth tiers** (post-`FOLD-TIER-1`), disposition history, open-item registry — unifying the MR-CAL partial pieces (locked decisions, adopt ledger, evaluator, sendability) into one coherent Matter-State Engine.
 *Acceptance:* engine reliably answers current-matter / operative-document / locked-decisions / adopted / unresolved / source-currency / safe-to-send.
 
-**FOLD-L1-2** · Implementation · **FIRE**
+**FOLD-L1-2** · Implementation · **normal automation** (implements the FOLD-L1-1-reviewed Matter-State design)
 Matter-memory injection service — every model call receives the current matter state (the "no cold reviews" precondition that makes multi-model disagreement signal, not noise).
 *Acceptance:* no model call dispatches without current matter state injected.
 
-**FOLD-L1-3** · Implementation · **FIRE**
+**FOLD-L1-3** · Implementation · **normal automation** (implements FOLD-L1-1 design; cross-lane egress governed by FOLD-GOV-1's reviewed controls)
 Shared-context conversation substrate (Appendix C.6): thread + materials + state assembled into an "everyone up to speed" package per toggled-on lane (not a raw dump).
 *Acceptance:* a toggled-in lane joins with coherent shared context on a fixture matter.
 
-**FOLD-L1-4** · Implementation · **FIRE**
+**FOLD-L1-4** · Implementation · **normal automation** (implements FOLD-L1-1 design; anti-contamination controls per FOLD-L1-1)
 MM-8a reusable-template registry + MM-8b cross-matter invocation gate with anti-contamination controls (matter-only default; explicit opt-in per use).
 *Acceptance:* cross-matter reference is explicit, scoped, and contamination-guarded.
 
-**FOLD-L1-5** · Implementation · **FIRE** · [gate G6]
+**FOLD-L1-5** · Implementation · **normal automation** (surfaces the five explicit acts decided in FOLD-L1-1) · [gate G6]
 The **five explicit acts** as deliberate, visible, confirmable commitments (never ambient inference): (1) lock a decision, (2) tier a source, (3) disposition an item, (4) send, (5) matter identity (always-visible anchor). Plus the inspectable **matter-state dashboard**: matter-state summary, source-authority/baseline, decision log, open-items/blockers, sendability status, model-context-packet preview.
 *Acceptance:* the five are explicit acts with visible surfaces; free-form holds for invocation, not for these five commitments. *Do-not-touch:* do not let any of the five be inferred from conversation.
 
@@ -89,11 +89,11 @@ Layer 0 Matter Intake & Analysis: analysis-first front end producing a dispositi
 Practice Knowledge Base: migrate the tuned per-PA master prompts; practice-memo repository with staleness / currency / jurisdiction / privilege / abstraction metadata; retrieval + proactive surfacing. **Private-by-default; no automatic use in outbound legal assertions unless verified** — build "surface as potentially relevant, with currency/privilege warnings," not "auto-use my old memo."
 *Acceptance:* KB cannot auto-inject into outbound work product; entries carry privilege + currency metadata; owner-scoped private by default.
 
-**FOLD-ORCH-1** · Implementation · **FIRE**
+**FOLD-ORCH-1** · Implementation · **FIRE** (re-flag per §3.1: introduces a NEW decision-authority / judgment-automation contract — convergent bulk-confirm acknowledgment + no auto-close of divergent items — not covered by FOLD-L1-3's substrate review; operator to confirm)
 Shared-context multi-model conversation: activate the MR-CAL-5B toggle; per-matter model toggle; auto-orchestration that **automates the labor, never the judgment**. **Constrain the convergent-bucket bulk-confirm** affordance — items require at least a scroll-acknowledge, not one-click bulk adopt (reviewer §1.3). Divergent items force per-item decisions.
 *Acceptance:* synthesis is always proposed never applied; convergent bulk-adopt requires acknowledgment; divergent items cannot auto-close.
 
-**FOLD-DRAFT-1** · Implementation · **FIRE**
+**FOLD-DRAFT-1** · Implementation · **normal automation** (drafting/audience primitives; rides FOLD-SEND-1 + FOLD-GOV-1 reviews; attorney remains decision-maker)
 Remaining MVP-1B drafting/audience primitives: LDD (LOI-vs-draft diff with key-term dictionaries), provision provenance, package bundle/closure, audience format/tone split (ATT-a auto-detect, ATT-b suggest-only), audience-leak filter.
 *Acceptance:* per the synthesis MVP-1B acceptance criteria; attorney remains decision-maker.
 
@@ -103,9 +103,9 @@ Upgrade sendability from the current **advisory classifier** to the target **blo
 
 ### Phase 4 — Practice-management spine (F.6)
 
-**FOLD-PM-1** Deadline / tickler engine (1031, contingencies, closing/recording, trust funding, corporate filings). · Implementation · **FIRE** (decision-authority/date-critical)
-**FOLD-PM-2** PDF ingestion + extraction (text PDFs → OCR+confidence → document-type parsers for commitments/deeds/surveys/settlement statements). · Implementation · **FIRE** (new ingestion contract)
-**FOLD-PM-3** Party / entity / contact model with cross-matter identity (underpins conflicts + persistent reference). · Implementation · **FIRE**
+**FOLD-PM-1** Deadline / tickler engine (1031, contingencies, closing/recording, trust funding, corporate filings). · Implementation · **normal automation** (additive engine; CI-testable; reversible) — re-flag to FIRE only if a deadline auto-fires an irreversible action without attorney confirmation
+**FOLD-PM-2** PDF ingestion + extraction (text PDFs → OCR+confidence → document-type parsers for commitments/deeds/surveys/settlement statements). · Implementation · **normal automation** (additive, CI-testable ingestion; no egress contract by itself)
+**FOLD-PM-3** Party / entity / contact model with cross-matter identity (underpins conflicts + persistent reference). · Implementation · **normal automation** (entity model; rides FOLD-L0-1 conflicts review for cross-matter identity)
 **FOLD-PM-4** Cross-matter portfolio / attention view (managing-attorney view). · Implementation · skip-triage (UI over existing data; likely score-skip unless it adds a query contract)
 
 ### Phase 5 — Integration, seeding, verification (F.7)
