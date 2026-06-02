@@ -145,7 +145,7 @@ export default function ContextPreviewPanel({ matterId, documentId }: ContextPre
                           {m.filename ?? `Material ${m.materialId.slice(0, 8)}…`}
                         </span>
                         <span className="text-gray-400 flex-shrink-0">
-                          Tier {m.tier} · {m.tokenEstimate.toLocaleString()} tok
+                          {m.contextPriority === 'pinned' ? 'Pinned' : 'Recency'} · {m.tokenEstimate.toLocaleString()} tok
                         </span>
                       </div>
                     ))}

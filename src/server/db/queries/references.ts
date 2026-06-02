@@ -2,7 +2,7 @@
  * Zod Wall query wrapper for the document_references table (Ch 35.1 / Phase 3).
  *
  * Document references are the ONLY mechanism by which one document's content
- * appears in another's LLM context (decision #36 / Ch 20.2 Tier 2).
+ * appears in another's LLM context (decision #36 / Ch 20.2 sibling context priority).
  */
 
 import { eq, and } from 'drizzle-orm';

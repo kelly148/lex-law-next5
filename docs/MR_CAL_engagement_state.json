@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": "FOLD-AUTH-1",
-  "current_phase": "implementation",
+  "current_engagement": null,
+  "current_phase": "idle",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -33,16 +33,17 @@
     "CAL-7B-HARNESS",
     "CAL-7B-LIVE",
     "CAL-7B-CLOSEOUT",
-    "FOLD-REBASELINE-1"
+    "FOLD-REBASELINE-1",
+    "FOLD-AUTH-1",
+    "FOLD-TIER-1"
   ],
-  "in_progress_engagement": "FOLD-AUTH-1",
+  "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-TIER-1",
     "FOLD-GOV-1",
     "FOLD-PERSIST-1",
     "FOLD-L1-1",
@@ -424,10 +425,20 @@
       "ts": "2026-06-02T20:00:00-04:00",
       "decision": "scope+plan+accept+triad-skip:FOLD-AUTH-1 (Increment 1)",
       "notes": "FOLD-AUTH-1 opened (operator approve scope:FOLD-AUTH-1), Phase-A plan delivered + accepted (docs/engagements/FOLD-AUTH-1-plan.md), forks chosen: A1 keep userId as owner (no parallel column); B centralize ownership into one access chokepoint (= Increment 2); C1 DELETE the bypass code; D1 operator-provisioning + auth.changePassword. TRIAD REVIEW: operator FIRST required the §3.1 auth FIRE triad review (reversing the earlier proceed), Claude prepared the §12.2 packet + the implementation diff and HALTED at commit 6cfc7cb; operator then elected to SKIP the triad review. Recorded honestly (required -> skipped); implementation proceeds without external triad review per operator decision. INCREMENT 1 IMPLEMENTED (Phase A, local commit 6cfc7cb on lex-next/fold-auth-1): removed the env-gated auth bypass entirely (deleted middleware/authBypass.ts; dropped its branch in trpc.ts isAuthenticated; replaced the bypass block in all 3 index.ts REST handlers with session-only auth; no env can disable auth now); added auth.changePassword (protected; bcrypt-verify current, min-10 new, no-op rejected); replaced mr_auth_bypass_1.test.ts with mr_fold_auth_1.test.ts (auth always enforced; AUTH_BYPASS_ENABLED=true has no effect; source audit bypass gone). Could NOT run tsc/vitest/eslint locally (toolchain absent) -> CI authoritative. INCREMENT 2 (ownership access-chokepoint, Fork B) is the EXPLICIT NEXT increment (queued, not deferred): centralized enforcement is what makes G3 robust against a future unfiltered query. PHASE B: push lex-next/fold-auth-1 -> PR -> CI; DO NOT MERGE until Lint + Type Check + Tests green; merge a separate gate. GATE G3 STAYS NOT-GREEN on merge -> clears only after post-deploy Pattern-16 live verification (login works; auth.changePassword rotates the G1 stopgap credential; protected endpoints 401 unauthenticated). FOLD-AUTH-1 queue-head -> in_progress."
+    },
+    {
+      "ts": "2026-06-02T21:00:00-04:00",
+      "decision": "complete:FOLD-AUTH-1 (G3 green, qualified)",
+      "notes": "FOLD-AUTH-1 COMPLETE (both increments merged to main). Inc 1 (93676cb, #97, deployed): env-gated auth bypass REMOVED; auth always enforced; auth.changePassword added. Inc 2 (f01b1d4, #98): ownerScope()/assertOwned() owner-access chokepoint + baseline-ratchet guard (94 inline owner-filters grandfathered across 9 query modules; new owner-scoped queries must use ownerScope or CI fails; baseline only shrinks) -- no behavioral change. LIVE-VERIFIED (Pattern-16, post-deploy 93676cb): unauth matter.list/auth.me -> 401; /api/health 200; operator confirmed incognito login works. GATE G3 -> GREEN (auth replacement live-verified; owner key present+enforced via userId-NOT-NULL + chokepoint; default private). QUALIFIED with 2 carryforwards (operator-accepted): (1) FOLD-AUTH-CHANGEPW-NOT-LIVE-EXERCISED -- auth.changePassword is CI-unit-tested, not live-run (operator declined to rotate); (2) FOLD-AUTH-STOPGAP-CRED-UNROTATED -- the kelly password set at G1 (typed in chat, weak class) remains active; rotate later. Triad review operator-SKIPPED (after initially requiring it). FOLD-AUTH-1 in_progress -> completed_engagements."
+    },
+    {
+      "ts": "2026-06-02T21:05:00-04:00",
+      "decision": "scope+plan+accept+complete:FOLD-TIER-1",
+      "notes": "FOLD-TIER-1 (gate G4/E-3): tier-name collision resolved. operator approve scope:FOLD-TIER-1 -> Phase-A plan accepted (value form (b) string union) -> triad review operator-SKIPPED (assessed skip-eligible: pure code/comment rename, NO DB migration [schema only had comments], no auth, no output-contract change). IMPLEMENTED: renamed the context-window PRIORITY field IncludedMaterial.tier (1|3) -> contextPriority ('pinned'|'recency') in context/pipeline.ts (type + 3 set-sites) + updated its sole consumer ContextPreviewPanel.tsx (Tier {n} -> Pinned/Recency label) + reworded 'Tier 1/2/3' comments in pipeline.ts/schema.ts/references.ts. Source-of-truth AUTHORITY name (source_of_truth_tier card field) LEFT UNCHANGED (already distinct; renaming it would be an out-of-scope output-contract change). No behavioral change to context budgeting (field was descriptive/emitted, never branched on). ACCEPTANCE (G4): the two 'tier' senses now carry distinct names in code (context=contextPriority, authority=source_of_truth_tier); no query conflates them. Only runtime change is the cosmetic context-preview label. Implemented + recorded in this PR; completes on merge (CI authoritative; no merge until green). FOLD-TIER-1 -> completed_engagements; queue head -> FOLD-GOV-1."
     }
   ],
-  "last_updated": "2026-06-02T20:00:00-04:00",
-  "last_updater": "FOLD-AUTH-1 in_progress (Phase B). Increment 1 (remove auth bypass + always-enforce + auth.changePassword) implemented at commit 6cfc7cb; triad review operator-SKIPPED (after initially requiring it). Pushing for PR + CI; NOT merging until tsc/vitest/eslint green. Increment 2 (ownership access-chokepoint, Fork B) is the explicit next increment. G3 NOT green on merge -> clears only after post-deploy Pattern-16 (login / changePassword rotates G1 stopgap / protected endpoints 401).",
+  "last_updated": "2026-06-02T21:05:00-04:00",
+  "last_updater": "FOLD-AUTH-1 COMPLETE (G3 green, qualified: changePassword not live-exercised + stopgap cred un-rotated). FOLD-TIER-1 COMPLETE (tier-name collision resolved: context tier -> contextPriority; authority name unchanged; no behavior change). Both via PR (this) -- CI authoritative, no merge until green. Queue head -> FOLD-GOV-1. Pending cheap-now: E-4 (T&E 17-vs-32). Pre-fold gates remaining: G5-G9 (gate their engagements).",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -462,6 +473,18 @@
     }
   },
   "recommended_followups": [
+    {
+      "id": "FOLD-AUTH-CHANGEPW-NOT-LIVE-EXERCISED",
+      "title": "auth.changePassword is CI-tested but not live-exercised",
+      "why": "FOLD-AUTH-1 added auth.changePassword (protected; bcrypt-verify current, min-10 new). It passes unit tests but was not run against the live DB (operator declined to rotate at Pattern-16). Exercise it (and optionally add a SettingsPage UI) when convenient.",
+      "recorded_at": "2026-06-02T21:00:00-04:00"
+    },
+    {
+      "id": "FOLD-AUTH-STOPGAP-CRED-UNROTATED",
+      "title": "Rotate the G1 stopgap kelly credential",
+      "why": "The kelly password set during G1 was typed in chat (a non-secret channel) and is a weak class. It remains active. Rotate it (via auth.changePassword or the TiDB SQL + bcrypt-hash recipe) when convenient; FOLD-AUTH-1 replaced the auth mechanism but not this credential.",
+      "recorded_at": "2026-06-02T21:00:00-04:00"
+    },
     {
       "id": "DEPLOY-MIGRATIONS-NOT-AUTOMATIC",
       "title": "Railway deploy does NOT run DB migrations; schema-bearing engagements need a manual prod migrate step",
