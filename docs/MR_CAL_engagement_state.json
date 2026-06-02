@@ -31,7 +31,8 @@
     "MR-CAL-8C-LIVE",
     "CAL-7B-PLAN",
     "CAL-7B-HARNESS",
-    "CAL-7B-LIVE"
+    "CAL-7B-LIVE",
+    "CAL-7B-CLOSEOUT"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
@@ -39,9 +40,7 @@
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
-  "queue": [
-    "CAL-7B-CLOSEOUT"
-  ],
+  "queue": [],
   "history": [
     {
       "ts": "2026-05-30T11:31:28-04:00",
@@ -372,10 +371,15 @@
       "ts": "2026-06-02T17:30:00-04:00",
       "decision": "live-verified:CAL-7B-LIVE pass-qualified",
       "notes": "Operator-accepted PASS-qualified. Full calibration regression grid RUN. PART 1 SCENARIO GRID (offline harness, run 2026-06-02T13-35-17-930Z, 26 cells / 58 calls, re-derived-baseline fixtures, snapshot 6f69c68; raw+normalized artifacts preserved locally in gitignored tools/calibration/runs/): tally PASS 13 / PARTIAL 5 / unstable 6 / PARSE_FAILURE 2. P8-T10 (business-decision separation) STRONG (claude/gemini/grok 3xPASS, gpt 2/3); P8-T7 (gov-law blocker) STRONG (gemini/grok 3xPASS + both lites PASS; gpt/claude PASS-on-substance but unstable from one provider-instability run each); P8-T1 (suppress blanks) GOOD (claude/gemini/grok 3xPASS); P8-T6 (over-disclosure) SOFT SPOT -- no clean PASS at N=3, mostly PARTIAL (reviewers flag the risk + preserve the offer but under-tag the SUBSTANTIVE/DRAFTING taxonomy). CLASSIFY-THEN-FLAG (no auto-absorb): GPT-P8-T1 majority PASS vs accepted PARSE_FAILURE -> FLAGGED (improvement); GPT-Lite-P8-T6 PARTIAL vs accepted FAIL -> FLAGGED (improvement); GPT-P8-T6(full) majority FAIL matches accepted posture -> ACCEPTED_RISK, not flagged. Instability artifact-confirmed as genuine reviewer behavior (GPT-5 empty responses; Claude/Gemini intermittent non-strict JSON -- same parser as live, would fail identically), NOT harness error. PART 2 FEATURE CELLS (live prod, doc cbf83ad7): F1 sendability PARTIAL (blocker-detection PASS, 5 BLOCKERs; clean-draft negative control sendable:true NOT observed -- no clean draft, scope-expansion to create, per plan F1 rule); F2 locked decisions PASS (declined+locked 4.2-delegation lock 995c3a37; re-review CONSUMED the injected lock -- 'attorney has declined... noted for awareness, no change required' -- stronger than 6C); F3 adopt ledger PASS (modified-adopt suggestion 98e6aa13 -> regenerate -> new version 54ba315c; ledger entry 1005d218 adopted_modified auto unresolved->superseded, prior 7C entry 62f132c1 preserved); F4 evaluator PASS-qualified (gpt+claude session; gpt 14 suggestions, claude 0 [non-strict JSON]; evaluator FIRED 14 advisory dispositions adopt/neutral, sessionSelections=0 = NO auto-decision/selection-model-untouched; QUALIFIED: claude 0 so two-substantive-input synthesis not exercised + empty rationale text this run; fallback GPT-Lite+Grok-Lite not run -- mechanism already confirmed + locks were starving the lite reviewers); F5 native cards PASS (19 card-bearing suggestions parse; render live-verified at this code in 4C). OVERALL: no un-accepted clean FAILs (the one majority-FAIL cell GPT-P8-T6 matches accepted risk); core capabilities strong; T6 taxonomy precision the documented soft spot; all 5 feature systems function live. QUALIFICATIONS: live behavioral snapshot NOT a locked regression suite; re-derived fixtures = fresh baseline (reconcilable to 20260528 if bundle supplied); reviewer reliability (GPT-5 empties, Claude/Gemini JSON) open carryforwards; F1 sendable:true + F4 two-substantive-synthesis not observed; feature-cell telemetry_events NOT INSPECTED (mutations confirmed by read-back, not row inspection). Close-out: docs/engagements/CAL-7B-LIVE-closeout.md. Synthetic data: sessions iter 20-25 + lock 995c3a37 + ledger entry 1005d218 + version 54ba315c on cbf83ad7 -> LLN-PROD-CLEANUP-1. CAL-7B-LIVE -> completed_engagements; queue head now CAL-7B-CLOSEOUT (formal program close-out). Close-out + tracker commit via the combined gated PR alongside the harness code; push/merge separate gates."
+    },
+    {
+      "ts": "2026-06-02T18:00:00-04:00",
+      "decision": "accept:CAL-7B-CLOSEOUT",
+      "notes": "Operator-accepted formal MR-CAL program close-out (operator approve accept:CAL-7B-CLOSEOUT). Close-out of record: docs/engagements/CAL-7B-CLOSEOUT.md. CALIBRATION POSTURE: live system behaves acceptably as of 9a0ebc3 (live behavioral snapshot, NOT a locked regression suite; re-derived-baseline fixtures). P8-T10 + P8-T7 strong, P8-T1 good, P8-T6 the documented soft spot (taxonomy under-tagging, PARTIAL). All feature systems function live (locked decisions, adopt ledger, native-card display, advisory evaluator with no auto-decision, sendability blocker-detection). REMAINING FAILURES: no un-accepted clean FAILs; P8-T6 PARTIAL; GPT-P8-T6 majority FAIL = ACCEPTED_RISK; PARSE_FAILURE/unstable = genuine reviewer reliability. ACCEPTED RISKS: GPT-P8-T1 (parse; now observed PASSING/improved, flagged, retained pending original-fixture confirmation), GPT-P8-T6 (substance; consistent). DEFERRED: true offline regression vs 20260528 originals + harness parity check; native feedback-card RUNTIME; per-matter granularity; P8-T6 prompt calibration; F1 sendable:true + F4 two-substantive synthesis; reviewer-reliability fixes (GEMINI-STRUCTURED-OUTPUT-INVALID-JSON, STUCK-ACTIVE-SESSION-ON-REVIEWER-FAILURE, Claude non-strict JSON, GPT-5 empties, EVALUATOR-RENDER-EYEBALL); DEPLOY-MIGRATIONS-NOT-AUTOMATIC; TELEMETRY-RETENTION; REVIEWER-AUDIENCE-ARRAY; LLN-PROD-CLEANUP-1. SECURITY: AUTH_BYPASS_ENABLED still TRUE on public prod (AUTH-BYPASS-DISABLE; operator action). NEXT-PHASE CANDIDATES (operator decides): security hardening/disable bypass; reviewer-reliability hardening; P8-T6 calibration; prod cleanup; optional depth (native runtime/per-matter/true regression). DOC UPDATES: tracker (this); CLAUDE.md Current-state refresh approved by operator and prepared as a diff-gated change in the same final PR; program-history append recommended. CAL-7B-CLOSEOUT -> completed_engagements; QUEUE EMPTY -> MR-CAL COMPLETION PROGRAM COMPLETE (29 prior + this = 30 engagements)."
     }
   ],
-  "last_updated": "2026-06-02T17:30:00-04:00",
-  "last_updater": "CAL-7B-LIVE PASS-qualified (full calibration grid run). Scenario grid: PASS 13/PARTIAL 5/unstable 6/PARSE_FAILURE 2 -- T10/T7 strong, T6 soft spot, 2 improvement flags. Feature cells: F2/F3/F5 PASS, F4 PASS-qualified (evaluator fires, no auto-decision), F1 PARTIAL (blocker PASS, sendable:true not observed). CAL-7B-LIVE -> completed_engagements; queue head now CAL-7B-CLOSEOUT.",
+  "last_updated": "2026-06-02T18:00:00-04:00",
+  "last_updater": "CAL-7B-CLOSEOUT accepted -> completed_engagements. QUEUE EMPTY: the MR-CAL completion program is COMPLETE (30 engagements, Phases 0-8). Calibration posture acceptable (live snapshot); accepted risks GPT-P8-T1/T6; key open follow-ups: AUTH-BYPASS-DISABLE (security), reviewer reliability, P8-T6 calibration, LLN-PROD-CLEANUP-1. Next phase = operator decision.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {

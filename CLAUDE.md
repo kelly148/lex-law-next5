@@ -28,30 +28,30 @@ Eventual architecture (not yet built; do not start without authorization): matte
 
 ---
 
-## Current state (as of 2026-05-30)
+## Current state (as of 2026-06-02) — MR-CAL COMPLETE
 
-- **`main` is at `dc1e98e`** (`dc1e98ebeeb0f82e67f0a5935fc32495f65a1fc1`).  
-- **MR-UAT-MATERIALS-2** (completed-questionnaire → draft-visible matter-material bridge): merged (PR \#48, `e4d7dd3`) and **live-verified PASS** — a completed questionnaire can be added to Client Materials and is then seen by POA drafting (no-materials/placeholder warning gone).  
-- **MR-IR-ERR-1** (information-request generation failure visibility): merged and **live-verified** — a failed/empty generation now surfaces a visible error, archives the empty matrix in the revert path, and stays retryable instead of silently producing an empty questionnaire.  
-- **MR-IR-GEN-2** (structured-output enforcement + tolerant parsing for questionnaire generation): merged and **live-verified PASS** — IR generation now reliably produces usable questions (via `informationRequestParse.ts` / `parseGeneratedMatrixItems` + `structuredOutputSchema`).  
-- **MR-CAL-3C / 3D / 3E arc — CLOSED end-to-end.** The sequential reviewer comparison view (`HistorySection` in `ReviewPane.tsx`) is now **live-reachable**: MR-CAL-3D diagnosed that review iteration was always 1 (it was derived from `officialSubstantiveVersionNumber`), and MR-CAL-3E (merge `dc1e98e`, plus test-harness correction FIX1) decoupled it — `reviewSession.create` now computes the iteration server-side via `getNextIterationNumberForDocument(documentId)`. A second review pass creates **iteration 2**, and the "Prior Feedback / Sequential Comparison" section renders iteration-1 feedback. Live-verified PASS on production at `dc1e98e`.  
-- **MR-CAL-2E-LIVE**: completed. P8-T10 business-decision separation **fully validated across all four tracks**. **GPT stability NOT established** (P8-T1 parse failure, P8-T6 substantive failure, P8-T7 pass) — unchanged.  
-- **Dev environment:** Serena MCP + CodeGraph are configured for this repo (`.mcp.json`, `.serena/`, `.codegraph/` index); a PreToolUse Bash guard hook blocks destructive commands (`.claude/settings.json`, `.claude/hooks/guard.py`). **A local Node/pnpm toolchain is NOT installed**, so quality gates cannot run locally — **CI has been the authoritative gate** for every merge in this arc.
+- **`main` is at `9a0ebc3`** plus the CAL-7B-CLOSEOUT docs PR (program-complete). `docs/MR_CAL_engagement_state.json` is the authoritative HEAD/queue source.
+- **MR-CAL completion program COMPLETE — 30 engagements across Phases 0–8.** Queue empty.
+- **Features now live + production-verified:** native feedback-card *display* (MR-CAL-4C); multi-reviewer + advisory evaluator, toggleable/default-safe (MR-CAL-5D; `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` currently true); document-scoped **locked decisions** (MR-CAL-6C, migration 0002); cumulative **adopt ledger** (MR-CAL-7C, migration 0003); advisory **sendability** classifier (MR-CAL-8C, no table).
+- **Calibration posture (CAL-7B-LIVE):** live system behaves acceptably — a live behavioral snapshot, NOT a locked regression suite; re-derived-baseline fixtures. P8-T10 & P8-T7 strong, P8-T1 good, **P8-T6 the soft spot** (taxonomy under-tagging). Offline harness: `tools/calibration/cal7b_harness.mjs`.
+- **Accepted risks:** GPT-P8-T1 (parse — but observed PASSING/improved in CAL-7B-LIVE, flagged), GPT-P8-T6 (substance).
+- **Dev environment:** Serena MCP + CodeGraph configured; PreToolUse Bash guard hook. **Node v24 + `npx` ARE installed; `pnpm`/`tsc`/`vitest` are NOT** — local quality gates can't run; **CI is the authoritative gate.** Railway auto-deploys `main` (~30–90s) but does **NOT** run DB migrations (apply schema to prod TiDB out-of-band).
 
 ### Immediate next action
 
-**No blocking item.** The information-request/materials repair chain (MR-UAT-MATERIALS-2 → MR-IR-ERR-1 → MR-IR-GEN-2) and the MR-CAL-3C comparison-view reachability (via MR-CAL-3D → 3E) are all merged and live-verified. Pick up the next operator-directed task. Non-blocking carryforwards are listed below.
+**MR-CAL is complete; the next phase is an operator decision.** No queued engagement. Candidates (see `docs/engagements/CAL-7B-CLOSEOUT.md` §7): (1) **security — disable `AUTH_BYPASS_ENABLED`**; (2) reviewer-reliability hardening; (3) P8-T6 calibration; (4) prod cleanup (LLN-PROD-CLEANUP-1); (5) optional depth (native-card runtime, per-matter granularity, true offline regression suite).
 
-### Open carryforwards (non-blocking)
+### Open carryforwards (non-blocking unless noted)
 
-- **Synthetic production test data** accumulated during live verifications (several "Synthetic …" matters + documents on production). Cleanup is a separate, currently-unauthorized task.  
-- **Cosmetic label:** the pre-creation reviewer-selection panel still labels the next review "iteration 1" even when the server will create iteration 2 (the authoritative active-session header is correct; `DocumentDetail.tsx` still passes a stale `iterationNumber` prop to `CreateSessionView`).  
-- **Default-reviewer-equals-drafter UX trap:** the review panel defaults to Claude, which is also the primary draft generator, so a default first-pass review legitimately returns "no suggestions." Not yet addressed.  
-- **Outline generation** shares the same latent JSON-contract brittleness that MR-IR-GEN-2 fixed for information requests (no `structuredOutputSchema`, fragile parse). Not addressed.  
-- **Auth bypass** (`AUTH_BYPASS_ENABLED`) intentionally skipped by operator; whether it is enabled in the Railway production environment is **not established** (see `docs/CODE_REVIEW_2026-05.md`).  
+- **SECURITY (escalate):** `AUTH_BYPASS_ENABLED` is **TRUE** on the public production URL — app is publicly unauthenticated. Recommend setting `false` in Railway now (operator action; only exact lowercase `true` is the on-value). `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` also true.
+- **Reviewer reliability:** GPT-5 intermittent empties; Gemini invalid JSON for structured output; Claude intermittent non-strict JSON; a failed/empty review leaves the session `active` (stuck-session), blocking the next create.
+- **P8-T6 taxonomy precision:** the one substantive calibration soft spot (candidate prompt-calibration engagement).
+- **LLN-PROD-CLEANUP-1:** synthetic test data on prod (matters/docs/sessions; locks; adopt-ledger entries; many versions on doc `cbf83ad7`). Operator-approved cleanup only.
+- **DEPLOY-MIGRATIONS-NOT-AUTOMATIC:** schema-bearing work needs a manual prod migrate.
+- **Fixtures reconciliation:** CAL-7B used re-derived fixtures; reconcile to the `20260528T122851Z` originals for a true regression if the bundle is supplied.
 - **`docs/Claude Code Project Handoff.docx`** predates this arc and may need a manual refresh (it is not editable from Claude Code).
 
-**Not started — do NOT mark as begun:** MR-CAL-4, CAL-7B, evaluator/multi-reviewer topology, native feedback-card runtime, matter memory, locked decisions, cumulative adopt ledger, sendability gate.
+**Deferred (not started):** native feedback-card *runtime* (only additive display shipped); per-matter granularity (Option 2); true offline reproducible regression suite.
 
 ---
 
