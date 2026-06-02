@@ -3,8 +3,8 @@
  *
  * Product feature flags read from the environment. Every flag DEFAULTS OFF:
  * absence (or any value other than the exact string "true") preserves the
- * established behavior exactly. Mirrors the env-gated accessor pattern used by
- * middleware/authBypass.ts.
+ * established behavior exactly. (Env-gated accessor pattern; the former
+ * middleware/authBypass.ts was removed in FOLD-AUTH-1 — auth is always enforced.)
  */
 
 /**

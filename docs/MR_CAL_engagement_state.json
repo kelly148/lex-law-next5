@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "FOLD-AUTH-1",
+  "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -35,14 +35,13 @@
     "CAL-7B-CLOSEOUT",
     "FOLD-REBASELINE-1"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "FOLD-AUTH-1",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-AUTH-1",
     "FOLD-TIER-1",
     "FOLD-GOV-1",
     "FOLD-PERSIST-1",
@@ -420,10 +419,15 @@
       "ts": "2026-06-02T19:20:00-04:00",
       "decision": "waive:triad-review-FOLD-REBASELINE-1-map",
       "notes": "Operator WAIVED the §3.1 FIRE external triad review of the FOLD-REBASELINE-1 re-baseline MAP (operator decision; recorded, not silently absorbed). This dispositions the map's FIRE gate. SCOPE OF WAIVER: the re-baseline map only. It does NOT clear FOLD-AUTH-1 — auth replacement is independently a §3.1 Step-1 always-fire (auth/security/secrets; checkpoint schedule §8 'Fold - auth replacement: S, yes') and an architecture engagement requiring operator approve scope:FOLD-AUTH-1 and a plan-first Phase-A; that review/gate is separate and remains in force unless separately waived."
+    },
+    {
+      "ts": "2026-06-02T20:00:00-04:00",
+      "decision": "scope+plan+accept+triad-skip:FOLD-AUTH-1 (Increment 1)",
+      "notes": "FOLD-AUTH-1 opened (operator approve scope:FOLD-AUTH-1), Phase-A plan delivered + accepted (docs/engagements/FOLD-AUTH-1-plan.md), forks chosen: A1 keep userId as owner (no parallel column); B centralize ownership into one access chokepoint (= Increment 2); C1 DELETE the bypass code; D1 operator-provisioning + auth.changePassword. TRIAD REVIEW: operator FIRST required the §3.1 auth FIRE triad review (reversing the earlier proceed), Claude prepared the §12.2 packet + the implementation diff and HALTED at commit 6cfc7cb; operator then elected to SKIP the triad review. Recorded honestly (required -> skipped); implementation proceeds without external triad review per operator decision. INCREMENT 1 IMPLEMENTED (Phase A, local commit 6cfc7cb on lex-next/fold-auth-1): removed the env-gated auth bypass entirely (deleted middleware/authBypass.ts; dropped its branch in trpc.ts isAuthenticated; replaced the bypass block in all 3 index.ts REST handlers with session-only auth; no env can disable auth now); added auth.changePassword (protected; bcrypt-verify current, min-10 new, no-op rejected); replaced mr_auth_bypass_1.test.ts with mr_fold_auth_1.test.ts (auth always enforced; AUTH_BYPASS_ENABLED=true has no effect; source audit bypass gone). Could NOT run tsc/vitest/eslint locally (toolchain absent) -> CI authoritative. INCREMENT 2 (ownership access-chokepoint, Fork B) is the EXPLICIT NEXT increment (queued, not deferred): centralized enforcement is what makes G3 robust against a future unfiltered query. PHASE B: push lex-next/fold-auth-1 -> PR -> CI; DO NOT MERGE until Lint + Type Check + Tests green; merge a separate gate. GATE G3 STAYS NOT-GREEN on merge -> clears only after post-deploy Pattern-16 live verification (login works; auth.changePassword rotates the G1 stopgap credential; protected endpoints 401 unauthenticated). FOLD-AUTH-1 queue-head -> in_progress."
     }
   ],
-  "last_updated": "2026-06-02T19:20:00-04:00",
-  "last_updater": "FOLD QUEUE OPEN. G1 closed (auth bypass off, real auth verified). FOLD-REBASELINE-1 map accepted -> completed (31 engagements); fold queue loaded, head = FOLD-AUTH-1. Operator waived the re-baseline-map triad review (CAL-7B triad review also waived earlier). NEXT: FOLD-AUTH-1 is gated on operator approve scope:FOLD-AUTH-1 + plan-first, and is itself an auth/security FIRE (separate from the waived map review). Outstanding: whereas-pre-fold tag at fd5d877 (next push gate); FOLD-REBASELINE-1 bundle committed locally (bcdb953), unpushed.",
+  "last_updated": "2026-06-02T20:00:00-04:00",
+  "last_updater": "FOLD-AUTH-1 in_progress (Phase B). Increment 1 (remove auth bypass + always-enforce + auth.changePassword) implemented at commit 6cfc7cb; triad review operator-SKIPPED (after initially requiring it). Pushing for PR + CI; NOT merging until tsc/vitest/eslint green. Increment 2 (ownership access-chokepoint, Fork B) is the explicit next increment. G3 NOT green on merge -> clears only after post-deploy Pattern-16 (login / changePassword rotates G1 stopgap / protected endpoints 401).",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {

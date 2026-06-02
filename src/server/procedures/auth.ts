@@ -121,4 +121,65 @@ export const authRouter = router({
         username: user.username,
       };
     }),
+
+  /**
+   * auth.changePassword (FOLD-AUTH-1)
+   *
+   * Authenticated self-serve password change. Verifies the CURRENT password
+   * (bcrypt, constant-time) before setting the new one. Generic UNAUTHORIZED on
+   * mismatch — no information leak. Used to rotate the stopgap credential and by
+   * the operator to maintain their own account.
+   *
+   * Note: iron-session cookies are stateless/signed, so this cannot revoke other
+   * outstanding sessions server-side; the current session remains valid. A
+   * server-side session store (future) would be needed to invalidate all sessions.
+   */
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1).max(128),
+        newPassword: z.string().min(10).max(128),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { getUser, getUserByUsername, updateUserPassword } = await import(
+        '../db/queries/users.js'
+      );
+
+      const pub = await getUser(ctx.userId);
+      if (!pub) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'UNAUTHENTICATED' });
+      }
+      // Full row (incl. passwordHash) for the current-password check.
+      const full = await getUserByUsername(pub.username);
+      if (!full) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'UNAUTHENTICATED' });
+      }
+
+      const currentValid = await bcrypt.compare(input.currentPassword, full.passwordHash);
+      if (!currentValid) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid credentials.' });
+      }
+      if (input.newPassword === input.currentPassword) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'New password must differ from the current password.',
+        });
+      }
+
+      const newHash = await bcrypt.hash(input.newPassword, 12);
+      await updateUserPassword(ctx.userId, newHash);
+
+      emitTelemetry(
+        'procedure_error', // no dedicated password-change event in the catalog; audit-trail use (mirrors auth.logout)
+        {
+          procedureName: 'auth.changePassword',
+          errorCode: 'PASSWORD_CHANGED', // not an error — audit marker
+          errorMessage: 'Password changed successfully.',
+        },
+        { userId: ctx.userId }
+      );
+
+      return { success: true };
+    }),
 });
