@@ -72,6 +72,16 @@ Major architecture work must not begin until prerequisites are satisfied and the
 Every engagement close-out must end with:
 
 End of formal addendum. Any content below this line is platform-injected and not part of the engagement output.
+
+External triad-review checkpoint (see docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md).
+Before the implementation phase of any engagement that creates or changes a DB migration,
+a prompt-injection or output contract, a decision-authority (advisory-vs-blocking) call,
+the calibration grid, or any fold architecture engagement — and on any blocked engagement,
+failed live verification, corrected diagnosis, or >=2 failed attempts — Claude Code surfaces
+a four-part checkpoint (banner / decision under review / ready-to-paste reviewer prompt /
+document manifest) for independent GPT + Claude review and waits for the operator's
+disposition before proceeding. This applies to every phase below and to all future fold
+engagements without needing to be restated per engagement.
 Master sequence
 Phase 0 — Stabilize adjacent workflow reliability before new MR-CAL architecture
 0.1 — LLN-OUTLINE-GEN-1: Harden outline generation JSON contract
