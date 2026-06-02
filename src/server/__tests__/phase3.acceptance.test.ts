@@ -206,17 +206,19 @@ describe('AC3: Context pipeline PINNED_OVERFLOW', () => {
     }
   });
 
-  it('context pipeline assembles Tier 1 (pinned) before Tier 3 (non-pinned)', () => {
+  it('context pipeline assembles pinned context-priority before non-pinned (recency)', () => {
+    // FOLD-TIER-1: context-window priority is now `contextPriority: 'pinned' | 'recency'`
+    // (renamed from the colliding `tier` field). Same behavioral assertion: pinned is
+    // assembled before non-pinned/recency materials.
     const pipelineFile = fs.readFileSync(
       path.join(process.cwd(), 'src/server/context/pipeline.ts'),
       'utf-8',
     );
-    // Tier 1 must appear before Tier 3 in the file
-    const tier1Pos = pipelineFile.indexOf('Tier 1: Pinned materials');
-    const tier3Pos = pipelineFile.indexOf('Tier 3: Non-pinned materials');
-    expect(tier1Pos).toBeGreaterThan(-1);
-    expect(tier3Pos).toBeGreaterThan(-1);
-    expect(tier1Pos).toBeLessThan(tier3Pos);
+    const pinnedPos = pipelineFile.indexOf("contextPriority: 'pinned'");
+    const recencyPos = pipelineFile.indexOf("contextPriority: 'recency'");
+    expect(pinnedPos).toBeGreaterThan(-1);
+    expect(recencyPos).toBeGreaterThan(-1);
+    expect(pinnedPos).toBeLessThan(recencyPos);
   });
 });
 
