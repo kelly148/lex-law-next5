@@ -14,15 +14,14 @@
  * validates the signature, checks expiry, and populates ctx with userId.
  * If missing or invalid, the middleware short-circuits with UNAUTHENTICATED.
  *
- * MR-AUTH-BYPASS-1: When AUTH_BYPASS_ENABLED=true, the isAuthenticated
- * middleware injects a bypass userId instead of requiring a session cookie.
- * Reactivate full auth by setting AUTH_BYPASS_ENABLED=false or removing it.
+ * FOLD-AUTH-1: the former env-gated auth bypass (MR-AUTH-BYPASS-1) has been
+ * REMOVED. Authentication is always enforced from the session; no environment
+ * variable can disable it.
  */
 
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { Request, Response } from 'express';
 import { getSession, extractUserId } from './middleware/session.js';
-import { isAuthBypassEnabled, getBypassUserId } from './middleware/authBypass.js';
 
 // ============================================================
 // Context type
@@ -73,19 +72,10 @@ export const publicProcedure = t.procedure;
 
 // ============================================================
 // Auth middleware — validates session and injects userId
-// MR-AUTH-BYPASS-1: when AUTH_BYPASS_ENABLED=true, bypass is applied here.
-// Reactivate full auth by setting AUTH_BYPASS_ENABLED=false or removing it.
+// FOLD-AUTH-1: authentication is always enforced; the former env-gated bypass
+// has been removed. A valid session cookie is required for every protected call.
 // ============================================================
 const isAuthenticated = middleware(({ ctx, next }) => {
-  // MR-AUTH-BYPASS-1 — temporary environment-gated bypass
-  if (isAuthBypassEnabled()) {
-    return next({
-      ctx: {
-        ...ctx,
-        userId: getBypassUserId(),
-      },
-    });
-  }
   if (!ctx.userId) {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
