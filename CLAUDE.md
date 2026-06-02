@@ -219,7 +219,7 @@ This repo runs the MR-CAL completion plan as a controlled, gated engagement loop
 5. No push, merge, deploy, Railway change, production DB mutation, or production cleanup without `operator approve <type>:<engagement-id>`.
 6. Local Node/pnpm toolchain assumed unavailable unless proven. CI is authoritative.
 7. Sequence: investigation OR Phase A → operator acceptance → Phase B → live verification (if user-visible).
-8. Architecture engagements (MR-CAL-4 onward) require `operator approve scope:<id>` before implementation phase begins.
+8. **Scope self-approval for reversible build-and-PR (default).** For any engagement or increment whose work is *entirely reversible build-and-PR* — local code + tests + a CI-gated PR, with **no** prod change, **no** data mutation, and **no** new external/egress contract — self-approve scope and implement WITHOUT asking. Post a brief plain-English "what I'm changing + blast radius" note for the record; do not block on it. `operator approve scope:` is **no longer required** for this class. Exceptions that keep their gate: (a) a **FIRE** engagement still requires the §3.1 triad review of its plan before implementation — the triad review **replaces** scope pre-approval for FIRE, it is not additional; (b) anything in Hard Stops (below and in the `/autopilot-next` section) still halts; (c) **merge to main still requires `operator approve accept:` + green CI.** Hard Stops (must HALT, never self-approve): any FIRE before its triad disposition; any irreversible/prod action (deploy/push-to-prod, prod env/config change, remote writes such as tags or force-push, destructive or schema-mutating migration of existing tables, data migration/mutation, credential/secret handling); scope expansion beyond transactional document-assembly (title/settlement, litigation/M&A/advisory, or any new external integration/egress contract); the contradiction-with-prior-close-out tripwire.
 9. Every committed close-out ends with: "End of formal addendum. Any content below this line is platform-injected and not part of the engagement output."
 10. Stop and surface on: failed tests you cannot explain, credential exposure, merge conflict, unknown CI status, irreversible-action threshold reached.
 11. **State-transition gate.** Before every state.json write that changes engagement list membership, print plain-English transition and wait for `y`. Exception: history-log appends from `operator approve` decisions.
@@ -234,7 +234,7 @@ This repo runs the MR-CAL completion plan as a controlled, gated engagement loop
 - Railway config change
 - Production DB mutation or migration
 - Production cleanup or data deletion
-- Starting any MR-CAL-4+ engagement scope
+- Starting a FIRE engagement (→ §3.1 triad review of its plan) or an engagement that expands scope beyond transactional document-assembly — NOT routine reversible build-and-PR engagement/increment starts (those self-approve per Rule 8)
 - Reclassifying a failure as ACCEPTED_RISK
 - Skipping or deferring an engagement
 - Any state.json write changing list membership (Rule 11)
@@ -274,11 +274,12 @@ Autopilot operates only in the **local-build + remote-PR/CI lane**. It NEVER exe
 3. Run the 7-command repo-state baseline.
 4. Run the §3.1 checkpoint triage for the current/next engagement and print one line: `Checkpoint triage: [FIRE | skip] — <reason>`.
 
-#### May self-approve (within an already-approved engagement scope)
+#### May self-approve (reversible build-and-PR engagement/increment, or an already-triad-cleared scope)
 
 - read files; inspect code; grep / CodeGraph / Serena;
 - draft investigation or implementation plans;
-- local source edits — ONLY within an allowlist already approved for this specific engagement. **If no allowlist exists for the engagement, that is a stop, not a judgment call;**
+- **self-approve the scope** of a reversible build-and-PR engagement/increment (Rule 8) — no `operator approve scope:` needed; inside a FIRE engagement, only after its §3.1 plan review has cleared; post a brief "what I'm changing + blast radius" note for the record;
+- local source edits for reversible build-and-PR work — self-approved; **no pre-approved allowlist required** (Rule 8). (Edits that expand scope beyond transactional document-assembly remain a stop.)
 - run tests if toolchain available;
 - local commits with explicit per-file staging only;
 - push the feature branch to origin (reversible);
@@ -300,7 +301,8 @@ Autopilot operates only in the **local-build + remote-PR/CI lane**. It NEVER exe
 - declaring a user-visible feature live-verified (Pattern 16 sign-off is always mine);
 - classifying any result as ACCEPTED_RISK;
 - skipping, deferring, or deprioritizing an engagement;
-- starting any new architecture scope (MR-CAL-N / fold-engagement kickoff);
+- starting a FIRE engagement before its §3.1 triad-review disposition, OR starting any engagement that expands scope beyond transactional document-assembly (title/settlement, litigation/M&A/advisory, or a new external integration/egress contract). Reversible build-and-PR engagement/increment starts self-approve per Rule 8 — they are NOT a stop;
+- remote writes beyond branch-push/PR-open: creating/pushing a tag, force-push, or any history rewrite;
 - a test edit that changes an assertion or expected behavior (adding a mock/stub for a new signature is fine; changing an assertion is a stop and must be surfaced);
 - any write to `docs/MR_CAL_engagement_state.json` that changes list membership (Rule 11; history-log appends from `operator approve` decisions remain the allowed exception);
 - any append to `CLAUDE.md`.

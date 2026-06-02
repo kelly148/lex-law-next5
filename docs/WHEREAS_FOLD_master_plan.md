@@ -124,6 +124,7 @@ Upgrade sendability from the current **advisory classifier** to the target **blo
 4. **Privilege minimization** — default to less egress (single-lane default; per-matter egress control); the shared-context mechanism is bounded by the FOLD-GOV-1 controls.
 5. **Nothing client-facing** until Phase 1 (auth, owner key, governance/egress) and conflicts-at-intake (FOLD-L0-1) are live-verified.
 6. All MR-CAL hard operating rules carry forward (7-command baseline, no broad staging, no destructive cleanup, no credential exposure, halt on scope expansion, evidence-class precision).
+7. **Scope self-approval for reversible build-and-PR (CLAUDE.md Rule 8).** Engagements/increments that are entirely reversible build-and-PR (local code + tests + a CI-gated PR; no prod change, no data mutation, no new external/egress contract) self-approve scope and implement without `operator approve scope:` — a brief "what I'm changing + blast radius" note is posted for the record. A FIRE engagement still gates on the §3.1 triad review of its plan (which replaces scope pre-approval, not adds to it); merge to main still requires `operator approve accept:` + green CI; all Hard Stops (irreversible/prod actions, scope expansion beyond transactional document-assembly, the contradiction tripwire) still halt.
 
 ---
 
