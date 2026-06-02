@@ -1,0 +1,4 @@
+# CAL-7B calibration harness — raw provider artifacts stay local, never committed.
+# They contain full provider output and are large; only sanitized summaries are
+# committed (at CAL-7B-LIVE close-out), and never any credential material.
+runs/
