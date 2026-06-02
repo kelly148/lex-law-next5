@@ -224,6 +224,7 @@ This repo runs the MR-CAL completion plan as a controlled, gated engagement loop
 10. Stop and surface on: failed tests you cannot explain, credential exposure, merge conflict, unknown CI status, irreversible-action threshold reached.
 11. **State-transition gate.** Before every state.json write that changes engagement list membership, print plain-English transition and wait for `y`. Exception: history-log appends from `operator approve` decisions.
 12. **Report-commit discipline.** Investigation and architecture-planning reports commit by default. Phase A / Phase B / live-verification reports deliver to chat first; commit only on `operator approve commit-report:<id>` or natural-language equivalent.
+13. **External triad-review checkpoint.** Before the implementation phase of any engagement meeting the §3 criteria in `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md`, and on any §3 Class-T trigger, emit the four-part checkpoint block (banner / decision / reviewer prompt / document manifest) and wait for the operator's external-review disposition before proceeding.
 
 ### Confirmation-gate decisions Kelly always wants surfaced
 - Phase A → Phase B transition
@@ -238,6 +239,7 @@ This repo runs the MR-CAL completion plan as a controlled, gated engagement loop
 - Skipping or deferring an engagement
 - Any state.json write changing list membership (Rule 11)
 - Any append to this CLAUDE.md file (diff-gated)
+- External triad-review checkpoint reached (see `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md`): before implementing an engagement that creates/changes a DB migration, a prompt-injection or output contract, a decision-authority (advisory-vs-blocking) call, the calibration grid, or any fold architecture engagement; and on any blocked engagement, failed live verification, corrected diagnosis, or >=2 failed attempts. At the checkpoint, STOP and surface: (1) the decision under review, (2) a ready-to-paste reviewer prompt, (3) the exact document manifest to upload to the external GPT and Claude reviewers. Do not write code past the checkpoint until the operator returns a disposition.
 
 ### Engagement document conventions
 - Reports live at `docs/engagements/<ENGAGEMENT-ID>-<phase>.md` when committed
@@ -245,3 +247,88 @@ This repo runs the MR-CAL completion plan as a controlled, gated engagement loop
 - Reruns produce `<ENGAGEMENT-ID>-<phase>.v2.md` etc.
 - No emojis, single trailing newline, no unicode bullets in docx outputs
 - All timestamps America/New_York unless explicitly UTC
+
+---
+
+## /autopilot-next — Controlled Autopilot (phase-fenced)
+
+Runs the MR-CAL loop (and, post-MR-CAL, the fold) with reduced check-ins. Authorizes the next safe segment of work up to the next hard gate. It does NOT authorize the entire master plan, and it does NOT change which steps are irreversible — it only changes which *reversible* steps may be self-approved.
+
+**This is a behavioral discipline layer, not an enforcement layer.** It reduces check-ins; it does not replace the PreToolUse guard hook or the tool-permission prompts, which remain the actual technical gate for irreversible actions. Keep permission prompts ON for the irreversible band (merge, reset/clean, migrations, credentials) even under autopilot; relax them only for the reversible lane (read, local edit, push, PR, CI wait).
+
+#### Authorization model
+
+Two modes:
+
+- `/autopilot-next` — advance the current engagement through its safe phase, stop at the next hard gate. (One engagement.)
+- `run batch <explicit fence>` — advance through multiple engagements within the named fence, self-approving the reversible steps below, stopping at each hard gate. The fence must be explicit (e.g. "run batch CAL-7B-PLAN → CAL-7B-LIVE prep"). **Never infer a wider fence than I named.** Note: because merge is a hard stop, a multi-engagement batch stops at *every* merge — batch's hands-off value is the investigation → plan → push → PR → CI stretch, not chaining merges.
+
+#### Scope of autopilot
+
+Autopilot operates only in the **local-build + remote-PR/CI lane**. It NEVER executes live production runs — no reviewer runs, no calibration-grid execution, no Chrome/tRPC against production, no creation of synthetic production sessions. All live/production verification is operator-driven end to end.
+
+#### Required startup (every invocation)
+
+1. Read `CLAUDE.md`, `docs/MR_CAL_completion_master_plan.md`, `docs/MR_CAL_engagement_state.json`, `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md`.
+2. Report: current engagement, current phase, queue head, and anything awaiting acceptance / live verification / blocked / deferred.
+3. Run the 7-command repo-state baseline.
+4. Run the §3.1 checkpoint triage for the current/next engagement and print one line: `Checkpoint triage: [FIRE | skip] — <reason>`.
+
+#### May self-approve (within an already-approved engagement scope)
+
+- read files; inspect code; grep / CodeGraph / Serena;
+- draft investigation or implementation plans;
+- local source edits — ONLY within an allowlist already approved for this specific engagement. **If no allowlist exists for the engagement, that is a stop, not a judgment call;**
+- run tests if toolchain available;
+- local commits with explicit per-file staging only;
+- push the feature branch to origin (reversible);
+- open a PR and draft its title/body (reversible — nothing on main changes);
+- wait on / report CI status;
+- write close-outs to chat;
+- prepare the next proposed state transition (but not write it — see hard stops).
+
+#### HARD STOPS — never self-approve; stop and ask
+
+- a §3.1 external-review checkpoint that returns **FIRE** — stop for external triad review (GPT + independent Claude) BEFORE implementation (see `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md`);
+- squash-merge to main;
+- delete a branch;
+- any Railway config/env change;
+- any DB migration or production/staging data mutation;
+- any production cleanup or data deletion;
+- any execution of a live production run (reviewer run, grid run, prod Chrome/tRPC) — operator-driven only;
+- any credential handling;
+- declaring a user-visible feature live-verified (Pattern 16 sign-off is always mine);
+- classifying any result as ACCEPTED_RISK;
+- skipping, deferring, or deprioritizing an engagement;
+- starting any new architecture scope (MR-CAL-N / fold-engagement kickoff);
+- a test edit that changes an assertion or expected behavior (adding a mock/stub for a new signature is fine; changing an assertion is a stop and must be surfaced);
+- any write to `docs/MR_CAL_engagement_state.json` that changes list membership (Rule 11; history-log appends from `operator approve` decisions remain the allowed exception);
+- any append to `CLAUDE.md`.
+
+#### STUCK CONDITIONS — stop and surface immediately
+
+- CI red, or a test failing for a reason not clearly in-scope and local;
+- merge conflict;
+- unexpected dirty working tree, or any untracked file you didn't create;
+- a tool, credential, auth, or provider error;
+- `SESSION_ALREADY_EXISTS` or a stuck `active` review session that one normal abandon doesn't clear;
+- any scope ambiguity — if unsure whether something is in scope, it is a stop, not a judgment call;
+- a finding that contradicts a prior accepted close-out or the recorded state.json history. If a new result cannot be true while leaving the accepted record intact, **STOP and surface the contradiction explicitly** — do not reconcile it yourself, do not proceed on the new finding, and do not overwrite the prior record. (The confidently-wrong tripwire: the 5D-class failures were not ambiguous, they were certain and wrong, and only a human at a gate caught them.)
+
+#### When stopping
+
+Ask for exactly one decision, in the form:
+
+`operator approve <action>:<engagement-id>`
+
+(e.g. `operator approve merge:CAL-7B-LIVE`, `operator approve live-verified:CAL-7B-LIVE`, `operator approve risk-accept:<id>`, `operator approve state-transition:<id>`, `operator approve checkpoint:<id>` once the external review is dispositioned.)
+
+State in plain English what will happen if approved, and what remains after.
+
+#### Never
+
+- Never `git add -A` or `git add .`.
+- Never `git reset --hard` or `git clean -fd`.
+- Never print, echo, log, or commit a credential value.
+- Never continue a broken or contradicted run to "finish the plan." Completion is never a reason to pass a gate or a stuck condition.
+- Never rely on Claude Code's built-in auto/permission mode in place of these project rules — the generic classifier does not model this project's risk surface (legal product decisions, manual prod migrations, accepted-risk reclassification, state-file queue mutations, external-review checkpoints).
