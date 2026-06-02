@@ -51,7 +51,7 @@ export function buildChecks(config) {
     required: true,
     async fn({ http }) {
       const r = await http('GET', '/api/health', {});
-      const ok = r.status === 200 && r.json && r.json.status === 'ok';
+      const ok = r.status === 200 && !!r.json && r.json.status === 'ok';
       return { ok, detail: ok ? '200 status:ok' : `unexpected: status=${r.status} body=${JSON.stringify(r.json)}` };
     },
   });
@@ -62,7 +62,7 @@ export function buildChecks(config) {
     required: true,
     async fn({ http }) {
       const r = await http('GET', '/api/ready', {});
-      const ok = r.status === 200 && r.json && r.json.status === 'ready';
+      const ok = r.status === 200 && !!r.json && r.json.status === 'ready';
       return { ok, detail: ok ? '200 status:ready' : `not ready: status=${r.status} body=${JSON.stringify(r.json)}` };
     },
   });
@@ -88,7 +88,7 @@ export function buildChecks(config) {
     async fn({ http }) {
       const r = await http('GET', '/trpc/auth.me?batch=1', {});
       const parsed = parseTrpcBatch(r.json);
-      const ok = r.status === 401 || (parsed.error && parsed.error.data && parsed.error.data.code === 'UNAUTHORIZED');
+      const ok = r.status === 401 || Boolean(parsed.error && parsed.error.data && parsed.error.data.code === 'UNAUTHORIZED');
       return { ok, detail: ok ? '401 / UNAUTHORIZED as expected' : `expected 401, got status=${r.status} body=${JSON.stringify(r.json)}` };
     },
   });
@@ -133,11 +133,11 @@ export function buildChecks(config) {
       });
       // wrong current password -> UNAUTHORIZED (never mutates).
       const wrong = parseTrpcBatch((await call({ currentPassword: 'definitely-not-the-password', newPassword: 'a-long-enough-new-1' })).json);
-      const wrongOk = wrong.error && wrong.error.data && wrong.error.data.code === 'UNAUTHORIZED';
+      const wrongOk = Boolean(wrong.error && wrong.error.data && wrong.error.data.code === 'UNAUTHORIZED');
       // too-short new password -> input validation rejects before any mutation.
       const short = await call({ currentPassword: config.password, newPassword: 'short' });
       const shortParsed = parseTrpcBatch(short.json);
-      const shortOk = short.status >= 400 || (shortParsed.error && shortParsed.error.data && shortParsed.error.data.code === 'BAD_REQUEST');
+      const shortOk = short.status >= 400 || Boolean(shortParsed.error && shortParsed.error.data && shortParsed.error.data.code === 'BAD_REQUEST');
       const ok = wrongOk && shortOk;
       return { ok, detail: ok ? 'wrong-current rejected (401) + short-new rejected (validation) — endpoint enforcing, no mutation' : `enforcement check failed: wrongOk=${wrongOk} shortOk=${shortOk}` };
     },
