@@ -1177,3 +1177,55 @@ export type LockedDecision = typeof lockedDecisions.$inferSelect;
 export type NewLockedDecision = typeof lockedDecisions.$inferInsert;
 export type AdoptLedger = typeof adoptLedger.$inferSelect;
 export type NewAdoptLedger = typeof adoptLedger.$inferInsert;
+
+// ============================================================
+// FOLD-GOV-1a — audit_events (Audit-as-Matter-Record)
+// ============================================================
+// Immutable, append-only per-matter governance record, DISTINCT from the
+// operational telemetry_events stream: what each model said, what was
+// adopted/rejected/locked/sent/withheld, what authority was verified, what
+// required judgment. Append-only — the query wrapper exposes insert + read only
+// (no updatedAt; rows are never modified after insert).
+// Indexes: (matterId, createdAt) read path; (userId, matterId) owner scope.
+// ============================================================
+export const AUDIT_EVENT_TYPE_VALUES = [
+  'model_output',
+  'adopted',
+  'rejected',
+  'locked',
+  'unlocked',
+  'sent',
+  'withheld',
+  'authority_verified',
+  'judgment_required',
+] as const;
+export type AuditEventType = (typeof AUDIT_EVENT_TYPE_VALUES)[number];
+
+export const AUDIT_EVENT_ACTOR_VALUES = ['model', 'attorney', 'system'] as const;
+export type AuditEventActor = (typeof AUDIT_EVENT_ACTOR_VALUES)[number];
+
+export const auditEvents = mysqlTable(
+  'audit_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }),
+    eventType: mysqlEnum('eventType', AUDIT_EVENT_TYPE_VALUES).notNull(),
+    actor: mysqlEnum('actor', AUDIT_EVENT_ACTOR_VALUES).notNull(),
+    actorModel: varchar('actorModel', { length: 64 }),
+    summary: text('summary').notNull(),
+    payload: json('payload'),
+    reviewSessionId: char('reviewSessionId', { length: 36 }),
+    sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }),
+    versionId: char('versionId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxAuditEventsMatter: index('idx_audit_events_matter').on(table.matterId, table.createdAt),
+    idxAuditEventsUserMatter: index('idx_audit_events_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+export type AuditEvent = typeof auditEvents.$inferSelect;
+export type NewAuditEvent = typeof auditEvents.$inferInsert;

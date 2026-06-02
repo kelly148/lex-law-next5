@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "current_engagement": null,
-  "current_phase": "idle",
+  "current_engagement": "FOLD-GOV-1",
+  "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -37,14 +37,13 @@
     "FOLD-AUTH-1",
     "FOLD-TIER-1"
   ],
-  "in_progress_engagement": null,
+  "in_progress_engagement": "FOLD-GOV-1",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-GOV-1",
     "FOLD-PERSIST-1",
     "FOLD-L1-1",
     "FOLD-L1-2",
@@ -435,10 +434,15 @@
       "ts": "2026-06-02T21:05:00-04:00",
       "decision": "scope+plan+accept+complete:FOLD-TIER-1",
       "notes": "FOLD-TIER-1 (gate G4/E-3): tier-name collision resolved. operator approve scope:FOLD-TIER-1 -> Phase-A plan accepted (value form (b) string union) -> triad review operator-SKIPPED (assessed skip-eligible: pure code/comment rename, NO DB migration [schema only had comments], no auth, no output-contract change). IMPLEMENTED: renamed the context-window PRIORITY field IncludedMaterial.tier (1|3) -> contextPriority ('pinned'|'recency') in context/pipeline.ts (type + 3 set-sites) + updated its sole consumer ContextPreviewPanel.tsx (Tier {n} -> Pinned/Recency label) + reworded 'Tier 1/2/3' comments in pipeline.ts/schema.ts/references.ts. Source-of-truth AUTHORITY name (source_of_truth_tier card field) LEFT UNCHANGED (already distinct; renaming it would be an out-of-scope output-contract change). No behavioral change to context budgeting (field was descriptive/emitted, never branched on). ACCEPTANCE (G4): the two 'tier' senses now carry distinct names in code (context=contextPriority, authority=source_of_truth_tier); no query conflates them. Only runtime change is the cosmetic context-preview label. Implemented + recorded in this PR; completes on merge (CI authoritative; no merge until green). FOLD-TIER-1 -> completed_engagements; queue head -> FOLD-GOV-1."
+    },
+    {
+      "ts": "2026-06-02T21:40:00-04:00",
+      "decision": "scope+plan+accept+triad-skip:FOLD-GOV-1a (audit record)",
+      "notes": "FOLD-GOV-1 (gate G7) opened (operator approve scope:FOLD-GOV-1). DECOMPOSED into 3 sub-strands of differing readiness: GOV-1a audit-as-Matter-Record (buildable now), GOV-1b privilege-egress posture / Rule 1.6 (buildable but DECISION-GATED on operator legal calls), GOV-1c model-output governance enforcement (DEPENDS on FOLD-L1 source-authority tiers). Operator chose: BUILD GOV-1a NOW; GOV-1b parked pending legal decisions; GOV-1c deferred to FOLD-L1. Plan accepted 'with defaults' (capture=governance-moments-only incl. model-output SUMMARIES not raw; retention=permanent immutable; append-only). Triad review operator-SKIPPED (additive append-only audit table; lowest-stakes fire). INCREMENT 1 IMPLEMENTED (Phase A): new audit_events table (schema.ts AUDIT_EVENT_TYPE_VALUES/_ACTOR_VALUES + table; migration 0004, additive, append-only, no updatedAt) + AuditEventRowSchema (shared/schemas/auditEvents.ts, Zod wall, inline enums per repo convention) + query wrapper db/queries/auditEvents.ts (insert + listForMatter ONLY -- no update/delete; owner-scoped via the FOLD-AUTH-1-Inc2 ownerScope() chokepoint, so it adds NO inline eq(.userId) -> Inc-2 ratchet baseline unchanged at 94/9) + mr_fold_gov_1a.test.ts (Zod + append-only + ownerScope source-audit). Caught + fixed a self-inflicted CI trap: a doc comment containing the literal 'eq(table.userId' tripped the Inc-2 ratchet scan; reworded. Could NOT run tsc/vitest/eslint locally -> CI authoritative; verified the ratchet scan + invariants by node simulation. DEPLOY: migration 0004 must be applied to prod TiDB out-of-band before GOV-1a live use (DEPLOY-MIGRATIONS-NOT-AUTOMATIC). NOT YET DONE in GOV-1a: instrumentation (writing audit events at governance moments) = Increment 2; read endpoint/UI = Increment 3 (dashboard is FOLD-L1-5). FOLD-GOV-1 -> in_progress (GOV-1a being merged; GOV-1b/1c tracked as deferred sub-parts). PHASE B: push -> PR -> CI; no merge until green."
     }
   ],
-  "last_updated": "2026-06-02T21:05:00-04:00",
-  "last_updater": "FOLD-AUTH-1 COMPLETE (G3 green, qualified: changePassword not live-exercised + stopgap cred un-rotated). FOLD-TIER-1 COMPLETE (tier-name collision resolved: context tier -> contextPriority; authority name unchanged; no behavior change). Both via PR (this) -- CI authoritative, no merge until green. Queue head -> FOLD-GOV-1. Pending cheap-now: E-4 (T&E 17-vs-32). Pre-fold gates remaining: G5-G9 (gate their engagements).",
+  "last_updated": "2026-06-02T21:40:00-04:00",
+  "last_updater": "FOLD-GOV-1 in_progress. GOV-1a (Audit-as-Matter-Record) Increment 1 implemented (audit_events table + migration 0004 + Zod-wall query wrapper [append-only; ownerScope-scoped] + tests). GOV-1b (egress/Rule 1.6) PARKED pending operator legal decisions; GOV-1c (output-governance) deferred to FOLD-L1 (needs source-authority tiers). Triad skipped. CI authoritative, no merge until green; migration 0004 needs out-of-band prod apply before live use. Queue head -> FOLD-PERSIST-1. Pending: E-4 (T&E 17-vs-32); FOLD-AUTH carryforwards.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -473,6 +477,18 @@
     }
   },
   "recommended_followups": [
+    {
+      "id": "FOLD-GOV-1b-EGRESS-POSTURE",
+      "title": "Privilege-egress posture (Rule 1.6) — parked pending operator legal decisions",
+      "why": "FOLD-GOV-1 sub-strand GOV-1b: provider retention/training documentation; per-matter/per-provider egress-category control; pre-toggle context-preview before a newly toggled lane receives matter content. Buildable but requires the operator's legal/product decisions (which providers' zero-retention terms to rely on; which material categories may egress; deny-by-default?). Claude offered to research provider data-usage terms to inform this. Highest-value external-triad-review candidate. Resume when the operator makes the egress decisions.",
+      "recorded_at": "2026-06-02T21:40:00-04:00"
+    },
+    {
+      "id": "FOLD-GOV-1c-OUTPUT-GOVERNANCE",
+      "title": "Model-output governance enforcement — deferred to FOLD-L1 (needs source-authority tiers)",
+      "why": "FOLD-GOV-1 sub-strand GOV-1c: tier + confidence + verification before a model claim can 'pass'. The 'tier' here is source-of-truth AUTHORITY, built in FOLD-L1 (Layer 1). Defer the tier-dependent enforcement to land with FOLD-L1; a minimal confidence/verification flag could be built earlier if useful.",
+      "recorded_at": "2026-06-02T21:40:00-04:00"
+    },
     {
       "id": "FOLD-AUTH-CHANGEPW-NOT-LIVE-EXERCISED",
       "title": "auth.changePassword is CI-tested but not live-exercised",
