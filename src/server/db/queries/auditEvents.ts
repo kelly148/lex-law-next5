@@ -95,3 +95,28 @@ export async function listAuditEventsForMatter(
     .orderBy(desc(auditEvents.createdAt));
   return rows.map((r) => parseAuditEventRow(r, { userId }));
 }
+
+/**
+ * BEST-EFFORT audit write — never throws. Use this from governing flows so the
+ * audit record can NEVER break the operation it is recording (e.g. when the
+ * audit_events table is not yet migrated on this environment, the write simply
+ * no-ops with a telemetry breadcrumb). For the rare path that must observe a
+ * write failure, call insertAuditEvent directly.
+ */
+export async function recordAuditEvent(
+  data: Parameters<typeof insertAuditEvent>[0],
+): Promise<void> {
+  try {
+    await insertAuditEvent(data);
+  } catch (err) {
+    void emitTelemetry(
+      'procedure_error',
+      {
+        procedureName: 'recordAuditEvent',
+        errorCode: 'AUDIT_WRITE_FAILED',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      },
+      { userId: data.userId },
+    );
+  }
+}

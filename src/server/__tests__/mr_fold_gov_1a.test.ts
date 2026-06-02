@@ -61,3 +61,21 @@ describe('FOLD-GOV-1a — query wrapper invariants', () => {
     expect(QUERY_SRC).not.toMatch(/eq\(auditEvents\.userId/);
   });
 });
+
+describe('FOLD-GOV-1a Inc 2 — best-effort recorder + explicit-act instrumentation', () => {
+  const REVIEW_SRC = readFileSync(
+    fileURLToPath(new URL('../procedures/reviewSession.ts', import.meta.url)),
+    'utf8',
+  );
+
+  it('recordAuditEvent is best-effort: wraps insertAuditEvent in try/catch (never rethrows)', () => {
+    expect(QUERY_SRC).toMatch(/export async function recordAuditEvent/);
+    const fn = QUERY_SRC.slice(QUERY_SRC.indexOf('function recordAuditEvent'));
+    expect(fn).toMatch(/try\s*\{[\s\S]*insertAuditEvent\(data\)[\s\S]*\}\s*catch/);
+  });
+
+  it('lockDecision / unlockDecision record the locked / unlocked explicit acts', () => {
+    expect(REVIEW_SRC).toMatch(/recordAuditEvent\(\{[\s\S]*?eventType: 'locked'/);
+    expect(REVIEW_SRC).toMatch(/recordAuditEvent\(\{[\s\S]*?eventType: 'unlocked'/);
+  });
+});
