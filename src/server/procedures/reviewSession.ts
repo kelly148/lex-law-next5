@@ -40,6 +40,7 @@ import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
+import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { getVersionById, insertVersion, getNextVersionNumber } from '../db/queries/versions.js';
 import { assembleContext } from '../context/pipeline.js';
 import {
@@ -1029,6 +1030,19 @@ export const reviewSessionRouter = router({
         { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
       );
 
+      // FOLD-GOV-1a Inc 2: best-effort Matter-Record audit of the 'lock' explicit act.
+      void recordAuditEvent({
+        userId,
+        matterId: doc.matterId,
+        documentId: session.documentId,
+        eventType: 'locked',
+        actor: 'attorney',
+        summary: `Locked decision (${input.origin}): ${input.summary}`,
+        payload: { lockedDecisionId, origin: input.origin, iterationNumber: session.iterationNumber },
+        reviewSessionId: input.sessionId,
+        sourceSuggestionId: input.suggestionId,
+      });
+
       return { lockedDecisionId };
     }),
 
@@ -1058,6 +1072,17 @@ export const reviewSessionRouter = router({
         { lockedDecisionId: input.lockedDecisionId },
         { userId, matterId: existing.matterId, documentId: existing.documentId, jobId: null },
       );
+
+      // FOLD-GOV-1a Inc 2: best-effort Matter-Record audit of the 'unlock' explicit act.
+      void recordAuditEvent({
+        userId,
+        matterId: existing.matterId,
+        documentId: existing.documentId,
+        eventType: 'unlocked',
+        actor: 'attorney',
+        summary: `Unlocked decision ${input.lockedDecisionId}`,
+        payload: { lockedDecisionId: input.lockedDecisionId },
+      });
 
       return { lockedDecisionId: input.lockedDecisionId };
     }),
