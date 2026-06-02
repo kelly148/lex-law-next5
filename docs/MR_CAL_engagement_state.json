@@ -32,7 +32,8 @@
     "CAL-7B-PLAN",
     "CAL-7B-HARNESS",
     "CAL-7B-LIVE",
-    "CAL-7B-CLOSEOUT"
+    "CAL-7B-CLOSEOUT",
+    "FOLD-REBASELINE-1"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
@@ -40,7 +41,30 @@
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
-  "queue": [],
+  "queue": [
+    "FOLD-AUTH-1",
+    "FOLD-TIER-1",
+    "FOLD-GOV-1",
+    "FOLD-PERSIST-1",
+    "FOLD-L1-1",
+    "FOLD-L1-2",
+    "FOLD-L1-3",
+    "FOLD-L1-4",
+    "FOLD-L1-5",
+    "FOLD-L0-1",
+    "FOLD-KB-1",
+    "FOLD-ORCH-1",
+    "FOLD-DRAFT-1",
+    "FOLD-SEND-1",
+    "FOLD-PM-1",
+    "FOLD-PM-2",
+    "FOLD-PM-3",
+    "FOLD-PM-4",
+    "FOLD-INTEG-1",
+    "FOLD-SEED-1",
+    "FOLD-MIGRATE-1",
+    "FOLD-VERIFY-1"
+  ],
   "history": [
     {
       "ts": "2026-05-30T11:31:28-04:00",
@@ -376,10 +400,30 @@
       "ts": "2026-06-02T18:00:00-04:00",
       "decision": "accept:CAL-7B-CLOSEOUT",
       "notes": "Operator-accepted formal MR-CAL program close-out (operator approve accept:CAL-7B-CLOSEOUT). Close-out of record: docs/engagements/CAL-7B-CLOSEOUT.md. CALIBRATION POSTURE: live system behaves acceptably as of 9a0ebc3 (live behavioral snapshot, NOT a locked regression suite; re-derived-baseline fixtures). P8-T10 + P8-T7 strong, P8-T1 good, P8-T6 the documented soft spot (taxonomy under-tagging, PARTIAL). All feature systems function live (locked decisions, adopt ledger, native-card display, advisory evaluator with no auto-decision, sendability blocker-detection). REMAINING FAILURES: no un-accepted clean FAILs; P8-T6 PARTIAL; GPT-P8-T6 majority FAIL = ACCEPTED_RISK; PARSE_FAILURE/unstable = genuine reviewer reliability. ACCEPTED RISKS: GPT-P8-T1 (parse; now observed PASSING/improved, flagged, retained pending original-fixture confirmation), GPT-P8-T6 (substance; consistent). DEFERRED: true offline regression vs 20260528 originals + harness parity check; native feedback-card RUNTIME; per-matter granularity; P8-T6 prompt calibration; F1 sendable:true + F4 two-substantive synthesis; reviewer-reliability fixes (GEMINI-STRUCTURED-OUTPUT-INVALID-JSON, STUCK-ACTIVE-SESSION-ON-REVIEWER-FAILURE, Claude non-strict JSON, GPT-5 empties, EVALUATOR-RENDER-EYEBALL); DEPLOY-MIGRATIONS-NOT-AUTOMATIC; TELEMETRY-RETENTION; REVIEWER-AUDIENCE-ARRAY; LLN-PROD-CLEANUP-1. SECURITY: AUTH_BYPASS_ENABLED still TRUE on public prod (AUTH-BYPASS-DISABLE; operator action). NEXT-PHASE CANDIDATES (operator decides): security hardening/disable bypass; reviewer-reliability hardening; P8-T6 calibration; prod cleanup; optional depth (native runtime/per-matter/true regression). DOC UPDATES: tracker (this); CLAUDE.md Current-state refresh approved by operator and prepared as a diff-gated change in the same final PR; program-history append recommended. CAL-7B-CLOSEOUT -> completed_engagements; QUEUE EMPTY -> MR-CAL COMPLETION PROGRAM COMPLETE (29 prior + this = 30 engagements)."
+    },
+    {
+      "ts": "2026-06-02T19:00:00-04:00",
+      "decision": "gate-closed:G1-AUTH-BYPASS",
+      "notes": "G1 (E-NOW-1) CLOSED. Recovered admin access to the EXISTING auth (stopgap; FOLD-AUTH-1 will replace it) and disabled the bypass. Diagnosis: auth = iron-session cookie (lex_session, httpOnly/sameSite=lax/secure-in-prod/14d, SESSION_SECRET) + bcrypt (bcryptjs cost 12) against the users table (single seeded row, username kelly, id fea913f2-...); AUTH_BYPASS_ENABLED===\"true\" short-circuits the tRPC isAuthenticated middleware (ctx.userId=getBypassUserId(), AUTH_BYPASS_USER_ID set to the kelly UUID) with no session validation; no in-app change-password procedure exists. RESET (Option A, build-nothing-new): operator generated a bcrypt hash locally via silent input (plaintext never in repo/commit/logs/command), then UPDATE users SET passwordHash=... WHERE username='kelly' in the TiDB SQL editor (1 row affected). Operator flipped AUTH_BYPASS_ENABLED off in Railway + redeployed. VERIFIED: unauthenticated matter.list 200->401 (probe), auth.me 401, /api/health 200, /api/version 7ca2f1c; operator confirmed incognito login with kelly + new password works. Public prod now requires real authentication. CAVEATS: single-account stopgap credential to be ROTATED at FOLD-AUTH-1; AUTH_BYPASS_USER_ID now inert; plaintext was typed in chat earlier (non-secret channel). Recommended-followup AUTH-BYPASS-DISABLE -> resolved."
+    },
+    {
+      "ts": "2026-06-02T19:00:00-04:00",
+      "decision": "waive:triad-review-CAL-7B-LIVE",
+      "notes": "Operator WAIVED the G2/§8 external triad review of CAL-7B-LIVE results + CAL-7B-CLOSEOUT (operator decision). Rationale: operator judgment that the program-closing snapshot is sufficiently closed (no un-accepted clean FAILs; residuals classified) and the external-review round-trip is not warranted here. Recorded, not silently absorbed. NOTE: the whereas-pre-fold tag at fd5d877 remains the one outstanding G2 marker (to be created at the next push gate)."
+    },
+    {
+      "ts": "2026-06-02T19:15:00-04:00",
+      "decision": "accept:FOLD-REBASELINE-1",
+      "notes": "Operator-accepted the fold re-baseline gap map (operator approve accept:FOLD-REBASELINE-1). Report of record: docs/engagements/FOLD-REBASELINE-1-investigation.md (read-only audit of main 7ca2f1c; no code changed). FINDINGS: 21 tables / 13 routers / 8 client pages inventoried. BUILT (fold-relevant): locked decisions, adopt ledger, advisory evaluator, multi-reviewer toggle, native-card display, advisory sendability, real auth (single-account post-G1), row-level userId scoping, templates, materials, drafting/regeneration. PARTIAL: owner-key/multi-account model, matter-memory injection (only locks+ledger), disposition history, five explicit acts, egress/context-preview, multi-model orchestration, sendability (advisory not hard). NOT-BUILT: tier-name disambiguation, source-of-truth tiers/Source object, open-item registry, shared-context substrate, matter-state dashboard, audit-as-record, Layer 0 intake, conflicts, knowledge base, drafting/audience primitives, sendability hard gate, deadline/tickler, PDF/OCR ingestion, party/entity model, portfolio view, integrations; plus 8 fold-novel persistence objects (Source/Provision/Package/OpenItem/LibraryEntry/JurisdictionRule/SendabilityRule/AuditEvent) + retention/DR posture. CONFIRMED: tier-name collision is real (context/pipeline.ts 'Tier 1/2/3' vs reviewerPrompts.ts source_of_truth_tier) -> FOLD-TIER-1 is a genuine Layer-1 prerequisite; ownership is userId NOT NULL (not the nullable owner-key the fold needs). Build cards (8-field) written for Phase 1-2 foundation NOT-BUILT items; abbreviated for Phase 3-5. CAVEAT: original gap map + synthesis NOT in repo (Cowork loop) -> taxonomy anchored on in-repo fold docs + code; operator may supply the originals to tighten reconciliation. FOLD-REBASELINE-1 -> completed_engagements. Fold queue LOADED (head FOLD-AUTH-1). §3.1 FIRE: this map HALTS for external triad review before FOLD-AUTH-1 (Phase 1) implementation."
+    },
+    {
+      "ts": "2026-06-02T19:20:00-04:00",
+      "decision": "waive:triad-review-FOLD-REBASELINE-1-map",
+      "notes": "Operator WAIVED the §3.1 FIRE external triad review of the FOLD-REBASELINE-1 re-baseline MAP (operator decision; recorded, not silently absorbed). This dispositions the map's FIRE gate. SCOPE OF WAIVER: the re-baseline map only. It does NOT clear FOLD-AUTH-1 — auth replacement is independently a §3.1 Step-1 always-fire (auth/security/secrets; checkpoint schedule §8 'Fold - auth replacement: S, yes') and an architecture engagement requiring operator approve scope:FOLD-AUTH-1 and a plan-first Phase-A; that review/gate is separate and remains in force unless separately waived."
     }
   ],
-  "last_updated": "2026-06-02T18:00:00-04:00",
-  "last_updater": "CAL-7B-CLOSEOUT accepted -> completed_engagements. QUEUE EMPTY: the MR-CAL completion program is COMPLETE (30 engagements, Phases 0-8). Calibration posture acceptable (live snapshot); accepted risks GPT-P8-T1/T6; key open follow-ups: AUTH-BYPASS-DISABLE (security), reviewer reliability, P8-T6 calibration, LLN-PROD-CLEANUP-1. Next phase = operator decision.",
+  "last_updated": "2026-06-02T19:20:00-04:00",
+  "last_updater": "FOLD QUEUE OPEN. G1 closed (auth bypass off, real auth verified). FOLD-REBASELINE-1 map accepted -> completed (31 engagements); fold queue loaded, head = FOLD-AUTH-1. Operator waived the re-baseline-map triad review (CAL-7B triad review also waived earlier). NEXT: FOLD-AUTH-1 is gated on operator approve scope:FOLD-AUTH-1 + plan-first, and is itself an auth/security FIRE (separate from the waived map review). Outstanding: whereas-pre-fold tag at fd5d877 (next push gate); FOLD-REBASELINE-1 bundle committed locally (bcdb953), unpushed.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -430,7 +474,8 @@
       "id": "AUTH-BYPASS-DISABLE",
       "title": "Disable AUTH_BYPASS_ENABLED in Railway production (left ON for the native-card live verification)",
       "why": "Security: leaves the public production URL unauthenticated. Operator action (Railway dashboard).",
-      "recorded_at": "2026-05-31T15:45:00-04:00"
+      "recorded_at": "2026-05-31T15:45:00-04:00",
+      "status": "RESOLVED 2026-06-02 (G1 closed): admin credential reset in the existing auth + AUTH_BYPASS_ENABLED disabled in Railway; unauthenticated API verified 401; incognito login verified. Stopgap credential to be rotated at FOLD-AUTH-1."
     },
     {
       "id": "REVIEWER-AUDIENCE-ARRAY",

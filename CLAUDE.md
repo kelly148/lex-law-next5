@@ -39,11 +39,11 @@ Eventual architecture (not yet built; do not start without authorization): matte
 
 ### Immediate next action
 
-**MR-CAL is complete; the next phase is an operator decision.** No queued engagement. Candidates (see `docs/engagements/CAL-7B-CLOSEOUT.md` §7): (1) **security — disable `AUTH_BYPASS_ENABLED`**; (2) reviewer-reliability hardening; (3) P8-T6 calibration; (4) prod cleanup (LLN-PROD-CLEANUP-1); (5) optional depth (native-card runtime, per-matter granularity, true offline regression suite).
+**MR-CAL complete; the WHEREAS FOLD queue is OPEN** (roadmap `docs/WHEREAS_FOLD_master_plan.md`; governance `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md` + `docs/AUTOPILOT_NEXT_SPEC.md`; entry gates `docs/WHEREAS_PREFOLD_GATE_CHECKLIST.md`). G1 closed (auth bypass off). FOLD-REBASELINE-1 re-baseline map accepted → `docs/engagements/FOLD-REBASELINE-1-investigation.md`. **Queue head = FOLD-AUTH-1** — but it is a §3.1 FIRE: the re-baseline map must get external triad review (GPT + Claude) before FOLD-AUTH-1 implementation begins.
 
 ### Open carryforwards (non-blocking unless noted)
 
-- **SECURITY (escalate):** `AUTH_BYPASS_ENABLED` is **TRUE** on the public production URL — app is publicly unauthenticated. Recommend setting `false` in Railway now (operator action; only exact lowercase `true` is the on-value). `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` also true.
+- **SECURITY:** `AUTH_BYPASS_ENABLED` **disabled** on prod 2026-06-02 (G1 closed) — real auth required (verified: unauthenticated API → 401; incognito login works). Stopgap single-account `kelly` credential to be **rotated at FOLD-AUTH-1**; `AUTH_BYPASS_USER_ID` now inert. `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` remain true (now behind auth).
 - **Reviewer reliability:** GPT-5 intermittent empties; Gemini invalid JSON for structured output; Claude intermittent non-strict JSON; a failed/empty review leaves the session `active` (stuck-session), blocking the next create.
 - **P8-T6 taxonomy precision:** the one substantive calibration soft spot (candidate prompt-calibration engagement).
 - **LLN-PROD-CLEANUP-1:** synthetic test data on prod (matters/docs/sessions; locks; adopt-ledger entries; many versions on doc `cbf83ad7`). Operator-approved cleanup only.
