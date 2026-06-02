@@ -78,20 +78,26 @@ If any one prong is absent, **do not fire.** Build it under the normal reversibl
 
 **Worked calls (tightened criterion).** FOLD-AUTH-1 (access-control posture; irreversible-ish; CI can't judge) → **FIRE**. FOLD-GOV-1 (audit + privilege-egress governance; confidentiality + records) → **FIRE**. FOLD-L1-1 (matter-memory data model + injection — the substrate everything rides) → **FIRE**. FOLD-MIGRATE-1 (data migration; data-destruction risk) → **FIRE**. By contrast: FOLD-TIER-1 (mechanical rename; CI-caught; reversible) → **skip**. FOLD-PERSIST-1 (additive scaffold; placeholders; no destructive SQL) → **skip**. FOLD-L1-2…L1-5 (implement the FOLD-L1-1-reviewed Matter-State design) → **skip — ride parent**. FOLD-PM-1/2/3 (additive engines / CI-testable ingestion / entity model) → **skip**. Across the whole fold expect the §8 survivors to fire — a handful — not one per engagement.
 
-**Interaction with `/autopilot-next`.** A §3.1 **FIRE** is a HARD STOP under the controlled autopilot (`docs/AUTOPILOT_NEXT_SPEC.md`). Autopilot runs this triage at startup, prints `Checkpoint triage: [FIRE | skip] — <reason>`, and on FIRE halts for external triad review *before* implementation — it does not self-approve past a fired checkpoint. This is what stops autopilot from blowing past the high-stakes plans the protocol exists to catch.
+**Interaction with `/autopilot-next`.** A §3.1 **FIRE** is a HARD STOP under the controlled autopilot (`docs/AUTOPILOT_NEXT_SPEC.md`). Autopilot runs this triage at startup, prints `Checkpoint triage: [FIRE | skip] — <reason>`, and on FIRE **auto-assembles the review packet (§4) to `docs/reviews/` + the phase2 mirror, then halts** for external triad review *before* implementation — it does not self-approve past a fired checkpoint. This is what stops autopilot from blowing past the high-stakes plans the protocol exists to catch.
 
 ---
 
 ## 4. What Claude Code does at a checkpoint
 
-At a checkpoint, **before proceeding past it**, Claude Code stops and surfaces a four-part block:
+At a checkpoint, **before proceeding past it**, Claude Code **auto-assembles a self-contained review packet** (it does the labor; it does not do the review). The packet contains:
 
 1. **Banner** — `⏸ EXTERNAL-REVIEW CHECKPOINT — <engagement-id> — [S|T] — <one-line why>`.
 2. **Decision under review** — 2–4 sentences: what Claude Code proposes and what is at stake if it's wrong.
 3. **Ready-to-paste reviewer prompt** — the §6 template, filled in for this situation.
-4. **Document manifest** — the exact files to upload to Reviewer A and Reviewer B, each with a one-line "why it's needed" (per §7).
+4. **Document manifest** — the §7 list, each entry with a one-line "why it's needed".
+5. **Inlined Phase-A plan** — the full `docs/engagements/<id>-plan.md` (or the investigation artifact carrying the fork), pasted in, not just referenced.
+6. **Relevant diffs / code** — the actual diff or code excerpts the decision turns on, pasted in.
 
-Claude Code then **waits**. It does not write code past the checkpoint until the operator returns with a disposition. The operator runs the two external reviews, brings the feedback back, and directs the adopt/reject/blend.
+**Self-contained requirement.** The packet must be reviewable by a reviewer with **no repo access** — every document the manifest names is **inlined** (plan, schema/diff excerpts, the relevant constraints from `CLAUDE.md`), not linked. A reviewer should never need to open the repo.
+
+**Where it's written.** Claude Code writes the packet to `docs/reviews/<ENGAGEMENT-ID>_packet.md` **AND** mirrors a copy to `C:\Users\Kelly\Desktop\Historical_Thread_Extraction\_analytical\phase2\reviews\<ENGAGEMENT-ID>_packet.md` (creating the directory if missing). If the mirror path is unavailable, it still writes the repo copy and says so.
+
+**Then it halts** and tells the operator `packet ready for <ENGAGEMENT-ID>`. Claude Code does **not** write code past the checkpoint, and it does **not** self-run, self-review, or self-approve the review. The operator runs the two external reviews, brings the feedback back, and directs the adopt/reject/blend. **The labor is automated; the decision is not** — this remains a hard stop.
 
 This is a **confirmation gate** in the existing engagement-loop sense (CLAUDE.md "Confirmation-gate decisions Kelly always wants surfaced"). It does not replace the existing Phase A → acceptance → Phase B gates; it sits **in front of** the implementation of the engagements that meet §3.
 
