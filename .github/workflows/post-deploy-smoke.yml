@@ -1,0 +1,61 @@
+name: Post-Deploy Smoke
+
+# Automated live-verification for the gated deploy (FOLD-DEPLOY-VERIFY-1).
+#
+# Runs the post-deploy smoke suite against the deployed environment. A RED run
+# fails the job (GitHub notifies the operator = the alert) and prints the exact
+# rollback steps; if RAILWAY_TOKEN is configured as a repo secret it also attempts
+# a true auto-rollback. A GREEN run prints the live-verified recommendation.
+#
+# Triggers:
+#   - workflow_dispatch     : run it by hand right after you trigger a deploy
+#                             (operator-driven; deploy is a gated manual step).
+#   - repository_dispatch   : type "deploy-succeeded" — point a Railway
+#                             "deployment succeeded" webhook at the GitHub
+#                             repository_dispatch API to make this fully automatic.
+#
+# Secrets (set in repo Settings → Secrets and variables → Actions):
+#   SMOKE_BASE_URL (optional; defaults to prod), SMOKE_USERNAME, SMOKE_PASSWORD,
+#   and for true auto-rollback: RAILWAY_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_ENVIRONMENT_ID.
+#   (Without RAILWAY_TOKEN the suite runs in alert-only mode — smoke + rollback steps.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      engagement_id:
+        description: 'Engagement id for the live-verified recommendation'
+        required: false
+        default: 'deploy'
+      expected_commit:
+        description: 'If set, require /api/version commit to start with this (Pattern-16 right-build check)'
+        required: false
+        default: ''
+  repository_dispatch:
+    types: [deploy-succeeded]
+
+jobs:
+  smoke:
+    name: Post-Deploy Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run post-deploy smoke suite
+        # No install step needed: the suite uses only global fetch (no deps).
+        run: node tools/deploy/smoke.mjs
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SMOKE_BASE_URL }}
+          SMOKE_USERNAME: ${{ secrets.SMOKE_USERNAME }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          SMOKE_ENGAGEMENT_ID: ${{ github.event.inputs.engagement_id || github.event.client_payload.engagement_id || 'deploy' }}
+          SMOKE_EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || github.event.client_payload.expected_commit || '' }}
+          # Auto-rollback (only active when RAILWAY_TOKEN is set):
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
