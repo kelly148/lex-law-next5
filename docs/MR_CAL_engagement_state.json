@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "current_engagement": "FOLD-GOV-1",
+  "current_engagement": "FOLD-PERSIST-1",
   "current_phase": "implementation",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
@@ -37,14 +37,13 @@
     "FOLD-AUTH-1",
     "FOLD-TIER-1"
   ],
-  "in_progress_engagement": "FOLD-GOV-1",
+  "in_progress_engagement": "FOLD-PERSIST-1",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-PERSIST-1",
     "FOLD-L1-1",
     "FOLD-L1-2",
     "FOLD-L1-3",
@@ -439,10 +438,15 @@
       "ts": "2026-06-02T21:40:00-04:00",
       "decision": "scope+plan+accept+triad-skip:FOLD-GOV-1a (audit record)",
       "notes": "FOLD-GOV-1 (gate G7) opened (operator approve scope:FOLD-GOV-1). DECOMPOSED into 3 sub-strands of differing readiness: GOV-1a audit-as-Matter-Record (buildable now), GOV-1b privilege-egress posture / Rule 1.6 (buildable but DECISION-GATED on operator legal calls), GOV-1c model-output governance enforcement (DEPENDS on FOLD-L1 source-authority tiers). Operator chose: BUILD GOV-1a NOW; GOV-1b parked pending legal decisions; GOV-1c deferred to FOLD-L1. Plan accepted 'with defaults' (capture=governance-moments-only incl. model-output SUMMARIES not raw; retention=permanent immutable; append-only). Triad review operator-SKIPPED (additive append-only audit table; lowest-stakes fire). INCREMENT 1 IMPLEMENTED (Phase A): new audit_events table (schema.ts AUDIT_EVENT_TYPE_VALUES/_ACTOR_VALUES + table; migration 0004, additive, append-only, no updatedAt) + AuditEventRowSchema (shared/schemas/auditEvents.ts, Zod wall, inline enums per repo convention) + query wrapper db/queries/auditEvents.ts (insert + listForMatter ONLY -- no update/delete; owner-scoped via the FOLD-AUTH-1-Inc2 ownerScope() chokepoint, so it adds NO inline eq(.userId) -> Inc-2 ratchet baseline unchanged at 94/9) + mr_fold_gov_1a.test.ts (Zod + append-only + ownerScope source-audit). Caught + fixed a self-inflicted CI trap: a doc comment containing the literal 'eq(table.userId' tripped the Inc-2 ratchet scan; reworded. Could NOT run tsc/vitest/eslint locally -> CI authoritative; verified the ratchet scan + invariants by node simulation. DEPLOY: migration 0004 must be applied to prod TiDB out-of-band before GOV-1a live use (DEPLOY-MIGRATIONS-NOT-AUTOMATIC). NOT YET DONE in GOV-1a: instrumentation (writing audit events at governance moments) = Increment 2; read endpoint/UI = Increment 3 (dashboard is FOLD-L1-5). FOLD-GOV-1 -> in_progress (GOV-1a being merged; GOV-1b/1c tracked as deferred sub-parts). PHASE B: push -> PR -> CI; no merge until green."
+    },
+    {
+      "ts": "2026-06-02T22:30:00-04:00",
+      "decision": "scope+plan+accept+triad-skip+build:FOLD-PERSIST-1 (Option a)",
+      "notes": "FOLD-PERSIST-1 scope NARROWED (operator-approved Option a) and BUILT under Rule 8 (reversible build-and-PR; halt at accept gate). SCOPE: (1) retention/deletion/client-file-return/DR-backup POSTURE scaffold (docs/retention_dr_posture.md) with ALL values PENDING ATTORNEY SIGN-OFF; (2) minimal default-safe retention/deletion MECHANISM on the existing spine -- src/server/config/retentionPolicy.ts (placeholder periods null; signoffStatus PENDING_ATTORNEY_SIGN_OFF; audit_events permanent/not-deletable per GOV-1a) + src/server/retention/retentionService.ts (describePurgeEligibility read-only -> POLICY_PENDING until sign-off; assertHardDeleteApproved guard throws without operator token, refuses permanent classes, blocks while unsigned; NO destructive SQL); leverages existing soft-delete (matters/documents archivedAt, matter_materials deletedAt). NO new tables, NO migration. Test mr_fold_persist_1.test.ts (placeholders/permanent/default-safe-guard/no-destructive-SQL). DEFERRAL MAP recorded (plan + master plan): Source->FOLD-L1 (carries the tier-name-collision constraint: contextPriority vs source-authority tier must be disambiguated before the Source schema), OpenItem->FOLD-L1, Provision/Package->FOLD-DRAFT, LibraryEntry->FOLD-KB, JurisdictionRule/SendabilityRule->FOLD-SEND; AuditEvent done (GOV-1a). REVISED ACCEPTANCE (not 'schema complete'): posture scaffold documented + minimal mechanism + soft-delete/default-safe + deferral map. Triad SKIP (operator) on 2 substitutes: (1) retention values = attorney/RPC sign-off, built as placeholders, no final periods chosen; (2) deletion soft/guarded, hard-delete operator-only, excluded from auto-advance. CARRYFORWARDS: retention values + DR posture -> attorney sign-off (then flip signoffStatus->SIGNED_OFF); actual purge/hard-delete -> future operator-approved cleanup engagement. CONCURRENCY: FOLD-GOV-1 ALSO remains in_progress (G7 open; GOV-1a Inc1+Inc2 done, GOV-1b/1c parked) -- the single in_progress field now names FOLD-PERSIST-1 (active build), FOLD-GOV-1 remainder tracked in recommended_followups; FOLD-PERSIST-1 does not depend on it (Rule 14: note + proceed). G1 RE-PROBED live this session: matter.list + auth.me 401 unauth on 563b84a -> G1 remains live-verified-closed. PHASE B: push -> PR -> CI; no merge until green; halt at accept gate."
     }
   ],
-  "last_updated": "2026-06-02T21:40:00-04:00",
-  "last_updater": "FOLD-GOV-1 in_progress. GOV-1a (Audit-as-Matter-Record) Increment 1 implemented (audit_events table + migration 0004 + Zod-wall query wrapper [append-only; ownerScope-scoped] + tests). GOV-1b (egress/Rule 1.6) PARKED pending operator legal decisions; GOV-1c (output-governance) deferred to FOLD-L1 (needs source-authority tiers). Triad skipped. CI authoritative, no merge until green; migration 0004 needs out-of-band prod apply before live use. Queue head -> FOLD-PERSIST-1. Pending: E-4 (T&E 17-vs-32); FOLD-AUTH carryforwards.",
+  "last_updated": "2026-06-02T22:30:00-04:00",
+  "last_updater": "FOLD-PERSIST-1 (Option a) built under Rule 8: retention/DR posture scaffold (PENDING ATTORNEY SIGN-OFF) + minimal default-safe mechanism (placeholder policy; read-only eligibility; operator-gated hard-delete, no destructive SQL); object->owning-engagement deferral map recorded; revised acceptance (not 'schema complete'). No new tables/migration. CONCURRENT: FOLD-GOV-1 also in_progress (G7 open; GOV-1b legal-decision-parked, GOV-1c->FOLD-L1). G1 re-probed live (401, green). Queue head -> FOLD-L1-1. Open: attorney sign-off of retention values; FOLD-AUTH carryforwards; E-4; Cowork phase2 mirror of Rule 8 + Rule 14. Halt at FOLD-PERSIST-1 accept gate.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
