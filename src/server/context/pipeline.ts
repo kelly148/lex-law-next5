@@ -5,14 +5,15 @@
  * No procedure may assemble context locally — all context assembly goes through
  * this module.
  *
- * Assembly order (Ch 20.2):
- *   Tier 1: Pinned materials (always included; PINNED_OVERFLOW if they alone exceed budget)
- *   Tier 2: Sibling document references (explicit, ordered by attorney selection)
- *   Tier 3: Non-pinned materials (sorted by recency; truncated to fit budget)
+ * Assembly order (Ch 20.2) — these are context-window PRIORITY classes, distinct
+ * from source-of-truth AUTHORITY (source_..._tier); see FOLD-TIER-1:
+ *   1. Pinned materials (always included; PINNED_OVERFLOW if they alone exceed budget)
+ *   2. Sibling document references (explicit, ordered by attorney selection)
+ *   3. Non-pinned materials (sorted by recency; truncated to fit budget)
  *
  * Token budget (Ch 20.3):
  *   Total budget = CONTEXT_BUDGET_TOKENS (configurable per operation type)
- *   Pinned materials consume first; remaining budget allocated to Tier 2 then Tier 3.
+ *   Pinned materials consume first; remaining budget allocated to siblings then recency.
  *   Truncation is applied at the material level (not mid-material).
  *
  * The assembler is an internal function — not a tRPC procedure.
@@ -70,7 +71,7 @@ export interface IncludedMaterial {
   filename: string | null;
   textContent: string;
   tokenEstimate: number;
-  tier: 1 | 3; // 1 = pinned, 3 = non-pinned
+  contextPriority: 'pinned' | 'recency'; // context-window priority class (NOT source-of-truth authority)
   pinned: boolean;
 }
 
@@ -110,7 +111,7 @@ export interface AssembleContextParams {
   matterId: string;
   userId: string;
   documentId?: string;
-  /** Explicit sibling document IDs to include (Tier 2). If omitted, no siblings included. */
+  /** Explicit sibling document IDs to include (sibling context priority). If omitted, no siblings included. */
   explicitSiblingIds?: string[];
   /** Material IDs to explicitly exclude from context. */
   explicitExcludeMaterialIds?: string[];
@@ -167,7 +168,7 @@ export async function assembleContext(
   const truncated: TruncatedItem[] = [];
 
   // ============================================================
-  // Tier 1: Pinned materials (Ch 20.2)
+  // Pinned materials — context priority 1 (Ch 20.2)
   // ============================================================
 
   const pinnedMaterials = await listPinnedMaterials(matterId, userId);
@@ -204,14 +205,14 @@ export async function assembleContext(
       filename: material.filename,
       textContent: material.textContent,
       tokenEstimate,
-      tier: 1,
+      contextPriority: 'pinned',
       pinned: true,
     });
     remainingBudget -= tokenEstimate;
   }
 
   // ============================================================
-  // Tier 2: Sibling document references (Ch 20.2)
+  // Sibling document references — context priority 2 (Ch 20.2)
   // ============================================================
 
   if (explicitSiblingIds.length > 0) {
@@ -272,7 +273,7 @@ export async function assembleContext(
   }
 
   // ============================================================
-  // Tier 3: Non-pinned materials (Ch 20.2)
+  // Non-pinned materials — context priority 3, recency-ordered (Ch 20.2)
   // ============================================================
 
   const allMaterials = await listMaterialsForMatter(matterId, userId);
@@ -328,7 +329,7 @@ export async function assembleContext(
         filename: material.filename,
         textContent: truncatedContent,
         tokenEstimate: truncatedTokens,
-        tier: 3,
+        contextPriority: 'recency',
         pinned: false,
       });
       remainingBudget -= truncatedTokens;
@@ -338,7 +339,7 @@ export async function assembleContext(
         filename: material.filename,
         textContent: material.textContent,
         tokenEstimate,
-        tier: 3,
+        contextPriority: 'recency',
         pinned: false,
       });
       remainingBudget -= tokenEstimate;

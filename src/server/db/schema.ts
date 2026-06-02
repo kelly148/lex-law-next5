@@ -489,11 +489,11 @@ export const matterMaterials = mysqlTable(
       .onUpdateNow(),
   },
   (table) => ({
-    // Materials list for a matter, sorted by recency (Tier 3 context pipeline ordering)
+    // Materials list for a matter, sorted by recency (recency context-priority ordering)
     idxMaterialsUserMatterCreated: index(
       'idx_materials_user_matter_created',
     ).on(table.userId, table.matterId, table.deletedAt, table.createdAt),
-    // Pinned materials query (Tier 1 context pipeline)
+    // Pinned materials query (pinned context-priority pipeline)
     idxMaterialsUserMatterPinned: index('idx_materials_user_matter_pinned').on(
       table.userId,
       table.matterId,
@@ -509,7 +509,7 @@ export const matterMaterials = mysqlTable(
 // ============================================================
 // Sibling references between documents in the same matter.
 // The ONLY mechanism by which one document's content appears in another's
-// LLM context (decision #36 / Ch 20.2 Tier 2).
+// LLM context (decision #36 / Ch 20.2 sibling context priority).
 //
 // stalenessAcknowledgedAt: set when attorney acknowledges stale references
 // at the finalization gate (decision #4 / Ch 21.4 document.finalize).
