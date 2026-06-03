@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "current_engagement": "",
-  "current_phase": "Phase 3 (spec-novel layers) IN PROGRESS on fold/phase-3 (Rule 17). FOLD-L0-1 (Layer-0 Matter Intake & Analysis, §3.1 FIRE, triad-cleared) COMPLETE on fold/phase-3 across 3 increments: Inc1 server core (a5f6d4d), Inc2 intake/conflicts UI (PR #119, 3cf4275), Inc3 single-lane analysis generation + advance-to-drafting hard-block (PR #120, 33636a6). fold/phase-3 HEAD = 33636a6. NEXT queue head: FOLD-KB-1 (§3.1 FIRE). main still at 9edfef8 (Phase 1+2, deployed); fold/phase-3 merges to main at the Phase-3 boundary (Rule 17). Deploy stays gated (operator approve deploy:); migrations auto-apply via pre-deploy runner (allowlist 0004-0007). Still self-use only until FOLD-L0-1 live-verified (Pattern 16, post-deploy).",
+  "current_phase": "Phase 3 (spec-novel layers) IN PROGRESS on fold/phase-3 (Rule 17). COMPLETE on fold/phase-3: FOLD-L0-1 (Layer-0 intake/analysis + conflicts, §3.1 FIRE, triad-cleared) across 3 increments (#119/#120); FOLD-KB-1 (Practice Knowledge Base, §3.1 FIRE, triad-cleared PROCEED-WITH-NAMED-CHANGES) across 5 increments — Inc1 data core+gate (#121), Inc2 adoption provenance+durable flag+surfacing (#122), Inc3 lifecycle acts+kb_events audit+retention policy (#123), Inc4 per-PA auto-load at the dispatch chokepoint (#124), Inc5 KB UI (#125). fold/phase-3 HEAD = 7782577. Migrations on fold/phase-3 pre-deploy allowlist: 0007 (L0-1) + 0008/0009/0010/0011 (KB-1) — all additive. NEXT queue head: FOLD-ORCH-1 (§3.1 FIRE, re-flagged: new decision-authority/judgment-automation contract). main still at 9edfef8 (Phase 1+2, deployed); fold/phase-3 merges to main at the Phase-3 boundary (Rule 17), then a Rule-18 deploy prompt. Still self-use only until FOLD-L0-1 + KB-1 live-verified (Pattern 16, post-deploy; incl. the Inc4 hot-path check).",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -44,7 +44,8 @@
     "FOLD-L1-3",
     "FOLD-L1-4",
     "FOLD-L1-5",
-    "FOLD-L0-1"
+    "FOLD-L0-1",
+    "FOLD-KB-1"
   ],
   "in_progress_engagement": "",
   "awaiting_operator_acceptance": [],
@@ -53,7 +54,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-KB-1",
     "FOLD-ORCH-1",
     "FOLD-DRAFT-1",
     "FOLD-SEND-1",
@@ -516,10 +516,15 @@
       "ts": "2026-06-03T15:30:00-04:00",
       "decision": "accept:FOLD-L0-1-inc3",
       "notes": "Increment 3 accepted by operator and squash-merged into fold/phase-3 as 33636a6 (PR #120, CI-green on first try: Lint + Type Check + Tests). Delivered: (a) single-lane analysis generation matterIntake.generateAnalysis via executeCanonicalMutation (Claude default, jobType matter_analysis; matter-state auto-injects per L1-2; Fork G — prompt carries only this matter's parties; fail-loud analysisGenerationParse mirrors outlineParse; malformed/empty -> job-failed + draft superseded); (b) document.create advance-to-drafting hard-block throwing PRECONDITION_FAILED/CONFLICTS_BLOCKER_UNDISPOSITIONED on hasUndispositionedBlocker; (c) MatterIntakePanel 'Generate analysis' wire + rendering. matter_analysis added to both JOB_TYPE_VALUES lists + prompt-role map; jobType is varchar(64) => NO migration. This CLOSES FOLD-L0-1 (all 3 increments) on fold/phase-3. Residual flagged at accept: generateAnalysis is covered by parse unit tests + structural parity to the proven outline.generate pattern, NOT a full e2e LLM-mock test; its real exercise is deferred to FOLD-L0-1 live-verification (Pattern 16, post-deploy, operator-driven). Still self-use only. Feature branch lex-next/fold-l0-1-inc3 retained."
+    },
+    {
+      "ts": "2026-06-03T18:30:00-04:00",
+      "decision": "accept:FOLD-KB-1 (inc1..inc5) — engagement COMPLETE",
+      "notes": "FOLD-KB-1 (Practice Knowledge Base, §3.1 FIRE) COMPLETE on fold/phase-3, triad-cleared PROCEED-WITH-NAMED-CHANGES, built across 5 operator-accepted increments (all CI-green first try): Inc1 #121 (1295cb4) data core — pa_instruction_profiles + practice_memos (migration 0008) + Zod Wall + owner-scoped queries (capture always most-private) + PURE abstraction-required access gate (stricter than L1-4; surfacing==invocation) + formatCurrencyWarning (never age-derived); Inc2 #122 (cddd53f) adoption provenance — kb_adoptions + documents.drewOnUnverifiedKb durable flag survives versioning (migration 0009) + adoptMemoIntoMatter (gate+transactional provenance+matter audit+flag) + deterministic surfacing (omits originMatterId) + tRPC router; Inc3 #123 (107d1c9) lifecycle — kb_events firm-level append-only audit (migration 0010; operator-chosen over nullable audit_events) + abstractMemoFromRaw (attorney-attested) / promoteMemoToReuse (abstraction-gated) / markMemoReverified / supersedeMemo / activatePaProfile + retention policy pure (decision #1: abstracted survive matter deletion, raw delete with it; enforcement wiring deferred); Inc4 #124 (ca4a231) per-PA auto-load at the executeCanonicalMutation chokepoint — matters.paKey (migration 0011) + confirmMatterPaKey + degrade-safe test-injectable provider (best-effort; base prompt on failure) + R11 capture via kb_events pa_profile_loaded_for_job (no jobs-table change); Inc5 #125 (7782577) KnowledgeBasePanel UI (surface-not-inject; adopt; lifecycle acts; capture-from-analysis) wired into MatterDetail, CLOSES FOLD-KB-1. Two retention decisions (operator, retention-posture §5) encoded: (1) abstracted memos outlive origin-matter deletion (attested + owner-only provenance link), raw deleted with matter; (2) firm_wide = firm-scoped, abstraction-gated, defined now (attorney-#2 forward-compatible). Residual: KB deletion-enforcement wiring deferred until a matter hard-deletion/PERSIST-1 path exists (policy fixed+tested); Inc4 touches the shared LLM-dispatch hot path — live-verify before deploy. Self-use only; live-verification post-deploy. NEXT: FOLD-ORCH-1 (§3.1 FIRE)."
     }
   ],
-  "last_updated": "2026-06-03T15:35:00-04:00",
-  "last_updater": "Rule-16 upkeep on FOLD-L0-1 close-out (operator accept:FOLD-L0-1-inc2 then accept:FOLD-L0-1-inc3): FOLD-L0-1 moved queue -> completed; queue head now FOLD-KB-1 (other queue entries untouched per Rule 11). fold/phase-3 HEAD = 33636a6 (Inc1 a5f6d4d + Inc2 3cf4275/#119 + Inc3 33636a6/#120). main unchanged at 9edfef8 (Phase 1+2, deployed); fold/phase-3 merges to main at the Phase-3 boundary (Rule 17). NEXT: FOLD-KB-1 (§3.1 FIRE) — run checkpoint triage; if FIRE, auto-assemble packet and halt for triad. Open: FOLD-L0-1 live-verification pending (post-deploy, self-use only); Phase-2 deploy live-verification still open; attorney retention sign-off; RAILWAY_TOKEN + SMOKE_* secrets + smoke user (deferred); Cowork phase2 governance mirror owes recent rule updates; LLN-PROD-CLEANUP-1.",
+  "last_updated": "2026-06-03T18:30:00-04:00",
+  "last_updater": "Rule-16 upkeep on FOLD-KB-1 close-out (operator accept:FOLD-KB-1-inc1..inc5): FOLD-KB-1 moved queue -> completed; queue head now FOLD-ORCH-1 (other queue entries untouched per Rule 11). fold/phase-3 HEAD = 7782577. FOLD-KB-1 built across 5 increments (#121-#125), all CI-green-first-try, all squash-merged onto fold/phase-3; triad-cleared design PROCEED-WITH-NAMED-CHANGES (all 8 forks + the two retention decisions encoded). Migrations 0008/0009/0010/0011 additive, on the pre-deploy allowlist. NEXT: FOLD-ORCH-1 (§3.1 FIRE, re-flagged) — run checkpoint triage; if FIRE, auto-assemble packet and halt for triad. Open: FOLD-L0-1 + KB-1 live-verification pending (post-deploy, self-use only; incl. Inc4 hot-path check); the KB deletion-enforcement wiring deferred until a matter hard-deletion/PERSIST-1 path exists (policy fixed + tested); Phase-2 deploy live-verification still open; attorney retention sign-off; RAILWAY_TOKEN + SMOKE_* secrets + smoke user (deferred); Cowork phase2 governance mirror owes recent rule updates; LLN-PROD-CLEANUP-1.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
