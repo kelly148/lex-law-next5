@@ -16,6 +16,12 @@ export const MATTER_PHASE_VALUES = ['intake', 'drafting', 'complete'] as const;
 
 export const MatterPhaseSchema = z.enum(MATTER_PHASE_VALUES);
 
+// FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status. ADDITIVE — `.optional()` so
+// pre-L0 fixtures/rows without the column still parse; DB rows (post-migration 0007)
+// always carry it (NOT NULL default 'none'). Code treats absent as 'none'.
+export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
+export const MatterAnalysisStatusSchema = z.enum(MATTER_ANALYSIS_STATUS_VALUES);
+
 export const MatterRowSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -23,6 +29,7 @@ export const MatterRowSchema = z.object({
   clientName: z.string().max(256).nullable(),
   practiceArea: z.string().max(128).nullable(),
   phase: MatterPhaseSchema,
+  analysisStatus: MatterAnalysisStatusSchema.optional(),
   archivedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
   createdAt: z.date(),

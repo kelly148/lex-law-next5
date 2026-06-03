@@ -240,6 +240,14 @@ export const jobs = mysqlTable(
 export const MATTER_PHASE_VALUES = ['intake', 'drafting', 'complete'] as const;
 export type MatterPhase = (typeof MATTER_PHASE_VALUES)[number];
 
+// FOLD-L0-1 (Fork D): Layer-0 analysis status is ORTHOGONAL to `phase` — it does NOT
+// perturb the linear intake→drafting→complete enum. none = no Layer-0 analysis;
+// in_analysis = an assessment-and-plan is being worked; plan_locked = closed on a locked
+// plan (a non-document closure). Hard-block (Fork A): advancing to drafting / locking a
+// plan is blocked while blocker-severity conflict hits are undispositioned.
+export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
+export type MatterAnalysisStatus = (typeof MATTER_ANALYSIS_STATUS_VALUES)[number];
+
 export const matters = mysqlTable(
   'matters',
   {
@@ -250,6 +258,11 @@ export const matters = mysqlTable(
     // practiceArea: freeform string in v1; Learning Mode in v2 will curate (Ch 5.4)
     practiceArea: varchar('practiceArea', { length: 128 }),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
+    // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
+    // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.
+    analysisStatus: mysqlEnum('analysisStatus', MATTER_ANALYSIS_STATUS_VALUES)
+      .notNull()
+      .default('none'),
     // archivedAt: set on archive; cleared on unarchive (Ch 5.5). Orthogonal to phase.
     archivedAt: timestamp('archivedAt'),
     // completedAt: system-managed; set when phase transitions to complete (Ch 5.3)
@@ -1541,3 +1554,170 @@ export const reusableArtifacts = mysqlTable(
 
 export type ReusableArtifact = typeof reusableArtifacts.$inferSelect;
 export type NewReusableArtifact = typeof reusableArtifacts.$inferInsert;
+
+// ============================================================
+// FOLD-L0-1 — Layer-0 Matter Intake & Analysis (Phase 3)
+// ============================================================
+// Analysis-first intake: matter_parties (Fork B, thin/interim) feed the deterministic
+// conflicts-at-intake check (conflict_checks + conflict_hits, Fork A); matter_analysis
+// (Fork C) is the internal assessment-and-plan that closes on a locked plan (Fork F:
+// categorically NON-SENDABLE by type). All owner-scoped, additive. Conflicts matching is
+// deterministic DB-side — NO LLM in the check (Fork G).
+// ============================================================
+
+// --- matter_parties (Fork B — thin/interim; full cross-matter identity is FOLD-PM-3) ---
+export const MATTER_PARTY_ROLE_VALUES = ['client', 'adverse', 'related', 'other'] as const;
+export type MatterPartyRole = (typeof MATTER_PARTY_ROLE_VALUES)[number];
+
+export const MATTER_PARTY_TYPE_VALUES = ['person', 'entity', 'unknown'] as const;
+export type MatterPartyType = (typeof MATTER_PARTY_TYPE_VALUES)[number];
+
+export const matterParties = mysqlTable(
+  'matter_parties',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    role: mysqlEnum('role', MATTER_PARTY_ROLE_VALUES).notNull(),
+    displayName: varchar('displayName', { length: 256 }).notNull(),
+    // normalizedName: lower/trim/collapse-ws/strip-punct — the conflicts match key.
+    normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
+    partyType: mysqlEnum('partyType', MATTER_PARTY_TYPE_VALUES).notNull().default('unknown'),
+    // source: where the party came from (e.g. 'attorney','intake','imported').
+    source: varchar('source', { length: 64 }).notNull().default('attorney'),
+    // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity — unused in L0-1.
+    aliasOfPartyId: char('aliasOfPartyId', { length: 36 }),
+    externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxMatterPartiesMatter: index('idx_matter_parties_matter').on(table.userId, table.matterId),
+    // The cross-matter conflicts read path: match by owner + normalized name across matters.
+    idxMatterPartiesNorm: index('idx_matter_parties_norm').on(table.userId, table.normalizedName),
+  }),
+);
+export type MatterParty = typeof matterParties.$inferSelect;
+export type NewMatterParty = typeof matterParties.$inferInsert;
+
+// --- conflict_checks (Fork A) ---
+export const CONFLICT_CHECK_STATUS_VALUES = ['clear', 'hits_pending', 'dispositioned'] as const;
+export type ConflictCheckStatus = (typeof CONFLICT_CHECK_STATUS_VALUES)[number];
+
+export const conflictChecks = mysqlTable(
+  'conflict_checks',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', CONFLICT_CHECK_STATUS_VALUES).notNull().default('clear'),
+    runAt: timestamp('runAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxConflictChecksMatter: index('idx_conflict_checks_matter').on(table.userId, table.matterId),
+  }),
+);
+export type ConflictCheck = typeof conflictChecks.$inferSelect;
+export type NewConflictCheck = typeof conflictChecks.$inferInsert;
+
+// --- conflict_hits (Fork A) ---
+// severity: BLOCKER = client-here/adverse-there crossing (or same entity opposing posture,
+//   plausible prior rep in a substantially related matter); REVIEW = weak/partial match,
+//   related/other role, same client with no adverse role. matchBasis records WHY a hit
+//   appeared (shown to the attorney). disposition: an UNDISPOSITIONED blocker hard-blocks
+//   plan-lock + advance-to-drafting; clearing a blocker REQUIRES a rationale (RPC record).
+export const CONFLICT_HIT_SEVERITY_VALUES = ['blocker', 'review'] as const;
+export type ConflictHitSeverity = (typeof CONFLICT_HIT_SEVERITY_VALUES)[number];
+
+export const CONFLICT_HIT_DISPOSITION_VALUES = ['pending', 'cleared', 'screened', 'declined'] as const;
+export type ConflictHitDisposition = (typeof CONFLICT_HIT_DISPOSITION_VALUES)[number];
+
+export const conflictHits = mysqlTable(
+  'conflict_hits',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    checkId: char('checkId', { length: 36 }).notNull(),
+    // this matter + the matched (other) matter, with the parties that crossed.
+    matterId: char('matterId', { length: 36 }).notNull(),
+    matchedMatterId: char('matchedMatterId', { length: 36 }).notNull(),
+    thisPartyId: char('thisPartyId', { length: 36 }),
+    matchedPartyId: char('matchedPartyId', { length: 36 }),
+    // human-readable WHY, e.g. "client here ('Acme') is adverse in matter <id>".
+    matchBasis: varchar('matchBasis', { length: 512 }).notNull(),
+    matchType: varchar('matchType', { length: 64 }).notNull(),
+    severity: mysqlEnum('severity', CONFLICT_HIT_SEVERITY_VALUES).notNull(),
+    disposition: mysqlEnum('disposition', CONFLICT_HIT_DISPOSITION_VALUES).notNull().default('pending'),
+    dispositionRationale: text('dispositionRationale'),
+    dispositionedByEventId: char('dispositionedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxConflictHitsCheck: index('idx_conflict_hits_check').on(table.checkId),
+    idxConflictHitsMatter: index('idx_conflict_hits_matter').on(table.userId, table.matterId, table.disposition),
+  }),
+);
+export type ConflictHit = typeof conflictHits.$inferSelect;
+export type NewConflictHit = typeof conflictHits.$inferInsert;
+
+// --- matter_analysis (Fork C — internal work-product; Fork F — categorically non-sendable) ---
+export const MATTER_ANALYSIS_RECORD_STATUS_VALUES = ['draft', 'locked', 'superseded'] as const;
+export type MatterAnalysisRecordStatus = (typeof MATTER_ANALYSIS_RECORD_STATUS_VALUES)[number];
+
+export const MATTER_ANALYSIS_MODEL_LANE_VALUES = ['single', 'multi'] as const;
+export type MatterAnalysisModelLane = (typeof MATTER_ANALYSIS_MODEL_LANE_VALUES)[number];
+
+export const matterAnalysis = mysqlTable(
+  'matter_analysis',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', MATTER_ANALYSIS_RECORD_STATUS_VALUES).notNull().default('draft'),
+    // Internal work-product (JSON; Zod-validated on read).
+    assessment: json('assessment'),
+    plan: json('plan'),
+    openQuestions: json('openQuestions'),
+    // STRUCTURED planned-deliverables (not just prose) — feeds the later plan->drafting bridge.
+    recommendedDocuments: json('recommendedDocuments'),
+    // Conflicts linkage (Fork A/C): the check this plan was cleared against + the flag.
+    conflictCheckId: char('conflictCheckId', { length: 36 }),
+    conflictsClearedForPlanning: boolean('conflictsClearedForPlanning').notNull().default(false),
+    // Model lane (Fork E): single (Claude default) | multi (attorney-invoked, suggest-only).
+    modelLane: mysqlEnum('modelLane', MATTER_ANALYSIS_MODEL_LANE_VALUES).notNull().default('single'),
+    generatedByJobId: char('generatedByJobId', { length: 36 }),
+    // Plan lock = explicit attorney act (audit_events disposition); never inferred.
+    lockedByEventId: char('lockedByEventId', { length: 36 }),
+    lockedAt: timestamp('lockedAt'),
+    lockRationale: text('lockRationale'),
+    supersededById: char('supersededById', { length: 36 }),
+    // Fork F — categorically NON-SENDABLE by TYPE (the type is the enforcement, not a
+    // missing button). FOLD-SEND-1 must read these and return "N/A — not a sendable type".
+    artifactKind: varchar('artifactKind', { length: 32 }).notNull().default('matter_analysis'),
+    outboundEligible: boolean('outboundEligible').notNull().default(false),
+    sendabilityRequired: boolean('sendabilityRequired').notNull().default(false),
+    sendabilityStatus: varchar('sendabilityStatus', { length: 32 }).notNull().default('not_applicable'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxMatterAnalysisMatter: index('idx_matter_analysis_matter').on(table.userId, table.matterId, table.status),
+  }),
+);
+export type MatterAnalysis = typeof matterAnalysis.$inferSelect;
+export type NewMatterAnalysis = typeof matterAnalysis.$inferInsert;

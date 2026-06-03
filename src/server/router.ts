@@ -31,6 +31,7 @@ import { reviewSessionRouter } from './procedures/reviewSession.js';
 import { matterStateRouter } from './procedures/matterState.js';
 import { sharedContextRouter } from './procedures/sharedContext.js';
 import { reusableArtifactRouter } from './procedures/reusableArtifacts.js';
+import { matterIntakeRouter } from './procedures/matterIntake.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -52,6 +53,8 @@ export const appRouter = router({
   sharedContext: sharedContextRouter,
   // FOLD-L1-4 — reusable-artifact registry + cross-matter invocation gate.
   reusableArtifact: reusableArtifactRouter,
+  // FOLD-L0-1 — Layer-0 Matter Intake & Analysis (conflicts-at-intake + plan closure).
+  matterIntake: matterIntakeRouter,
 });
 
 export type AppRouter = typeof appRouter;
