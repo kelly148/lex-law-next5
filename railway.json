@@ -5,6 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "preDeployCommand": "node scripts/apply-prod-migrations.mjs",
     "startCommand": "node dist/server/index.js",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 60,

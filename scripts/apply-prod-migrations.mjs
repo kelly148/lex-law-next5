@@ -1,0 +1,103 @@
+/**
+ * apply-prod-migrations.mjs — additive-only migration runner (Railway pre-deploy + manual).
+ *
+ * WHY THIS EXISTS: the repo's drizzle `db:migrate` runner needs a meta/_journal.json that
+ * does not exist (these are hand-written migrations). This script applies an EXPLICIT
+ * ALLOWLIST of committed .sql files, in order, against the database in DATABASE_URL.
+ *
+ * WIRED AS RAILWAY'S PRE-DEPLOY COMMAND (railway.json deploy.preDeployCommand). On deploy,
+ * Railway runs this against ITS OWN DATABASE_URL BEFORE the new code serves. If it exits
+ * non-zero the deploy FAILS and the previous version keeps serving (no half-migrated state).
+ *
+ * GUARDS:
+ *   - ALLOWLIST ONLY: runs exactly the files in MIGRATIONS (additive). A destructive /
+ *     non-additive migration is simply never added here — it stays operator-gated/manual.
+ *   - ADDITIVE ASSERTION: before running each file, it is scanned for destructive DDL
+ *     (DROP/TRUNCATE/DELETE/UPDATE-statement/RENAME); if found, the runner ABORTS (fails
+ *     the deploy) rather than apply it. Defense-in-depth on the allowlist.
+ *   - IDEMPOTENT: the allowlisted files use CREATE/ADD ... IF NOT EXISTS and additive
+ *     ALTERs, so re-running on every deploy is safe.
+ *   - Never prints the connection string.
+ *
+ * USAGE:
+ *   Pre-deploy (Railway): node scripts/apply-prod-migrations.mjs        (dir auto-detected)
+ *   Manual:               $env:DATABASE_URL='...'; node scripts/apply-prod-migrations.mjs [migrations-dir]
+ */
+import mysql from 'mysql2/promise';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Additive allowlist — IN ORDER. 0004 creates audit_events; 0005 alters it; then 0006.
+// To auto-apply a FUTURE *additive* migration, append its filename here. NEVER add a
+// destructive/non-additive migration — run those manually (operator-gated).
+const MIGRATIONS = [
+  '0004_fold_gov_1a_audit_events.sql',
+  '0005_fold_l1_1_matter_state_engine.sql',
+  '0006_fold_l1_4_reusable_artifacts.sql',
+];
+const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
+
+// Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
+// `--` comments. UPDATE is matched only statement-initial so `ON UPDATE CURRENT_TIMESTAMP`
+// (a legitimate additive column clause) does NOT trip it.
+const DESTRUCTIVE = [
+  /\bDROP\s+(TABLE|COLUMN|INDEX|DATABASE|SCHEMA|VIEW|CONSTRAINT|KEY|PARTITION)\b/i,
+  /\bTRUNCATE\b/i,
+  /\bDELETE\s+FROM\b/i,
+  /\bRENAME\s+(TABLE|COLUMN|INDEX|TO)\b/i,
+  /(^|;)\s*UPDATE\s+/im,
+];
+
+function assertAdditive(sql, file) {
+  const stripped = sql.replace(/--[^\n]*/g, '');
+  for (const re of DESTRUCTIVE) {
+    if (re.test(stripped)) {
+      throw new Error(
+        `GUARD: ${file} contains a destructive/non-additive statement matching ${re}. ` +
+          `The pre-deploy path is additive-only — run this migration manually (operator-gated).`,
+      );
+    }
+  }
+}
+
+async function main() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL is not set — refusing to run.');
+  }
+  const scriptDir = dirname(fileURLToPath(import.meta.url));
+  // Default: <repo>/src/server/db/migrations (scripts/ and src/ sit side by side in the
+  // repo AND in the deployed image). Override with argv[2] for manual runs.
+  const migrationsDir = process.argv[2] ?? join(scriptDir, '..', 'src', 'server', 'db', 'migrations');
+
+  const conn = await mysql.createConnection({ uri: url, multipleStatements: true });
+  try {
+    const [[{ db }]] = await conn.query('SELECT DATABASE() AS db');
+    console.log(`[migrate] connected to database: ${db}`);
+
+    for (const file of MIGRATIONS) {
+      const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      assertAdditive(sql, file); // aborts the deploy if non-additive
+      process.stdout.write(`[migrate] applying ${file} ... `);
+      await conn.query(sql);
+      console.log('OK');
+    }
+
+    const [rows] = await conn.query('SHOW TABLES');
+    const present = new Set(rows.map((r) => Object.values(r)[0]));
+    for (const t of EXPECTED_TABLES) {
+      console.log(`[migrate] table ${t}: ${present.has(t) ? 'present' : 'MISSING'}`);
+      if (!present.has(t)) throw new Error(`expected table ${t} not present after migration`);
+    }
+    console.log('[migrate] done (idempotent — safe to re-run).');
+  } finally {
+    await conn.end();
+  }
+}
+
+main().catch((err) => {
+  // Non-zero exit => Railway FAILS the deploy; the previous version keeps serving.
+  console.error(`[migrate] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+});
