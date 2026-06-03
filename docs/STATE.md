@@ -4,6 +4,17 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-03 (evening) — MODE A deploy automation (smoke + auto-rollback enablement) + smoke-user helper + Rule 18 collapse
+
+**What changed.** Completed the "click-deploy" automation. **Auto-migrations** (item 1) were already done (`a6312d6`) — confirmed, not duplicated. **MODE A smoke + auto-rollback** (item 2): the post-deploy smoke suite + Railway GraphQL auto-rollback were already coded in FOLD-DEPLOY-VERIFY-1 (`tools/deploy/smoke.mjs`/`smokeCore.mjs` + `post-deploy-smoke.yml`) and activate when the secrets are present; default smoke checks are **non-destructive** (login round-trip + `changePassword`-enforcement; real rotation is opt-in). Added **`scripts/create-smoke-user.mjs`** (`98d00c2`) to provision a dedicated, isolated smoke account (bcrypt cost 12; idempotent; never prints the password; no RBAC so "low-privilege" = separate account). **Rule 18 updated** (`36ff0d0`) with the **MODE A collapse** (single action: Deploy Latest Commit → migrations+verify+rollback automatic; manual = fallback) + the additive-only/destructive-excluded flag + the carry-caveat that the GraphQL auto-rollback is untested against a live token. Mirrored to `_analytical/phase2`.
+
+**Current build state.** `main` HEAD = `36ff0d0` (+ this bookkeeping commit). Prod still unchanged — deploy not yet triggered; auto-deploy OFF; no Railway token handled by Claude.
+
+**Open items / gate residuals.** Operator to: (a) run `create-smoke-user.mjs` against prod; (b) set the 5 GitHub repo secrets (`SMOKE_USERNAME`/`SMOKE_PASSWORD`/`RAILWAY_TOKEN`/`RAILWAY_SERVICE_ID`/`RAILWAY_ENVIRONMENT_ID`); (c) optionally wire the Railway "deployment succeeded" webhook → `repository_dispatch` for fully-automatic post-deploy smoke (else one "Run workflow" click). Auto-rollback to be verified on first real RED. Still self-use only (FOLD-L0-1 pending). Prior carryforwards persist.
+
+**Next.** Operator completes secret setup + smoke user, then deploys (MODE A). Then Phase 3 (FOLD-L0-1, §3.1 FIRE) when directed.
+
+
 ## 2026-06-03 (evening) — Deploy auto-migration wired (Railway pre-deploy); Rule 18 added
 
 **What changed.** Two governance/infra changes landed on `main`. **(1)** Added **operating Rule 18 — deploy-trigger prompts** (`331b758`): deploy stays operator-gated/never-autonomous, but at a deploy-trigger milestone (phase boundary | post-deploy live-verification dependency | urgent/security fix) I proactively surface a DEPLOY PROMPT and halt (CLAUDE.md Rule 18 + master-plan constraint 12; mirrored to `_analytical/phase2`). **(2)** **Auto-apply additive migrations via Railway pre-deploy** (`a6312d6`, PR #118): the Phase-2 deploy is now one operator click — Railway's `deploy.preDeployCommand` runs `scripts/apply-prod-migrations.mjs` (allowlist `0004`→`0005`→`0006`, idempotent, additive-guarded, fails the deploy on error = no half-migrated serving) against its own `DATABASE_URL` before serving. The Dockerfile runner stage now copies the migrations + runner into the slim image (they were absent); `mysql2` is already a prod dep. This **supersedes** the manual TiDB-console path for this deploy.
