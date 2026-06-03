@@ -162,3 +162,19 @@ export const MatterStateSchema = z.discriminatedUnion('mode', [
   MatterStateModelContextSchema,
 ]);
 export type MatterState = z.infer<typeof MatterStateSchema>;
+
+// ---------------------------------------------------------------------------
+// FOLD-L1-5 — matter-state dashboard read contract
+// ---------------------------------------------------------------------------
+// The inspectable dashboard surface: the full matter state (state summary,
+// source-authority/baseline, decision log via auditEvents, open-items/blockers,
+// sendability) PLUS the model-context-packet preview (the exact L1-2 block + its
+// structured model_context). One read backs the whole dashboard.
+
+export const MatterStateDashboardSchema = z.object({
+  full: MatterStateFullSchema,
+  modelContext: MatterStateModelContextSchema,
+  /** The exact "## Matter State" block L1-2 injects — previewed verbatim. */
+  modelContextPacket: z.string(),
+});
+export type MatterStateDashboard = z.infer<typeof MatterStateDashboardSchema>;
