@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "current_engagement": "",
-  "current_phase": "Phase 2 (Layer-1 Matter-State Engine) in progress on fold/phase-2; FOLD-L1-1/L1-2/L1-3/L1-4 merged (343e13f); queue head = FOLD-L1-5 (last Phase-2 engagement, gate G6)",
+  "current_phase": "Phase 2 (Layer-1 Matter-State Engine) COMPLETE on fold/phase-2 (608df24) — all 5 L1 engagements merged. Phase-2 BOUNDARY: per-phase merge fold/phase-2 -> main (Rule 17) PENDING operator approval. queue head = FOLD-L0-1 (Phase 3; branches from main AFTER the phase merge).",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -42,7 +42,8 @@
     "FOLD-L1-1",
     "FOLD-L1-2",
     "FOLD-L1-3",
-    "FOLD-L1-4"
+    "FOLD-L1-4",
+    "FOLD-L1-5"
   ],
   "in_progress_engagement": "",
   "awaiting_operator_acceptance": [],
@@ -51,7 +52,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-L1-5",
     "FOLD-L0-1",
     "FOLD-KB-1",
     "FOLD-ORCH-1",
@@ -486,9 +486,14 @@
       "ts": "2026-06-03T11:50:00-04:00",
       "decision": "accept+merge:FOLD-L1-4 (operator approve accept: FOLD-L1-4)",
       "notes": "Reusable-artifact registry (MM-8a) + cross-matter invocation gate (MM-8b). Operator-confirmed normal automation (see prior entry). Branch lex-next/fold-l1-4; PR #115 -> fold/phase-2; one CI red (test-only tsc fix: afterEach single-expression arrow returned VitestUtils, not Awaitable<void> -> block body, commit c5e438a); CI then green (Lint + Type Check + Tests); squash-merged as 343e13f; branch deleted. NOT Rule-15 auto-merge: classification decision surfaced + CI went red once -> stopped for operator approve accept:. DELIVERED: reusable_artifacts table (migration 0006, additive; kind template|clause|memo|snippet; originMatterId NULL=firm-level; reusableScope DEFAULT matter_only); PURE evaluateCrossMatterInvocation gate (default-deny across matters: cross-matter allowed ONLY with attorney-set cross_matter scope AND explicit per-use opt-in; firm-level + same-matter pass) exhaustively unit-tested; invokeReusableArtifact owner-scoped fetch + gate + FAIL-VISIBLY audit of allowed cross-matter invocations (insertAuditEvent throws -> invocation refused) + contamination warning; owner-scoped query layer (ownerScope) + tRPC reusableArtifact router (create/list/setScope/invoke) registered. Acceptance met: cross-matter reference is explicit, scoped, contamination-guarded. CARRYFORWARD: migration 0006 (and pending 0004/0005) need out-of-band prod apply. No existing behavior changed; reversible. NO prod deploy. Auto-advancing to FOLD-L1-5 (the five explicit acts + matter-state dashboard, gate G6) - the LAST Phase-2 engagement."
+    },
+    {
+      "ts": "2026-06-03T12:30:00-04:00",
+      "decision": "accept+merge:FOLD-L1-5 (operator approve accept: FOLD-L1-5) — Phase 2 COMPLETE",
+      "notes": "The five explicit acts + matter-state dashboard; Phase-2 closer, gate G6. NOT FIRE: surfaces the FOLD-L1-1-reviewed acts (rides parent review; normal automation). Branch lex-next/fold-l1-5; PR #116 -> fold/phase-2; one CI red (lint no-duplicate-imports: value+type from matterState.js merged, commit 89c1112); CI then green (Lint + Type Check + Tests); squash-merged as 608df24; branch deleted. NOT Rule-15 auto-merge: proceed/pause decision surfaced + CI went red once -> stopped for operator approve accept:. DELIVERED (server, the enforceable explicit-not-inferred core): matterState.tierSource (act 2, forces designationSource attorney), matterState.dispositionItem (act 3, resolve|withdraw reusing L1-1 transactional-audited paths), matterState.recordSend (act 4, fail-visibly audited sent|withheld), matterState.dashboard (full state + model-context-packet preview = the exact L1-2 block); act 1 lock = pre-existing reviewSession.lockDecision; act 5 matter identity = anchor. CLIENT: MatterStateDashboard.tsx (inspectable surface: state summary, sendability, open items, source authority, decision log, packet preview) with every act behind a single explicit confirm step via useGuardedMutation (Ch 35.13); wired into MatterDetail. No schema/migration; additive, owner-scoped, reversible. Live on-screen UI verification operator-driven (Pattern 16). === PHASE 2 (Layer-1 Matter-State Engine) COMPLETE: all 5 L1 engagements merged on fold/phase-2 (608df24). NEXT: Phase-2 boundary per-phase merge fold/phase-2 -> main (Rule 17) on full-CI-green, PENDING operator approval (decisions/residuals surfaced across the phase -> not auto). Then Phase 3 branches FOLD-L0-1 from main. Deploy stays separately gated (operator approve deploy:). CARRYFORWARD: migrations 0004/0005/0006 need out-of-band prod apply before L1 features return real data in prod."
     }
   ],
-  "last_updated": "2026-06-03T11:50:00-04:00",
+  "last_updated": "2026-06-03T12:30:00-04:00",
   "last_updater": "Rule-11 list-membership reconciliation (operator 'y'): FOLD-GOV-1a + FOLD-PERSIST-1 + FOLD-DEPLOY-VERIFY-1 -> completed; in_progress cleared; Phase 1 complete on main (417b2b3). Phase 2 entry = FOLD-L1-1 (§3.1 FIRE -> auto-assemble packet, halt for triad). FOLD-GOV-1 remainder (GOV-1b egress legal-decision-parked; GOV-1c -> FOLD-L1) remains a carryforward. Open: attorney sign-off of retention values; migration 0004 out-of-band prod apply; RAILWAY_TOKEN + SMOKE_* secrets; E-4; Cowork phase2 mirror owes Rules 8/14/15 + re-triage + Rule 16/17 + packet-auto-assemble.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
