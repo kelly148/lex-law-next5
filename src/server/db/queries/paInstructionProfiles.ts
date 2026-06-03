@@ -11,9 +11,11 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { and, eq, desc } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { db } from '../connection.js';
 import { paInstructionProfiles } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
+import { insertKbEvent } from './kbEvents.js';
 import {
   PaInstructionProfileRowSchema,
   type PaInstructionProfileRow,
@@ -85,4 +87,41 @@ export async function listPaInstructionProfilesForOwner(userId: string): Promise
     .where(ownerScope(paInstructionProfiles.userId, userId))
     .orderBy(desc(paInstructionProfiles.createdAt));
   return rows.map((r) => parseRow(r, userId));
+}
+
+/**
+ * Activate an instruction profile (Increment 3, Fork E — explicit attorney act). At most one
+ * active profile per (userId, paKey): deactivates and supersedes any currently-active sibling,
+ * then activates this one. Audited via kb_events (pa_profile_activated), transactionally.
+ */
+export async function activatePaProfile(params: { profileId: string; userId: string }): Promise<PaInstructionProfileRow> {
+  const profile = await getPaInstructionProfileById(params.profileId, params.userId);
+  if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'Instruction profile not found' });
+  const eventId = uuidv4();
+  await db.transaction(async (tx) => {
+    // Supersede the prior active profile for this paKey (at most one active per paKey).
+    await tx
+      .update(paInstructionProfiles)
+      .set({ active: false, supersededById: profile.id })
+      .where(and(ownerScope(paInstructionProfiles.userId, params.userId), eq(paInstructionProfiles.paKey, profile.paKey), eq(paInstructionProfiles.active, true)));
+    await tx
+      .update(paInstructionProfiles)
+      .set({ active: true })
+      .where(and(eq(paInstructionProfiles.id, profile.id), ownerScope(paInstructionProfiles.userId, params.userId)));
+    await insertKbEvent(
+      {
+        id: eventId,
+        userId: params.userId,
+        action: 'pa_profile_activated',
+        targetType: 'pa_instruction_profile',
+        targetId: profile.id,
+        summary: `Activated instruction profile "${profile.title}" (paKey=${profile.paKey}, v${profile.version})`,
+        payload: { paKey: profile.paKey, version: profile.version },
+      },
+      tx,
+    );
+  });
+  const updated = await getPaInstructionProfileById(profile.id, params.userId);
+  if (!updated) throw new Error('activatePaProfile: row not found after activation');
+  return updated;
 }

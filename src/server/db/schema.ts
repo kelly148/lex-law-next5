@@ -1860,3 +1860,28 @@ export const kbAdoptions = mysqlTable(
 );
 export type KbAdoption = typeof kbAdoptions.$inferSelect;
 export type NewKbAdoption = typeof kbAdoptions.$inferInsert;
+
+// kb_events — FOLD-KB-1 Increment 3. Owner-scoped, APPEND-ONLY audit trail for FIRM-LEVEL
+// (matter-less) KB attorney acts. audit_events stays the per-matter record; this is the KB
+// record. Insert + read only.
+export const kbEvents = mysqlTable(
+  'kb_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    action: varchar('action', { length: 48 }).notNull(),
+    targetType: varchar('targetType', { length: 32 }).notNull(),
+    targetId: char('targetId', { length: 36 }).notNull(),
+    summary: varchar('summary', { length: 512 }).notNull(),
+    rationale: text('rationale'),
+    payload: json('payload'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxKbEventsUser: index('idx_kb_events_user').on(table.userId),
+    idxKbEventsTarget: index('idx_kb_events_target').on(table.userId, table.targetType, table.targetId),
+    idxKbEventsAction: index('idx_kb_events_action').on(table.userId, table.action),
+  }),
+);
+export type KbEvent = typeof kbEvents.$inferSelect;
+export type NewKbEvent = typeof kbEvents.$inferInsert;

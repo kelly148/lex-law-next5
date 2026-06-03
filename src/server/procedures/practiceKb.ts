@@ -23,17 +23,31 @@ import {
   getPracticeMemoById,
   listMemosForOwner,
   listMemosForOriginMatter,
+  abstractMemoFromRaw,
+  promoteMemoToReuse,
+  markMemoReverified,
+  supersedeMemo,
 } from '../db/queries/practiceMemos.js';
 import {
   insertPaInstructionProfile,
   listPaInstructionProfilesForOwner,
   getActiveProfileForPaKey,
+  activatePaProfile,
 } from '../db/queries/paInstructionProfiles.js';
 import { listAdoptionsForMatter } from '../db/queries/kbAdoptions.js';
+import { listKbEventsForOwner, listKbEventsForTarget } from '../db/queries/kbEvents.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { adoptMemoIntoMatter } from '../practiceKb/adopt.js';
 import { surfaceCandidatesForMatter } from '../practiceKb/surface.js';
 import { LawReliedOnEntrySchema } from '../../shared/schemas/practiceKb.js';
+
+const MEMO_VERIFICATION_STATUS = z.enum([
+  'unverified',
+  'attorney_verified_current',
+  'stale',
+  'superseded',
+  'not_legal_authority',
+]);
 
 async function assertMatterOwned(matterId: string, userId: string) {
   const m = await getMatterById(matterId, userId);
@@ -144,6 +158,73 @@ export const practiceKbRouter = router({
   listAdoptions: protectedProcedure
     .input(z.object({ matterId: z.string().uuid() }))
     .query(async ({ ctx, input }) => listAdoptionsForMatter(input.matterId, ctx.userId)),
+
+  // --- Increment 3: attorney-act mutations (audited via kb_events) ---
+
+  abstractMemo: protectedProcedure
+    .input(
+      z.object({
+        rawMemoId: z.string().uuid(),
+        abstractedTitle: z.string().max(256).optional(),
+        abstractedBody: z.string().min(1),
+        // The model may draft the abstraction, but performing this act IS the attorney's
+        // de-identification certification (Fork B/G).
+        abstractedBy: z.enum(['attorney', 'system_assisted_attorney']),
+      }),
+    )
+    .mutation(async ({ ctx, input }) =>
+      abstractMemoFromRaw({
+        rawMemoId: input.rawMemoId,
+        userId: ctx.userId,
+        ...(input.abstractedTitle !== undefined ? { abstractedTitle: input.abstractedTitle } : {}),
+        abstractedBody: input.abstractedBody,
+        abstractedBy: input.abstractedBy,
+      }),
+    ),
+
+  promoteMemo: protectedProcedure
+    .input(z.object({ memoId: z.string().uuid(), rationale: z.string().nullable().optional() }))
+    .mutation(async ({ ctx, input }) =>
+      promoteMemoToReuse({ memoId: input.memoId, userId: ctx.userId, rationale: input.rationale ?? null }),
+    ),
+
+  markReverified: protectedProcedure
+    .input(
+      z.object({
+        memoId: z.string().uuid(),
+        verificationStatus: MEMO_VERIFICATION_STATUS,
+        verifiedThroughDate: z.coerce.date().nullable().optional(),
+        verificationMethod: z.string().max(64).nullable().optional(),
+        verificationNote: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) =>
+      markMemoReverified({
+        memoId: input.memoId,
+        userId: ctx.userId,
+        verificationStatus: input.verificationStatus,
+        verifiedThroughDate: input.verifiedThroughDate ?? null,
+        verificationMethod: input.verificationMethod ?? null,
+        verificationNote: input.verificationNote ?? null,
+      }),
+    ),
+
+  supersedeMemo: protectedProcedure
+    .input(z.object({ memoId: z.string().uuid(), supersededById: z.string().uuid().nullable().optional(), rationale: z.string().nullable().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await supersedeMemo({ memoId: input.memoId, userId: ctx.userId, supersededById: input.supersededById ?? null, rationale: input.rationale ?? null });
+      return { success: true };
+    }),
+
+  activatePaProfile: protectedProcedure
+    .input(z.object({ profileId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => activatePaProfile({ profileId: input.profileId, userId: ctx.userId })),
+
+  listKbEvents: protectedProcedure
+    .input(z.object({ targetType: z.string(), targetId: z.string().uuid() }).optional())
+    .query(async ({ ctx, input }) =>
+      input ? listKbEventsForTarget(input.targetType, input.targetId, ctx.userId) : listKbEventsForOwner(ctx.userId),
+    ),
 
   addPaProfile: protectedProcedure
     .input(
