@@ -29,6 +29,7 @@ import { informationRequestRouter } from './procedures/informationRequest.js';
 import { outlineRouter } from './procedures/outline.js';
 import { reviewSessionRouter } from './procedures/reviewSession.js';
 import { matterStateRouter } from './procedures/matterState.js';
+import { sharedContextRouter } from './procedures/sharedContext.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -46,6 +47,8 @@ export const appRouter = router({
   reviewSession: reviewSessionRouter,
   // FOLD-L1-1 — Layer-1 Matter-State Engine read surface.
   matterState: matterStateRouter,
+  // FOLD-L1-3 — shared-context conversation substrate read surface.
+  sharedContext: sharedContextRouter,
 });
 
 export type AppRouter = typeof appRouter;
