@@ -51,7 +51,34 @@ import { getPromptVersionForJobType } from '../llm/promptVersions.js';
 import { resolveAdapter } from '../llm/registry.js';
 import { classifyProviderError, type LlmGenerateParams } from '../llm/types.js';
 import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
+import { buildMatterStateContextBlock } from '../matterState/injection.js';
 import type { NewJob, JobType } from './schema.js';
+
+// ============================================================
+// FOLD-L1-2 — matter-state injection provider (test-injectable)
+// ============================================================
+// Every LLM job dispatched through this single chokepoint receives the current matter
+// state, prepended to its systemPrompt (the "no cold reviews" precondition). The provider
+// is overridable for tests (mirrors setJobWriteFunctions / setTestLlmAdapter); the default
+// reads the L1-1 Matter-State Engine. The call site invokes it BEST-EFFORT so a matter-
+// state read can never break a model call.
+
+type MatterStateProvider = (args: {
+  matterId: string;
+  userId: string;
+  documentId?: string;
+}) => Promise<string>;
+
+let _matterStateProvider: MatterStateProvider | null = null;
+
+/** Override the matter-state injection provider for tests. Pass null to restore the default. */
+export function setMatterStateProvider(fn: MatterStateProvider | null): void {
+  _matterStateProvider = fn;
+}
+
+function getMatterStateProvider(): MatterStateProvider {
+  return _matterStateProvider ?? buildMatterStateContextBlock;
+}
 
 // ============================================================
 // Types
@@ -294,7 +321,35 @@ export async function executeCanonicalMutation(
     ? AbortSignal.any([timeoutSignal, abortController.signal])
     : abortController.signal; // fallback for environments without AbortSignal.any
 
-  const llmParams = buildLlmParams(jobId);
+  let llmParams = buildLlmParams(jobId);
+
+  // FOLD-L1-2: inject the current matter state into the systemPrompt so no model call
+  // dispatches "cold". Best-effort: a failed read degrades to no-injection (byte-identical
+  // prompt) rather than failing the call. Only matter-scoped jobs (matterId present) inject.
+  if (matterId) {
+    let matterStateBlock = '';
+    try {
+      matterStateBlock = await getMatterStateProvider()({
+        matterId,
+        userId,
+        ...(documentId !== undefined ? { documentId } : {}),
+      });
+    } catch (err) {
+      void emitTelemetry(
+        'procedure_error',
+        {
+          procedureName: 'matterStateInjection',
+          errorCode: 'MATTER_STATE_INJECT_FAILED',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        { ...telemetryCtx, jobId },
+      );
+    }
+    if (matterStateBlock) {
+      llmParams = { ...llmParams, systemPrompt: `${matterStateBlock}\n\n${llmParams.systemPrompt}` };
+    }
+  }
+
   const adapter = resolveAdapter(modelString);
 
   // Update heartbeat before LLM call (Ch 8.5 checkpoint 2)
