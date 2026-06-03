@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "current_engagement": "",
-  "current_phase": "Phase 2 (Layer-1 Matter-State Engine) MERGED to main (merge commit 122ca6d, PR #117, operator-approved) — all 5 L1 engagements on main. NEXT: Phase 3 begins with FOLD-L0-1 (a §3.1 FIRE) on a new fold/phase-3 branched from main (Rule 17). Pending before/around Phase 3: out-of-band prod apply of migrations 0004/0005/0006; deploy stays gated (operator approve deploy:).",
+  "current_phase": "Phase 3 (spec-novel layers) IN PROGRESS on fold/phase-3 (Rule 17). FOLD-L0-1 (Layer-0 Matter Intake & Analysis, §3.1 FIRE, triad-cleared) COMPLETE on fold/phase-3 across 3 increments: Inc1 server core (a5f6d4d), Inc2 intake/conflicts UI (PR #119, 3cf4275), Inc3 single-lane analysis generation + advance-to-drafting hard-block (PR #120, 33636a6). fold/phase-3 HEAD = 33636a6. NEXT queue head: FOLD-KB-1 (§3.1 FIRE). main still at 9edfef8 (Phase 1+2, deployed); fold/phase-3 merges to main at the Phase-3 boundary (Rule 17). Deploy stays gated (operator approve deploy:); migrations auto-apply via pre-deploy runner (allowlist 0004-0007). Still self-use only until FOLD-L0-1 live-verified (Pattern 16, post-deploy).",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -43,7 +43,8 @@
     "FOLD-L1-2",
     "FOLD-L1-3",
     "FOLD-L1-4",
-    "FOLD-L1-5"
+    "FOLD-L1-5",
+    "FOLD-L0-1"
   ],
   "in_progress_engagement": "",
   "awaiting_operator_acceptance": [],
@@ -52,7 +53,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-L0-1",
     "FOLD-KB-1",
     "FOLD-ORCH-1",
     "FOLD-DRAFT-1",
@@ -506,10 +506,20 @@
       "ts": "2026-06-03T13:45:00-04:00",
       "decision": "deploy-automation: MODE A smoke + auto-rollback enablement + create-smoke-user helper + Rule 18 MODE-A collapse",
       "notes": "Continuation of the click-deploy automation (diff-gated; committed separately; mirrored to phase2). Item 1 (pre-deploy auto-migrations) was already DONE (a6312d6) and confirmed, not duplicated. Item 2 (MODE A): the post-deploy smoke suite + Railway GraphQL auto-rollback were ALREADY coded in FOLD-DEPLOY-VERIFY-1 (tools/deploy/smoke.mjs + smokeCore.mjs + .github/workflows/post-deploy-smoke.yml) and activate when the secrets are present — confirmed by inspection; default smoke checks are NON-destructive (login round-trip + changePassword-ENFORCEMENT only; real rotation is opt-in SMOKE_ROTATE_PASSWORD). Added scripts/create-smoke-user.mjs (commit 98d00c2) to provision a DEDICATED smoke account (bcrypt cost 12 matching auth.ts; idempotent; never prints the password; no RBAC so 'low-privilege' = isolated account — residual flagged). Item 3: CLAUDE.md Rule 18 updated (commit 36ff0d0) with the MODE A collapse (single action Deploy Latest Commit; migrations+verify+rollback automatic; manual = fallback) + the additive-only/destructive-excluded flag + the carry-caveat that the Railway GraphQL auto-rollback is UNTESTED against a live token. Item 4 (operator setup steps for Railway token + RAILWAY_SERVICE_ID/ENVIRONMENT_ID + the 5 GitHub repo secrets) delivered to chat (no values). Auto-deploy stays OFF; no token requested/handled by Claude; deploy click stays operator's. CARRYFORWARD: operator to (a) run create-smoke-user.mjs against prod, (b) set the 5 GitHub secrets, (c) optionally set the Railway deploy-succeeded webhook -> repository_dispatch for fully-automatic post-deploy smoke (else Run-workflow one click); auto-rollback path to be verified on first real RED. main HEAD 36ff0d0."
+    },
+    {
+      "ts": "2026-06-03T14:30:00-04:00",
+      "decision": "accept:FOLD-L0-1-inc2",
+      "notes": "Increment 2 (intake/conflicts disposition UI + false-negative disclosure) accepted by operator and squash-merged into fold/phase-3 as 3cf4275 (PR #119, CI-green). Feature branch lex-next/fold-l0-1-ui retained. Reversible build-and-PR lane onto the phase branch; no main change, no deploy."
+    },
+    {
+      "ts": "2026-06-03T15:30:00-04:00",
+      "decision": "accept:FOLD-L0-1-inc3",
+      "notes": "Increment 3 accepted by operator and squash-merged into fold/phase-3 as 33636a6 (PR #120, CI-green on first try: Lint + Type Check + Tests). Delivered: (a) single-lane analysis generation matterIntake.generateAnalysis via executeCanonicalMutation (Claude default, jobType matter_analysis; matter-state auto-injects per L1-2; Fork G — prompt carries only this matter's parties; fail-loud analysisGenerationParse mirrors outlineParse; malformed/empty -> job-failed + draft superseded); (b) document.create advance-to-drafting hard-block throwing PRECONDITION_FAILED/CONFLICTS_BLOCKER_UNDISPOSITIONED on hasUndispositionedBlocker; (c) MatterIntakePanel 'Generate analysis' wire + rendering. matter_analysis added to both JOB_TYPE_VALUES lists + prompt-role map; jobType is varchar(64) => NO migration. This CLOSES FOLD-L0-1 (all 3 increments) on fold/phase-3. Residual flagged at accept: generateAnalysis is covered by parse unit tests + structural parity to the proven outline.generate pattern, NOT a full e2e LLM-mock test; its real exercise is deferred to FOLD-L0-1 live-verification (Pattern 16, post-deploy, operator-driven). Still self-use only. Feature branch lex-next/fold-l0-1-inc3 retained."
     }
   ],
-  "last_updated": "2026-06-03T13:45:00-04:00",
-  "last_updater": "Rule-11 list-membership reconciliation (operator 'y'): FOLD-GOV-1a + FOLD-PERSIST-1 + FOLD-DEPLOY-VERIFY-1 -> completed; in_progress cleared; Phase 1 complete on main (417b2b3). Phase 2 entry = FOLD-L1-1 (§3.1 FIRE -> auto-assemble packet, halt for triad). FOLD-GOV-1 remainder (GOV-1b egress legal-decision-parked; GOV-1c -> FOLD-L1) remains a carryforward. Open: attorney sign-off of retention values; migration 0004 out-of-band prod apply; RAILWAY_TOKEN + SMOKE_* secrets; E-4; Cowork phase2 mirror owes Rules 8/14/15 + re-triage + Rule 16/17 + packet-auto-assemble.",
+  "last_updated": "2026-06-03T15:35:00-04:00",
+  "last_updater": "Rule-16 upkeep on FOLD-L0-1 close-out (operator accept:FOLD-L0-1-inc2 then accept:FOLD-L0-1-inc3): FOLD-L0-1 moved queue -> completed; queue head now FOLD-KB-1 (other queue entries untouched per Rule 11). fold/phase-3 HEAD = 33636a6 (Inc1 a5f6d4d + Inc2 3cf4275/#119 + Inc3 33636a6/#120). main unchanged at 9edfef8 (Phase 1+2, deployed); fold/phase-3 merges to main at the Phase-3 boundary (Rule 17). NEXT: FOLD-KB-1 (§3.1 FIRE) — run checkpoint triage; if FIRE, auto-assemble packet and halt for triad. Open: FOLD-L0-1 live-verification pending (post-deploy, self-use only); Phase-2 deploy live-verification still open; attorney retention sign-off; RAILWAY_TOKEN + SMOKE_* secrets + smoke user (deferred); Cowork phase2 governance mirror owes recent rule updates; LLN-PROD-CLEANUP-1.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
