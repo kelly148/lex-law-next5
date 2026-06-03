@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-03 (evening) — Deploy auto-migration wired (Railway pre-deploy); Rule 18 added
+
+**What changed.** Two governance/infra changes landed on `main`. **(1)** Added **operating Rule 18 — deploy-trigger prompts** (`331b758`): deploy stays operator-gated/never-autonomous, but at a deploy-trigger milestone (phase boundary | post-deploy live-verification dependency | urgent/security fix) I proactively surface a DEPLOY PROMPT and halt (CLAUDE.md Rule 18 + master-plan constraint 12; mirrored to `_analytical/phase2`). **(2)** **Auto-apply additive migrations via Railway pre-deploy** (`a6312d6`, PR #118): the Phase-2 deploy is now one operator click — Railway's `deploy.preDeployCommand` runs `scripts/apply-prod-migrations.mjs` (allowlist `0004`→`0005`→`0006`, idempotent, additive-guarded, fails the deploy on error = no half-migrated serving) against its own `DATABASE_URL` before serving. The Dockerfile runner stage now copies the migrations + runner into the slim image (they were absent); `mysql2` is already a prod dep. This **supersedes** the manual TiDB-console path for this deploy.
+
+**Current build state.** `main` HEAD = `a6312d6` (+ this bookkeeping commit). Phase 1 + Phase 2 + the deploy-automation + Rule 18 all on `main`. Prod still unchanged — **deploy not yet triggered** (auto-deploy OFF; the operator's Deploy click is pending). No Railway token requested; deploy stays operator-gated.
+
+**Open items / gate residuals.** **Pending operator action:** Railway `Ctrl+K → Deploy Latest Commit` → pre-deploy auto-applies `0004`/`0005`/`0006` → verify via deploy `[migrate]` logs + a matter's dashboard loading. CI does **not** build the image, so the Docker/pre-deploy wiring is validated by the deploy itself (fails safe). Guard: additive-only in the pre-deploy path; destructive migrations stay manual/operator-gated. Still **self-use only** until FOLD-L0-1 live-verified. Prior carryforwards persist.
+
+**Next.** Operator triggers the deploy; I record the deploy + migration result via Rule 16. Then Phase 3 (FOLD-L0-1, §3.1 FIRE) when directed.
+
 ## 2026-06-03 (evening) — PHASE 2 MERGED TO MAIN (Rule 17 per-phase merge)
 
 **What changed.** The Phase-2 boundary merge landed: `fold/phase-2` → `main` via [PR #117](https://github.com/kelly148/lex-law-next5/pull/117), operator-approved, as a **merge commit `122ca6d`** (not squash — preserves per-engagement history on `main` and gives one revertable per-phase merge, Rule 17). All five Layer-1 engagements are now on `main`: L1-1 Matter-State Engine (data model + read contract, migration `0005`) · L1-2 matter-memory injection · L1-3 shared-context substrate · L1-4 reusable-artifact registry + cross-matter gate (migration `0006`) · L1-5 five explicit acts + dashboard (gate G6). Additive + owner-scoped throughout; the `ownerScope` ratchet held across the phase.
