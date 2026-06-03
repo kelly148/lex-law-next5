@@ -111,7 +111,9 @@ describe('FOLD-L1-4 — evaluateCrossMatterInvocation (pure contamination gate)'
 // ---------------------------------------------------------------------------
 
 describe('FOLD-L1-4 — invokeReusableArtifact (gate + fail-visibly audit)', () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('throws NOT_FOUND when the artifact is not owned/known', async () => {
     vi.mocked(getReusableArtifactById).mockResolvedValue(null);
