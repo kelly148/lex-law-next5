@@ -25,6 +25,8 @@ export const AuditEventRowSchema = z.object({
     'withheld',
     'authority_verified',
     'judgment_required',
+    // FOLD-L1-1 (Fork C): attorney decision recorded in the same append-only stream.
+    'disposition',
   ]),
   actor: z.enum(['model', 'attorney', 'system']),
   actorModel: z.string().nullable(),
@@ -33,6 +35,15 @@ export const AuditEventRowSchema = z.object({
   reviewSessionId: z.string().uuid().nullable(),
   sourceSuggestionId: z.string().nullable(),
   versionId: z.string().uuid().nullable(),
+  // FOLD-L1-1 (Fork C) — disposition-detail columns. ADDITIVE and back-compatible:
+  // .nullable().optional() so both a post-migration row (key present, value null) AND a
+  // pre-migration read / legacy fixture (key absent) parse. targetId is a row id (not
+  // always a UUID-typed column); scope/action/targetType are short free strings.
+  targetType: z.string().nullable().optional(),
+  targetId: z.string().nullable().optional(),
+  action: z.string().nullable().optional(),
+  rationale: z.string().nullable().optional(),
+  scope: z.string().nullable().optional(),
   createdAt: z.date(),
 });
 
