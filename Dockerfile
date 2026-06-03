@@ -70,6 +70,13 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy built artifacts from builder stage
 COPY --from=builder /app/dist ./dist
 
+# FOLD-DEPLOY-MIGRATE: include the additive SQL migrations + the pre-deploy runner in the
+# RUNTIME image so Railway's deploy.preDeployCommand can apply pending additive migrations
+# before serving new code. (mysql2 is already present — it is a production dependency.)
+# Without these COPYs the runner/files would be absent from the slim runner stage.
+COPY --from=builder /app/scripts/apply-prod-migrations.mjs ./scripts/apply-prod-migrations.mjs
+COPY --from=builder /app/src/server/db/migrations ./src/server/db/migrations
+
 # OPS-DEPLOY-PIPELINE-1: bake a version stamp into the image so /api/version can
 # report exactly which commit and build is running (stale-deploy detection).
 # Referencing the commit SHA keeps this layer fresh per commit.
