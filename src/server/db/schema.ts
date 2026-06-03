@@ -1480,3 +1480,64 @@ export const openItems = mysqlTable(
 
 export type OpenItem = typeof openItems.$inferSelect;
 export type NewOpenItem = typeof openItems.$inferInsert;
+
+// ============================================================
+// FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
+// ============================================================
+// Reusable artifacts (templates / clauses / memos / snippets) that may be invoked
+// across matters — UNDER a contamination gate. ANTI-CONTAMINATION is the whole point:
+//   - originMatterId records where the artifact came from (nullable = firm-level, not
+//     derived from a specific client matter).
+//   - reusableScope defaults to 'matter_only' (an artifact derived from matter A may NOT
+//     be invoked in matter B unless the attorney EXPLICITLY widens it to 'cross_matter').
+//   - Even when 'cross_matter', each cross-matter invocation requires an explicit per-use
+//     opt-in (enforced by the gate service, not the schema) and is fail-visibly audited.
+// The scope is an explicit attorney act with a conservative default — never inferred.
+//
+// Indexes:
+//   idx_reusable_artifacts_user (userId)
+//   idx_reusable_artifacts_origin (userId, originMatterId)
+//   idx_reusable_artifacts_kind (userId, kind)
+// ============================================================
+export const REUSABLE_ARTIFACT_KIND_VALUES = ['template', 'clause', 'memo', 'snippet'] as const;
+export type ReusableArtifactKind = (typeof REUSABLE_ARTIFACT_KIND_VALUES)[number];
+
+export const REUSABLE_ARTIFACT_SCOPE_VALUES = ['matter_only', 'cross_matter'] as const;
+export type ReusableArtifactScope = (typeof REUSABLE_ARTIFACT_SCOPE_VALUES)[number];
+
+export const reusableArtifacts = mysqlTable(
+  'reusable_artifacts',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // Provenance: the matter this artifact was derived from. NULL = firm-level/not
+    // client-derived (no cross-matter contamination risk by origin).
+    originMatterId: char('originMatterId', { length: 36 }),
+    // Optional link to the source document the artifact was extracted from.
+    sourceDocumentId: char('sourceDocumentId', { length: 36 }),
+    kind: mysqlEnum('kind', REUSABLE_ARTIFACT_KIND_VALUES).notNull(),
+    title: varchar('title', { length: 256 }).notNull(),
+    body: mediumtext('body').notNull(),
+    // ANTI-CONTAMINATION default: matter_only. Widening to cross_matter is an explicit
+    // attorney act; the gate still requires per-use opt-in on top of this.
+    reusableScope: mysqlEnum('reusableScope', REUSABLE_ARTIFACT_SCOPE_VALUES)
+      .notNull()
+      .default('matter_only'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxReusableArtifactsUser: index('idx_reusable_artifacts_user').on(table.userId),
+    idxReusableArtifactsOrigin: index('idx_reusable_artifacts_origin').on(
+      table.userId,
+      table.originMatterId,
+    ),
+    idxReusableArtifactsKind: index('idx_reusable_artifacts_kind').on(table.userId, table.kind),
+  }),
+);
+
+export type ReusableArtifact = typeof reusableArtifacts.$inferSelect;
+export type NewReusableArtifact = typeof reusableArtifacts.$inferInsert;
