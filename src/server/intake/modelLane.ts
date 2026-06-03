@@ -8,10 +8,12 @@
  */
 
 export interface IntakeSignals {
-  highStakes?: boolean;
-  novel?: boolean;
-  crossJurisdictional?: boolean;
-  jurisdictions?: string[];
+  // `| undefined` so the zod-inferred input (optionals carry undefined) is assignable
+  // under exactOptionalPropertyTypes.
+  highStakes?: boolean | undefined;
+  novel?: boolean | undefined;
+  crossJurisdictional?: boolean | undefined;
+  jurisdictions?: string[] | undefined;
 }
 
 export interface LaneSuggestion {
