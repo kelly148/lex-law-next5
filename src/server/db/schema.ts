@@ -260,6 +260,10 @@ export const matters = mysqlTable(
     clientName: varchar('clientName', { length: 256 }),
     // practiceArea: freeform string in v1; Learning Mode in v2 will curate (Ch 5.4)
     practiceArea: varchar('practiceArea', { length: 128 }),
+    // FOLD-KB-1 (Fork E): attorney-CONFIRMED practice-area key that maps this matter's freeform
+    // practiceArea to a pa_instruction_profiles paKey. NULL = no confirmed profile (base prompt).
+    // Set/changed only by an explicit attorney act; never silently inferred. Additive, nullable.
+    paKey: varchar('paKey', { length: 64 }),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
     // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
     // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.

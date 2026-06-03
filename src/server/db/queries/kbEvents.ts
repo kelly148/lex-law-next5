@@ -57,6 +57,22 @@ export async function insertKbEvent(
   return id;
 }
 
+/**
+ * BEST-EFFORT firm-level KB audit write — never throws. Use from the LLM-dispatch chokepoint
+ * (pa_profile_loaded_for_job) so the audit record can NEVER break the model call it records.
+ */
+export async function recordKbEvent(data: Parameters<typeof insertKbEvent>[0]): Promise<void> {
+  try {
+    await insertKbEvent(data);
+  } catch (err) {
+    void emitTelemetry(
+      'procedure_error',
+      { procedureName: 'recordKbEvent', errorCode: 'KB_EVENT_WRITE_FAILED', errorMessage: err instanceof Error ? err.message : String(err) },
+      { userId: data.userId, matterId: null, documentId: null, jobId: null },
+    );
+  }
+}
+
 export async function listKbEventsForOwner(userId: string): Promise<KbEventRow[]> {
   const rows = await db
     .select()
