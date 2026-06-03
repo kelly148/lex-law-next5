@@ -28,6 +28,9 @@ export const MatterRowSchema = z.object({
   title: z.string().min(1).max(256),
   clientName: z.string().max(256).nullable(),
   practiceArea: z.string().max(128).nullable(),
+  // FOLD-KB-1 (Fork E) attorney-confirmed PA key. ADDITIVE: .nullable().optional() so
+  // pre-migration reads / legacy fixtures parse and a post-migration row carries null|string.
+  paKey: z.string().max(64).nullable().optional(),
   phase: MatterPhaseSchema,
   analysisStatus: MatterAnalysisStatusSchema.optional(),
   archivedAt: z.date().nullable(),

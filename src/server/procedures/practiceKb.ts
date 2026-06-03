@@ -17,7 +17,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
-import { getMatterById } from '../db/queries/matters.js';
+import { getMatterById, setMatterPaKey } from '../db/queries/matters.js';
 import {
   insertPracticeMemo,
   getPracticeMemoById,
@@ -246,6 +246,31 @@ export const practiceKbRouter = router({
     ),
 
   listPaProfiles: protectedProcedure.query(async ({ ctx }) => listPaInstructionProfilesForOwner(ctx.userId)),
+
+  /**
+   * Confirm (or clear) the matter's practice-area key — the explicit attorney act that lets the
+   * active per-PA profile auto-load into this matter's model calls (Fork E). Matter-scoped, so
+   * it is recorded in the per-matter audit record. Pass paKey null to clear (base prompt).
+   */
+  confirmMatterPaKey: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), paKey: z.string().max(64).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertMatterOwned(input.matterId, ctx.userId);
+      const updated = await setMatterPaKey(input.matterId, ctx.userId, input.paKey);
+      await recordAuditEvent({
+        userId: ctx.userId,
+        matterId: input.matterId,
+        eventType: 'disposition',
+        actor: 'attorney',
+        summary: input.paKey ? `Confirmed practice-area profile key "${input.paKey}"` : 'Cleared practice-area profile key',
+        targetType: 'matter',
+        targetId: input.matterId,
+        action: 'confirm_pa_key',
+        scope: 'matter',
+        payload: { paKey: input.paKey },
+      });
+      return updated;
+    }),
 
   getActivePaProfile: protectedProcedure
     .input(z.object({ paKey: z.string() }))

@@ -52,6 +52,8 @@ import { resolveAdapter } from '../llm/registry.js';
 import { classifyProviderError, type LlmGenerateParams } from '../llm/types.js';
 import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
 import { buildMatterStateContextBlock } from '../matterState/injection.js';
+import { buildActivePaProfileForMatter, type LoadedPaProfile } from '../practiceKb/profileInjection.js';
+import { recordKbEvent } from './queries/kbEvents.js';
 import type { NewJob, JobType } from './schema.js';
 
 // ============================================================
@@ -78,6 +80,27 @@ export function setMatterStateProvider(fn: MatterStateProvider | null): void {
 
 function getMatterStateProvider(): MatterStateProvider {
   return _matterStateProvider ?? buildMatterStateContextBlock;
+}
+
+// ============================================================
+// FOLD-KB-1 Inc4 — per-PA instruction-profile injection provider (test-injectable)
+// ============================================================
+// The attorney's CONFIRMED per-practice-area master prompt auto-loads here (Fork E). Like
+// matter-state, it is best-effort and only matter-scoped jobs inject. Unlike practice memos
+// (which never auto-inject), this is the attorney's own instruction layer. Returns null when
+// there is no confirmed paKey / no active profile => base prompt (never a mismatched PA).
+
+type PaProfileProvider = (args: { matterId: string; userId: string }) => Promise<LoadedPaProfile | null>;
+
+let _paProfileProvider: PaProfileProvider | null = null;
+
+/** Override the per-PA profile provider for tests. Pass null to restore the default. */
+export function setPaProfileProvider(fn: PaProfileProvider | null): void {
+  _paProfileProvider = fn;
+}
+
+function getPaProfileProvider(): PaProfileProvider {
+  return _paProfileProvider ?? buildActivePaProfileForMatter;
 }
 
 // ============================================================
@@ -347,6 +370,38 @@ export async function executeCanonicalMutation(
     }
     if (matterStateBlock) {
       llmParams = { ...llmParams, systemPrompt: `${matterStateBlock}\n\n${llmParams.systemPrompt}` };
+    }
+  }
+
+  // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended
+  // OUTERMOST (it is the attorney's own top-level instruction). Best-effort: a failed/absent load
+  // degrades to the base prompt (byte-identical) — never a mismatched PA. Captures the loaded
+  // profile id+version for THIS job in the append-only kb_events trail (R11 immutability) — no
+  // jobs-table change required.
+  if (matterId) {
+    try {
+      const profile = await getPaProfileProvider()({ matterId, userId });
+      if (profile && profile.body) {
+        llmParams = { ...llmParams, systemPrompt: `${profile.body}\n\n${llmParams.systemPrompt}` };
+        void recordKbEvent({
+          userId,
+          action: 'pa_profile_loaded_for_job',
+          targetType: 'pa_instruction_profile',
+          targetId: profile.profileId,
+          summary: `Loaded PA profile (paKey=${profile.paKey}, v${profile.version}) for job`,
+          payload: { jobId, profileId: profile.profileId, version: profile.version, paKey: profile.paKey },
+        });
+      }
+    } catch (err) {
+      void emitTelemetry(
+        'procedure_error',
+        {
+          procedureName: 'paProfileInjection',
+          errorCode: 'PA_PROFILE_INJECT_FAILED',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        { ...telemetryCtx, jobId },
+      );
     }
   }
 
