@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-03 (evening) — PHASE 2 MERGED TO MAIN (Rule 17 per-phase merge)
+
+**What changed.** The Phase-2 boundary merge landed: `fold/phase-2` → `main` via [PR #117](https://github.com/kelly148/lex-law-next5/pull/117), operator-approved, as a **merge commit `122ca6d`** (not squash — preserves per-engagement history on `main` and gives one revertable per-phase merge, Rule 17). All five Layer-1 engagements are now on `main`: L1-1 Matter-State Engine (data model + read contract, migration `0005`) · L1-2 matter-memory injection · L1-3 shared-context substrate · L1-4 reusable-artifact registry + cross-matter gate (migration `0006`) · L1-5 five explicit acts + dashboard (gate G6). Additive + owner-scoped throughout; the `ownerScope` ratchet held across the phase.
+
+**Current build state.** `main` HEAD = `122ca6d` (Phase 1 + Phase 2). `fold/phase-2` retained (not deleted). Full CI was green on the phase branch and on the boundary PR. **No prod deploy** — merge ≠ deploy (Railway auto-deploy OFF); deploy stays gated (`operator approve deploy:`).
+
+**Open items / gate residuals.** **Migrations `0004`/`0005`/`0006` need an out-of-band prod apply** before L1 features return real data in prod (until then they degrade safe/inert). L1-4 cross-matter confidentiality boundary not externally triad-reviewed (operator disposition; mitigated by default-deny + audit). L1-5 UI live on-screen verification operator-driven (Pattern 16). Prior carryforwards persist (retention sign-off; `kelly` credential; `_analytical\phase2` mirror; `RAILWAY_TOKEN`/`SMOKE_*`; `LLN-PROD-CLEANUP-1`).
+
+**Next.** **Phase 3** (spec-novel layers) begins with **FOLD-L0-1** (Layer-0 Matter Intake & Analysis — a §3.1 **FIRE**, gate G8) on a new `fold/phase-3` branched from `main`. Full phase-boundary handoff written to `_progress\HANDOFF_BRIEF_2026-06-03_phase2-complete.md`.
+
 ## 2026-06-03 (evening) — FOLD-L1-5 merged → PHASE 2 COMPLETE
 
 **What changed.** **FOLD-L1-5** is merged onto `fold/phase-2` (`608df24`), completing **Phase 2 (Layer-1 Matter-State Engine)** — all five L1 engagements done. L1-5 surfaces the **five explicit acts** as deliberate, visible, confirmable commitments (never inferred): lock (pre-existing `reviewSession.lockDecision`), **tier** (`matterState.tierSource`, forces `designationSource: attorney`), **disposition** (`matterState.dispositionItem`, resolve/withdraw reusing L1-1's transactional-audited paths), **send** (`matterState.recordSend`, fail-visibly audited), and the matter-identity anchor. Plus the inspectable **matter-state dashboard** (`matterState.dashboard` + the `MatterStateDashboard` React component wired into `MatterDetail`) — state summary, sendability, open items, source authority, decision log, and the model-context-packet preview (the exact L1-2 block) — every act behind a single explicit confirm step via `useGuardedMutation`. Gate G6. PR [#116](https://github.com/kelly148/lex-law-next5/pull/116) (one CI red en route: a lint no-duplicate-imports fix, `89c1112`).
