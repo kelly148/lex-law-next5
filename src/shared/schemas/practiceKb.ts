@@ -84,6 +84,25 @@ export type MemoPrivilegeTag = PracticeMemoRow['privilegeTag'];
 export type MemoAbstractionStatus = PracticeMemoRow['abstractionStatus'];
 export type MemoReuseScope = PracticeMemoRow['reuseScope'];
 
+// --- kb_adoptions (Fork A; Increment 2) ----------------------------------------
+// Durable, matter-scoped provenance of a memo pulled into a matter / work product.
+export const KbAdoptionRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  documentId: z.string().uuid().nullable(),
+  kbMemoId: z.string().uuid(),
+  kbMemoUpdatedAtAtAdoption: z.date().nullable(),
+  verificationStatusAtAdoption: z.string(),
+  lastVerifiedAtAtAdoption: z.date().nullable(),
+  kbDerived: z.boolean(),
+  currencyVerifiedForOutbound: z.boolean(),
+  adoptedByEventId: z.string().uuid().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type KbAdoptionRow = z.infer<typeof KbAdoptionRowSchema>;
+
 // --- memo access gate decision (Fork B/F; server/practiceKb/gate.ts) -----------
 export const MemoAccessDecisionSchema = z.object({
   allowed: z.boolean(),
