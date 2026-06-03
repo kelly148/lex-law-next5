@@ -103,6 +103,20 @@ export const KbAdoptionRowSchema = z.object({
 });
 export type KbAdoptionRow = z.infer<typeof KbAdoptionRowSchema>;
 
+// --- kb_events (Increment 3) — firm-level KB audit trail (append-only) ----------
+export const KbEventRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string().uuid(),
+  summary: z.string(),
+  rationale: z.string().nullable(),
+  payload: z.unknown().nullable(),
+  createdAt: z.date(),
+});
+export type KbEventRow = z.infer<typeof KbEventRowSchema>;
+
 // --- memo access gate decision (Fork B/F; server/practiceKb/gate.ts) -----------
 export const MemoAccessDecisionSchema = z.object({
   allowed: z.boolean(),

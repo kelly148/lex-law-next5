@@ -47,6 +47,14 @@ export function evaluateMemoAccess(params: {
 }
 
 /**
+ * PURE promote-gate predicate (Fork B): only an ABSTRACTED memo may be promoted to firm-wide
+ * reuse — abstraction is required, not a mere opt-in.
+ */
+export function isPromotableToReuse(memo: Pick<PracticeMemoRow, 'abstractionStatus'>): boolean {
+  return memo.abstractionStatus === 'abstracted';
+}
+
+/**
  * A SPECIFIC, unavoidable currency warning rendered from the memo's own metadata — shown at
  * surfacing AND at adoption (Fork C). Names the law-relied-on + the discrete verification
  * status; does NOT infer freshness from age. A memo with a legal conclusion but no recorded
