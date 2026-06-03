@@ -36,12 +36,11 @@ import { getMatterById } from '../db/queries/matters.js';
 import { insertAuditEvent } from '../db/queries/auditEvents.js';
 import { getOpenItemById, resolveOpenItem, withdrawOpenItem } from '../db/queries/openItems.js';
 import { insertSourceAuthority } from '../db/queries/sourceAuthority.js';
-import { MatterStateDashboardSchema } from '../../shared/schemas/matterState.js';
+import { MatterStateDashboardSchema, type MatterIdentity } from '../../shared/schemas/matterState.js';
 import { assembleMatterState } from '../matterState/index.js';
 import { formatMatterStateBlock } from '../matterState/injection.js';
 import type { MatterRow } from '../../shared/schemas/matters.js';
 import type { OpenItemRow } from '../../shared/schemas/openItems.js';
-import type { MatterIdentity } from '../../shared/schemas/matterState.js';
 
 const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
