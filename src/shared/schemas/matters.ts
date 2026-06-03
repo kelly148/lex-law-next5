@@ -92,6 +92,10 @@ export const DocumentRowSchema = z.object({
   completedAt: z.date().nullable(),
   archivedAt: z.date().nullable(),
   notes: z.string().nullable(),
+  // FOLD-KB-1 (Fork A) durable KB provenance flag. ADDITIVE + back-compatible: .optional()
+  // so a pre-migration read / legacy fixture (key absent) still parses; a post-migration row
+  // carries a boolean. FOLD-SEND-1 reads this artifact-level flag.
+  drewOnUnverifiedKb: z.boolean().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

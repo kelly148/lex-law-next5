@@ -379,6 +379,10 @@ export const documents = mysqlTable(
     archivedAt: timestamp('archivedAt'),
     // notes: attorney-internal annotation; carve-out to COMPLETE_READONLY (Ch 21.4 / R12)
     notes: text('notes'),
+    // FOLD-KB-1 (Fork A): durable provenance flag — set TRUE when an unverified KB memo is
+    // adopted into this document; SURVIVES drafting/versioning (lives on the document, not a
+    // version). FOLD-SEND-1 reads this to gate outbound. Additive, defaulted false.
+    drewOnUnverifiedKb: boolean('drewOnUnverifiedKb').notNull().default(false),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -1826,3 +1830,33 @@ export const practiceMemos = mysqlTable(
 );
 export type PracticeMemo = typeof practiceMemos.$inferSelect;
 export type NewPracticeMemo = typeof practiceMemos.$inferInsert;
+
+// kb_adoptions — FOLD-KB-1 Increment 2 (Fork A). Durable, matter-scoped provenance of a
+// memo pulled into a matter / work product. Snapshots the memo's currency posture at adoption.
+export const kbAdoptions = mysqlTable(
+  'kb_adoptions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }),
+    kbMemoId: char('kbMemoId', { length: 36 }).notNull(),
+    // Version proxy: practice_memos.updatedAt at adoption (memos version via updatedAt).
+    kbMemoUpdatedAtAtAdoption: timestamp('kbMemoUpdatedAtAtAdoption'),
+    verificationStatusAtAdoption: varchar('verificationStatusAtAdoption', { length: 32 }).notNull(),
+    lastVerifiedAtAtAdoption: timestamp('lastVerifiedAtAtAdoption'),
+    kbDerived: boolean('kbDerived').notNull().default(true),
+    currencyVerifiedForOutbound: boolean('currencyVerifiedForOutbound').notNull().default(false),
+    adoptedByEventId: char('adoptedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxKbAdoptionsUser: index('idx_kb_adoptions_user').on(table.userId),
+    idxKbAdoptionsMatter: index('idx_kb_adoptions_matter').on(table.userId, table.matterId),
+    idxKbAdoptionsDocument: index('idx_kb_adoptions_document').on(table.userId, table.documentId),
+    idxKbAdoptionsMemo: index('idx_kb_adoptions_memo').on(table.userId, table.kbMemoId),
+  }),
+);
+export type KbAdoption = typeof kbAdoptions.$inferSelect;
+export type NewKbAdoption = typeof kbAdoptions.$inferInsert;
