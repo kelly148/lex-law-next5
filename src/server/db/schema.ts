@@ -1724,3 +1724,105 @@ export const matterAnalysis = mysqlTable(
 );
 export type MatterAnalysis = typeof matterAnalysis.$inferSelect;
 export type NewMatterAnalysis = typeof matterAnalysis.$inferInsert;
+
+// ============================================================
+// FOLD-KB-1 — Practice Knowledge Base (Phase 3) — Increment 1 data core
+// ============================================================
+// Two owner-private stores. Additive. The per-PA master-prompt layer auto-loads (it is
+// the attorney's own instruction); practice memos NEVER auto-inject (surface-not-inject).
+
+export const paInstructionProfiles = mysqlTable(
+  'pa_instruction_profiles',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // Owner-defined practice-area key the matter's freeform practiceArea maps to (by
+    // EXPLICIT attorney confirmation — never silent string-guessing).
+    paKey: varchar('paKey', { length: 64 }).notNull(),
+    title: varchar('title', { length: 256 }).notNull(),
+    // The tuned master prompt (the attorney's own instruction layer).
+    body: mediumtext('body').notNull(),
+    version: varchar('version', { length: 32 }).notNull(),
+    // At most one active profile per (userId, paKey); activation is an explicit attorney act.
+    active: boolean('active').notNull().default(false),
+    supersededById: char('supersededById', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxPaInstructionProfilesUser: index('idx_pa_instruction_profiles_user').on(table.userId),
+    idxPaInstructionProfilesPakey: index('idx_pa_instruction_profiles_pakey').on(table.userId, table.paKey),
+    idxPaInstructionProfilesActive: index('idx_pa_instruction_profiles_active').on(table.userId, table.paKey, table.active),
+  }),
+);
+export type PaInstructionProfile = typeof paInstructionProfiles.$inferSelect;
+export type NewPaInstructionProfile = typeof paInstructionProfiles.$inferInsert;
+
+// practice_memos enum domains (stored as varchar; validated at the Zod Wall).
+export const MEMO_VERIFICATION_STATUS_VALUES = [
+  'unverified',
+  'attorney_verified_current',
+  'stale',
+  'superseded',
+  'not_legal_authority',
+] as const;
+export type MemoVerificationStatus = (typeof MEMO_VERIFICATION_STATUS_VALUES)[number];
+
+export const MEMO_PRIVILEGE_TAG_VALUES = ['client_confidential', 'abstracted', 'public'] as const;
+export type MemoPrivilegeTag = (typeof MEMO_PRIVILEGE_TAG_VALUES)[number];
+
+export const MEMO_ABSTRACTION_STATUS_VALUES = ['raw', 'abstracted'] as const;
+export type MemoAbstractionStatus = (typeof MEMO_ABSTRACTION_STATUS_VALUES)[number];
+
+export const MEMO_ABSTRACTED_BY_VALUES = ['attorney', 'system_assisted_attorney'] as const;
+export type MemoAbstractedBy = (typeof MEMO_ABSTRACTED_BY_VALUES)[number];
+
+export const MEMO_REUSE_SCOPE_VALUES = ['matter_only', 'firm_wide'] as const;
+export type MemoReuseScope = (typeof MEMO_REUSE_SCOPE_VALUES)[number];
+
+export const practiceMemos = mysqlTable(
+  'practice_memos',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // NULL = firm-level (not client-derived).
+    originMatterId: char('originMatterId', { length: 36 }),
+    sourceAnalysisId: char('sourceAnalysisId', { length: 36 }),
+    sourceDocumentId: char('sourceDocumentId', { length: 36 }),
+    title: varchar('title', { length: 256 }).notNull(),
+    body: mediumtext('body').notNull(),
+    practiceArea: varchar('practiceArea', { length: 128 }),
+    jurisdiction: varchar('jurisdiction', { length: 128 }),
+    // Structured authorities relied on (JSON; Zod-validated on read).
+    lawReliedOn: json('lawReliedOn'),
+    topicTags: json('topicTags'),
+    writtenOn: timestamp('writtenOn'),
+    // Currency (Fork C): discrete status, separate from lastVerifiedAt; never age-derived.
+    verificationStatus: varchar('verificationStatus', { length: 32 }).notNull().default('unverified'),
+    lastVerifiedAt: timestamp('lastVerifiedAt'),
+    verifiedThroughDate: timestamp('verifiedThroughDate'),
+    verificationMethod: varchar('verificationMethod', { length: 64 }),
+    verificationNote: text('verificationNote'),
+    // Privilege / abstraction (Fork B/G): most-private defaults.
+    privilegeTag: varchar('privilegeTag', { length: 32 }).notNull().default('client_confidential'),
+    abstractionStatus: varchar('abstractionStatus', { length: 16 }).notNull().default('raw'),
+    abstractionAttestedByEventId: char('abstractionAttestedByEventId', { length: 36 }),
+    abstractedAt: timestamp('abstractedAt'),
+    abstractedBy: varchar('abstractedBy', { length: 32 }),
+    reuseScope: varchar('reuseScope', { length: 16 }).notNull().default('matter_only'),
+    // Owner-only link from an abstracted memo back to its raw origin; never exposed cross-matter.
+    abstractedFromMemoId: char('abstractedFromMemoId', { length: 36 }),
+    supersededById: char('supersededById', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxPracticeMemosUser: index('idx_practice_memos_user').on(table.userId),
+    idxPracticeMemosOrigin: index('idx_practice_memos_origin').on(table.userId, table.originMatterId),
+    idxPracticeMemosPa: index('idx_practice_memos_pa').on(table.userId, table.practiceArea),
+    idxPracticeMemosReuse: index('idx_practice_memos_reuse').on(table.userId, table.reuseScope, table.abstractionStatus),
+    idxPracticeMemosVerification: index('idx_practice_memos_verification').on(table.userId, table.verificationStatus),
+  }),
+);
+export type PracticeMemo = typeof practiceMemos.$inferSelect;
+export type NewPracticeMemo = typeof practiceMemos.$inferInsert;

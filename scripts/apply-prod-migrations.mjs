@@ -36,8 +36,9 @@ const MIGRATIONS = [
   '0005_fold_l1_1_matter_state_engine.sql',
   '0006_fold_l1_4_reusable_artifacts.sql',
   '0007_fold_l0_1_matter_intake_analysis.sql',
+  '0008_fold_kb_1_practice_knowledge_base.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
