@@ -78,6 +78,27 @@ export async function insertMatterAnalysis(data: {
   return row;
 }
 
+/**
+ * Write generated content onto a draft analysis row (FOLD-L0-1 Inc3, single-lane LLM
+ * generation). Owner-scoped; only overwrites the four content columns. Used by the
+ * canonical-mutation txn2Commit after a successful generation.
+ */
+export async function updateMatterAnalysisContent(
+  analysisId: string,
+  userId: string,
+  content: { assessment?: unknown; plan?: unknown; openQuestions?: unknown; recommendedDocuments?: unknown },
+): Promise<void> {
+  await db
+    .update(matterAnalysis)
+    .set({
+      assessment: (content.assessment ?? null) as never,
+      plan: (content.plan ?? null) as never,
+      openQuestions: (content.openQuestions ?? null) as never,
+      recommendedDocuments: (content.recommendedDocuments ?? null) as never,
+    })
+    .where(and(eq(matterAnalysis.id, analysisId), ownerScope(matterAnalysis.userId, userId)));
+}
+
 export async function getMatterAnalysisById(id: string, userId: string): Promise<MatterAnalysisRow | null> {
   const rows = await db.select().from(matterAnalysis).where(and(eq(matterAnalysis.id, id), ownerScope(matterAnalysis.userId, userId))).limit(1);
   if (rows.length === 0) return null;
