@@ -1,17 +1,19 @@
 name: CI
 
 # Build Instructions B.4 item 4: Vitest test harness running in CI on every PR.
-# This workflow runs on every pull request targeting main and on every push to main
-# or any lex-next/* branch.
+# This workflow runs on every pull request targeting main and on every push to main,
+# any lex-next/* branch, or any fold/* per-phase integration branch (Rule 17).
 
 on:
   push:
     branches:
       - main
       - 'lex-next/**'
+      - 'fold/**'
   pull_request:
     branches:
       - main
+      - 'fold/**'
 
 jobs:
   typecheck-and-test:

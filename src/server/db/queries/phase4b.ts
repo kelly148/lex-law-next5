@@ -52,6 +52,7 @@ import {
   type AdoptLedgerRow,
 } from '../../../shared/schemas/phase4b.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
+import { ownerScope } from '../ownerScope.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================
@@ -956,6 +957,26 @@ export async function listActiveLockedDecisionsForDocument(
   return rows.map((r) => parseLockedDecisionRow(r, { userId }));
 }
 
+/**
+ * FOLD-L1-1: all locked decisions for a MATTER (any status), newest first. Uses the
+ * denormalized matterId + ownerScope() (the matter-state engine aggregates at matter
+ * level; the per-row matterId is asserted against the owning matter by the engine's
+ * integrity invariant).
+ */
+export async function listLockedDecisionsForMatter(
+  matterId: string,
+  userId: string,
+): Promise<LockedDecisionRow[]> {
+  const rows = await db
+    .select()
+    .from(lockedDecisions)
+    .where(
+      and(ownerScope(lockedDecisions.userId, userId), eq(lockedDecisions.matterId, matterId)),
+    )
+    .orderBy(desc(lockedDecisions.createdAt));
+  return rows.map((r) => parseLockedDecisionRow(r, { userId }));
+}
+
 /** Unlock (status -> 'unlocked'; row preserved for audit). */
 export async function unlockLockedDecision(
   id: string,
@@ -1072,6 +1093,23 @@ export async function listAdoptLedgerForDocument(
         eq(adoptLedger.userId, userId),
       ),
     )
+    .orderBy(desc(adoptLedger.createdAt));
+  return rows.map((r) => parseAdoptLedgerRow(r, { userId }));
+}
+
+/**
+ * FOLD-L1-1: all adopt-ledger entries for a MATTER (any status), newest first. Uses the
+ * denormalized matterId + ownerScope() (matter-level aggregation for the matter-state
+ * engine; the integrity invariant asserts each row's matterId against the owning matter).
+ */
+export async function listAdoptLedgerForMatter(
+  matterId: string,
+  userId: string,
+): Promise<AdoptLedgerRow[]> {
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(and(ownerScope(adoptLedger.userId, userId), eq(adoptLedger.matterId, matterId)))
     .orderBy(desc(adoptLedger.createdAt));
   return rows.map((r) => parseAdoptLedgerRow(r, { userId }));
 }

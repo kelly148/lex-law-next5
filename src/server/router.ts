@@ -28,6 +28,9 @@ import { templateRouter } from './procedures/templates.js';
 import { informationRequestRouter } from './procedures/informationRequest.js';
 import { outlineRouter } from './procedures/outline.js';
 import { reviewSessionRouter } from './procedures/reviewSession.js';
+import { matterStateRouter } from './procedures/matterState.js';
+import { sharedContextRouter } from './procedures/sharedContext.js';
+import { reusableArtifactRouter } from './procedures/reusableArtifacts.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -43,6 +46,12 @@ export const appRouter = router({
   informationRequest: informationRequestRouter,
   outline: outlineRouter,
   reviewSession: reviewSessionRouter,
+  // FOLD-L1-1 — Layer-1 Matter-State Engine read surface.
+  matterState: matterStateRouter,
+  // FOLD-L1-3 — shared-context conversation substrate read surface.
+  sharedContext: sharedContextRouter,
+  // FOLD-L1-4 — reusable-artifact registry + cross-matter invocation gate.
+  reusableArtifact: reusableArtifactRouter,
 });
 
 export type AppRouter = typeof appRouter;
