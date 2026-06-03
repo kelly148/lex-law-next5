@@ -147,6 +147,9 @@ export const JOB_TYPE_VALUES = [
   'evaluator',
   // context_summary_generation is reserved but not actively implemented in v1 (Ch 8.3 / D6)
   'context_summary_generation',
+  // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation (jobType column is
+  // varchar(64), not a DB enum, so adding this value requires NO schema migration).
+  'matter_analysis',
 ] as const;
 
 export type JobType = (typeof JOB_TYPE_VALUES)[number];

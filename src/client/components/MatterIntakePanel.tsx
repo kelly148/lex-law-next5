@@ -8,7 +8,7 @@
  * useGuardedMutation (Ch 35.13); no business logic in React (Ch 35.3) — the server enforces.
  *
  * Procedures: matterIntake.listParties / getLatestConflicts / getAnalysis (queries);
- * addParty / runConflictCheck / dispositionHit / createAnalysis / lockPlan (mutations).
+ * addParty / runConflictCheck / dispositionHit / generateAnalysis / lockPlan (mutations).
  */
 import React, { useState } from 'react';
 import { ShieldAlert, ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, UserPlus, ScanSearch, Lock } from 'lucide-react';
@@ -53,8 +53,8 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
     (input: { hitId: string; disposition: Disposition; rationale?: string | null }) => utils.client.matterIntake.dispositionHit.mutate(input),
     { onSuccess: invalidate },
   );
-  const createAnalysis = useGuardedMutation(
-    (input: { matterId: string }) => utils.client.matterIntake.createAnalysis.mutate(input),
+  const generateAnalysis = useGuardedMutation(
+    (input: { matterId: string }) => utils.client.matterIntake.generateAnalysis.mutate(input),
     { onSuccess: invalidate },
   );
   const lockPlan = useGuardedMutation(
@@ -178,9 +178,13 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
           <section>
             <div className="text-xs font-medium text-gray-700 mb-2">Assessment &amp; plan</div>
             {a == null ? (
-              <button onClick={() => createAnalysis.mutate({ matterId })} disabled={createAnalysis.isPending} className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40">
-                Start analysis (single-lane)
-              </button>
+              <div className="space-y-1">
+                <button onClick={() => generateAnalysis.mutate({ matterId })} disabled={generateAnalysis.isPending} className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40">
+                  {generateAnalysis.isPending ? 'Generating analysis…' : 'Generate analysis (Claude, single-lane)'}
+                </button>
+                <p className="text-[11px] text-gray-400">Internal attorney work-product — not a client-facing or sendable document.</p>
+                {generateAnalysis.error && <p className="text-[11px] text-red-600">{generateAnalysis.error.message}</p>}
+              </div>
             ) : (
               <div className="text-xs space-y-2">
                 <div className="flex items-center gap-2">
@@ -188,6 +192,36 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
                   <span className="text-gray-400">lane: {a.modelLane}</span>
                   <span className="text-gray-400">sendability: {a.sendabilityStatus}</span>
                 </div>
+                {typeof a.assessment === 'string' && a.assessment.trim().length > 0 && (
+                  <div>
+                    <div className="font-medium text-gray-600">Assessment</div>
+                    <p className="text-gray-700 whitespace-pre-wrap">{a.assessment}</p>
+                  </div>
+                )}
+                {typeof a.plan === 'string' && a.plan.trim().length > 0 && (
+                  <div>
+                    <div className="font-medium text-gray-600">Plan</div>
+                    <p className="text-gray-700 whitespace-pre-wrap">{a.plan}</p>
+                  </div>
+                )}
+                {Array.isArray(a.openQuestions) && a.openQuestions.length > 0 && (
+                  <div>
+                    <div className="font-medium text-gray-600">Open questions</div>
+                    <ul className="list-disc list-inside text-gray-700">
+                      {(a.openQuestions as string[]).map((q, i) => <li key={i}>{q}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(a.recommendedDocuments) && a.recommendedDocuments.length > 0 && (
+                  <div>
+                    <div className="font-medium text-gray-600">Recommended documents (attorney decides)</div>
+                    <ul className="space-y-1">
+                      {(a.recommendedDocuments as Array<{ documentType?: string; title?: string; rationale?: string }>).map((d, i) => (
+                        <li key={i} className="text-gray-700"><span className="font-medium">{d.title}</span>{d.documentType ? <span className="text-gray-400"> ({d.documentType})</span> : null}{d.rationale ? <> — {d.rationale}</> : null}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {a.status === 'draft' && (
                   <button
                     onClick={() => lockPlan.mutate({ analysisId: a.id, rationale: null })}

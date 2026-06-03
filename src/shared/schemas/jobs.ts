@@ -36,6 +36,8 @@ const JOB_TYPE_VALUES = [
   'reviewer_feedback',
   'evaluator',
   'context_summary_generation',
+  // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation.
+  'matter_analysis',
 ] as const;
 
 const JOB_ERROR_CLASS_VALUES = [
