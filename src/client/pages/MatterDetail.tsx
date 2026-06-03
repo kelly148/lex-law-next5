@@ -26,6 +26,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
+import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
 
 const DOCUMENT_TYPES: { value: string; label: string }[] = [
   // Trusts & Estates
@@ -451,6 +452,9 @@ export default function MatterDetail(): React.ReactElement {
 
       {/* FOLD-L0-1 — Layer-0 matter intake & analysis (conflicts-at-intake + plan closure) */}
       <MatterIntakePanel matterId={matterId} />
+
+      {/* FOLD-KB-1 — Practice Knowledge Base (surface-not-inject; adopt; memos; per-PA profile) */}
+      <KnowledgeBasePanel matterId={matterId} />
 
       {/* FOLD-L1-5 — matter-state dashboard + the five explicit acts */}
       <MatterStateDashboard matterId={matterId} />
