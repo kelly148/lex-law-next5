@@ -28,6 +28,7 @@ import { templateRouter } from './procedures/templates.js';
 import { informationRequestRouter } from './procedures/informationRequest.js';
 import { outlineRouter } from './procedures/outline.js';
 import { reviewSessionRouter } from './procedures/reviewSession.js';
+import { matterStateRouter } from './procedures/matterState.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -43,6 +44,8 @@ export const appRouter = router({
   informationRequest: informationRequestRouter,
   outline: outlineRouter,
   reviewSession: reviewSessionRouter,
+  // FOLD-L1-1 — Layer-1 Matter-State Engine read surface.
+  matterState: matterStateRouter,
 });
 
 export type AppRouter = typeof appRouter;

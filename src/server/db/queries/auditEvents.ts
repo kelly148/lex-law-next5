@@ -17,6 +17,15 @@ import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { auditEvents } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
+
+/**
+ * A minimal executor abstraction so an audit write can be enlisted in the SAME
+ * transaction as the state change it records (FOLD-L1-1 / disposition item 5:
+ * material attorney-decision events are written transactionally with the state
+ * change, OR fail visibly). Both the pooled `db` and a Drizzle `tx` handle satisfy
+ * `Pick<typeof db, 'insert'>`. Defaults to the pooled `db`.
+ */
+type Executor = Pick<typeof db, 'insert'>;
 import {
   AuditEventRowSchema,
   type AuditEventRow,
@@ -48,23 +57,43 @@ function parseAuditEventRow(raw: unknown, context: { userId: string }): AuditEve
 
 /**
  * Append an immutable audit event. The single write path; no update/delete exists.
+ *
+ * Pass `executor` (a Drizzle `tx` handle) to enlist this audit write in the SAME
+ * transaction as the state change it records — so a material attorney decision and
+ * its audit row commit together or roll back together (FOLD-L1-1 / disposition item 5).
+ * Omit it to write standalone on the pooled connection.
+ *
+ * This is the FAIL-VISIBLY path: it throws on failure. The best-effort, never-throws
+ * variant (recordAuditEvent) is for telemetry/model-output only.
+ *
+ * FOLD-L1-1 (Fork C) adds the disposition-detail fields (targetType/targetId/action/
+ * rationale/scope) so an attorney decision is recorded in this same append-only stream
+ * and the disposition-history read-projection can be built over it.
  */
-export async function insertAuditEvent(data: {
-  id?: string;
-  userId: string;
-  matterId: string;
-  documentId?: string | null;
-  eventType: AuditEventType;
-  actor: AuditEventActor;
-  actorModel?: string | null;
-  summary: string;
-  payload?: unknown;
-  reviewSessionId?: string | null;
-  sourceSuggestionId?: string | null;
-  versionId?: string | null;
-}): Promise<string> {
+export async function insertAuditEvent(
+  data: {
+    id?: string;
+    userId: string;
+    matterId: string;
+    documentId?: string | null;
+    eventType: AuditEventType;
+    actor: AuditEventActor;
+    actorModel?: string | null;
+    summary: string;
+    payload?: unknown;
+    reviewSessionId?: string | null;
+    sourceSuggestionId?: string | null;
+    versionId?: string | null;
+    targetType?: string | null;
+    targetId?: string | null;
+    action?: string | null;
+    rationale?: string | null;
+    scope?: string | null;
+  },
+  executor: Executor = db,
+): Promise<string> {
   const id = data.id ?? uuidv4();
-  await db.insert(auditEvents).values({
+  await executor.insert(auditEvents).values({
     id,
     userId: data.userId,
     matterId: data.matterId,
@@ -77,6 +106,11 @@ export async function insertAuditEvent(data: {
     reviewSessionId: data.reviewSessionId ?? null,
     sourceSuggestionId: data.sourceSuggestionId ?? null,
     versionId: data.versionId ?? null,
+    targetType: data.targetType ?? null,
+    targetId: data.targetId ?? null,
+    action: data.action ?? null,
+    rationale: data.rationale ?? null,
+    scope: data.scope ?? null,
   });
   return id;
 }
@@ -92,6 +126,34 @@ export async function listAuditEventsForMatter(
     .select()
     .from(auditEvents)
     .where(and(ownerScope(auditEvents.userId, userId), eq(auditEvents.matterId, matterId)))
+    .orderBy(desc(auditEvents.createdAt));
+  return rows.map((r) => parseAuditEventRow(r, { userId }));
+}
+
+/**
+ * Disposition-history read-projection (FOLD-L1-1 / Fork C). Attorney-decision history
+ * is NOT a separate authoritative table — it is the subset of the append-only
+ * audit_events stream carrying disposition detail. Owner-scoped via ownerScope().
+ * Newest first. Optionally narrowed to a single decision target (targetType+targetId).
+ */
+export async function listDispositionHistoryForMatter(
+  matterId: string,
+  userId: string,
+  target?: { targetType: string; targetId: string },
+): Promise<AuditEventRow[]> {
+  const conditions = [
+    ownerScope(auditEvents.userId, userId),
+    eq(auditEvents.matterId, matterId),
+    eq(auditEvents.eventType, 'disposition'),
+  ];
+  if (target) {
+    conditions.push(eq(auditEvents.targetType, target.targetType));
+    conditions.push(eq(auditEvents.targetId, target.targetId));
+  }
+  const rows = await db
+    .select()
+    .from(auditEvents)
+    .where(and(...conditions))
     .orderBy(desc(auditEvents.createdAt));
   return rows.map((r) => parseAuditEventRow(r, { userId }));
 }

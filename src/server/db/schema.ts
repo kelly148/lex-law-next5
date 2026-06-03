@@ -1188,6 +1188,11 @@ export type NewAdoptLedger = typeof adoptLedger.$inferInsert;
 // (no updatedAt; rows are never modified after insert).
 // Indexes: (matterId, createdAt) read path; (userId, matterId) owner scope.
 // ============================================================
+// FOLD-L1-1 (Fork C / operator disposition item 4): 'disposition' is added so an
+// attorney decision (accept/override of an evaluator disposition, open-item, or
+// source tier) is recorded in the SAME append-only audit_events stream. Disposition
+// history is a READ-PROJECTION over audit_events — there is no separate authoritative
+// dispositions table.
 export const AUDIT_EVENT_TYPE_VALUES = [
   'model_output',
   'adopted',
@@ -1198,6 +1203,7 @@ export const AUDIT_EVENT_TYPE_VALUES = [
   'withheld',
   'authority_verified',
   'judgment_required',
+  'disposition',
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPE_VALUES)[number];
 
@@ -1219,13 +1225,258 @@ export const auditEvents = mysqlTable(
     reviewSessionId: char('reviewSessionId', { length: 36 }),
     sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }),
     versionId: char('versionId', { length: 36 }),
+    // --------------------------------------------------------------------------
+    // FOLD-L1-1 (Fork C / disposition item 4) — disposition-detail columns.
+    // ADDITIVE (migration 0005 ALTER TABLE ... ADD COLUMN). All nullable so every
+    // pre-existing audit_events row remains valid. These let audit_events carry the
+    // full attorney-decision record (and back the disposition-history read-projection)
+    // without a new authoritative table:
+    //   targetType — what the decision acted on ('open_item','source_authority',
+    //                'adopt_ledger','locked_decision','document','matter', …)
+    //   targetId   — the acted-on row id (open_items.id, source_authority.id, …)
+    //   action     — the decision verb ('open','resolve','withdraw','set_tier',
+    //                'accept','override', …)
+    //   rationale  — attorney rationale (provenance; flows to LLM providers, no redaction)
+    //   scope      — 'matter' | 'document' (matter-vs-document scope of the decision)
+    // --------------------------------------------------------------------------
+    targetType: varchar('targetType', { length: 32 }),
+    targetId: varchar('targetId', { length: 64 }),
+    action: varchar('action', { length: 64 }),
+    rationale: text('rationale'),
+    scope: varchar('scope', { length: 16 }),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => ({
     idxAuditEventsMatter: index('idx_audit_events_matter').on(table.matterId, table.createdAt),
     idxAuditEventsUserMatter: index('idx_audit_events_user_matter').on(table.userId, table.matterId),
+    // FOLD-L1-1: disposition-history read-projection path (decisions about a target).
+    idxAuditEventsTarget: index('idx_audit_events_target').on(table.matterId, table.targetType, table.targetId),
   }),
 );
 
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
+
+// ============================================================
+// FOLD-L1-1 (Fork A) — source_authority
+// ============================================================
+// Source-of-truth tier/authority for the materials and document artifacts in play.
+// DEDICATED TABLE (operator disposition item 3), NOT a column on matter_materials,
+// so the two axes stay first-class and a tier is an explicit attorney act with a
+// conservative default — NEVER inferred. This is DISTINCT from context/pipeline.ts
+// `contextPriority` (pinned|recency), which is context-WINDOW priority, not authority.
+//
+// Two orthogonal axes (disposition item 3):
+//   authorityOrigin — WHERE the authority comes from / whose instrument it is
+//                     (operative | counterparty | firm | client | model_derived | reference)
+//   lifecycle       — currency/recency (current_draft | operative | superseded)
+//
+// Plus: designationSource (who set the tier), verificationStatus + staleness columns
+// (added now, NO currency/jurisdiction CHECKING behavior — disposition item 8), and a
+// supersession chain (effectiveFrom / supersededAt / supersededById).
+//
+// Subject: the artifact this authority record describes (a material, a document, or a
+// specific version). matterId is denormalized (notNull) for matter-scoping + the
+// owner/integrity invariant; documentId is nullable (matter-level rows leave it null).
+//
+// Indexes:
+//   idx_source_authority_matter (userId, matterId)
+//   idx_source_authority_subject (matterId, subjectType, subjectId)
+//   idx_source_authority_lifecycle (matterId, lifecycle)
+// ============================================================
+export const SOURCE_AUTHORITY_ORIGIN_VALUES = [
+  'operative',
+  'counterparty',
+  'firm',
+  'client',
+  'model_derived',
+  'reference',
+] as const;
+export type SourceAuthorityOrigin =
+  (typeof SOURCE_AUTHORITY_ORIGIN_VALUES)[number];
+
+export const SOURCE_AUTHORITY_LIFECYCLE_VALUES = [
+  'current_draft',
+  'operative',
+  'superseded',
+] as const;
+export type SourceAuthorityLifecycle =
+  (typeof SOURCE_AUTHORITY_LIFECYCLE_VALUES)[number];
+
+export const SOURCE_AUTHORITY_DESIGNATION_SOURCE_VALUES = [
+  'attorney',
+  'system',
+  'imported',
+  'counterparty',
+  'client',
+] as const;
+export type SourceAuthorityDesignationSource =
+  (typeof SOURCE_AUTHORITY_DESIGNATION_SOURCE_VALUES)[number];
+
+export const SOURCE_AUTHORITY_VERIFICATION_STATUS_VALUES = [
+  'unverified',
+  'verified',
+  'stale',
+] as const;
+export type SourceAuthorityVerificationStatus =
+  (typeof SOURCE_AUTHORITY_VERIFICATION_STATUS_VALUES)[number];
+
+export const SOURCE_AUTHORITY_SUBJECT_TYPE_VALUES = [
+  'material',
+  'document',
+  'version',
+] as const;
+export type SourceAuthoritySubjectType =
+  (typeof SOURCE_AUTHORITY_SUBJECT_TYPE_VALUES)[number];
+
+export const sourceAuthority = mysqlTable(
+  'source_authority',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Nullable: matter-level authority rows leave documentId null (Fork D).
+    documentId: char('documentId', { length: 36 }),
+    // The artifact this authority record describes.
+    subjectType: mysqlEnum('subjectType', SOURCE_AUTHORITY_SUBJECT_TYPE_VALUES).notNull(),
+    subjectId: char('subjectId', { length: 36 }).notNull(),
+    // Axis 1 — authority/origin. Conservative default; an attorney act overrides it.
+    authorityOrigin: mysqlEnum('authorityOrigin', SOURCE_AUTHORITY_ORIGIN_VALUES)
+      .notNull()
+      .default('reference'),
+    // Axis 2 — lifecycle/recency.
+    lifecycle: mysqlEnum('lifecycle', SOURCE_AUTHORITY_LIFECYCLE_VALUES)
+      .notNull()
+      .default('operative'),
+    // Who set the tier. Default 'system' (the conservative default); 'attorney' once
+    // an attorney explicitly designates — the tier is NEVER inferred from content.
+    designationSource: mysqlEnum('designationSource', SOURCE_AUTHORITY_DESIGNATION_SOURCE_VALUES)
+      .notNull()
+      .default('system'),
+    // Attorney-facing label/notes (provenance; flows to LLM providers, no redaction).
+    label: varchar('label', { length: 256 }),
+    notes: text('notes'),
+    // Staleness/verification — COLUMNS ONLY, no checking behavior (disposition item 8).
+    verificationStatus: mysqlEnum('verificationStatus', SOURCE_AUTHORITY_VERIFICATION_STATUS_VALUES)
+      .notNull()
+      .default('unverified'),
+    lastVerifiedAt: timestamp('lastVerifiedAt'),
+    stalenessReason: varchar('stalenessReason', { length: 256 }),
+    // Supersession chain.
+    effectiveFrom: timestamp('effectiveFrom'),
+    supersededAt: timestamp('supersededAt'),
+    supersededById: char('supersededById', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxSourceAuthorityMatter: index('idx_source_authority_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    idxSourceAuthoritySubject: index('idx_source_authority_subject').on(
+      table.matterId,
+      table.subjectType,
+      table.subjectId,
+    ),
+    idxSourceAuthorityLifecycle: index('idx_source_authority_lifecycle').on(
+      table.matterId,
+      table.lifecycle,
+    ),
+  }),
+);
+
+export type SourceAuthority = typeof sourceAuthority.$inferSelect;
+export type NewSourceAuthority = typeof sourceAuthority.$inferInsert;
+
+// ============================================================
+// FOLD-L1-1 (Fork B + Fork D) — open_items
+// ============================================================
+// Persistent registry of open items / blockers still requiring attorney action —
+// the durable lifecycle that sendability blockers (MR-CAL-8C, advisory + non-persisted)
+// never had. Matter-level AND document-level from day one (Fork D): matter-level rows
+// (jurisdiction, client objective, negotiation posture, internal thresholds) leave
+// documentId null and are NEVER forced onto a document; document-level rows roll up to
+// the matter summary.
+//
+// DEFAULT-SAFE (operator disposition item 6): auto-detection MAY create or refresh an
+// item (statusSource='auto', lastSeenAt bumped) but NEVER closes an attorney-opened or
+// attorney-confirmed item. Escalation is by SEVERITY: BLOCKER (and material SUBSTANTIVE
+// / attorney-confirmed / recurring) auto-register; POLISH does not. Resolution links to
+// the immutable audit_events row that recorded the decision (resolvedByEventId) plus a
+// rationale.
+//
+// Indexes:
+//   idx_open_items_matter (userId, matterId)
+//   idx_open_items_matter_status (matterId, status)
+//   idx_open_items_document_status (documentId, status)
+// ============================================================
+export const OPEN_ITEM_SEVERITY_VALUES = ['blocker', 'substantive', 'polish'] as const;
+export type OpenItemSeverity = (typeof OPEN_ITEM_SEVERITY_VALUES)[number];
+
+export const OPEN_ITEM_STATUS_VALUES = ['open', 'resolved', 'withdrawn'] as const;
+export type OpenItemStatus = (typeof OPEN_ITEM_STATUS_VALUES)[number];
+
+export const OPEN_ITEM_STATUS_SOURCE_VALUES = ['auto', 'attorney'] as const;
+export type OpenItemStatusSource = (typeof OPEN_ITEM_STATUS_SOURCE_VALUES)[number];
+
+export const OPEN_ITEM_CONFIDENCE_VALUES = ['low', 'medium', 'high'] as const;
+export type OpenItemConfidence = (typeof OPEN_ITEM_CONFIDENCE_VALUES)[number];
+
+export const openItems = mysqlTable(
+  'open_items',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Nullable: matter-level items leave documentId null (Fork D); they are never
+    // forced onto a document.
+    documentId: char('documentId', { length: 36 }),
+    // Freeform category (e.g. sendability blocker categories, 'governing_law',
+    // 'jurisdiction', 'client_objective', 'negotiation_posture').
+    category: varchar('category', { length: 64 }).notNull(),
+    severity: mysqlEnum('severity', OPEN_ITEM_SEVERITY_VALUES).notNull(),
+    summary: text('summary').notNull(),
+    status: mysqlEnum('status', OPEN_ITEM_STATUS_VALUES).notNull().default('open'),
+    // auto-detection NEVER overwrites an attorney-set status (mirrors adopt_ledger).
+    statusSource: mysqlEnum('statusSource', OPEN_ITEM_STATUS_SOURCE_VALUES)
+      .notNull()
+      .default('auto'),
+    // Provenance (disposition item 6).
+    origin: varchar('origin', { length: 64 }).notNull(),
+    confidence: mysqlEnum('confidence', OPEN_ITEM_CONFIDENCE_VALUES),
+    requiresAttorneyConfirmation: boolean('requiresAttorneyConfirmation')
+      .notNull()
+      .default(false),
+    sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }),
+    reviewSessionId: char('reviewSessionId', { length: 36 }),
+    versionId: char('versionId', { length: 36 }),
+    // Auto-detection refresh timestamp (create-or-refresh, never close).
+    lastSeenAt: timestamp('lastSeenAt'),
+    // Resolution link to the immutable audit_events decision + rationale.
+    resolvedByEventId: char('resolvedByEventId', { length: 36 }),
+    resolutionRationale: text('resolutionRationale'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxOpenItemsMatter: index('idx_open_items_matter').on(table.userId, table.matterId),
+    idxOpenItemsMatterStatus: index('idx_open_items_matter_status').on(
+      table.matterId,
+      table.status,
+    ),
+    idxOpenItemsDocumentStatus: index('idx_open_items_document_status').on(
+      table.documentId,
+      table.status,
+    ),
+  }),
+);
+
+export type OpenItem = typeof openItems.$inferSelect;
+export type NewOpenItem = typeof openItems.$inferInsert;
