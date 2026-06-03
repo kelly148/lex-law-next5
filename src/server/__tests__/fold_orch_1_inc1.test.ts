@@ -125,10 +125,13 @@ describe('FOLD-ORCH-1 — consolidateReviewerFeedback', () => {
   });
 
   it('STRUCTURAL convergent is per-item unless positively classified low-risk cleanup', () => {
-    const base = { issueId: 'i1', severity: 'STRUCTURAL', reviewerMembers: ['claude', 'gpt'], divergent: false } as const;
-    const perItem = consolidateReviewerFeedback(input({ groups: [{ ...base }] }));
+    const perItem = consolidateReviewerFeedback(input({
+      groups: [{ issueId: 'i1', severity: 'STRUCTURAL', reviewerMembers: ['claude', 'gpt'], divergent: false }],
+    }));
     expect(perItem.groups[0]!.bucket).toBe('per_item');
-    const eligible = consolidateReviewerFeedback(input({ groups: [{ ...base, structuralLowRiskCleanup: true }] }));
+    const eligible = consolidateReviewerFeedback(input({
+      groups: [{ issueId: 'i1', severity: 'STRUCTURAL', reviewerMembers: ['claude', 'gpt'], divergent: false, structuralLowRiskCleanup: true }],
+    }));
     expect(eligible.groups[0]!.bucket).toBe('bulk_eligible');
   });
 
