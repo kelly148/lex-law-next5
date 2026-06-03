@@ -13,9 +13,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { SourceAuthorityRowSchema } from '../../shared/schemas/sourceAuthority.js';
-import { OpenItemRowSchema } from '../../shared/schemas/openItems.js';
-import { AuditEventRowSchema } from '../../shared/schemas/auditEvents.js';
+import {
+  SourceAuthorityRowSchema,
+  type SourceAuthorityRow,
+} from '../../shared/schemas/sourceAuthority.js';
+import { OpenItemRowSchema, type OpenItemRow } from '../../shared/schemas/openItems.js';
+import { AuditEventRowSchema, type AuditEventRow } from '../../shared/schemas/auditEvents.js';
 import {
   MatterStateSchema,
   type MatterIdentity,
@@ -27,9 +30,6 @@ import {
   deriveSafeToSend,
 } from '../matterState/index.js';
 import type { LockedDecisionRow, AdoptLedgerRow } from '../../shared/schemas/phase4b.js';
-import type { OpenItemRow } from '../../shared/schemas/openItems.js';
-import type { SourceAuthorityRow } from '../../shared/schemas/sourceAuthority.js';
-import type { AuditEventRow } from '../../shared/schemas/auditEvents.js';
 
 const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
