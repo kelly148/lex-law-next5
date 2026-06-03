@@ -35,7 +35,13 @@ const MIGRATIONS = [
   '0004_fold_gov_1a_audit_events.sql',
   '0005_fold_l1_1_matter_state_engine.sql',
   '0006_fold_l1_4_reusable_artifacts.sql',
+  '0007_fold_l0_1_matter_intake_analysis.sql',
+  '0008_fold_kb_1_practice_knowledge_base.sql',
+  '0009_fold_kb_1_adoptions_provenance.sql',
+  '0010_fold_kb_1_kb_events.sql',
+  '0011_fold_kb_1_matter_pakey.sql',
 ];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
@@ -86,7 +92,7 @@ async function main() {
 
     const [rows] = await conn.query('SHOW TABLES');
     const present = new Set(rows.map((r) => Object.values(r)[0]));
-    for (const t of EXPECTED_TABLES) {
+    for (const t of [...EXPECTED_TABLES, ...EXPECTED_TABLES_EXTRA]) {
       console.log(`[migrate] table ${t}: ${present.has(t) ? 'present' : 'MISSING'}`);
       if (!present.has(t)) throw new Error(`expected table ${t} not present after migration`);
     }

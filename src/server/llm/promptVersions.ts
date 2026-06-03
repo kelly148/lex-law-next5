@@ -95,6 +95,10 @@ export const JOB_TYPE_TO_PROMPT_ROLE: Record<string, PromptRole> = {
   evaluator: 'evaluator',          // review cycle consolidation jobs (Ch 4b)
   // context_summary_generation is reserved but not active in v1 (Ch 8.3)
   context_summary_generation: 'drafter',
+  // matter_analysis — FOLD-L0-1 Layer-0 analysis generation. Reuses the drafter-family
+  // prompt role for version provenance (no separate analyst prompt asset in v1); the
+  // single-lane model is the Claude default (PRIMARY_DRAFTER_MODEL).
+  matter_analysis: 'drafter',
 };
 
 /**

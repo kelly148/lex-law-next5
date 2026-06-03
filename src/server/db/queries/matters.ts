@@ -10,6 +10,7 @@ import { eq, and, isNull, desc } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { matters, type Matter, type NewMatter } from '../schema.js';
+import { ownerScope } from '../ownerScope.js';
 import { MatterRowSchema, type MatterRow } from '../../../shared/schemas/matters.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -109,6 +110,23 @@ export async function updateMatterPhase(
       completedAt: completedAt ?? null,
     })
     .where(and(eq(matters.id, matterId), eq(matters.userId, userId)));
+  return getMatterById(matterId, userId);
+}
+
+/**
+ * FOLD-KB-1 (Fork E): set the matter's CONFIRMED practice-area key (the explicit attorney act
+ * that lets a per-PA instruction profile auto-load). Owner-scoped via ownerScope() (new-code
+ * chokepoint). Pass null to clear (fall back to the base prompt).
+ */
+export async function setMatterPaKey(
+  matterId: string,
+  userId: string,
+  paKey: string | null,
+): Promise<MatterRow | null> {
+  await db
+    .update(matters)
+    .set({ paKey })
+    .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
   return getMatterById(matterId, userId);
 }
 

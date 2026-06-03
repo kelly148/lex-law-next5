@@ -16,13 +16,23 @@ export const MATTER_PHASE_VALUES = ['intake', 'drafting', 'complete'] as const;
 
 export const MatterPhaseSchema = z.enum(MATTER_PHASE_VALUES);
 
+// FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status. ADDITIVE — `.optional()` so
+// pre-L0 fixtures/rows without the column still parse; DB rows (post-migration 0007)
+// always carry it (NOT NULL default 'none'). Code treats absent as 'none'.
+export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
+export const MatterAnalysisStatusSchema = z.enum(MATTER_ANALYSIS_STATUS_VALUES);
+
 export const MatterRowSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
   title: z.string().min(1).max(256),
   clientName: z.string().max(256).nullable(),
   practiceArea: z.string().max(128).nullable(),
+  // FOLD-KB-1 (Fork E) attorney-confirmed PA key. ADDITIVE: .nullable().optional() so
+  // pre-migration reads / legacy fixtures parse and a post-migration row carries null|string.
+  paKey: z.string().max(64).nullable().optional(),
   phase: MatterPhaseSchema,
+  analysisStatus: MatterAnalysisStatusSchema.optional(),
   archivedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
   createdAt: z.date(),
@@ -85,6 +95,10 @@ export const DocumentRowSchema = z.object({
   completedAt: z.date().nullable(),
   archivedAt: z.date().nullable(),
   notes: z.string().nullable(),
+  // FOLD-KB-1 (Fork A) durable KB provenance flag. ADDITIVE + back-compatible: .optional()
+  // so a pre-migration read / legacy fixture (key absent) still parses; a post-migration row
+  // carries a boolean. FOLD-SEND-1 reads this artifact-level flag.
+  drewOnUnverifiedKb: z.boolean().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

@@ -147,6 +147,9 @@ export const JOB_TYPE_VALUES = [
   'evaluator',
   // context_summary_generation is reserved but not actively implemented in v1 (Ch 8.3 / D6)
   'context_summary_generation',
+  // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation (jobType column is
+  // varchar(64), not a DB enum, so adding this value requires NO schema migration).
+  'matter_analysis',
 ] as const;
 
 export type JobType = (typeof JOB_TYPE_VALUES)[number];
@@ -240,6 +243,14 @@ export const jobs = mysqlTable(
 export const MATTER_PHASE_VALUES = ['intake', 'drafting', 'complete'] as const;
 export type MatterPhase = (typeof MATTER_PHASE_VALUES)[number];
 
+// FOLD-L0-1 (Fork D): Layer-0 analysis status is ORTHOGONAL to `phase` — it does NOT
+// perturb the linear intake→drafting→complete enum. none = no Layer-0 analysis;
+// in_analysis = an assessment-and-plan is being worked; plan_locked = closed on a locked
+// plan (a non-document closure). Hard-block (Fork A): advancing to drafting / locking a
+// plan is blocked while blocker-severity conflict hits are undispositioned.
+export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
+export type MatterAnalysisStatus = (typeof MATTER_ANALYSIS_STATUS_VALUES)[number];
+
 export const matters = mysqlTable(
   'matters',
   {
@@ -249,7 +260,16 @@ export const matters = mysqlTable(
     clientName: varchar('clientName', { length: 256 }),
     // practiceArea: freeform string in v1; Learning Mode in v2 will curate (Ch 5.4)
     practiceArea: varchar('practiceArea', { length: 128 }),
+    // FOLD-KB-1 (Fork E): attorney-CONFIRMED practice-area key that maps this matter's freeform
+    // practiceArea to a pa_instruction_profiles paKey. NULL = no confirmed profile (base prompt).
+    // Set/changed only by an explicit attorney act; never silently inferred. Additive, nullable.
+    paKey: varchar('paKey', { length: 64 }),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
+    // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
+    // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.
+    analysisStatus: mysqlEnum('analysisStatus', MATTER_ANALYSIS_STATUS_VALUES)
+      .notNull()
+      .default('none'),
     // archivedAt: set on archive; cleared on unarchive (Ch 5.5). Orthogonal to phase.
     archivedAt: timestamp('archivedAt'),
     // completedAt: system-managed; set when phase transitions to complete (Ch 5.3)
@@ -363,6 +383,10 @@ export const documents = mysqlTable(
     archivedAt: timestamp('archivedAt'),
     // notes: attorney-internal annotation; carve-out to COMPLETE_READONLY (Ch 21.4 / R12)
     notes: text('notes'),
+    // FOLD-KB-1 (Fork A): durable provenance flag — set TRUE when an unverified KB memo is
+    // adopted into this document; SURVIVES drafting/versioning (lives on the document, not a
+    // version). FOLD-SEND-1 reads this to gate outbound. Additive, defaulted false.
+    drewOnUnverifiedKb: boolean('drewOnUnverifiedKb').notNull().default(false),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -1541,3 +1565,327 @@ export const reusableArtifacts = mysqlTable(
 
 export type ReusableArtifact = typeof reusableArtifacts.$inferSelect;
 export type NewReusableArtifact = typeof reusableArtifacts.$inferInsert;
+
+// ============================================================
+// FOLD-L0-1 — Layer-0 Matter Intake & Analysis (Phase 3)
+// ============================================================
+// Analysis-first intake: matter_parties (Fork B, thin/interim) feed the deterministic
+// conflicts-at-intake check (conflict_checks + conflict_hits, Fork A); matter_analysis
+// (Fork C) is the internal assessment-and-plan that closes on a locked plan (Fork F:
+// categorically NON-SENDABLE by type). All owner-scoped, additive. Conflicts matching is
+// deterministic DB-side — NO LLM in the check (Fork G).
+// ============================================================
+
+// --- matter_parties (Fork B — thin/interim; full cross-matter identity is FOLD-PM-3) ---
+export const MATTER_PARTY_ROLE_VALUES = ['client', 'adverse', 'related', 'other'] as const;
+export type MatterPartyRole = (typeof MATTER_PARTY_ROLE_VALUES)[number];
+
+export const MATTER_PARTY_TYPE_VALUES = ['person', 'entity', 'unknown'] as const;
+export type MatterPartyType = (typeof MATTER_PARTY_TYPE_VALUES)[number];
+
+export const matterParties = mysqlTable(
+  'matter_parties',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    role: mysqlEnum('role', MATTER_PARTY_ROLE_VALUES).notNull(),
+    displayName: varchar('displayName', { length: 256 }).notNull(),
+    // normalizedName: lower/trim/collapse-ws/strip-punct — the conflicts match key.
+    normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
+    partyType: mysqlEnum('partyType', MATTER_PARTY_TYPE_VALUES).notNull().default('unknown'),
+    // source: where the party came from (e.g. 'attorney','intake','imported').
+    source: varchar('source', { length: 64 }).notNull().default('attorney'),
+    // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity — unused in L0-1.
+    aliasOfPartyId: char('aliasOfPartyId', { length: 36 }),
+    externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxMatterPartiesMatter: index('idx_matter_parties_matter').on(table.userId, table.matterId),
+    // The cross-matter conflicts read path: match by owner + normalized name across matters.
+    idxMatterPartiesNorm: index('idx_matter_parties_norm').on(table.userId, table.normalizedName),
+  }),
+);
+export type MatterParty = typeof matterParties.$inferSelect;
+export type NewMatterParty = typeof matterParties.$inferInsert;
+
+// --- conflict_checks (Fork A) ---
+export const CONFLICT_CHECK_STATUS_VALUES = ['clear', 'hits_pending', 'dispositioned'] as const;
+export type ConflictCheckStatus = (typeof CONFLICT_CHECK_STATUS_VALUES)[number];
+
+export const conflictChecks = mysqlTable(
+  'conflict_checks',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', CONFLICT_CHECK_STATUS_VALUES).notNull().default('clear'),
+    runAt: timestamp('runAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxConflictChecksMatter: index('idx_conflict_checks_matter').on(table.userId, table.matterId),
+  }),
+);
+export type ConflictCheck = typeof conflictChecks.$inferSelect;
+export type NewConflictCheck = typeof conflictChecks.$inferInsert;
+
+// --- conflict_hits (Fork A) ---
+// severity: BLOCKER = client-here/adverse-there crossing (or same entity opposing posture,
+//   plausible prior rep in a substantially related matter); REVIEW = weak/partial match,
+//   related/other role, same client with no adverse role. matchBasis records WHY a hit
+//   appeared (shown to the attorney). disposition: an UNDISPOSITIONED blocker hard-blocks
+//   plan-lock + advance-to-drafting; clearing a blocker REQUIRES a rationale (RPC record).
+export const CONFLICT_HIT_SEVERITY_VALUES = ['blocker', 'review'] as const;
+export type ConflictHitSeverity = (typeof CONFLICT_HIT_SEVERITY_VALUES)[number];
+
+export const CONFLICT_HIT_DISPOSITION_VALUES = ['pending', 'cleared', 'screened', 'declined'] as const;
+export type ConflictHitDisposition = (typeof CONFLICT_HIT_DISPOSITION_VALUES)[number];
+
+export const conflictHits = mysqlTable(
+  'conflict_hits',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    checkId: char('checkId', { length: 36 }).notNull(),
+    // this matter + the matched (other) matter, with the parties that crossed.
+    matterId: char('matterId', { length: 36 }).notNull(),
+    matchedMatterId: char('matchedMatterId', { length: 36 }).notNull(),
+    thisPartyId: char('thisPartyId', { length: 36 }),
+    matchedPartyId: char('matchedPartyId', { length: 36 }),
+    // human-readable WHY, e.g. "client here ('Acme') is adverse in matter <id>".
+    matchBasis: varchar('matchBasis', { length: 512 }).notNull(),
+    matchType: varchar('matchType', { length: 64 }).notNull(),
+    severity: mysqlEnum('severity', CONFLICT_HIT_SEVERITY_VALUES).notNull(),
+    disposition: mysqlEnum('disposition', CONFLICT_HIT_DISPOSITION_VALUES).notNull().default('pending'),
+    dispositionRationale: text('dispositionRationale'),
+    dispositionedByEventId: char('dispositionedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxConflictHitsCheck: index('idx_conflict_hits_check').on(table.checkId),
+    idxConflictHitsMatter: index('idx_conflict_hits_matter').on(table.userId, table.matterId, table.disposition),
+  }),
+);
+export type ConflictHit = typeof conflictHits.$inferSelect;
+export type NewConflictHit = typeof conflictHits.$inferInsert;
+
+// --- matter_analysis (Fork C — internal work-product; Fork F — categorically non-sendable) ---
+export const MATTER_ANALYSIS_RECORD_STATUS_VALUES = ['draft', 'locked', 'superseded'] as const;
+export type MatterAnalysisRecordStatus = (typeof MATTER_ANALYSIS_RECORD_STATUS_VALUES)[number];
+
+export const MATTER_ANALYSIS_MODEL_LANE_VALUES = ['single', 'multi'] as const;
+export type MatterAnalysisModelLane = (typeof MATTER_ANALYSIS_MODEL_LANE_VALUES)[number];
+
+export const matterAnalysis = mysqlTable(
+  'matter_analysis',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', MATTER_ANALYSIS_RECORD_STATUS_VALUES).notNull().default('draft'),
+    // Internal work-product (JSON; Zod-validated on read).
+    assessment: json('assessment'),
+    plan: json('plan'),
+    openQuestions: json('openQuestions'),
+    // STRUCTURED planned-deliverables (not just prose) — feeds the later plan->drafting bridge.
+    recommendedDocuments: json('recommendedDocuments'),
+    // Conflicts linkage (Fork A/C): the check this plan was cleared against + the flag.
+    conflictCheckId: char('conflictCheckId', { length: 36 }),
+    conflictsClearedForPlanning: boolean('conflictsClearedForPlanning').notNull().default(false),
+    // Model lane (Fork E): single (Claude default) | multi (attorney-invoked, suggest-only).
+    modelLane: mysqlEnum('modelLane', MATTER_ANALYSIS_MODEL_LANE_VALUES).notNull().default('single'),
+    generatedByJobId: char('generatedByJobId', { length: 36 }),
+    // Plan lock = explicit attorney act (audit_events disposition); never inferred.
+    lockedByEventId: char('lockedByEventId', { length: 36 }),
+    lockedAt: timestamp('lockedAt'),
+    lockRationale: text('lockRationale'),
+    supersededById: char('supersededById', { length: 36 }),
+    // Fork F — categorically NON-SENDABLE by TYPE (the type is the enforcement, not a
+    // missing button). FOLD-SEND-1 must read these and return "N/A — not a sendable type".
+    artifactKind: varchar('artifactKind', { length: 32 }).notNull().default('matter_analysis'),
+    outboundEligible: boolean('outboundEligible').notNull().default(false),
+    sendabilityRequired: boolean('sendabilityRequired').notNull().default(false),
+    sendabilityStatus: varchar('sendabilityStatus', { length: 32 }).notNull().default('not_applicable'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxMatterAnalysisMatter: index('idx_matter_analysis_matter').on(table.userId, table.matterId, table.status),
+  }),
+);
+export type MatterAnalysis = typeof matterAnalysis.$inferSelect;
+export type NewMatterAnalysis = typeof matterAnalysis.$inferInsert;
+
+// ============================================================
+// FOLD-KB-1 — Practice Knowledge Base (Phase 3) — Increment 1 data core
+// ============================================================
+// Two owner-private stores. Additive. The per-PA master-prompt layer auto-loads (it is
+// the attorney's own instruction); practice memos NEVER auto-inject (surface-not-inject).
+
+export const paInstructionProfiles = mysqlTable(
+  'pa_instruction_profiles',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // Owner-defined practice-area key the matter's freeform practiceArea maps to (by
+    // EXPLICIT attorney confirmation — never silent string-guessing).
+    paKey: varchar('paKey', { length: 64 }).notNull(),
+    title: varchar('title', { length: 256 }).notNull(),
+    // The tuned master prompt (the attorney's own instruction layer).
+    body: mediumtext('body').notNull(),
+    version: varchar('version', { length: 32 }).notNull(),
+    // At most one active profile per (userId, paKey); activation is an explicit attorney act.
+    active: boolean('active').notNull().default(false),
+    supersededById: char('supersededById', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxPaInstructionProfilesUser: index('idx_pa_instruction_profiles_user').on(table.userId),
+    idxPaInstructionProfilesPakey: index('idx_pa_instruction_profiles_pakey').on(table.userId, table.paKey),
+    idxPaInstructionProfilesActive: index('idx_pa_instruction_profiles_active').on(table.userId, table.paKey, table.active),
+  }),
+);
+export type PaInstructionProfile = typeof paInstructionProfiles.$inferSelect;
+export type NewPaInstructionProfile = typeof paInstructionProfiles.$inferInsert;
+
+// practice_memos enum domains (stored as varchar; validated at the Zod Wall).
+export const MEMO_VERIFICATION_STATUS_VALUES = [
+  'unverified',
+  'attorney_verified_current',
+  'stale',
+  'superseded',
+  'not_legal_authority',
+] as const;
+export type MemoVerificationStatus = (typeof MEMO_VERIFICATION_STATUS_VALUES)[number];
+
+export const MEMO_PRIVILEGE_TAG_VALUES = ['client_confidential', 'abstracted', 'public'] as const;
+export type MemoPrivilegeTag = (typeof MEMO_PRIVILEGE_TAG_VALUES)[number];
+
+export const MEMO_ABSTRACTION_STATUS_VALUES = ['raw', 'abstracted'] as const;
+export type MemoAbstractionStatus = (typeof MEMO_ABSTRACTION_STATUS_VALUES)[number];
+
+export const MEMO_ABSTRACTED_BY_VALUES = ['attorney', 'system_assisted_attorney'] as const;
+export type MemoAbstractedBy = (typeof MEMO_ABSTRACTED_BY_VALUES)[number];
+
+export const MEMO_REUSE_SCOPE_VALUES = ['matter_only', 'firm_wide'] as const;
+export type MemoReuseScope = (typeof MEMO_REUSE_SCOPE_VALUES)[number];
+
+export const practiceMemos = mysqlTable(
+  'practice_memos',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // NULL = firm-level (not client-derived).
+    originMatterId: char('originMatterId', { length: 36 }),
+    sourceAnalysisId: char('sourceAnalysisId', { length: 36 }),
+    sourceDocumentId: char('sourceDocumentId', { length: 36 }),
+    title: varchar('title', { length: 256 }).notNull(),
+    body: mediumtext('body').notNull(),
+    practiceArea: varchar('practiceArea', { length: 128 }),
+    jurisdiction: varchar('jurisdiction', { length: 128 }),
+    // Structured authorities relied on (JSON; Zod-validated on read).
+    lawReliedOn: json('lawReliedOn'),
+    topicTags: json('topicTags'),
+    writtenOn: timestamp('writtenOn'),
+    // Currency (Fork C): discrete status, separate from lastVerifiedAt; never age-derived.
+    verificationStatus: varchar('verificationStatus', { length: 32 }).notNull().default('unverified'),
+    lastVerifiedAt: timestamp('lastVerifiedAt'),
+    verifiedThroughDate: timestamp('verifiedThroughDate'),
+    verificationMethod: varchar('verificationMethod', { length: 64 }),
+    verificationNote: text('verificationNote'),
+    // Privilege / abstraction (Fork B/G): most-private defaults.
+    privilegeTag: varchar('privilegeTag', { length: 32 }).notNull().default('client_confidential'),
+    abstractionStatus: varchar('abstractionStatus', { length: 16 }).notNull().default('raw'),
+    abstractionAttestedByEventId: char('abstractionAttestedByEventId', { length: 36 }),
+    abstractedAt: timestamp('abstractedAt'),
+    abstractedBy: varchar('abstractedBy', { length: 32 }),
+    reuseScope: varchar('reuseScope', { length: 16 }).notNull().default('matter_only'),
+    // Owner-only link from an abstracted memo back to its raw origin; never exposed cross-matter.
+    abstractedFromMemoId: char('abstractedFromMemoId', { length: 36 }),
+    supersededById: char('supersededById', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxPracticeMemosUser: index('idx_practice_memos_user').on(table.userId),
+    idxPracticeMemosOrigin: index('idx_practice_memos_origin').on(table.userId, table.originMatterId),
+    idxPracticeMemosPa: index('idx_practice_memos_pa').on(table.userId, table.practiceArea),
+    idxPracticeMemosReuse: index('idx_practice_memos_reuse').on(table.userId, table.reuseScope, table.abstractionStatus),
+    idxPracticeMemosVerification: index('idx_practice_memos_verification').on(table.userId, table.verificationStatus),
+  }),
+);
+export type PracticeMemo = typeof practiceMemos.$inferSelect;
+export type NewPracticeMemo = typeof practiceMemos.$inferInsert;
+
+// kb_adoptions — FOLD-KB-1 Increment 2 (Fork A). Durable, matter-scoped provenance of a
+// memo pulled into a matter / work product. Snapshots the memo's currency posture at adoption.
+export const kbAdoptions = mysqlTable(
+  'kb_adoptions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }),
+    kbMemoId: char('kbMemoId', { length: 36 }).notNull(),
+    // Version proxy: practice_memos.updatedAt at adoption (memos version via updatedAt).
+    kbMemoUpdatedAtAtAdoption: timestamp('kbMemoUpdatedAtAtAdoption'),
+    verificationStatusAtAdoption: varchar('verificationStatusAtAdoption', { length: 32 }).notNull(),
+    lastVerifiedAtAtAdoption: timestamp('lastVerifiedAtAtAdoption'),
+    kbDerived: boolean('kbDerived').notNull().default(true),
+    currencyVerifiedForOutbound: boolean('currencyVerifiedForOutbound').notNull().default(false),
+    adoptedByEventId: char('adoptedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxKbAdoptionsUser: index('idx_kb_adoptions_user').on(table.userId),
+    idxKbAdoptionsMatter: index('idx_kb_adoptions_matter').on(table.userId, table.matterId),
+    idxKbAdoptionsDocument: index('idx_kb_adoptions_document').on(table.userId, table.documentId),
+    idxKbAdoptionsMemo: index('idx_kb_adoptions_memo').on(table.userId, table.kbMemoId),
+  }),
+);
+export type KbAdoption = typeof kbAdoptions.$inferSelect;
+export type NewKbAdoption = typeof kbAdoptions.$inferInsert;
+
+// kb_events — FOLD-KB-1 Increment 3. Owner-scoped, APPEND-ONLY audit trail for FIRM-LEVEL
+// (matter-less) KB attorney acts. audit_events stays the per-matter record; this is the KB
+// record. Insert + read only.
+export const kbEvents = mysqlTable(
+  'kb_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    action: varchar('action', { length: 48 }).notNull(),
+    targetType: varchar('targetType', { length: 32 }).notNull(),
+    targetId: char('targetId', { length: 36 }).notNull(),
+    summary: varchar('summary', { length: 512 }).notNull(),
+    rationale: text('rationale'),
+    payload: json('payload'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxKbEventsUser: index('idx_kb_events_user').on(table.userId),
+    idxKbEventsTarget: index('idx_kb_events_target').on(table.userId, table.targetType, table.targetId),
+    idxKbEventsAction: index('idx_kb_events_action').on(table.userId, table.action),
+  }),
+);
+export type KbEvent = typeof kbEvents.$inferSelect;
+export type NewKbEvent = typeof kbEvents.$inferInsert;

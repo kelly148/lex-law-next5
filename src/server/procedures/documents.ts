@@ -44,6 +44,7 @@ import {
   getMatterById,
   updateMatterPhase,
 } from '../db/queries/matters.js';
+import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 
 // ============================================================
@@ -164,6 +165,19 @@ export const documentRouter = router({
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: 'MATTER_ARCHIVED',
+        });
+      }
+
+      // FOLD-L0-1 (Fork A): advance-to-drafting hard-block. An undispositioned BLOCKER-
+      // severity conflict on the matter's latest check blocks the DECISION to start
+      // drafting — not the matter itself. Clear, screen, or decline the hit (a recorded
+      // attorney disposition) to proceed. No check run yet => no known blocker => allowed.
+      const conflictsBlocked = await hasUndispositionedBlocker(input.matterId, ctx.userId);
+      if (conflictsBlocked) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'CONFLICTS_BLOCKER_UNDISPOSITIONED: an undispositioned blocker-severity conflict must be cleared, screened, or declined before advancing this matter to drafting.',
         });
       }
 

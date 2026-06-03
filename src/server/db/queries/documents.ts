@@ -10,6 +10,7 @@ import { eq, and, isNull, desc, ne } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { documents, type Document, type NewDocument } from '../schema.js';
+import { ownerScope } from '../ownerScope.js';
 import {
   DocumentRowSchema,
   type DocumentRow,
@@ -243,4 +244,20 @@ export async function updateDocumentTitle(
     .set({ title })
     .where(and(eq(documents.id, documentId), eq(documents.userId, userId)));
   return getDocumentById(documentId, userId);
+}
+
+/**
+ * FOLD-KB-1 (Fork A): set the durable "drew on unverified KB" provenance flag on a document.
+ * Owner-scoped via ownerScope() (the new-code chokepoint). One-way latch — only ever set
+ * TRUE; it survives drafting/versioning (the flag lives on the document). FOLD-SEND-1 reads it.
+ */
+export async function setDrewOnUnverifiedKb(
+  documentId: string,
+  userId: string,
+  executor: Pick<typeof db, 'update'> = db,
+): Promise<void> {
+  await executor
+    .update(documents)
+    .set({ drewOnUnverifiedKb: true })
+    .where(and(eq(documents.id, documentId), ownerScope(documents.userId, userId)));
 }
