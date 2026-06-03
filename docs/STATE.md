@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-03 (later still) — FOLD-L1-3 merged (shared-context substrate)
+
+**What changed.** **FOLD-L1-3** is built and merged onto `fold/phase-2`. It implements the FOLD-L1-1-reviewed design (rides the parent review; **not FIRE** — normal automation; cross-lane egress governed by FOLD-GOV-1's reviewed controls) and delivers the **shared-context conversation substrate** (Appendix C.6): thread + materials + matter-state assembled into one coherent, bounded, lane-aware "everyone up to speed" package — **not a raw dump**. It reuses L1-1 (`getMatterState`), L1-2 (`formatMatterStateBlock`), and the existing `assembleContext` pipeline; adds a bounded thread summary and the package shape. Materials are carried as **prioritized metadata only** (id/filename/tokens/priority/pinned) — the actual text continues to flow via the pipeline / L1-2 injection at dispatch, so no raw blobs leak into the package (test-verified). Exposed as the owner-scoped `sharedContext.get` read. PR [#114](https://github.com/kelly148/lex-law-next5/pull/114) squash-merged as `a6f3c68`. No schema/migration.
+
+**Current build state.** `main` HEAD = `6e486b0` (Phase 1, unchanged). Active phase branch `fold/phase-2` HEAD = `a6f3c68` (plus this Rule-16 bookkeeping commit). Purely additive read substrate — does **not** change any existing model-call behavior. CI green first try. Prod unchanged — merge ≠ deploy. **Phase 2: 3 of 5 Layer-1 engagements merged** (L1-1, L1-2, L1-3; remaining L1-4 template registry + cross-matter gate, L1-5 the five explicit acts + dashboard [gate G6]).
+
+**Open items / gate residuals.** Unchanged from the L1-2 entry (migration `0004`/`0005` out-of-band prod apply; retention values PENDING ATTORNEY SIGN-OFF; `kelly` credential unrotated; `_analytical\phase2` Cowork mirror; `RAILWAY_TOKEN`/`SMOKE_*` secrets; `LLN-PROD-CLEANUP-1`). L1-3 adds no new residuals.
+
+**Next.** Auto-advance to **FOLD-L1-4** (reusable-template registry + cross-matter invocation gate with anti-contamination controls) on `fold/phase-2`, running its §3.1 triage first.
+
 ## 2026-06-03 (later) — FOLD-L1-2 merged (matter-memory injection)
 
 **What changed.** **FOLD-L1-2** is built and merged onto `fold/phase-2`. It implements the FOLD-L1-1-reviewed design (rides the parent triad review; **not FIRE** — master plan classifies it normal automation) and delivers the **matter-memory injection service**: the "no cold reviews" precondition. The L1-1 `model_context` package (matter phase, operative document, open blockers/substantive, matter-level items, operative source-authority currency, safe-to-send) is now injected into **every** LLM call at the single dispatch chokepoint (`executeCanonicalMutation`) — one hook covers all job types (reviewer, evaluator, drafter, regeneration, outline, IR). It is **best-effort + default-safe** (a failed matter-state read degrades to a byte-identical prompt; a telemetry breadcrumb is emitted) with a `setMatterStateProvider()` test seam mirroring `setJobWriteFunctions`. The block deliberately **excludes** locked-decisions/adoptions (already injected per-document by the reviewer path) to avoid duplication. PR [#113](https://github.com/kelly148/lex-law-next5/pull/113) squash-merged as `76e95c0`. No schema/migration.

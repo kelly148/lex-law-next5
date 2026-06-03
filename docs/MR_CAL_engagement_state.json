@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "current_engagement": "",
-  "current_phase": "Phase 2 (Layer-1 Matter-State Engine) in progress on fold/phase-2; FOLD-L1-1 + FOLD-L1-2 merged (76e95c0); queue head = FOLD-L1-3",
+  "current_phase": "Phase 2 (Layer-1 Matter-State Engine) in progress on fold/phase-2; FOLD-L1-1/L1-2/L1-3 merged (a6f3c68); queue head = FOLD-L1-4",
   "completed_engagements": [
     "LLN-OUTLINE-GEN-1",
     "LLN-UX-ITER-LABEL-1",
@@ -40,7 +40,8 @@
     "FOLD-PERSIST-1",
     "FOLD-DEPLOY-VERIFY-1",
     "FOLD-L1-1",
-    "FOLD-L1-2"
+    "FOLD-L1-2",
+    "FOLD-L1-3"
   ],
   "in_progress_engagement": "",
   "awaiting_operator_acceptance": [],
@@ -49,7 +50,6 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-L1-3",
     "FOLD-L1-4",
     "FOLD-L1-5",
     "FOLD-L0-1",
@@ -471,9 +471,14 @@
       "ts": "2026-06-03T10:15:00-04:00",
       "decision": "accept+merge:FOLD-L1-2 (operator approve accept: FOLD-L1-2)",
       "notes": "Matter-memory injection. NOT FIRE: implements the FOLD-L1-1-reviewed Matter-State design (rides the parent triad review; master plan classifies it normal automation). Branch lex-next/fold-l1-2; commit on branch; PR #113 -> fold/phase-2; CI green (Lint + Type Check + Tests) first try; squash-merged as 76e95c0; branch deleted. NOT Rule-15 auto-merge: a proceed/pause decision was surfaced and broad blast radius (changes the input to EVERY model call) was flagged, so it stopped for operator approve accept:. DELIVERED: src/server/matterState/injection.ts (pure formatMatterStateBlock(model_context) -> bounded '## Matter State' block + async buildMatterStateContextBlock reading getMatterState mode=model_context); single-chokepoint hook in executeCanonicalMutation (the documented sole LLM-dispatch path) that prepends the block to systemPrompt when matterId is present, BEST-EFFORT (try/catch -> telemetry breadcrumb -> no injection on failure, byte-identical prompt) with a setMatterStateProvider() test seam. Scope: block covers matter identity/phase, operative doc, open blockers/substantive, matter-level items, operative source-authority currency, safe-to-send; EXCLUDES locked/adopt (already injected per-document by the reviewer path) to avoid duplication. Non-breaking for the existing suite: with no test DB the read throws -> byte-identical prompt; the new L1-1 query fns are unmocked everywhere so injection provably no-ops in existing tests. No schema/migration; reversible by revert. CARRYFORWARD: in prod, injection returns real data only AFTER migration 0005 is applied (else safe-but-inert no-op); this shifts reviewer/drafter behavior once deployed (intended 'no cold reviews'). NO prod deploy (merge != deploy). Auto-advancing to FOLD-L1-3 (shared-context substrate)."
+    },
+    {
+      "ts": "2026-06-03T11:00:00-04:00",
+      "decision": "accept+merge:FOLD-L1-3 (operator approve accept: FOLD-L1-3)",
+      "notes": "Shared-context conversation substrate (Appendix C.6). NOT FIRE: implements the FOLD-L1-1-reviewed design (rides parent review; normal automation; cross-lane egress governed by FOLD-GOV-1's reviewed controls). Branch lex-next/fold-l1-3; PR #114 -> fold/phase-2; CI green (Lint + Type Check + Tests) first try; squash-merged as a6f3c68; branch deleted. NOT Rule-15 auto-merge: proceed/pause decision surfaced -> stopped for operator approve accept:. DELIVERED: assembles thread + materials + matter-state into one coherent, bounded, lane-aware 'everyone up to speed' package - NOT a raw dump. Reuses L1-1 getMatterState, the L1-2 formatMatterStateBlock, and the existing assembleContext pipeline; adds a bounded thread summary + the package shape. shared/schemas/sharedContext.ts (SharedContextPackage: matter, operative doc, lanes, matterStateBlock, materials METADATA, thread summary, assembledTokens); sharedContext/index.ts (pure summarizeThread + assembleSharedContextPackage Zod-walled + thin async buildSharedContextPackage); sharedContext.get owner-scoped tRPC read registered in router. Materials carried as prioritized METADATA only (no textContent) - actual text flows via the pipeline / L1-2 at dispatch (verified: raw material text never leaks into the package). PURELY ADDITIVE read substrate - does NOT change any existing model-call behavior. No schema/migration; reversible. NO prod deploy. Auto-advancing to FOLD-L1-4 (reusable-template registry + cross-matter invocation gate w/ anti-contamination)."
     }
   ],
-  "last_updated": "2026-06-03T10:15:00-04:00",
+  "last_updated": "2026-06-03T11:00:00-04:00",
   "last_updater": "Rule-11 list-membership reconciliation (operator 'y'): FOLD-GOV-1a + FOLD-PERSIST-1 + FOLD-DEPLOY-VERIFY-1 -> completed; in_progress cleared; Phase 1 complete on main (417b2b3). Phase 2 entry = FOLD-L1-1 (§3.1 FIRE -> auto-assemble packet, halt for triad). FOLD-GOV-1 remainder (GOV-1b egress legal-decision-parked; GOV-1c -> FOLD-L1) remains a carryforward. Open: attorney sign-off of retention values; migration 0004 out-of-band prod apply; RAILWAY_TOKEN + SMOKE_* secrets; E-4; Cowork phase2 mirror owes Rules 8/14/15 + re-triage + Rule 16/17 + packet-auto-assemble.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
