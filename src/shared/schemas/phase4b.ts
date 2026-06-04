@@ -192,6 +192,8 @@ export const SessionSelectionSchema = z
     note: raw.note,
     // MR-CAL-7B: carry the optional edited text through normalization.
     ...(raw.adoptedText !== undefined ? { adoptedText: raw.adoptedText } : {}),
+    // FOLD-ORCH-1 Inc3c-2: carry the optional confirmation MODE through normalization.
+    ...(raw.confirmationMode !== undefined ? { confirmationMode: raw.confirmationMode } : {}),
   }))
   .refine((v) => typeof v.suggestionId === 'string' && v.suggestionId.length > 0, {
     message: 'SessionSelection must include either suggestionId or feedbackId',
