@@ -155,6 +155,20 @@ export const SessionSelectionSchema = z
     // is "modified"; when absent, it is verbatim. Additive + backward-compatible:
     // pre-7B selections simply omit it. Drives the adopt_ledger disposition.
     adoptedText: z.string().optional(),
+    // FOLD-ORCH-1 Inc3c-2: the per-item CONFIRMATION MODE this selection was made under (rides in
+    // the selections JSON; read at the single adopt-insert in regenerate). ADDITIVE optional —
+    // pre-ORCH selections omit it and default to 'individually_adopted' at adopt time. Literals
+    // inlined (repo convention) and MUST mirror CONFIRMATION_MODE_VALUES in orchestration.ts.
+    confirmationMode: z
+      .enum([
+        'bulk_acknowledged_low_severity_convergent',
+        'individually_adopted',
+        'individually_rejected',
+        'individually_deferred',
+        'synthesis_adopted',
+        'divergent_resolved',
+      ])
+      .optional(),
   })
   .superRefine((raw, ctx) => {
     // MR-4 §3.3 alias conflict guard: reject rows where both keys are present

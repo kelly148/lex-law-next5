@@ -39,9 +39,20 @@ export interface DivergentItemProjection {
   detail: DivergentOpenItem;
 }
 
+/** A bulk-eligible (convergent + low-risk) group with its member suggestions, for the
+ *  expand-to-see bulk-confirm surface (Inc3c-2). The UI shows each member, then confirms the
+ *  group by adopting its members with confirmationMode='bulk_acknowledged_low_severity_convergent'. */
+export interface BulkEligibleGroupProjection {
+  issueId: string;
+  severity: string;
+  agreedCount: number;
+  members: Array<{ suggestionId: string; reviewerRole: string; position: string }>;
+}
+
 export interface SessionConsolidationProjection {
   consolidation: ConsolidationResult;
   divergentItems: DivergentItemProjection[];
+  bulkEligibleGroups: BulkEligibleGroupProjection[];
 }
 
 /**
@@ -91,5 +102,17 @@ export function assembleSessionConsolidation(
       return { issueId: cg.issueId, severity: reg.severity, summary: reg.summary, detail: reg.detail };
     });
 
-  return { consolidation, divergentItems };
+  const bulkEligibleGroups: BulkEligibleGroupProjection[] = consolidation.groups
+    .filter((g) => g.classification === 'convergent_low_risk')
+    .map((cg) => {
+      const og = groups.find((g) => g.issueId === cg.issueId);
+      const members = (og?.positions ?? []).map((p) => ({
+        suggestionId: p.suggestionId,
+        reviewerRole: p.reviewerRole,
+        position: p.position,
+      }));
+      return { issueId: cg.issueId, severity: cg.severity, agreedCount: cg.agreedCount, members };
+    });
+
+  return { consolidation, divergentItems, bulkEligibleGroups };
 }

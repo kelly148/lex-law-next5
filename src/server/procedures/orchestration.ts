@@ -69,6 +69,7 @@ export const orchestrationRouter = router({
         denominator: projection.consolidation.denominator,
         convergenceFloorMet: projection.consolidation.convergenceFloorMet,
         bulkEligibleIssueIds: projection.consolidation.bulkEligibleIssueIds,
+        bulkEligibleGroups: projection.bulkEligibleGroups,
         divergentItems: projection.divergentItems,
       };
     }),
