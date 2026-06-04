@@ -34,6 +34,7 @@ import { reusableArtifactRouter } from './procedures/reusableArtifacts.js';
 import { matterIntakeRouter } from './procedures/matterIntake.js';
 import { practiceKbRouter } from './procedures/practiceKb.js';
 import { orchestrationRouter } from './procedures/orchestration.js';
+import { provisionProvenanceRouter } from './procedures/provisionProvenance.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -62,6 +63,9 @@ export const appRouter = router({
   // FOLD-ORCH-1 — multi-model orchestration consolidation (read API + idempotent divergent
   // open-item registration; automate the labor, never the judgment).
   orchestration: orchestrationRouter,
+  // FOLD-DRAFT-1 — provision provenance (record + read where each draft section came from;
+  // recorded + surfaced, never auto-used in outbound assertions).
+  provisionProvenance: provisionProvenanceRouter,
 });
 
 export type AppRouter = typeof appRouter;
