@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-04 (evening) — FOLD-ORCH-1 + provision provenance RE-DEPLOYED with the #310 fix; live-verification PENDING; thread handoff
+
+**What changed.** The #310 root-cause fix reached `main`: `fold/phase-3-cont` (`1ee2fbb`) merged to `main` via PR [#146](https://github.com/kelly148/lex-law-next5/pull/146) (merge commit **`3df92dc`**, CI-green), and the operator **deployed** it (MODE B). Verified `/api/version` = `3df92dc3cf…`, `/api/health` 200 — the **fixed** build (with #145's hoisted `useQuery`) is live. Migrations `0012`–`0015` already applied (idempotent). So FOLD-ORCH-1 (8 incs) + provision provenance (3 incs) + the #310 fix + the full-tree render guard are all on prod.
+
+**Still open — the gate.** **Live verification has NOT been performed yet** (operator handed off to a new thread first). It is the immediate next action: drive the authenticated browser (hard-reload first to bust the stale bundle), run a multi-reviewer review, confirm the review pane renders through the loading→completed transition (no blank), the orchestration + provenance panels work, and nothing auto-acts → `operator approve live-verified:phase-3-redeploy` → clear the ORCH-1 gate. Rollback target if needed: `0d6e5d0` (Railway deploy `8242d069`).
+
+**Current state.** Prod = `main` = `3df92dc` (fixed, deployed). `fold/phase-3-cont` = `1ee2fbb` (active Phase-3 branch; merged into main via #146). ORCH-1 `awaiting_live_verification`; queue head `FOLD-DRAFT-1` (provenance primitive done). **Full handoff brief:** `…\_progress\HANDOFF_BRIEF_2026-06-04_phase3-orch1-provenance-deployed-310fixed.md` (paste §11 to resume). Carryforwards unchanged (LLN-PROD-CLEANUP-1 += failed-UAT synthetic sessions on doc `cbf83ad7`; ~12 local-env-only test failures with CI authoritative; reviewer reliability; retention sign-off; etc.).
+
+---
+
 ## 2026-06-04 (latest) — React #310 ROOT-CAUSED + FIXED + CI render guard (corrected diagnosis; re-deploy gated on ORCH-1 FIRE re-triage)
 
 **Corrected diagnosis (supersedes the panel-hardening theory).** A second early re-deploy (`a417793` re-merged → `main` `31e06e5`, deployed) **still #310-crashed** the review view (confirmed on the *new* bundle after a hard reload — not a cache), so the #142 panel error boundary + unconditional mount were **treating symptoms, not the cause**. Rolled back to `0d6e5d0` again (`operator approve deploy:rollback-0d6e5d0`; `/api/version`=`0d6e5d0813f…`, review pane clean). Then root-caused **offline** (operator directive: no more deploy-to-diagnose).
