@@ -22,12 +22,15 @@ import {
   listMatters,
   insertMatter,
   updateMatterMetadata,
+  setMatterOrchestrationLanes,
   archiveMatter,
   unarchiveMatter,
   deleteMatter,
 } from '../db/queries/matters.js';
 import { listDocumentsForMatter } from '../db/queries/documents.js';
+import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+import { MatterOrchestrationLanesSchema } from '../../shared/schemas/matters.js';
 
 export const matterRouter = router({
   // ============================================================
@@ -147,6 +150,47 @@ export const matterRouter = router({
         { fields: changedFields },
         { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
       );
+
+      return updated;
+    }),
+
+  // ============================================================
+  // matter.setOrchestrationLanes — FOLD-ORCH-1 Inc2b (Fork C)
+  // Set/clear the per-matter reviewer-lane override (explicit attorney act; owner-checked;
+  // audited). Pass lanes=null to clear the override (fall back to the global default).
+  // ============================================================
+  setOrchestrationLanes: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        lanes: MatterOrchestrationLanesSchema.nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await getMatterById(input.matterId, ctx.userId);
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      const updated = await setMatterOrchestrationLanes(input.matterId, ctx.userId, input.lanes);
+      if (!updated) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      await recordAuditEvent({
+        userId: ctx.userId,
+        matterId: input.matterId,
+        eventType: 'disposition',
+        actor: 'attorney',
+        summary: input.lanes
+          ? 'Set per-matter reviewer lanes'
+          : 'Cleared per-matter reviewer lanes (using global default)',
+        targetType: 'matter',
+        targetId: input.matterId,
+        action: 'set_orchestration_lanes',
+        scope: 'matter',
+        payload: { lanes: input.lanes },
+      });
 
       return updated;
     }),
