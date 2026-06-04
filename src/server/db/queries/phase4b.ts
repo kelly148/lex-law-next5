@@ -629,6 +629,9 @@ export async function insertFeedbackEvaluation(data: {
   iterationNumber: number;
   jobId: string;
   dispositions: unknown;
+  // FOLD-ORCH-1 Inc3b: the evaluator's advisory issue grouping (Inc2a), captured from the same
+  // call. ADDITIVE optional — pre-ORCH callers omit it (=> NULL); degrade-safe (no grouping).
+  issueGroups?: unknown;
 }): Promise<string> {
   const id = data.id ?? uuidv4();
   await db.insert(feedbackEvaluations).values({
@@ -638,6 +641,7 @@ export async function insertFeedbackEvaluation(data: {
     iterationNumber: data.iterationNumber,
     jobId: data.jobId,
     dispositions: data.dispositions,
+    issueGroups: data.issueGroups ?? null,
   });
   return id;
 }

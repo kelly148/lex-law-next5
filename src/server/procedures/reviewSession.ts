@@ -25,7 +25,7 @@ import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
-import { parseEvaluatorOutput } from '../llm/parsers/evaluatorOutputParse.js';
+import { parseEvaluatorOutputFull } from '../llm/parsers/evaluatorOutputParse.js';
 import { EvaluatorOutputSchema, SendabilityVerdictSchema } from '../../shared/schemas/phase4b.js';
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
 import { buildSendabilitySystemPrompt, buildSendabilityUserPrompt } from '../llm/prompts/sendabilityPrompt.js';
@@ -441,17 +441,20 @@ export const reviewSessionRouter = router({
           // successful multi-reviewer runs. Matches the reviewer_feedback 300 000 ms budget.
           timeoutMs: 300_000,
           txn2Commit: async ({ jobId, output }) => {
-            // Parse + validate the advisory dispositions. parseEvaluatorOutput throws
+            // Parse + validate the FULL advisory output. parseEvaluatorOutputFull throws
             // on malformed/non-conforming output, which fails the evaluator job and
             // runs txn2Revert — persisting NOTHING. Reviewer feedback is unaffected
-            // (the evaluator is purely additive).
-            const dispositions = parseEvaluatorOutput(output);
+            // (the evaluator is purely additive). FOLD-ORCH-1 Inc3b: also capture the
+            // advisory issueGroups (Inc2a) — the GROUPING SOURCE for consolidation —
+            // alongside the dispositions; degrade-safe (absent grouping => NULL).
+            const evaluatorOutput = parseEvaluatorOutputFull(output);
             await insertFeedbackEvaluation({
               userId,
               documentId: input.documentId,
               iterationNumber,
               jobId,
-              dispositions,
+              dispositions: evaluatorOutput.dispositions,
+              issueGroups: evaluatorOutput.issueGroups ?? null,
             });
             void emitTelemetry(
               'generation_completed',

@@ -264,6 +264,9 @@ export const FeedbackEvaluationRowSchema = z.object({
   iterationNumber: z.number().int().nonnegative(),
   jobId: z.string().uuid(),
   dispositions: z.array(EvaluatorDispositionSchema),
+  // FOLD-ORCH-1 Inc3b: the evaluator's advisory issue grouping (Inc2a). ADDITIVE
+  // .nullable().optional() so pre-ORCH evaluation rows (no grouping) still parse.
+  issueGroups: z.array(EvaluatorIssueGroupSchema).nullable().optional(),
   createdAt: z.date(),
 });
 export type FeedbackEvaluationRow = z.infer<typeof FeedbackEvaluationRowSchema>;

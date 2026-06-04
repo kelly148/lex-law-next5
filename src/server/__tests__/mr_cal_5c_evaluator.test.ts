@@ -94,7 +94,10 @@ describe('MR-CAL-5C wiring — reviewSession.create source audit', () => {
   });
 
   it('evaluator parses output and persists via insertFeedbackEvaluation (not telemetry-only)', () => {
-    expect(src).toContain('parseEvaluatorOutput(output)');
+    // Pin the INTENT (parse the raw output through the evaluator-output parser + persist), not the
+    // exact function name — FOLD-ORCH-1 Inc3b renamed the call parseEvaluatorOutput ->
+    // parseEvaluatorOutputFull to also capture issueGroups (parse+persist unchanged).
+    expect(src).toMatch(/parseEvaluatorOutput(Full)?\(output\)/);
     expect(src).toContain('insertFeedbackEvaluation({');
     expect(src).toContain('structuredOutputSchema: EvaluatorOutputSchema');
   });
