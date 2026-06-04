@@ -48,14 +48,13 @@
     "FOLD-KB-1",
     "FOLD-ORCH-1"
   ],
-  "in_progress_engagement": "",
+  "in_progress_engagement": "FOLD-DRAFT-1",
   "awaiting_operator_acceptance": [],
   "awaiting_live_verification": [],
   "blocked_engagements": [],
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
-    "FOLD-DRAFT-1",
     "FOLD-SEND-1",
     "FOLD-PM-1",
     "FOLD-PM-2",
