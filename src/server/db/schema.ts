@@ -893,6 +893,10 @@ export const feedbackEvaluations = mysqlTable(
     jobId: char('jobId', { length: 36 }).notNull(),
     // dispositions: JSON array of { suggestionId, disposition, synthesisBody? }
     dispositions: json('dispositions').notNull(),
+    // FOLD-ORCH-1 Inc3b: the evaluator's advisory cross-reviewer issue grouping (EvaluatorOutput
+    // .issueGroups, Inc2a) captured from the SAME call. The GROUPING SOURCE for consolidation.
+    // Additive, nullable; NULL = no grouping emitted (degrades to all-per-item). Advisory only.
+    issueGroups: json('issueGroups'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => ({
