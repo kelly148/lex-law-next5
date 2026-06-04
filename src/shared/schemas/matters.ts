@@ -22,6 +22,20 @@ export const MatterPhaseSchema = z.enum(MATTER_PHASE_VALUES);
 export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
 export const MatterAnalysisStatusSchema = z.enum(MATTER_ANALYSIS_STATUS_VALUES);
 
+// FOLD-ORCH-1 Inc2b (Fork C): per-matter reviewer-lane override. Same reviewer keys as the
+// global ReviewerEnablement (claude/gpt/gemini/grok). Stored as a nullable JSON column on
+// matters; a NULL row = NO per-matter override => the matter falls back to the global default.
+// Explicit booleans (no silent per-key default on the override) — set only by an explicit
+// attorney act (matter.setOrchestrationLanes); never silently inferred. The N-of-M orchestration
+// convergence denominator is computed over the matter's toggled-on set (see resolveReviewerLanes).
+export const MatterOrchestrationLanesSchema = z.object({
+  claude: z.boolean(),
+  gpt: z.boolean(),
+  gemini: z.boolean(),
+  grok: z.boolean(),
+});
+export type MatterOrchestrationLanes = z.infer<typeof MatterOrchestrationLanesSchema>;
+
 export const MatterRowSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -31,6 +45,9 @@ export const MatterRowSchema = z.object({
   // FOLD-KB-1 (Fork E) attorney-confirmed PA key. ADDITIVE: .nullable().optional() so
   // pre-migration reads / legacy fixtures parse and a post-migration row carries null|string.
   paKey: z.string().max(64).nullable().optional(),
+  // FOLD-ORCH-1 Inc2b (Fork C) per-matter reviewer-lane override. ADDITIVE: .nullable().optional()
+  // so pre-migration reads / legacy fixtures parse; NULL = no override (use the global default).
+  orchestrationLanes: MatterOrchestrationLanesSchema.nullable().optional(),
   phase: MatterPhaseSchema,
   analysisStatus: MatterAnalysisStatusSchema.optional(),
   archivedAt: z.date().nullable(),

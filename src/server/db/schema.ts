@@ -264,6 +264,11 @@ export const matters = mysqlTable(
     // practiceArea to a pa_instruction_profiles paKey. NULL = no confirmed profile (base prompt).
     // Set/changed only by an explicit attorney act; never silently inferred. Additive, nullable.
     paKey: varchar('paKey', { length: 64 }),
+    // FOLD-ORCH-1 Inc2b (Fork C): per-matter reviewer-lane override (claude/gpt/gemini/grok
+    // booleans). NULL = no override => fall back to the global ReviewerEnablement default.
+    // Additive, nullable; set only by an explicit attorney act (matter.setOrchestrationLanes).
+    // Validated on read by the Zod Wall (MatterRowSchema.orchestrationLanes).
+    orchestrationLanes: json('orchestrationLanes'),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
     // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
     // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.

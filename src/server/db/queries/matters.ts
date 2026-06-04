@@ -11,7 +11,7 @@ import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { matters, type Matter, type NewMatter } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
-import { MatterRowSchema, type MatterRow } from '../../../shared/schemas/matters.js';
+import { MatterRowSchema, type MatterRow, type MatterOrchestrationLanes } from '../../../shared/schemas/matters.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -126,6 +126,23 @@ export async function setMatterPaKey(
   await db
     .update(matters)
     .set({ paKey })
+    .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
+  return getMatterById(matterId, userId);
+}
+
+/**
+ * FOLD-ORCH-1 Inc2b (Fork C): set the matter's per-matter reviewer-lane override (the explicit
+ * attorney act). Owner-scoped via ownerScope() (new-code chokepoint). Pass null to clear the
+ * override (fall back to the global ReviewerEnablement default).
+ */
+export async function setMatterOrchestrationLanes(
+  matterId: string,
+  userId: string,
+  lanes: MatterOrchestrationLanes | null,
+): Promise<MatterRow | null> {
+  await db
+    .update(matters)
+    .set({ orchestrationLanes: lanes })
     .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
   return getMatterById(matterId, userId);
 }
