@@ -168,6 +168,49 @@ export async function autoRegisterOpenItem(data: {
 }
 
 /**
+ * FOLD-ORCH-1 Inc3 (Fork E): register a DIVERGENT reviewer open item from an orchestration run.
+ * statusSource='auto' + requiresAttorneyConfirmation=true; the content-preserving payload (per-
+ * reviewer positions + synthesis + source session) goes in `detail`. Inherits the registry's
+ * never-auto-close guarantee — only an explicit attorney resolve/withdraw changes its status, so
+ * a later orchestration pass that omits this divergence does NOT close it.
+ */
+export async function registerDivergentOpenItem(params: {
+  id?: string;
+  userId: string;
+  matterId: string;
+  documentId?: string | null;
+  severity: OpenItemSeverity;
+  summary: string;
+  detail: unknown;
+  reviewSessionId?: string | null;
+  versionId?: string | null;
+}): Promise<OpenItemRow> {
+  const id = params.id ?? uuidv4();
+  await db.insert(openItems).values({
+    id,
+    userId: params.userId,
+    matterId: params.matterId,
+    documentId: params.documentId ?? null,
+    category: 'divergent_reviewer_feedback',
+    severity: params.severity,
+    summary: params.summary,
+    status: 'open',
+    statusSource: 'auto',
+    origin: 'orchestration',
+    confidence: null,
+    requiresAttorneyConfirmation: true,
+    sourceSuggestionId: null,
+    reviewSessionId: params.reviewSessionId ?? null,
+    versionId: params.versionId ?? null,
+    lastSeenAt: new Date(),
+    detail: params.detail,
+  });
+  const row = await getOpenItemById(id, params.userId);
+  if (!row) throw new Error(`registerDivergentOpenItem: row not found after insert (id=${id})`);
+  return row;
+}
+
+/**
  * Auto-detection refresh: bump lastSeenAt only. NEVER changes status — so it can never
  * close an attorney-opened/confirmed item (disposition item 6).
  */

@@ -41,13 +41,43 @@ export const EvaluatorDispositionSchema = z.object({
 export type EvaluatorDisposition = z.infer<typeof EvaluatorDispositionSchema>;
 
 /**
+ * FOLD-ORCH-1 (Increment 2): the evaluator's ADVISORY grouping of reviewer suggestions that
+ * address the same underlying issue, used as the GROUPING SOURCE for orchestration consolidation.
+ *
+ * Named-change discipline (triad disposition, Fork B): the evaluator may LABEL membership but
+ * NEVER CONSTITUTES convergence. The deterministic engine (consolidate.ts) re-derives the
+ * authoritative count from distinct SUCCESSFUL reviewer roles in the real persisted feedback —
+ * so an evaluator group that claims agreement but maps to <2 actual successful reviewers stays
+ * single_reviewer (per-item). `reviewerRoles` here is the evaluator's CLAIM (a label), not the
+ * count. `divergent` lets the evaluator FLAG disagreement (the safe direction -> per-item); a
+ * MISSING flag never forces convergence (the engine independently flags severity-disagreement).
+ * `structuralLowRiskCleanup` is the positive STRUCTURAL low-risk classification Fork A requires.
+ * Entirely OPTIONAL and ADDITIVE: absent/malformed grouping degrades to all-per-item.
+ */
+export const EvaluatorIssueGroupSchema = z.object({
+  issueId: z.string(),
+  suggestionIds: z.array(z.string()).min(1),
+  reviewerRoles: z.array(z.string()).optional(), // evaluator's CLAIMED membership (label only)
+  severity: z.string().optional(),
+  divergent: z.boolean().optional(),
+  structuralLowRiskCleanup: z.boolean().optional(),
+  synthesisBody: z.string().optional(),
+});
+export type EvaluatorIssueGroup = z.infer<typeof EvaluatorIssueGroupSchema>;
+
+/**
  * MR-CAL-5C: the evaluator's structured LLM output contract. The evaluator emits one
  * advisory disposition per reviewer suggestionId. This is the structuredOutputSchema
  * enforced on the evaluator LLM call and the shape parsed before persistence via
  * insertFeedbackEvaluation (dispositions column). Advisory only — never a decision.
+ *
+ * FOLD-ORCH-1 Inc2: `issueGroups` is an ADDITIVE, OPTIONAL grouping projection. The existing
+ * `dispositions` contract is unchanged — pre-ORCH evaluator outputs (no issueGroups) still parse,
+ * and the dispositions-persistence path is untouched.
  */
 export const EvaluatorOutputSchema = z.object({
   dispositions: z.array(EvaluatorDispositionSchema),
+  issueGroups: z.array(EvaluatorIssueGroupSchema).optional(),
 });
 export type EvaluatorOutput = z.infer<typeof EvaluatorOutputSchema>;
 
@@ -125,6 +155,20 @@ export const SessionSelectionSchema = z
     // is "modified"; when absent, it is verbatim. Additive + backward-compatible:
     // pre-7B selections simply omit it. Drives the adopt_ledger disposition.
     adoptedText: z.string().optional(),
+    // FOLD-ORCH-1 Inc3c-2: the per-item CONFIRMATION MODE this selection was made under (rides in
+    // the selections JSON; read at the single adopt-insert in regenerate). ADDITIVE optional —
+    // pre-ORCH selections omit it and default to 'individually_adopted' at adopt time. Literals
+    // inlined (repo convention) and MUST mirror CONFIRMATION_MODE_VALUES in orchestration.ts.
+    confirmationMode: z
+      .enum([
+        'bulk_acknowledged_low_severity_convergent',
+        'individually_adopted',
+        'individually_rejected',
+        'individually_deferred',
+        'synthesis_adopted',
+        'divergent_resolved',
+      ])
+      .optional(),
   })
   .superRefine((raw, ctx) => {
     // MR-4 §3.3 alias conflict guard: reject rows where both keys are present
@@ -148,6 +192,8 @@ export const SessionSelectionSchema = z
     note: raw.note,
     // MR-CAL-7B: carry the optional edited text through normalization.
     ...(raw.adoptedText !== undefined ? { adoptedText: raw.adoptedText } : {}),
+    // FOLD-ORCH-1 Inc3c-2: carry the optional confirmation MODE through normalization.
+    ...(raw.confirmationMode !== undefined ? { confirmationMode: raw.confirmationMode } : {}),
   }))
   .refine((v) => typeof v.suggestionId === 'string' && v.suggestionId.length > 0, {
     message: 'SessionSelection must include either suggestionId or feedbackId',
@@ -234,6 +280,9 @@ export const FeedbackEvaluationRowSchema = z.object({
   iterationNumber: z.number().int().nonnegative(),
   jobId: z.string().uuid(),
   dispositions: z.array(EvaluatorDispositionSchema),
+  // FOLD-ORCH-1 Inc3b: the evaluator's advisory issue grouping (Inc2a). ADDITIVE
+  // .nullable().optional() so pre-ORCH evaluation rows (no grouping) still parse.
+  issueGroups: z.array(EvaluatorIssueGroupSchema).nullable().optional(),
   createdAt: z.date(),
 });
 export type FeedbackEvaluationRow = z.infer<typeof FeedbackEvaluationRowSchema>;
@@ -321,6 +370,21 @@ export const AdoptLedgerRowSchema = z.object({
   producedVersionId: z.string().uuid().nullable(),
   status: z.enum(['active', 'superseded', 'resolved', 'unresolved']),
   statusSource: z.enum(['auto', 'attorney']),
+  // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE — never flattened to
+  // "adopted". ADDITIVE .nullable().optional() so legacy rows / pre-ORCH adoptions parse. Literals
+  // are inlined (repo convention) and MUST mirror CONFIRMATION_MODE_VALUES in orchestration.ts;
+  // phase4b cannot import orchestration.ts (orchestration imports phase4b — would be circular).
+  confirmationMode: z
+    .enum([
+      'bulk_acknowledged_low_severity_convergent',
+      'individually_adopted',
+      'individually_rejected',
+      'individually_deferred',
+      'synthesis_adopted',
+      'divergent_resolved',
+    ])
+    .nullable()
+    .optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

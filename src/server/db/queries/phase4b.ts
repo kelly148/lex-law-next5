@@ -31,6 +31,7 @@ import {
   type LockedDecision,
   type AdoptLedger,
 } from '../schema.js';
+import { type ConfirmationMode } from '../../../shared/schemas/orchestration.js';
 import {
   InformationRequestRowSchema,
   InformationRequestItemRowSchema,
@@ -628,6 +629,9 @@ export async function insertFeedbackEvaluation(data: {
   iterationNumber: number;
   jobId: string;
   dispositions: unknown;
+  // FOLD-ORCH-1 Inc3b: the evaluator's advisory issue grouping (Inc2a), captured from the same
+  // call. ADDITIVE optional — pre-ORCH callers omit it (=> NULL); degrade-safe (no grouping).
+  issueGroups?: unknown;
 }): Promise<string> {
   const id = data.id ?? uuidv4();
   await db.insert(feedbackEvaluations).values({
@@ -637,6 +641,7 @@ export async function insertFeedbackEvaluation(data: {
     iterationNumber: data.iterationNumber,
     jobId: data.jobId,
     dispositions: data.dispositions,
+    issueGroups: data.issueGroups ?? null,
   });
   return id;
 }
@@ -1045,6 +1050,10 @@ export async function insertAdoptLedgerEntry(data: {
   adoptedText: string;
   adoptedIntoVersionId: string;
   status?: 'active' | 'superseded' | 'resolved' | 'unresolved';
+  // FOLD-ORCH-1 Inc3: the per-item CONFIRMATION MODE (never flattened to "adopted"). ADDITIVE
+  // optional — existing callers omit it (=> NULL, unchanged behavior); orchestration adoption
+  // (Inc3) passes the precise mode (bulk-acknowledged-convergent / individually_* / synthesis).
+  confirmationMode?: ConfirmationMode | null;
 }): Promise<string> {
   const id = data.id ?? uuidv4();
   await db.insert(adoptLedger).values({
@@ -1062,6 +1071,7 @@ export async function insertAdoptLedgerEntry(data: {
     adoptedIntoVersionId: data.adoptedIntoVersionId,
     status: data.status ?? 'unresolved',
     statusSource: 'auto',
+    confirmationMode: data.confirmationMode ?? null,
   });
   return id;
 }

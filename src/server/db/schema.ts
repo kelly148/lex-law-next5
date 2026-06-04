@@ -264,6 +264,11 @@ export const matters = mysqlTable(
     // practiceArea to a pa_instruction_profiles paKey. NULL = no confirmed profile (base prompt).
     // Set/changed only by an explicit attorney act; never silently inferred. Additive, nullable.
     paKey: varchar('paKey', { length: 64 }),
+    // FOLD-ORCH-1 Inc2b (Fork C): per-matter reviewer-lane override (claude/gpt/gemini/grok
+    // booleans). NULL = no override => fall back to the global ReviewerEnablement default.
+    // Additive, nullable; set only by an explicit attorney act (matter.setOrchestrationLanes).
+    // Validated on read by the Zod Wall (MatterRowSchema.orchestrationLanes).
+    orchestrationLanes: json('orchestrationLanes'),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
     // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
     // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.
@@ -888,6 +893,10 @@ export const feedbackEvaluations = mysqlTable(
     jobId: char('jobId', { length: 36 }).notNull(),
     // dispositions: JSON array of { suggestionId, disposition, synthesisBody? }
     dispositions: json('dispositions').notNull(),
+    // FOLD-ORCH-1 Inc3b: the evaluator's advisory cross-reviewer issue grouping (EvaluatorOutput
+    // .issueGroups, Inc2a) captured from the SAME call. The GROUPING SOURCE for consolidation.
+    // Additive, nullable; NULL = no grouping emitted (degrades to all-per-item). Advisory only.
+    issueGroups: json('issueGroups'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => ({
@@ -1134,6 +1143,11 @@ export const adoptLedger = mysqlTable(
     statusSource: mysqlEnum('statusSource', ADOPT_LEDGER_STATUS_SOURCE_VALUES)
       .notNull()
       .default('auto'),
+    // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE — HOW the attorney
+    // confirmed this adoption (bulk-acknowledged-low-severity-convergent vs individually-adopted
+    // vs synthesis-adopted, etc). NEVER flattened to "adopted". Additive, nullable; legacy rows =
+    // NULL. Values mirror CONFIRMATION_MODE_VALUES in shared/schemas/orchestration.ts.
+    confirmationMode: varchar('confirmationMode', { length: 64 }),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -1483,6 +1497,12 @@ export const openItems = mysqlTable(
     // Resolution link to the immutable audit_events decision + rationale.
     resolvedByEventId: char('resolvedByEventId', { length: 36 }),
     resolutionRationale: text('resolutionRationale'),
+    // FOLD-ORCH-1 Inc3 (Fork E): content-preserving payload for a divergent reviewer item — the
+    // per-reviewer positions (severity + rationale excerpt), optional evaluator synthesis, and
+    // source session, so the disagreement survives intact (not collapsed to the summary string).
+    // Additive, nullable JSON; non-orchestration open items leave it NULL. Validated by the
+    // orchestration layer (DivergentOpenItemSchema) on write/read.
+    detail: json('detail'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -1504,6 +1524,64 @@ export const openItems = mysqlTable(
 
 export type OpenItem = typeof openItems.$inferSelect;
 export type NewOpenItem = typeof openItems.$inferInsert;
+
+// ============================================================
+// FOLD-DRAFT-1 — provision_provenance (Increment 1: data core)
+// ============================================================
+// Per draft SECTION (provision), where it came from. Version-anchored. DEFAULT-SAFE: recorded +
+// surfaced, NEVER used to auto-justify outbound legal assertions (mirrors KB private-by-default).
+// recordedBy distinguishes an attorney attribution from a system one. No prompt injection / no
+// auto-use in Increment 1. Enum values mirror ProvisionProvenanceRowSchema (shared Zod Wall).
+// ============================================================
+export const PROVISION_ORIGIN_TYPE_VALUES = [
+  'operative_source',
+  'material',
+  'adopted_suggestion',
+  'template',
+  'attorney_authored',
+  'model_generated',
+  'loi',
+] as const;
+export type ProvisionOriginType = (typeof PROVISION_ORIGIN_TYPE_VALUES)[number];
+
+export const PROVISION_RECORDED_BY_VALUES = ['attorney', 'system'] as const;
+export type ProvisionRecordedBy = (typeof PROVISION_RECORDED_BY_VALUES)[number];
+
+export const provisionProvenance = mysqlTable(
+  'provision_provenance',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    // The provision = an outline section, identified by its order index + title for this version.
+    orderIndex: int('orderIndex').notNull(),
+    sectionTitle: varchar('sectionTitle', { length: 256 }).notNull(),
+    originType: mysqlEnum('originType', PROVISION_ORIGIN_TYPE_VALUES).notNull(),
+    // The source/material/adoption/template id (NULL for attorney_authored / model_generated).
+    originId: varchar('originId', { length: 64 }),
+    originLabel: varchar('originLabel', { length: 512 }),
+    recordedBy: mysqlEnum('recordedBy', PROVISION_RECORDED_BY_VALUES).notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxProvisionProvenanceVersion: index('idx_provision_provenance_version').on(table.versionId),
+    idxProvisionProvenanceDocument: index('idx_provision_provenance_document').on(table.documentId),
+    idxProvisionProvenanceUserMatter: index('idx_provision_provenance_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+
+export type ProvisionProvenance = typeof provisionProvenance.$inferSelect;
+export type NewProvisionProvenance = typeof provisionProvenance.$inferInsert;
 
 // ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)

@@ -25,7 +25,7 @@ import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
-import { parseEvaluatorOutput } from '../llm/parsers/evaluatorOutputParse.js';
+import { parseEvaluatorOutputFull } from '../llm/parsers/evaluatorOutputParse.js';
 import { EvaluatorOutputSchema, SendabilityVerdictSchema } from '../../shared/schemas/phase4b.js';
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
 import { buildSendabilitySystemPrompt, buildSendabilityUserPrompt } from '../llm/prompts/sendabilityPrompt.js';
@@ -73,6 +73,7 @@ import {
   applyRegenerationToAdoptLedger,
 } from '../db/queries/phase4b.js';
 import { assertNotComplete } from './documents.js';
+import { type ConfirmationMode } from '../../shared/schemas/orchestration.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -441,17 +442,20 @@ export const reviewSessionRouter = router({
           // successful multi-reviewer runs. Matches the reviewer_feedback 300 000 ms budget.
           timeoutMs: 300_000,
           txn2Commit: async ({ jobId, output }) => {
-            // Parse + validate the advisory dispositions. parseEvaluatorOutput throws
+            // Parse + validate the FULL advisory output. parseEvaluatorOutputFull throws
             // on malformed/non-conforming output, which fails the evaluator job and
             // runs txn2Revert — persisting NOTHING. Reviewer feedback is unaffected
-            // (the evaluator is purely additive).
-            const dispositions = parseEvaluatorOutput(output);
+            // (the evaluator is purely additive). FOLD-ORCH-1 Inc3b: also capture the
+            // advisory issueGroups (Inc2a) — the GROUPING SOURCE for consolidation —
+            // alongside the dispositions; degrade-safe (absent grouping => NULL).
+            const evaluatorOutput = parseEvaluatorOutputFull(output);
             await insertFeedbackEvaluation({
               userId,
               documentId: input.documentId,
               iterationNumber,
               jobId,
-              dispositions,
+              dispositions: evaluatorOutput.dispositions,
+              issueGroups: evaluatorOutput.issueGroups ?? null,
             });
             void emitTelemetry(
               'generation_completed',
@@ -499,6 +503,19 @@ export const reviewSessionRouter = router({
             note: z.string().nullable(),
             // MR-CAL-7B: optional attorney-edited adopted text (present => modified adopt).
             adoptedText: z.string().optional(),
+            // FOLD-ORCH-1 Inc3c-2: optional per-selection confirmation MODE (e.g. the orchestration
+            // bulk-acknowledge act sets 'bulk_acknowledged_low_severity_convergent'); omitted =>
+            // 'individually_adopted' at adopt time. Persisted in the selections JSON.
+            confirmationMode: z
+              .enum([
+                'bulk_acknowledged_low_severity_convergent',
+                'individually_adopted',
+                'individually_rejected',
+                'individually_deferred',
+                'synthesis_adopted',
+                'divergent_resolved',
+              ])
+              .optional(),
           }),
         ),
       }),
@@ -708,7 +725,7 @@ export const reviewSessionRouter = router({
       // version-anchored). The ledger is separate from selections; selections keep their
       // per-iteration role. status='unresolved' until this regeneration produces a version
       // (applyRegenerationToAdoptLedger flips it to active/superseded after commit).
-      const selWithText = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
+      const selWithText = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string; confirmationMode?: ConfirmationMode }>;
       for (const sel of selWithText) {
         await insertManualSelection({
           userId,
@@ -732,6 +749,10 @@ export const reviewSessionRouter = router({
           originalText: s.body,
           adoptedText: edited ? sel.adoptedText! : s.body,
           adoptedIntoVersionId,
+          // FOLD-ORCH-1 Inc3c-2: record HOW this was confirmed (never flattened to "adopted").
+          // A normal per-suggestion checkbox is an individual adoption; the orchestration
+          // bulk-acknowledge act tags its selections 'bulk_acknowledged_low_severity_convergent'.
+          confirmationMode: sel.confirmationMode ?? 'individually_adopted',
         });
         void emitTelemetry(
           'adopt_ledger_entry_created',
@@ -869,7 +890,7 @@ export const reviewSessionRouter = router({
 
       // Commit all selections (R5: positive-selection only)
       // MR-CAL-7B: additively record adopt_ledger entries (same path as regenerate).
-      const selWithTextSingle = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
+      const selWithTextSingle = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string; confirmationMode?: ConfirmationMode }>;
       for (const sel of selWithTextSingle) {
         await insertManualSelection({
           userId,
@@ -893,6 +914,8 @@ export const reviewSessionRouter = router({
           originalText: s.body,
           adoptedText: edited ? sel.adoptedText! : s.body,
           adoptedIntoVersionId: adoptedIntoVersionIdSingle,
+          // FOLD-ORCH-1 Inc3c-2: record the confirmation MODE (default individual adoption).
+          confirmationMode: sel.confirmationMode ?? 'individually_adopted',
         });
         void emitTelemetry(
           'adopt_ledger_entry_created',
