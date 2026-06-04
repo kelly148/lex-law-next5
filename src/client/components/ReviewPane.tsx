@@ -33,6 +33,7 @@ import { deriveCompletionState } from '../utils/reviewState.js';
 import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/feedbackCardDisplay.js';
 import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
+import LddDiffPanel from './LddDiffPanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
@@ -1379,6 +1380,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       {/* FOLD-DRAFT-1: provision provenance (record + surface where each section came from) */}
       <PanelErrorBoundary label="Provision provenance">
         <ProvisionProvenancePanel documentId={documentId} />
+      </PanelErrorBoundary>
+
+      {/* FOLD-DRAFT-1 / LDD: LOI-vs-draft key-term check (flag value drift; never edits the draft) */}
+      <PanelErrorBoundary label="LOI-vs-draft check">
+        <LddDiffPanel documentId={documentId} />
       </PanelErrorBoundary>
 
       {/* History section — MR-2 §S2c */}
