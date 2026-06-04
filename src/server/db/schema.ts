@@ -1139,6 +1139,11 @@ export const adoptLedger = mysqlTable(
     statusSource: mysqlEnum('statusSource', ADOPT_LEDGER_STATUS_SOURCE_VALUES)
       .notNull()
       .default('auto'),
+    // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE — HOW the attorney
+    // confirmed this adoption (bulk-acknowledged-low-severity-convergent vs individually-adopted
+    // vs synthesis-adopted, etc). NEVER flattened to "adopted". Additive, nullable; legacy rows =
+    // NULL. Values mirror CONFIRMATION_MODE_VALUES in shared/schemas/orchestration.ts.
+    confirmationMode: varchar('confirmationMode', { length: 64 }),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -1488,6 +1493,12 @@ export const openItems = mysqlTable(
     // Resolution link to the immutable audit_events decision + rationale.
     resolvedByEventId: char('resolvedByEventId', { length: 36 }),
     resolutionRationale: text('resolutionRationale'),
+    // FOLD-ORCH-1 Inc3 (Fork E): content-preserving payload for a divergent reviewer item — the
+    // per-reviewer positions (severity + rationale excerpt), optional evaluator synthesis, and
+    // source session, so the disagreement survives intact (not collapsed to the summary string).
+    // Additive, nullable JSON; non-orchestration open items leave it NULL. Validated by the
+    // orchestration layer (DivergentOpenItemSchema) on write/read.
+    detail: json('detail'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()

@@ -33,6 +33,11 @@ export const OpenItemRowSchema = z.object({
   lastSeenAt: z.date().nullable(),
   resolvedByEventId: z.string().uuid().nullable(),
   resolutionRationale: z.string().nullable(),
+  // FOLD-ORCH-1 Inc3 (Fork E): content-preserving JSON payload for a divergent reviewer item
+  // (per-reviewer positions, optional evaluator synthesis, source session — a DivergentOpenItem).
+  // ADDITIVE: generic/nullable here; the orchestration layer validates the DivergentOpenItem
+  // shape on write/read. NULL for all non-orchestration open items.
+  detail: z.unknown().nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
