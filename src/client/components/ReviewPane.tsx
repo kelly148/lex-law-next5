@@ -1112,7 +1112,9 @@ interface ActiveSessionViewProps {
   onClose: () => void;
 }
 
-function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionViewProps): React.ReactElement {
+// Exported for the full-tree render test (the review pane that crashed with React #310). Internal
+// to ReviewPane otherwise.
+export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionViewProps): React.ReactElement {
   const utils = trpc.useUtils();
   const [editingInstructions, setEditingInstructions] = useState(false);
   // MR-4 P2: regenError state for SUGGESTION_NOT_RESOLVED and other regenerate errors.
@@ -1202,6 +1204,14 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
     }
   );
 
+  // MR-CAL-6B: active locked decisions for this document, used to mark already-locked
+  // suggestions in the cards and to render the Locked Decisions panel.
+  // HOISTED ABOVE the isLoading/!data early returns below: calling this useQuery AFTER those
+  // returns was a conditional-hook violation — when isLoading flips true->false the hook count
+  // changes and React throws #310 (it blanked the whole review view; FOLD-ORCH-1 incident). All
+  // hooks MUST run before any early return.
+  const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
+
   if (isLoading) {
     return <div className="p-6 text-center text-gray-400 text-sm">Loading review session…</div>;
   }
@@ -1213,9 +1223,6 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
   const { session, feedback, evaluation } = data;
   const evalDispositions = evaluation?.dispositions ?? null;
 
-  // MR-CAL-6B: active locked decisions for this document, used to mark already-locked
-  // suggestions in the cards and to render the Locked Decisions panel.
-  const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
   const lockedSuggestionIds = new Set(
     (lockedData?.lockedDecisions ?? [])
       .filter((d) => d.status === 'active' && d.sourceSuggestionId)
