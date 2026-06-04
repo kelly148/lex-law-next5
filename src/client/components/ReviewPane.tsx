@@ -31,6 +31,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { deriveCompletionState } from '../utils/reviewState.js';
 import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/feedbackCardDisplay.js';
+import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -1346,6 +1347,13 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
           />
         )}
       </div>
+
+      {/* FOLD-ORCH-1 Inc3c: multi-model orchestration consolidation (only meaningful with >1
+          reviewer). Read-only surface + idempotent divergent open-item registration; the labor,
+          never the judgment. */}
+      {session.selectedReviewers.length > 1 && completionState === 'completed_with_feedback' && (
+        <OrchestrationConsolidationPanel reviewSessionId={sessionId} />
+      )}
 
       {/* MR-CAL-6B: locked decisions for this document */}
       <LockedDecisionsSection documentId={documentId} />
