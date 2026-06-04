@@ -1584,6 +1584,60 @@ export type ProvisionProvenance = typeof provisionProvenance.$inferSelect;
 export type NewProvisionProvenance = typeof provisionProvenance.$inferInsert;
 
 // ============================================================
+// FOLD-DRAFT-1 / LDD — ldd_key_term (Increment 1: data core)
+// ============================================================
+// The "key-term dictionary" behind the LDD (LOI-vs-draft diff): per document+version, the defined
+// terms whose agreed VALUE must stay consistent between the operative source (LOI / material) and
+// the current draft. DEFAULT-SAFE / READ-ONLY: recorded + surfaced and (later increment) compared
+// to FLAG drift; never edits the draft, never auto-justifies an outbound assertion. recordedBy
+// distinguishes an attorney entry from a system one. Enum values mirror LddKeyTermRowSchema (shared
+// Zod Wall). The sourceType<->sourceId invariant is a later-increment record-time rule.
+// ============================================================
+export const LDD_KEY_TERM_SOURCE_TYPE_VALUES = [
+  'loi',
+  'operative_source',
+  'material',
+  'attorney_specified',
+] as const;
+export type LddKeyTermSourceType = (typeof LDD_KEY_TERM_SOURCE_TYPE_VALUES)[number];
+
+export const LDD_KEY_TERM_RECORDED_BY_VALUES = ['attorney', 'system'] as const;
+export type LddKeyTermRecordedBy = (typeof LDD_KEY_TERM_RECORDED_BY_VALUES)[number];
+
+export const lddKeyTerm = mysqlTable(
+  'ldd_key_term',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    // The defined/operative term whose value must stay consistent (e.g. "Governing Law").
+    termLabel: varchar('termLabel', { length: 256 }).notNull(),
+    // The agreed value for that term, taken from the operative source / LOI (e.g. "Virginia").
+    expectedValue: text('expectedValue').notNull(),
+    sourceType: mysqlEnum('sourceType', LDD_KEY_TERM_SOURCE_TYPE_VALUES).notNull(),
+    // The LOI/source/material id (NULL for attorney_specified, which has no concrete source).
+    sourceId: varchar('sourceId', { length: 64 }),
+    notes: text('notes'),
+    recordedBy: mysqlEnum('recordedBy', LDD_KEY_TERM_RECORDED_BY_VALUES).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxLddKeyTermVersion: index('idx_ldd_key_term_version').on(table.versionId),
+    idxLddKeyTermDocument: index('idx_ldd_key_term_document').on(table.documentId),
+    idxLddKeyTermUserMatter: index('idx_ldd_key_term_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+export type LddKeyTerm = typeof lddKeyTerm.$inferSelect;
+export type NewLddKeyTerm = typeof lddKeyTerm.$inferInsert;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked
