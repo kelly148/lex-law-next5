@@ -41,13 +41,43 @@ export const EvaluatorDispositionSchema = z.object({
 export type EvaluatorDisposition = z.infer<typeof EvaluatorDispositionSchema>;
 
 /**
+ * FOLD-ORCH-1 (Increment 2): the evaluator's ADVISORY grouping of reviewer suggestions that
+ * address the same underlying issue, used as the GROUPING SOURCE for orchestration consolidation.
+ *
+ * Named-change discipline (triad disposition, Fork B): the evaluator may LABEL membership but
+ * NEVER CONSTITUTES convergence. The deterministic engine (consolidate.ts) re-derives the
+ * authoritative count from distinct SUCCESSFUL reviewer roles in the real persisted feedback —
+ * so an evaluator group that claims agreement but maps to <2 actual successful reviewers stays
+ * single_reviewer (per-item). `reviewerRoles` here is the evaluator's CLAIM (a label), not the
+ * count. `divergent` lets the evaluator FLAG disagreement (the safe direction -> per-item); a
+ * MISSING flag never forces convergence (the engine independently flags severity-disagreement).
+ * `structuralLowRiskCleanup` is the positive STRUCTURAL low-risk classification Fork A requires.
+ * Entirely OPTIONAL and ADDITIVE: absent/malformed grouping degrades to all-per-item.
+ */
+export const EvaluatorIssueGroupSchema = z.object({
+  issueId: z.string(),
+  suggestionIds: z.array(z.string()).min(1),
+  reviewerRoles: z.array(z.string()).optional(), // evaluator's CLAIMED membership (label only)
+  severity: z.string().optional(),
+  divergent: z.boolean().optional(),
+  structuralLowRiskCleanup: z.boolean().optional(),
+  synthesisBody: z.string().optional(),
+});
+export type EvaluatorIssueGroup = z.infer<typeof EvaluatorIssueGroupSchema>;
+
+/**
  * MR-CAL-5C: the evaluator's structured LLM output contract. The evaluator emits one
  * advisory disposition per reviewer suggestionId. This is the structuredOutputSchema
  * enforced on the evaluator LLM call and the shape parsed before persistence via
  * insertFeedbackEvaluation (dispositions column). Advisory only — never a decision.
+ *
+ * FOLD-ORCH-1 Inc2: `issueGroups` is an ADDITIVE, OPTIONAL grouping projection. The existing
+ * `dispositions` contract is unchanged — pre-ORCH evaluator outputs (no issueGroups) still parse,
+ * and the dispositions-persistence path is untouched.
  */
 export const EvaluatorOutputSchema = z.object({
   dispositions: z.array(EvaluatorDispositionSchema),
+  issueGroups: z.array(EvaluatorIssueGroupSchema).optional(),
 });
 export type EvaluatorOutput = z.infer<typeof EvaluatorOutputSchema>;
 
