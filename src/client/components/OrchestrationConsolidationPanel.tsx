@@ -29,19 +29,59 @@ export default function OrchestrationConsolidationPanel({
 
   const utils = trpc.useUtils();
   const consolidation = trpc.orchestration.getConsolidation.useQuery({ reviewSessionId }, { enabled: open });
+  // Current session selections — bulk-confirm MERGES into these (never clobbers per-item picks).
+  const sessionQuery = trpc.reviewSession.get.useQuery({ sessionId: reviewSessionId }, { enabled: open });
 
   const registerDivergent = useGuardedMutation(
     (input: { reviewSessionId: string }) => utils.client.orchestration.registerDivergentItems.mutate(input),
     { onSuccess: () => { void utils.orchestration.getConsolidation.invalidate({ reviewSessionId }); } },
   );
+  const updateSelection = useGuardedMutation(
+    (input: {
+      sessionId: string;
+      selections: Array<{
+        suggestionId: string;
+        note: string | null;
+        adoptedText?: string;
+        confirmationMode?:
+          | 'bulk_acknowledged_low_severity_convergent'
+          | 'individually_adopted'
+          | 'individually_rejected'
+          | 'individually_deferred'
+          | 'synthesis_adopted'
+          | 'divergent_resolved';
+      }>;
+    }) => utils.client.reviewSession.updateSelection.mutate(input),
+    { onSuccess: () => { void utils.reviewSession.get.invalidate({ sessionId: reviewSessionId }); } },
+  );
 
   const data = consolidation.data;
   const groups = data?.groups ?? [];
   const divergentItems = data?.divergentItems ?? [];
-  const bulkEligible = groups.filter((g) => g.classification === 'convergent_low_risk');
+  const bulkEligibleGroups = data?.bulkEligibleGroups ?? [];
   const perItem = groups.filter((g) => g.bucket === 'per_item' && g.classification !== 'divergent');
 
+  const currentSelections = sessionQuery.data?.session.selections ?? [];
+  const selectedIds = new Set(currentSelections.map((s) => s.suggestionId));
+
   const toggle = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // Fork A: confirm a convergent+low-risk group ONLY after expand-to-see (never one-click). This
+  // SELECTS its members for the next regeneration, tagged with the bulk confirmation mode; the
+  // adoption itself (and the ledgered mode) lands at the existing Regenerate. The attorney is final.
+  const confirmGroup = (members: Array<{ suggestionId: string }>) => {
+    const existing = currentSelections.map((s) => ({
+      suggestionId: s.suggestionId,
+      note: s.note,
+      ...(s.adoptedText !== undefined ? { adoptedText: s.adoptedText } : {}),
+      ...(s.confirmationMode !== undefined ? { confirmationMode: s.confirmationMode } : {}),
+    }));
+    const additions = members
+      .filter((m) => !selectedIds.has(m.suggestionId))
+      .map((m) => ({ suggestionId: m.suggestionId, note: null, confirmationMode: 'bulk_acknowledged_low_severity_convergent' as const }));
+    if (additions.length === 0) return;
+    updateSelection.mutate({ sessionId: reviewSessionId, selections: [...existing, ...additions] });
+  };
 
   return (
     <div className="border-t border-gray-200">
@@ -72,38 +112,57 @@ export default function OrchestrationConsolidationPanel({
                 </span>
               </div>
 
-              {/* Convergent + low-risk — eligible for grouped confirmation (Inc3c-2 wires the act). */}
+              {/* Convergent + low-risk — eligible for grouped confirmation (Fork A: expand-to-see). */}
               <section>
                 <div className="flex items-center gap-1.5 mb-2">
                   <GitMerge className="w-4 h-4 text-emerald-600" />
                   <h4 className="text-xs font-semibold text-gray-700">
-                    Convergent &amp; low-risk — eligible for grouped confirmation ({bulkEligible.length})
+                    Convergent &amp; low-risk — eligible for grouped confirmation ({bulkEligibleGroups.length})
                   </h4>
                 </div>
-                {bulkEligible.length === 0 ? (
+                {bulkEligibleGroups.length === 0 ? (
                   <p className="text-xs text-gray-400">None this run.</p>
                 ) : (
                   <ul className="space-y-1">
-                    {bulkEligible.map((g) => (
-                      <li key={g.issueId} className="border border-gray-200 rounded">
-                        <button
-                          onClick={() => toggle(g.issueId)}
-                          className="flex items-center gap-2 w-full px-2 py-1.5 text-left hover:bg-gray-50"
-                        >
-                          <span className="text-xs font-medium text-gray-700 flex-1">
-                            {g.severity || 'unspecified'} · {g.agreedCount} reviewers agreed
-                          </span>
-                          {expanded[g.issueId] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
-                        {expanded[g.issueId] && (
-                          <p className="px-2 pb-2 text-[11px] text-gray-500">{g.reason}</p>
-                        )}
-                      </li>
-                    ))}
+                    {bulkEligibleGroups.map((g) => {
+                      const allSelected = g.members.length > 0 && g.members.every((m) => selectedIds.has(m.suggestionId));
+                      return (
+                        <li key={g.issueId} className="border border-gray-200 rounded">
+                          <button
+                            onClick={() => toggle(g.issueId)}
+                            className="flex items-center gap-2 w-full px-2 py-1.5 text-left hover:bg-gray-50"
+                          >
+                            <span className="text-xs font-medium text-gray-700 flex-1">
+                              {g.severity || 'unspecified'} · {g.agreedCount} reviewers agreed · {g.members.length} item{g.members.length === 1 ? '' : 's'}
+                            </span>
+                            {allSelected && <span className="text-[10px] text-emerald-700">selected</span>}
+                            {expanded[g.issueId] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </button>
+                          {expanded[g.issueId] && (
+                            <div className="px-2 pb-2 space-y-1">
+                              <ul className="space-y-0.5">
+                                {g.members.map((m) => (
+                                  <li key={m.suggestionId} className="text-[11px] text-gray-600">
+                                    <span className="font-medium">{m.reviewerRole}</span>: {m.position}
+                                  </li>
+                                ))}
+                              </ul>
+                              <button
+                                onClick={() => confirmGroup(g.members)}
+                                disabled={allSelected || updateSelection.isPending}
+                                className="px-2.5 py-1 text-[11px] bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {allSelected ? 'Selected for regeneration' : 'Confirm group (select for regeneration)'}
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 <p className="mt-1 text-[11px] text-gray-400">
-                  Grouped confirmation requires expanding each item first; it is never a one-click bulk adopt. The attorney is always the final decision-maker.
+                  Confirmation appears only after you expand a group to see its items — never a one-click bulk adopt, no typed attestation. Confirming selects the items for your next regeneration (recorded as a grouped acknowledgment); the attorney is always the final decision-maker.
                 </p>
               </section>
 
