@@ -1526,6 +1526,64 @@ export type OpenItem = typeof openItems.$inferSelect;
 export type NewOpenItem = typeof openItems.$inferInsert;
 
 // ============================================================
+// FOLD-DRAFT-1 — provision_provenance (Increment 1: data core)
+// ============================================================
+// Per draft SECTION (provision), where it came from. Version-anchored. DEFAULT-SAFE: recorded +
+// surfaced, NEVER used to auto-justify outbound legal assertions (mirrors KB private-by-default).
+// recordedBy distinguishes an attorney attribution from a system one. No prompt injection / no
+// auto-use in Increment 1. Enum values mirror ProvisionProvenanceRowSchema (shared Zod Wall).
+// ============================================================
+export const PROVISION_ORIGIN_TYPE_VALUES = [
+  'operative_source',
+  'material',
+  'adopted_suggestion',
+  'template',
+  'attorney_authored',
+  'model_generated',
+  'loi',
+] as const;
+export type ProvisionOriginType = (typeof PROVISION_ORIGIN_TYPE_VALUES)[number];
+
+export const PROVISION_RECORDED_BY_VALUES = ['attorney', 'system'] as const;
+export type ProvisionRecordedBy = (typeof PROVISION_RECORDED_BY_VALUES)[number];
+
+export const provisionProvenance = mysqlTable(
+  'provision_provenance',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    // The provision = an outline section, identified by its order index + title for this version.
+    orderIndex: int('orderIndex').notNull(),
+    sectionTitle: varchar('sectionTitle', { length: 256 }).notNull(),
+    originType: mysqlEnum('originType', PROVISION_ORIGIN_TYPE_VALUES).notNull(),
+    // The source/material/adoption/template id (NULL for attorney_authored / model_generated).
+    originId: varchar('originId', { length: 64 }),
+    originLabel: varchar('originLabel', { length: 512 }),
+    recordedBy: mysqlEnum('recordedBy', PROVISION_RECORDED_BY_VALUES).notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxProvisionProvenanceVersion: index('idx_provision_provenance_version').on(table.versionId),
+    idxProvisionProvenanceDocument: index('idx_provision_provenance_document').on(table.documentId),
+    idxProvisionProvenanceUserMatter: index('idx_provision_provenance_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+
+export type ProvisionProvenance = typeof provisionProvenance.$inferSelect;
+export type NewProvisionProvenance = typeof provisionProvenance.$inferInsert;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked
