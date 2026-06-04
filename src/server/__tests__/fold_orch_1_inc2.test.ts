@@ -85,7 +85,7 @@ describe('FOLD-ORCH-1 Inc2 — buildOrchestrationGroups grounding', () => {
       { issueId: 'i1', suggestionIds: ['c1', 'zzz', 'g1'], severity: 'PRECISION' },
     ];
     const [grp] = buildOrchestrationGroups({ issueGroups: groups, feedbackRows: feedback() });
-    expect(grp!.positions.map((p) => p.suggestionId).sort()).toEqual(['c1', 'g1']);
+    expect(grp!.positions!.map((p) => p.suggestionId).sort()).toEqual(['c1', 'g1']);
   });
 
   it('duplicate suggestionIds in a claim are de-duplicated', () => {
