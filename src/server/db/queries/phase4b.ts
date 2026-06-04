@@ -31,6 +31,7 @@ import {
   type LockedDecision,
   type AdoptLedger,
 } from '../schema.js';
+import { type ConfirmationMode } from '../../../shared/schemas/orchestration.js';
 import {
   InformationRequestRowSchema,
   InformationRequestItemRowSchema,
@@ -1045,6 +1046,10 @@ export async function insertAdoptLedgerEntry(data: {
   adoptedText: string;
   adoptedIntoVersionId: string;
   status?: 'active' | 'superseded' | 'resolved' | 'unresolved';
+  // FOLD-ORCH-1 Inc3: the per-item CONFIRMATION MODE (never flattened to "adopted"). ADDITIVE
+  // optional — existing callers omit it (=> NULL, unchanged behavior); orchestration adoption
+  // (Inc3) passes the precise mode (bulk-acknowledged-convergent / individually_* / synthesis).
+  confirmationMode?: ConfirmationMode | null;
 }): Promise<string> {
   const id = data.id ?? uuidv4();
   await db.insert(adoptLedger).values({
@@ -1062,6 +1067,7 @@ export async function insertAdoptLedgerEntry(data: {
     adoptedIntoVersionId: data.adoptedIntoVersionId,
     status: data.status ?? 'unresolved',
     statusSource: 'auto',
+    confirmationMode: data.confirmationMode ?? null,
   });
   return id;
 }

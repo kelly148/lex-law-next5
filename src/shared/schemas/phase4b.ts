@@ -351,6 +351,21 @@ export const AdoptLedgerRowSchema = z.object({
   producedVersionId: z.string().uuid().nullable(),
   status: z.enum(['active', 'superseded', 'resolved', 'unresolved']),
   statusSource: z.enum(['auto', 'attorney']),
+  // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE — never flattened to
+  // "adopted". ADDITIVE .nullable().optional() so legacy rows / pre-ORCH adoptions parse. Literals
+  // are inlined (repo convention) and MUST mirror CONFIRMATION_MODE_VALUES in orchestration.ts;
+  // phase4b cannot import orchestration.ts (orchestration imports phase4b — would be circular).
+  confirmationMode: z
+    .enum([
+      'bulk_acknowledged_low_severity_convergent',
+      'individually_adopted',
+      'individually_rejected',
+      'individually_deferred',
+      'synthesis_adopted',
+      'divergent_resolved',
+    ])
+    .nullable()
+    .optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
