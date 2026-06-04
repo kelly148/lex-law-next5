@@ -33,6 +33,7 @@ import { deriveCompletionState } from '../utils/reviewState.js';
 import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/feedbackCardDisplay.js';
 import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
+import PanelErrorBoundary from './PanelErrorBoundary.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -1350,11 +1351,14 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
       </div>
 
       {/* FOLD-ORCH-1 Inc3c: multi-model orchestration consolidation (only meaningful with >1
-          reviewer). Read-only surface + idempotent divergent open-item registration; the labor,
-          never the judgment. */}
-      {session.selectedReviewers.length > 1 && completionState === 'completed_with_feedback' && (
-        <OrchestrationConsolidationPanel reviewSessionId={sessionId} />
-      )}
+          reviewer). Mounted UNCONDITIONALLY and gated inside via `visible` (stable hook order),
+          and wrapped in an error boundary so a panel bug can never blank the review view. */}
+      <PanelErrorBoundary label="Multi-model orchestration">
+        <OrchestrationConsolidationPanel
+          reviewSessionId={sessionId}
+          visible={session.selectedReviewers.length > 1 && completionState === 'completed_with_feedback'}
+        />
+      </PanelErrorBoundary>
 
       {/* MR-CAL-6B: locked decisions for this document */}
       <LockedDecisionsSection documentId={documentId} />
@@ -1366,7 +1370,9 @@ function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionView
       <SendabilitySection documentId={documentId} />
 
       {/* FOLD-DRAFT-1: provision provenance (record + surface where each section came from) */}
-      <ProvisionProvenancePanel documentId={documentId} />
+      <PanelErrorBoundary label="Provision provenance">
+        <ProvisionProvenancePanel documentId={documentId} />
+      </PanelErrorBoundary>
 
       {/* History section — MR-2 §S2c */}
       <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />

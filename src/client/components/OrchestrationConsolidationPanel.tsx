@@ -19,11 +19,15 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 
 interface OrchestrationConsolidationPanelProps {
   reviewSessionId: string;
+  /** Orchestration is only meaningful for a completed multi-reviewer run. Gated AFTER hooks
+   *  (never via a conditional mount) so the hook order is always stable. */
+  visible: boolean;
 }
 
 export default function OrchestrationConsolidationPanel({
   reviewSessionId,
-}: OrchestrationConsolidationPanelProps): React.ReactElement {
+  visible,
+}: OrchestrationConsolidationPanelProps): React.ReactElement | null {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -54,6 +58,10 @@ export default function OrchestrationConsolidationPanel({
     }) => utils.client.reviewSession.updateSelection.mutate(input),
     { onSuccess: () => { void utils.reviewSession.get.invalidate({ sessionId: reviewSessionId }); } },
   );
+
+  // All hooks above run every render (stable order). Gate visibility AFTER the hooks — never via a
+  // conditional mount in the parent — so orchestration only shows for a completed multi-reviewer run.
+  if (!visible) return null;
 
   const data = consolidation.data;
   const groups = data?.groups ?? [];
