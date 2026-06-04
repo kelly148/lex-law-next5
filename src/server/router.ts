@@ -33,6 +33,7 @@ import { sharedContextRouter } from './procedures/sharedContext.js';
 import { reusableArtifactRouter } from './procedures/reusableArtifacts.js';
 import { matterIntakeRouter } from './procedures/matterIntake.js';
 import { practiceKbRouter } from './procedures/practiceKb.js';
+import { orchestrationRouter } from './procedures/orchestration.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -58,6 +59,9 @@ export const appRouter = router({
   matterIntake: matterIntakeRouter,
   // FOLD-KB-1 — Practice Knowledge Base (memos + per-PA prompts; surface-not-inject).
   practiceKb: practiceKbRouter,
+  // FOLD-ORCH-1 — multi-model orchestration consolidation (read API + idempotent divergent
+  // open-item registration; automate the labor, never the judgment).
+  orchestration: orchestrationRouter,
 });
 
 export type AppRouter = typeof appRouter;
