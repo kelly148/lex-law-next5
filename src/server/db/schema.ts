@@ -1895,8 +1895,15 @@ export const matterParties = mysqlTable(
     // normalizedName: lower/trim/collapse-ws/strip-punct — the conflicts match key.
     normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
     partyType: mysqlEnum('partyType', MATTER_PARTY_TYPE_VALUES).notNull().default('unknown'),
-    // source: where the party came from (e.g. 'attorney','intake','imported').
+    // source: where the party came from. 'attorney'/'intake'/'imported' (manual);
+    // 'auto_from_clientName' (R2-PRE-CONFLICT-1 Inc 2 auto-create); 'migration' (Inc 5 retroactive).
     source: varchar('source', { length: 64 }).notNull().default('attorney'),
+    // R2-PRE-CONFLICT-1 §3F: explicit-attorney-confirmation lifecycle. Existing rows default TRUE
+    // (attorney-added). Auto-created/migration parties are confirmed=FALSE: screened immediately
+    // but NOT clearance-satisfying until the attorney confirms identity (an explicit, logged act).
+    confirmed: boolean('confirmed').notNull().default(true),
+    confirmedAt: timestamp('confirmedAt'),
+    confirmedByUserId: char('confirmedByUserId', { length: 36 }),
     // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity — unused in L0-1.
     aliasOfPartyId: char('aliasOfPartyId', { length: 36 }),
     externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
@@ -1927,6 +1934,9 @@ export const conflictChecks = mysqlTable(
     matterId: char('matterId', { length: 36 }).notNull(),
     status: mysqlEnum('status', CONFLICT_CHECK_STATUS_VALUES).notNull().default('clear'),
     runAt: timestamp('runAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    // R2-PRE-CONFLICT-1 §3D: snapshot of the party-id set this check evaluated (JSON array). A
+    // party mutation after a terminal check invalidates the clear (re-check required). Set in Inc 4.
+    checkedPartyIds: json('checkedPartyIds'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()

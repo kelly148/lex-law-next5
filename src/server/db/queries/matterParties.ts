@@ -49,8 +49,14 @@ export async function insertMatterParty(data: {
   displayName: string;
   partyType?: MatterPartyType;
   source?: string;
+  // R2-PRE-CONFLICT-1 §3F: confirmation state at insert. Defaults TRUE (a manual attorney add is
+  // confirmed). Auto-create (Inc 2) and migration (Inc 5) pass confirmed=false (screened-but-not-
+  // vouched). confirmedByUserId defaults to the inserting attorney when confirmed.
+  confirmed?: boolean;
+  confirmedByUserId?: string | null;
 }): Promise<MatterPartyRow> {
   const id = data.id ?? uuidv4();
+  const confirmed = data.confirmed ?? true;
   await db.insert(matterParties).values({
     id,
     userId: data.userId,
@@ -60,6 +66,9 @@ export async function insertMatterParty(data: {
     normalizedName: normalizeName(data.displayName),
     partyType: data.partyType ?? 'unknown',
     source: data.source ?? 'attorney',
+    confirmed,
+    confirmedAt: confirmed ? new Date() : null,
+    confirmedByUserId: confirmed ? (data.confirmedByUserId ?? data.userId) : null,
   });
   const row = await getMatterPartyById(id, data.userId);
   if (!row) throw new Error(`insertMatterParty: row not found after insert (id=${id})`);
