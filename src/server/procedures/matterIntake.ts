@@ -43,6 +43,7 @@ import { suggestAnalysisLane } from '../intake/modelLane.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { AnalysisGenerationSchema, parseGeneratedAnalysis } from '../intake/analysisGenerationParse.js';
+import { UNCONFIRMED_PARTY_PROMPT_MARKER } from '../../shared/schemas/layer0.js';
 
 const ROLE = z.enum(['client', 'adverse', 'related', 'other']);
 const PARTY_TYPE = z.enum(['person', 'entity', 'unknown']);
@@ -223,8 +224,13 @@ export const matterIntakeRouter = router({
           ].join('\n'),
           userPrompt: [
             `Matter: ${matter.title}`,
+            // R2-PRE-CONFLICT-1 Inc 3c (constraint G): an UNCONFIRMED party is screened but NOT
+            // attorney-vouched — mark it with the uniform marker so the LLM does not launder an
+            // unverified identity into asserted fact. Confirmed parties are presented plainly.
             parties.length > 0
-              ? `\nParties:\n${parties.map((p) => `- ${p.role}: ${p.displayName}`).join('\n')}`
+              ? `\nParties:\n${parties
+                  .map((p) => (p.confirmed ? `- ${p.role}: ${p.displayName}` : `- ${p.role}: ${p.displayName} ${UNCONFIRMED_PARTY_PROMPT_MARKER}`))
+                  .join('\n')}`
               : '\n(No parties recorded yet.)',
           ].join('\n'),
           temperature: 0.2,

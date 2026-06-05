@@ -11,7 +11,7 @@
  * addParty / runConflictCheck / dispositionHit / generateAnalysis / lockPlan (mutations).
  */
 import React, { useState } from 'react';
-import { ShieldAlert, ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, UserPlus, ScanSearch, Lock } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, UserPlus, ScanSearch, Lock, BadgeCheck } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -34,6 +34,9 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
   const parties = trpc.matterIntake.listParties.useQuery({ matterId }, { enabled: open });
   const conflicts = trpc.matterIntake.getLatestConflicts.useQuery({ matterId }, { enabled: open });
   const analysis = trpc.matterIntake.getAnalysis.useQuery({ matterId }, { enabled: open });
+  // R2-PRE-CONFLICT-1 Inc 3c: the matter's clientName feeds the constraint-B side-by-side
+  // name advisory at confirm time. (All hooks run unconditionally, before any return — #310 guard.)
+  const matter = trpc.matter.get.useQuery({ matterId }, { enabled: open });
 
   const invalidate = () => {
     void utils.matterIntake.listParties.invalidate({ matterId });
@@ -59,6 +62,12 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
   );
   const lockPlan = useGuardedMutation(
     (input: { analysisId: string; rationale?: string | null }) => utils.client.matterIntake.lockPlan.mutate(input),
+    { onSuccess: invalidate },
+  );
+  // R2-PRE-CONFLICT-1 Inc 3c (BLOCK #5): the first-class, immutably-logged confirm act. attestation=true
+  // is the attorney's side-by-side clientName-vs-party acknowledgment (§3B). Server records the audit.
+  const confirmParty = useGuardedMutation(
+    (input: { partyId: string; attestation?: boolean }) => utils.client.matterIntake.confirmParty.mutate(input),
     { onSuccess: invalidate },
   );
 
@@ -99,12 +108,56 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
               </button>
             </div>
             <div className="space-y-1">
-              {(parties.data ?? []).map((p) => (
-                <div key={p.id} className="flex items-center gap-2 text-xs px-2 py-1 bg-gray-50 rounded">
-                  <span className="px-1 rounded bg-gray-200 text-gray-700">{p.role}</span>
-                  <span className="flex-1 truncate text-gray-700">{p.displayName}</span>
-                </div>
-              ))}
+              {(parties.data ?? []).map((p) => {
+                // Treat ONLY an explicit confirmed===true as vouched (a pre-migration/undefined row is
+                // unconfirmed — screened, not yet attorney-verified). Constraint G: an unconfirmed row is
+                // never displayed as an attorney-asserted party.
+                const isConfirmed = p.confirmed === true;
+                const clientName = (matter.data?.clientName ?? '').trim();
+                // Constraint B: SOFT, OVERRIDABLE name-mismatch advisory at confirm time (NEVER a gate).
+                // Advisory-grade normalization — the canonical gate-grade normalizeName is server-side;
+                // this display check is deliberately lenient (real legal names produce false-negatives, §3B).
+                const advisoryNormalize = (s: string): string =>
+                  s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+                const nameMismatch =
+                  p.role === 'client' && clientName.length > 0 && advisoryNormalize(p.displayName) !== advisoryNormalize(clientName);
+                return (
+                  <div key={p.id} className="text-xs px-2 py-1 bg-gray-50 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className="px-1 rounded bg-gray-200 text-gray-700">{p.role}</span>
+                      <span className="flex-1 truncate text-gray-700">{p.displayName}</span>
+                      <span
+                        className={clsx(
+                          'px-1 rounded text-[10px] flex items-center gap-1',
+                          isConfirmed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800',
+                        )}
+                      >
+                        {isConfirmed ? (<><BadgeCheck className="w-3 h-3" /> confirmed</>) : 'unconfirmed — screened, not yet verified'}
+                      </span>
+                      {!isConfirmed && (
+                        <button
+                          onClick={() => confirmParty.mutate({ partyId: p.id, attestation: true })}
+                          disabled={confirmParty.isPending}
+                          title="Confirm this party's identity — the explicit attorney judgment required before conflicts clearance"
+                          className="flex items-center gap-1 px-2 py-0.5 text-[11px] border border-firm-navy text-firm-navy rounded disabled:opacity-40"
+                        >
+                          <BadgeCheck className="w-3 h-3" /> Confirm
+                        </button>
+                      )}
+                    </div>
+                    {!isConfirmed && p.role === 'client' && clientName.length > 0 && (
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        Matter client name: <span className="text-gray-700">{clientName}</span> · party: <span className="text-gray-700">{p.displayName}</span>
+                        {nameMismatch && (
+                          <span className="block text-amber-700">
+                            Advisory: this party name differs from the matter client name. Confirm only if this party correctly represents the client — you may override.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {(parties.data ?? []).length === 0 && <p className="text-xs text-gray-400">No parties yet — add the client and any adverse/related parties before the conflicts check.</p>}
             </div>
           </section>
