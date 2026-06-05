@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (night) — WHEREAS R2 #2 Inc A (review-pane clarity) MERGED to `main` (`2942222`) → awaiting deploy
+
+**What changed.** Built and merged **R2 #2 Inc A — review-pane clarity** on `whereas/r2-2a-review-clarity` → `main` via [PR #163](https://github.com/kelly148/lex-law-next5/pull/163), squash commit **`2942222`**, CI green. First of the two-increment R2 #2 split (Inc A = clarity; Inc B = persistence + convergent + deliberate-commit). **Display-only; no state-machine / acknowledgment changes; NO new backend** (re-presents the server-computed orchestration denominator + existing session fields). Changes (`ReviewPane.tsx` + new render test):
+- **Session-info strip** rethemed to Whereas tokens and now surfaces, in plain sight (was buried in the collapsed orchestration panel):
+  - the honest **N-of-M denominator** ("X of N configured reviewers returned substantive feedback; no return: …; fewer-than-two convergence caveat") — reused from `orchestration.getConsolidation` (React Query dedupes with the panel's identical query; hook hoisted above the early returns per the #310 discipline);
+  - a **"Review basis: the draft at iteration N, reviewed <time>"** line — the **anti-stale-review safeguard**, derived from `session.iterationNumber` + `session.createdAt` (already in the `get` response — **the feared new-field follow-on was NOT needed**).
+- Light retheme of the pending state + global-instructions chrome.
+
+**Decisions / notes.** (a) Review-basis names the **iteration** (the unit that changes on regenerate — correct staleness granularity), not the "v7" version label; exposing `versionNumber` is a tiny optional follow-on if the version label is later preferred. (b) Denominator shows once reviewers have **returned** (incl. a "0 of N" empty-return), a hair wider than strict completed-with-feedback — honest, and it avoids a brittle source-scan slice (the `completed_with_feedback` literal). (c) Per operator: the matter-state header (R2 #3) carries only a **rolled-up review-status chip**, NOT the detailed denominator — detail stays in the review pane; do not duplicate.
+
+**Current build state.** `main` = **`2942222`**. Prod = **`64ea044`** (R1). **Not yet deployed:** R2 #1 (`c28481b`) + R2 #2 Inc A (`2942222`) are on `main` awaiting a **batched** deploy (operator-gated, MODE B; no DB migrations in either — display-only). Local gates were green pre-merge; CI green on the PR.
+
+**Open items / gate residuals.** (a) **Batched deploy + light live-check pending** for R2 #1 + Inc A. (b) Carryforwards unchanged (`LLN-PROD-CLEANUP-1`; reviewer reliability; flip-to-enforce export gate; MODE-A smoke secrets; the FOLD-SEND-1-DEPLOYED STATE.md divergence on `fold/phase-3-cont`).
+
+**Next.** **R2 #2 Inc B — the load-bearing one:** visibly-persistent divergent items (must NOT vanish on regenerate / session-close / locked-decision overlap — read from the durable matter open-items, not the ephemeral per-session consolidation; stop-and-flag if it needs a new doc-scoped open-items query) + convergent-grouping clarity + the standardized **deliberate-commit (✦)** affordance. Still display-only, no state-transition/acknowledgment changes. Investigate the divergent-persistence data path first, then present a plan + UX decisions for sign-off before building.
+
+---
+
 ## 2026-06-05 (evening, later) — WHEREAS R2 #1 (review-pane survivability) MERGED to `main` (`c28481b`) → awaiting deploy
 
 **What changed.** Built and merged **R2 item #1 — review-pane survivability** on `whereas/r2-1-review-survivability` → `main` via [PR #161](https://github.com/kelly148/lex-law-next5/pull/161), squash commit **`c28481b`**, both CI checks green. First R2 surface; hardens the review drawer (`ActiveSessionView`) — the surface that blanked prod twice with React #310 — to degrade gracefully + legibly instead of white-screening. Display-only; **no state-machine / acknowledgment changes** (off-limits; belong to R2 #2). 3 files:
