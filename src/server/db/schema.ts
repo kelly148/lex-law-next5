@@ -260,6 +260,11 @@ export const matters = mysqlTable(
     clientName: varchar('clientName', { length: 256 }),
     // practiceArea: freeform string in v1; Learning Mode in v2 will curate (Ch 5.4)
     practiceArea: varchar('practiceArea', { length: 128 }),
+    // R2-PRE-JURIS-1: governing jurisdiction ('VA' | 'MD'; attorney is dual-licensed). Additive,
+    // nullable; set only by an explicit attorney act (matter.create / updateMetadata), never
+    // inferred. The R2 #3 readiness strip leads with it. Free VARCHAR (not enum) so future
+    // jurisdictions never trip the Zod Wall; the UI constrains the choices.
+    jurisdiction: varchar('jurisdiction', { length: 16 }),
     // FOLD-KB-1 (Fork E): attorney-CONFIRMED practice-area key that maps this matter's freeform
     // practiceArea to a pa_instruction_profiles paKey. NULL = no confirmed profile (base prompt).
     // Set/changed only by an explicit attorney act; never silently inferred. Additive, nullable.

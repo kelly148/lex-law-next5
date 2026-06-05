@@ -42,6 +42,8 @@ export const matterRouter = router({
         title: z.string().min(1).max(256),
         clientName: z.string().max(256).nullable().optional(),
         practiceArea: z.string().max(128).nullable().optional(),
+        // R2-PRE-JURIS-1: governing jurisdiction ('VA'|'MD'); free string (UI constrains), optional.
+        jurisdiction: z.string().max(16).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -50,6 +52,7 @@ export const matterRouter = router({
         title: input.title,
         clientName: input.clientName ?? null,
         practiceArea: input.practiceArea ?? null,
+        jurisdiction: input.jurisdiction ?? null,
         phase: 'intake',
         archivedAt: null,
         completedAt: null,
@@ -112,6 +115,8 @@ export const matterRouter = router({
         title: z.string().min(1).max(256).optional(),
         clientName: z.string().max(256).nullable().optional(),
         practiceArea: z.string().max(128).nullable().optional(),
+        // R2-PRE-JURIS-1: governing jurisdiction ('VA'|'MD'); free string (UI constrains), optional.
+        jurisdiction: z.string().max(16).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -126,10 +131,11 @@ export const matterRouter = router({
         });
       }
 
-      const updates: { title?: string; clientName?: string | null; practiceArea?: string | null } = {};
+      const updates: { title?: string; clientName?: string | null; practiceArea?: string | null; jurisdiction?: string | null } = {};
       if (input.title !== undefined) updates.title = input.title;
       if (input.clientName !== undefined) updates.clientName = input.clientName;
       if (input.practiceArea !== undefined) updates.practiceArea = input.practiceArea;
+      if (input.jurisdiction !== undefined) updates.jurisdiction = input.jurisdiction;
 
       const updated = await updateMatterMetadata(
         input.matterId,
@@ -144,6 +150,7 @@ export const matterRouter = router({
       if (input.title !== undefined) changedFields.title = { old: existing.title, new: input.title };
       if (input.clientName !== undefined) changedFields.clientName = { old: existing.clientName, new: input.clientName };
       if (input.practiceArea !== undefined) changedFields.practiceArea = { old: existing.practiceArea, new: input.practiceArea };
+      if (input.jurisdiction !== undefined) changedFields.jurisdiction = { old: existing.jurisdiction, new: input.jurisdiction };
 
       void emitTelemetry(
         'matter_metadata_updated',

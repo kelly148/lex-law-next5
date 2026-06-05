@@ -172,7 +172,7 @@ export async function unarchiveMatter(
 export async function updateMatterMetadata(
   matterId: string,
   userId: string,
-  data: { title?: string; clientName?: string | null; practiceArea?: string | null },
+  data: { title?: string; clientName?: string | null; practiceArea?: string | null; jurisdiction?: string | null },
 ): Promise<MatterRow | null> {
   await db
     .update(matters)
