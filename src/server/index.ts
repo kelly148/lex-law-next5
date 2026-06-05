@@ -38,7 +38,8 @@ import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
-import { isSendabilityGateEnabled } from './config/featureFlags.js';
+import { evaluateConflictClearance } from './db/queries/conflicts.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled } from './config/featureFlags.js';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -367,6 +368,41 @@ app.get(
         message: 'No exportable version is available for this document',
       });
       return;
+    }
+
+    // ── R2-PRE-CONFLICT-1 Inc 3b: conflict-clearance export gate (behind CONFLICT_GATE_ENABLED) ──
+    // Export/send is one of the four conflict-sensitive transitions (disposition §3C). A draft still
+    // LEAVES THE SYSTEM (watermarked or not), so ALL export states are gated. When the flag is ON, a
+    // document may be exported only for a matter that is AFFIRMATIVELY cleared via the single shared
+    // predicate `evaluateConflictClearance` (a check ran, no undispositioned blocker, a CONFIRMED
+    // role='client' party); the distinct non-cleared reasons are carried into the 409 body.
+    //
+    // This gate is INDEPENDENT of SENDABILITY_GATE_ENABLED and FAIL-CLOSED — INTENTIONALLY the
+    // opposite of the FOLD-SEND-1 sendability gate's fail-to-warn (the try/catch below that lets the
+    // export proceed on any error). A conflicts/ethics gate must NOT be satisfied by absence of
+    // evidence: a "no check" state OR an evaluation error must BLOCK, never silently pass. Do not
+    // "fix" this asymmetry to match the sendability gate. FLAG OFF (default): no conflict gating.
+    if (isConflictGateEnabled()) {
+      let clearanceState: string;
+      let clearanceReasons: string[];
+      try {
+        const clearance = await evaluateConflictClearance(doc.matterId, userId);
+        clearanceState = clearance.state;
+        clearanceReasons = clearance.reasons;
+      } catch {
+        // Fail-closed: if clearance cannot be established, do not export.
+        clearanceState = 'NOT_ESTABLISHED';
+        clearanceReasons = ['clearance_evaluation_failed'];
+      }
+      if (clearanceState !== 'CLEARED') {
+        res.status(409).json({
+          error: 'CONFLICTS_NOT_CLEARED',
+          message:
+            'Export blocked: this matter is not conflict-cleared. Run the conflicts check, add and confirm the client party, and disposition any blocker before exporting.',
+          reasons: clearanceReasons,
+        });
+        return;
+      }
     }
 
     // ── FOLD-SEND-1 export-safety gate ─────────────────────────────────────────

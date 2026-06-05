@@ -55,6 +55,31 @@ export function isSendabilityGateEnabled(): boolean {
 }
 
 /**
+ * Affirmative conflict-clearance enforcement gate (R2-PRE-CONFLICT-1 Inc 3b). DEFAULT OFF.
+ *
+ * When OFF (the default), every conflict-sensitive transition behaves EXACTLY as it did before Inc 3b:
+ * advance-to-drafting uses the legacy `hasUndispositionedBlocker` boolean, `lockPlan` uses only the
+ * all-hits-dispositioned gate, and export is not conflict-gated at all. The Inc 3b enforcement wiring
+ * is therefore inert when shipped OFF — a behavior-preserving merge/deploy (merge != deploy; this lets
+ * Inc 3c + Inc 5 land while the gate stays dormant).
+ *
+ * When exactly "true", all four dispositioned transitions ENFORCE the affirmative
+ * `evaluateConflictClearance` predicate: the transition proceeds only on state CLEARED, never on
+ * "not BLOCKED". The four sites are advance-to-drafting (document.create), lockPlan (which is also the
+ * cleared-disposition ROOT — it writes conflictsClearedForPlanning), and export/send. Activation is a
+ * SINGLE reversible flag flip, gated (R2-PRE-CONFLICT-1 disposition) on the confirm-UX (Inc 3c) and the
+ * retroactive client-party migration (Inc 5) being live — otherwise every matter (none has a CONFIRMED
+ * client party yet) would be hard-blocked. See docs/STATE.md for the activation constraint.
+ *
+ * INTENTIONAL ASYMMETRY (do NOT "fix" it): the conflict gate is FAIL-CLOSED — an ethics gate must
+ * never be satisfied by absence of evidence, so a missing check or an evaluation error BLOCKS. This is
+ * the deliberate opposite of the FOLD-SEND-1 sendability gate's fail-to-warn posture.
+ */
+export function isConflictGateEnabled(): boolean {
+  return process.env['CONFLICT_GATE_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

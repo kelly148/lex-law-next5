@@ -44,7 +44,8 @@ import {
   getMatterById,
   updateMatterPhase,
 } from '../db/queries/matters.js';
-import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
+import { hasUndispositionedBlocker, evaluateConflictClearance } from '../db/queries/conflicts.js';
+import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 
 // ============================================================
@@ -168,17 +169,35 @@ export const documentRouter = router({
         });
       }
 
-      // FOLD-L0-1 (Fork A): advance-to-drafting hard-block. An undispositioned BLOCKER-
-      // severity conflict on the matter's latest check blocks the DECISION to start
-      // drafting — not the matter itself. Clear, screen, or decline the hit (a recorded
-      // attorney disposition) to proceed. No check run yet => no known blocker => allowed.
-      const conflictsBlocked = await hasUndispositionedBlocker(input.matterId, ctx.userId);
-      if (conflictsBlocked) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'CONFLICTS_BLOCKER_UNDISPOSITIONED: an undispositioned blocker-severity conflict must be cleared, screened, or declined before advancing this matter to drafting.',
-        });
+      // Advance-to-drafting conflicts gate. This is one of the four conflict-sensitive transitions
+      // (R2-PRE-CONFLICT-1 disposition §3C). The check guards the DECISION to start drafting, not
+      // the matter itself.
+      //
+      // FLAG ON (CONFLICT_GATE_ENABLED — Inc 3b): require the matter to be AFFIRMATIVELY cleared via
+      // the single shared predicate `evaluateConflictClearance` (a check ran, no undispositioned
+      // blocker, AND a CONFIRMED role='client' party) — never merely "not blocked". The distinct
+      // non-cleared reason (no_conflict_check / no_client_party / unconfirmed_client_party /
+      // undispositioned_blocker) is surfaced so the attorney sees exactly what is missing.
+      //
+      // FLAG OFF (default): legacy FOLD-L0-1 (Fork A) behavior EXACTLY — only an undispositioned
+      // BLOCKER on the latest check blocks; "no check yet" is allowed. Inert until the flag flip.
+      if (isConflictGateEnabled()) {
+        const clearance = await evaluateConflictClearance(input.matterId, ctx.userId);
+        if (clearance.state !== 'CLEARED') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${clearance.reasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker before advancing.`,
+          });
+        }
+      } else {
+        const conflictsBlocked = await hasUndispositionedBlocker(input.matterId, ctx.userId);
+        if (conflictsBlocked) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'CONFLICTS_BLOCKER_UNDISPOSITIONED: an undispositioned blocker-severity conflict must be cleared, screened, or declined before advancing this matter to drafting.',
+          });
+        }
       }
 
       const doc = await insertDocument({
