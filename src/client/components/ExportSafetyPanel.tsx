@@ -138,7 +138,7 @@ export default function ExportSafetyPanel({ documentId }: ExportSafetyPanelProps
                     <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={`Type "${CONFIRM_PHRASE}" to confirm`} className="w-full text-xs border border-gray-300 rounded px-2 py-1" />
                   )}
                   <div className="flex gap-2">
-                    <button onClick={submitOverride} disabled={!canSubmit} className="px-2.5 py-1 text-[11px] bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50">
+                    <button onClick={submitOverride} disabled={!canSubmit} className="px-2.5 py-1 text-[11px] bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50">
                       {override.isPending ? 'Recording…' : 'Confirm override'}
                     </button>
                     <button onClick={() => { setOverriding(null); setTyped(''); }} className="px-2.5 py-1 text-[11px] border border-gray-300 rounded hover:bg-white">Cancel</button>

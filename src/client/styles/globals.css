@@ -2,12 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Whereas R1 — RGB channel companions for the brand tokens.
+   Tailwind can only apply an opacity modifier (e.g. bg-firm-navy/10,
+   text-firm-navy/50, border-firm-gold/50) to a color expressed as
+   space-separated RGB *channels*, not to a var() that resolves to a hex.
+   These channel vars are derived from the verbatim hex tokens in
+   whereas-tokens.css (the single source of truth) and MUST be kept in
+   sync with it:
+     light  ink #17191C -> 23 25 28   accent #6E2436 -> 110 36 54
+     dark   ink #ECEAE4 -> 236 234 228 accent #8A3147 -> 138 49 71
+   Dark follows the same selectors as the token file (explicit
+   [data-theme="dark"] plus prefers-color-scheme when not pinned light).
+   ============================================================ */
+:root {
+  --wa-ink-rgb: 23 25 28;
+  --wa-accent-rgb: 110 36 54;
+}
+:root[data-theme="dark"] {
+  --wa-ink-rgb: 236 234 228;
+  --wa-accent-rgb: 138 49 71;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wa-ink-rgb: 236 234 228;
+    --wa-accent-rgb: 138 49 71;
+  }
+}
+
 @layer base {
   html {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Chrome is sans (Inter) by default; the law opts into serif per element. */
+    font-family: var(--wa-font-sans);
   }
 
   body {
-    @apply bg-firm-light text-gray-900;
+    @apply bg-firm-light text-ink;
   }
 }

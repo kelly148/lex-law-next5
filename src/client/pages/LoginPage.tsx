@@ -98,7 +98,7 @@ export default function LoginPage(): React.ReactElement {
           <button
             type="submit"
             disabled={loginMutation.isPending}
-            className="w-full bg-firm-navy text-white rounded px-4 py-2 text-sm font-medium hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            className="w-full bg-firm-navy text-white rounded px-4 py-2 text-sm font-medium hover:bg-firm-navy/90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {loginMutation.isPending ? 'Signing in…' : 'Sign in'}
           </button>
