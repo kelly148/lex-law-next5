@@ -16,6 +16,7 @@ import React, { useState } from 'react';
 import { Layers, ChevronDown, ChevronUp, GitMerge, Users, AlertTriangle, ListChecks } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import DeliberateActButton from './DeliberateActButton.js';
 
 interface OrchestrationConsolidationPanelProps {
   reviewSessionId: string;
@@ -155,13 +156,13 @@ export default function OrchestrationConsolidationPanel({
                                   </li>
                                 ))}
                               </ul>
-                              <button
+                              <DeliberateActButton
                                 onClick={() => confirmGroup(g.members)}
                                 disabled={allSelected || updateSelection.isPending}
-                                className="px-2.5 py-1 text-[11px] bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                                size="sm"
                               >
-                                {allSelected ? 'Selected for regeneration' : 'Confirm group (select for regeneration)'}
-                              </button>
+                                {allSelected ? 'Selected for regeneration' : 'Confirm group'}
+                              </DeliberateActButton>
                             </div>
                           )}
                         </li>
@@ -205,11 +206,11 @@ export default function OrchestrationConsolidationPanel({
                   <>
                     <ul className="space-y-2">
                       {divergentItems.map((item) => (
-                        <li key={item.issueId} className="border border-amber-200 bg-amber-50 rounded p-2">
-                          <p className="text-xs font-medium text-amber-900">{item.summary}</p>
+                        <li key={item.issueId} className="border border-line bg-warning-tint rounded p-2">
+                          <p className="text-xs font-medium text-ink">{item.summary}</p>
                           <ul className="mt-1 space-y-0.5">
                             {item.detail.positions.map((p) => (
-                              <li key={p.suggestionId} className="text-[11px] text-amber-800">
+                              <li key={p.suggestionId} className="text-[11px] text-ink-secondary">
                                 <span className="font-medium">{p.reviewerRole}</span>
                                 {p.severity ? ` [${p.severity}]` : ''}: {p.position}
                               </li>
@@ -218,14 +219,22 @@ export default function OrchestrationConsolidationPanel({
                         </li>
                       ))}
                     </ul>
-                    <button
+                    {/* R2-2 Inc B: prominent NON-PERSISTENCE flag. Until recorded, these divergent
+                        items are ephemeral (per-session) and will disappear on the next regeneration
+                        or session close. Recording is a deliberate act (✦) that makes them durable. */}
+                    <p className="mt-2 text-[11px] font-medium text-warning">
+                      Until you record them, these disagreements are not saved — they disappear on the next
+                      regeneration or when this session closes.
+                    </p>
+                    <DeliberateActButton
                       onClick={() => registerDivergent.mutate({ reviewSessionId })}
                       disabled={registerDivergent.isPending}
-                      className="mt-2 px-3 py-1.5 text-xs border border-amber-300 text-amber-800 rounded hover:bg-amber-100 disabled:opacity-50"
+                      size="sm"
+                      className="mt-1.5"
                     >
                       {registerDivergent.isPending ? 'Recording…' : 'Record disagreements as open items'}
-                    </button>
-                    <p className="mt-1 text-[11px] text-gray-400">
+                    </DeliberateActButton>
+                    <p className="mt-1 text-[11px] text-ink-hint">
                       Recorded disagreements become matter open items that only you can resolve — a later review pass never closes them automatically.
                     </p>
                   </>

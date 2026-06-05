@@ -1220,6 +1220,18 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // without opening a panel. HOISTED above the early returns with the other hooks (stable order).
   const consolidationQuery = trpc.orchestration.getConsolidation.useQuery({ reviewSessionId: sessionId });
 
+  // R2-2 Inc B: durable divergent open-items (origin='orchestration') for THIS document, read from
+  // the PERSISTENT store via matterState.dashboard (the same query MatterStateDashboard uses) — so
+  // recorded reviewer disagreements stay visible regardless of session / regenerate / close (they
+  // never vanish). matterId comes from document.get; the dashboard query waits for it. Hoisted with
+  // the other hooks (stable order, #310 discipline).
+  const { data: docData } = trpc.document.get.useQuery({ documentId });
+  const matterId = docData?.matterId ?? null;
+  const dashboardQuery = trpc.matterState.dashboard.useQuery(
+    { matterId: matterId ?? '', documentId },
+    { enabled: matterId !== null },
+  );
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-sm text-ink-secondary">
@@ -1309,6 +1321,13 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   })();
 
+  // R2-2 Inc B: the DURABLE divergent disagreements for this document — recorded open items, not
+  // the ephemeral per-session consolidation. These are shown persistently (below) so they cannot
+  // vanish on regenerate / session-close / locked-decision overlap.
+  const persistentDivergent = (dashboardQuery.data?.full.openItems ?? []).filter(
+    (i) => i.origin === 'orchestration' && i.status === 'open' && i.documentId === documentId,
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Session-info strip — R2-2 Inc A: rethemed, with the honest N-of-M denominator and a
@@ -1350,6 +1369,58 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
           </p>
         )}
       </div>
+
+      {/* R2-2 Inc B — persistent reviewer disagreements. Read from the DURABLE open-items store
+          (origin='orchestration'), so they show REGARDLESS of session/completion state and never
+          vanish on regenerate / session-close. Read-only here; resolution lives on the matter page
+          (one-click pointer). Boundary-wrapped so a render fault can't blank the review. */}
+      {persistentDivergent.length > 0 && (
+        <PanelErrorBoundary label="Unresolved disagreements">
+          <div className="px-4 py-3 border-b border-line bg-warning-tint">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-warning flex-shrink-0" />
+              <h3 className="text-xs font-semibold text-ink">
+                Unresolved reviewer disagreements ({persistentDivergent.length})
+              </h3>
+            </div>
+            <p className="mt-1 text-[11px] text-ink-secondary">
+              These persist until you resolve them — a later review pass never closes them.
+            </p>
+            <ul className="mt-2 space-y-2">
+              {persistentDivergent.map((item) => {
+                const detail = item.detail as
+                  | { positions?: Array<{ reviewerRole: string; severity?: string | null; position: string }> }
+                  | null
+                  | undefined;
+                const positions = detail?.positions ?? [];
+                return (
+                  <li key={item.id} className="rounded border border-line bg-surface p-2">
+                    <p className="text-xs font-medium text-ink">{item.summary}</p>
+                    {positions.length > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {positions.map((p, idx) => (
+                          <li key={idx} className="text-[11px] text-ink-secondary">
+                            <span className="font-medium">{REVIEWER_LABELS[p.reviewerRole] ?? p.reviewerRole}</span>
+                            {p.severity ? ` [${p.severity}]` : ''}: {p.position}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {matterId && (
+              <a
+                href={`/matters/${matterId}`}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              >
+                Resolve on the matter page →
+              </a>
+            )}
+          </div>
+        </PanelErrorBoundary>
+      )}
 
       {/* Global instructions */}
       <div className="px-4 py-3 border-b border-line">
