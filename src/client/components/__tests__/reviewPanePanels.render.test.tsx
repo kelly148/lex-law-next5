@@ -18,6 +18,8 @@ import { httpBatchLink } from '@trpc/client';
 import { trpc } from '../../trpc.js';
 import OrchestrationConsolidationPanel from '../OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from '../ProvisionProvenancePanel.js';
+import LddDiffPanel from '../LddDiffPanel.js';
+import ClosurePackagePanel from '../ClosurePackagePanel.js';
 import PanelErrorBoundary from '../PanelErrorBoundary.js';
 
 afterEach(() => {
@@ -41,6 +43,16 @@ describe('review-pane panels — render smoke (the missing CI guard)', () => {
   it('ProvisionProvenancePanel mounts without throwing', () => {
     const { getByText } = render(withProviders(<ProvisionProvenancePanel documentId={DOCUMENT_ID} />));
     expect(getByText('Provision provenance')).toBeTruthy();
+  });
+
+  it('LddDiffPanel mounts without throwing', () => {
+    const { getByText } = render(withProviders(<LddDiffPanel documentId={DOCUMENT_ID} />));
+    expect(getByText('LOI-vs-draft check')).toBeTruthy();
+  });
+
+  it('ClosurePackagePanel mounts without throwing', () => {
+    const { getByText } = render(withProviders(<ClosurePackagePanel matterId={DOCUMENT_ID} />));
+    expect(getByText('Closing package')).toBeTruthy();
   });
 
   it('OrchestrationConsolidationPanel mounts (visible) without throwing', () => {

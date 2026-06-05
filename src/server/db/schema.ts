@@ -1584,6 +1584,114 @@ export type ProvisionProvenance = typeof provisionProvenance.$inferSelect;
 export type NewProvisionProvenance = typeof provisionProvenance.$inferInsert;
 
 // ============================================================
+// FOLD-DRAFT-1 / LDD — ldd_key_term (Increment 1: data core)
+// ============================================================
+// The "key-term dictionary" behind the LDD (LOI-vs-draft diff): per document+version, the defined
+// terms whose agreed VALUE must stay consistent between the operative source (LOI / material) and
+// the current draft. DEFAULT-SAFE / READ-ONLY: recorded + surfaced and (later increment) compared
+// to FLAG drift; never edits the draft, never auto-justifies an outbound assertion. recordedBy
+// distinguishes an attorney entry from a system one. Enum values mirror LddKeyTermRowSchema (shared
+// Zod Wall). The sourceType<->sourceId invariant is a later-increment record-time rule.
+// ============================================================
+export const LDD_KEY_TERM_SOURCE_TYPE_VALUES = [
+  'loi',
+  'operative_source',
+  'material',
+  'attorney_specified',
+] as const;
+export type LddKeyTermSourceType = (typeof LDD_KEY_TERM_SOURCE_TYPE_VALUES)[number];
+
+export const LDD_KEY_TERM_RECORDED_BY_VALUES = ['attorney', 'system'] as const;
+export type LddKeyTermRecordedBy = (typeof LDD_KEY_TERM_RECORDED_BY_VALUES)[number];
+
+export const lddKeyTerm = mysqlTable(
+  'ldd_key_term',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    // The defined/operative term whose value must stay consistent (e.g. "Governing Law").
+    termLabel: varchar('termLabel', { length: 256 }).notNull(),
+    // The agreed value for that term, taken from the operative source / LOI (e.g. "Virginia").
+    expectedValue: text('expectedValue').notNull(),
+    sourceType: mysqlEnum('sourceType', LDD_KEY_TERM_SOURCE_TYPE_VALUES).notNull(),
+    // The LOI/source/material id (NULL for attorney_specified, which has no concrete source).
+    sourceId: varchar('sourceId', { length: 64 }),
+    notes: text('notes'),
+    recordedBy: mysqlEnum('recordedBy', LDD_KEY_TERM_RECORDED_BY_VALUES).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxLddKeyTermVersion: index('idx_ldd_key_term_version').on(table.versionId),
+    idxLddKeyTermDocument: index('idx_ldd_key_term_document').on(table.documentId),
+    idxLddKeyTermUserMatter: index('idx_ldd_key_term_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+export type LddKeyTerm = typeof lddKeyTerm.$inferSelect;
+export type NewLddKeyTerm = typeof lddKeyTerm.$inferInsert;
+
+// ============================================================
+// FOLD-DRAFT-1 / package — closure_package_item (Increment 1: data core)
+// ============================================================
+// The "closing package": per matter, the artifacts (documents/materials/sources) + checklist items
+// gathered into a named, self-contained bundle for hand-off/closure, each marked required-vs-optional
+// and present/missing/not-applicable. A package = rows sharing (matterId, packageName). DEFAULT-SAFE
+// / ADVISORY: records + surfaces contents and (later increment) computes a completeness check; it
+// NEVER finalizes, sends, or locks anything (sending is FOLD-SEND-1). recordedBy distinguishes an
+// attorney entry from a system one. Enum values mirror ClosurePackageItemRowSchema (shared Zod Wall).
+// The itemType<->refId invariant is a later-increment record-time rule.
+// ============================================================
+export const CLOSURE_PACKAGE_ITEM_TYPE_VALUES = ['document', 'material', 'source', 'checklist'] as const;
+export type ClosurePackageItemType = (typeof CLOSURE_PACKAGE_ITEM_TYPE_VALUES)[number];
+
+export const CLOSURE_PACKAGE_REQUIREMENT_VALUES = ['required', 'optional'] as const;
+export type ClosurePackageRequirement = (typeof CLOSURE_PACKAGE_REQUIREMENT_VALUES)[number];
+
+export const CLOSURE_PACKAGE_ITEM_STATUS_VALUES = ['present', 'missing', 'not_applicable'] as const;
+export type ClosurePackageItemStatus = (typeof CLOSURE_PACKAGE_ITEM_STATUS_VALUES)[number];
+
+export const CLOSURE_PACKAGE_RECORDED_BY_VALUES = ['attorney', 'system'] as const;
+export type ClosurePackageRecordedBy = (typeof CLOSURE_PACKAGE_RECORDED_BY_VALUES)[number];
+
+export const closurePackageItem = mysqlTable(
+  'closure_package_item',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Groups items into a named package (a package = rows sharing matterId+packageName).
+    packageName: varchar('packageName', { length: 256 }).notNull(),
+    itemType: mysqlEnum('itemType', CLOSURE_PACKAGE_ITEM_TYPE_VALUES).notNull(),
+    // The document/material/source id (NULL for a free-form checklist item).
+    refId: varchar('refId', { length: 64 }),
+    label: varchar('label', { length: 512 }).notNull(),
+    requirement: mysqlEnum('requirement', CLOSURE_PACKAGE_REQUIREMENT_VALUES).notNull(),
+    status: mysqlEnum('status', CLOSURE_PACKAGE_ITEM_STATUS_VALUES).notNull(),
+    notes: text('notes'),
+    recordedBy: mysqlEnum('recordedBy', CLOSURE_PACKAGE_RECORDED_BY_VALUES).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxClosurePackageMatter: index('idx_closure_package_matter').on(table.matterId),
+    idxClosurePackageUserMatter: index('idx_closure_package_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+export type ClosurePackageItem = typeof closurePackageItem.$inferSelect;
+export type NewClosurePackageItem = typeof closurePackageItem.$inferInsert;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked

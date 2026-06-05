@@ -4,6 +4,44 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (morning) — FOLD-DRAFT-1 non-deferred scope BUILD-COMPLETE (LDD + closing-package primitives); → awaiting_live_verification
+
+**What changed.** Built **both** remaining FOLD-DRAFT-1 primitives on `fold/phase-3-cont` (HEAD `f0cc384`) — 6 increments, each auto-merged on green CI (Rule 15 reversible lane):
+- **LDD (LOI-vs-draft diff):** [#147](https://github.com/kelly148/lex-law-next5/pull/147) `ldd_key_term` data core (migration `0016`) · [#148](https://github.com/kelly148/lex-law-next5/pull/148) deterministic `compareKeyTerms` engine + `sourceType`↔`sourceId` invariant + `getComparison` API · [#149](https://github.com/kelly148/lex-law-next5/pull/149) LOI-vs-draft UI panel in the review pane (+ render test).
+- **Closing package:** [#150](https://github.com/kelly148/lex-law-next5/pull/150) `closure_package_item` data core (migration `0017`) · [#151](https://github.com/kelly148/lex-law-next5/pull/151) `computeClosure` completeness engine + `itemType`↔`refId` invariant + `getClosureCheck` API · [#152](https://github.com/kelly148/lex-law-next5/pull/152) closing-package UI panel on `MatterDetail` (+ render test).
+
+All pure engines are deterministic/no-LLM; all queries owner-scoped via `ownerScope()` + Zod Wall; both record paths are attorney-acts, invariant-validated, and audited. **DEFAULT-SAFE / ADVISORY throughout** — they flag value drift / surface missing-required items; they never edit, finalize, send, or lock anything (sending is FOLD-SEND-1). Local gates green every increment (tsc + eslint + vitest incl. render tests for both new panels + ownerScope ratchet); CI green every PR.
+
+**Current build state.** `main`/prod unchanged at `3df92dc` (ORCH-1 + provenance, live-verified). `fold/phase-3-cont` = `f0cc384` — ahead of prod by the LDD + closing-package work, including **two new user-visible UI panels** and **additive migrations `0016` + `0017`** (on the pre-deploy allowlist, **not yet applied** to prod).
+
+**State / gate.** FOLD-DRAFT-1 moved `in_progress` → **`awaiting_live_verification`** (operator `y`, Rule 11) — the two new UI panels need Pattern-16 at the next deploy. The **audience format/tone split + audience-leak filter are DEFERRED** (ride FOLD-SEND-1 + GOV-1b egress). Queue head = **FOLD-SEND-1** (§3.1 **FIRE** — advisory→deterministic block/warn/pass sendability gate; auto-assemble triad packet + HALT before implementation).
+
+**Open decisions (operator-gated).** (a) **Deploy:** early partial-phase deploy now to live-verify the LDD + closing-package panels and apply migrations `0016`/`0017` (MODE B), OR wait for the phase-3 boundary (after FOLD-SEND-1). (b) **FOLD-SEND-1 FIRE** triad review when we start it. Carryforwards unchanged (LLN-PROD-CLEANUP-1; reviewer reliability; ORCH-1 FIRE re-triage sufficiency still un-confirmed but non-blocking; retention sign-off; MODE A smoke secrets deferred).
+
+---
+
+## 2026-06-04 (evening, later) — FOLD-ORCH-1 + provision provenance LIVE-VERIFIED PASS → FOLD-ORCH-1 COMPLETE
+
+**What changed.** Operator gave `operator approve live-verified:phase-3-redeploy PASS`. Claude drove the operator's authenticated browser (UNIVERSALTITLE, `kelly`) against prod `3df92dc` (`/api/version` = `3df92dc3cf…`, builtAt 2026-06-04T18:58Z — the #310-fixed build), hard-reloaded first, on doc `cbf83ad7` ("POA iteration test", matter `3917bf68`). **Results:** (1) **React #310 fix CONFIRMED** — the review pane / `ActiveSessionView` rendered through every loading→completed transition (initial open, create→active, two hard reloads, panel re-opens) with **no blank/crash**; the exact #310 culprit (the `listLockedDecisions` query, now hoisted above the early returns) rendered each time; **console showed zero React errors** all session (only a benign Chrome-extension messaging warning). (2) **Multi-reviewer end-to-end** — two 2-reviewer runs completed server-side: iteration 26 (Claude + GPT Lite) and iteration 27 (GPT + Grok). (3) **Orchestration panel** rendered on screen with the correct **N-of-M denominator**, the Convergent/Per-item/Disagreements buckets, the expand-to-see / no-one-click / attorney-final gating text, and **"0 selected" = nothing auto-acted**; backend `orchestration.getConsolidation` returned the correct denominator with empty bulk-eligible/divergent sets. (4) **Provision provenance panel** — default-safe ("never used to auto-justify"), the **source-type/`originId` invariant enforced** (operative_source + no id → Record button `disabled:true`; adding an id enabled it), and a recorded entry listed with attorney attribution.
+
+**Current build state.** Prod = `main` = `3df92dc` (unchanged — this was verification of an already-deployed build, MODE B; no new deploy). FOLD-ORCH-1 → **completed**; provision-provenance primitive (FOLD-DRAFT-1, 1 of 5) **done + live-verified**. `awaiting_live_verification` now empty. New Phase-3 work branches off `fold/phase-3-cont`.
+
+**Open items / residuals.** (a) **CAVEAT (not a defect):** the orchestration *confirm-a-convergent-group* and *record-disagreements* click-paths were **not** exercised live — neither run yielded two contributing reviewers (Claude as drafter returned 0 suggestions; Grok returned 0; only GPT/GPT-Lite produced). Reviewer-output limitation matching the reviewer-reliability carryforward; those paths are covered by committed render/unit tests and the verified backend consolidation engine. (b) **ORCH-1 FIRE re-triage** recorded as a Class-T corrected-diagnosis with **no new triad packet** (CI-caught Rules-of-Hooks bug, not a new load-bearing decision); operator sufficiency confirmation still pending (record-keeping, non-blocking). (c) **LLN-PROD-CLEANUP-1** += review iterations 26 & 27 on doc `cbf83ad7` (both abandoned — no stuck session left) + 1 `provision_provenance` row recorded during the UAT. (d) Reviewer reliability (Gemini invalid JSON; stuck-active-session; Claude/Grok intermittent 0-suggestion returns); Findings A/B; attorney retention sign-off; MODE A smoke secrets deferred.
+
+**Next (Rule 14 auto-advance).** Queue head = **FOLD-DRAFT-1** remaining primitives: **LDD diff** (LOI-vs-draft + key-term dictionaries) and **package bundle/closure**; audience format/tone split **DEFERRED** (rides FOLD-SEND-1 + GOV-1b egress). Then **FOLD-SEND-1** (§3.1 FIRE). Run the §3.1 checkpoint triage before each.
+
+---
+
+## 2026-06-04 (evening) — FOLD-ORCH-1 + provision provenance RE-DEPLOYED with the #310 fix; live-verification PENDING; thread handoff
+
+**What changed.** The #310 root-cause fix reached `main`: `fold/phase-3-cont` (`1ee2fbb`) merged to `main` via PR [#146](https://github.com/kelly148/lex-law-next5/pull/146) (merge commit **`3df92dc`**, CI-green), and the operator **deployed** it (MODE B). Verified `/api/version` = `3df92dc3cf…`, `/api/health` 200 — the **fixed** build (with #145's hoisted `useQuery`) is live. Migrations `0012`–`0015` already applied (idempotent). So FOLD-ORCH-1 (8 incs) + provision provenance (3 incs) + the #310 fix + the full-tree render guard are all on prod.
+
+**Still open — the gate.** **Live verification has NOT been performed yet** (operator handed off to a new thread first). It is the immediate next action: drive the authenticated browser (hard-reload first to bust the stale bundle), run a multi-reviewer review, confirm the review pane renders through the loading→completed transition (no blank), the orchestration + provenance panels work, and nothing auto-acts → `operator approve live-verified:phase-3-redeploy` → clear the ORCH-1 gate. Rollback target if needed: `0d6e5d0` (Railway deploy `8242d069`).
+
+**Current state.** Prod = `main` = `3df92dc` (fixed, deployed). `fold/phase-3-cont` = `1ee2fbb` (active Phase-3 branch; merged into main via #146). ORCH-1 `awaiting_live_verification`; queue head `FOLD-DRAFT-1` (provenance primitive done). **Full handoff brief:** `…\_progress\HANDOFF_BRIEF_2026-06-04_phase3-orch1-provenance-deployed-310fixed.md` (paste §11 to resume). Carryforwards unchanged (LLN-PROD-CLEANUP-1 += failed-UAT synthetic sessions on doc `cbf83ad7`; ~12 local-env-only test failures with CI authoritative; reviewer reliability; retention sign-off; etc.).
+
+---
+
 ## 2026-06-04 (latest) — React #310 ROOT-CAUSED + FIXED + CI render guard (corrected diagnosis; re-deploy gated on ORCH-1 FIRE re-triage)
 
 **Corrected diagnosis (supersedes the panel-hardening theory).** A second early re-deploy (`a417793` re-merged → `main` `31e06e5`, deployed) **still #310-crashed** the review view (confirmed on the *new* bundle after a hard reload — not a cache), so the #142 panel error boundary + unconditional mount were **treating symptoms, not the cause**. Rolled back to `0d6e5d0` again (`operator approve deploy:rollback-0d6e5d0`; `/api/version`=`0d6e5d0813f…`, review pane clean). Then root-caused **offline** (operator directive: no more deploy-to-diagnose).

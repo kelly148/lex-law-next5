@@ -35,6 +35,8 @@ import { matterIntakeRouter } from './procedures/matterIntake.js';
 import { practiceKbRouter } from './procedures/practiceKb.js';
 import { orchestrationRouter } from './procedures/orchestration.js';
 import { provisionProvenanceRouter } from './procedures/provisionProvenance.js';
+import { lddKeyTermRouter } from './procedures/lddKeyTerm.js';
+import { closurePackageRouter } from './procedures/closurePackage.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -66,6 +68,12 @@ export const appRouter = router({
   // FOLD-DRAFT-1 — provision provenance (record + read where each draft section came from;
   // recorded + surfaced, never auto-used in outbound assertions).
   provisionProvenance: provisionProvenanceRouter,
+  // FOLD-DRAFT-1 / LDD — key-term dictionary + LOI-vs-draft comparison (record + read; flags
+  // value drift in the current draft, never edits it, never auto-justifies an outbound assertion).
+  lddKeyTerm: lddKeyTermRouter,
+  // FOLD-DRAFT-1 / package — closing-package items + advisory completeness check (record + read;
+  // surfaces missing required items, never finalizes/sends/locks; sending is FOLD-SEND-1).
+  closurePackage: closurePackageRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -44,8 +44,10 @@ const MIGRATIONS = [
   '0013_fold_orch_1_orchestration_persistence.sql',
   '0014_fold_orch_1_evaluator_issue_groups.sql',
   '0015_fold_draft_1_provision_provenance.sql',
+  '0016_fold_draft_1_ldd_key_term.sql',
+  '0017_fold_draft_1_closure_package.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
