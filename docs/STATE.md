@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (evening, later) — WHEREAS R2 #1 (review-pane survivability) MERGED to `main` (`c28481b`) → awaiting deploy
+
+**What changed.** Built and merged **R2 item #1 — review-pane survivability** on `whereas/r2-1-review-survivability` → `main` via [PR #161](https://github.com/kelly148/lex-law-next5/pull/161), squash commit **`c28481b`**, both CI checks green. First R2 surface; hardens the review drawer (`ActiveSessionView`) — the surface that blanked prod twice with React #310 — to degrade gracefully + legibly instead of white-screening. Display-only; **no state-machine / acknowledgment changes** (off-limits; belong to R2 #2). 3 files:
+- **`PanelErrorBoundary`** — new `variant="pane"`: full centered fallback that names what is intact (draft + matter record unaffected; nothing sent; export stays blocked) + Close. The `inline` side-panel variant is the default and byte-unchanged.
+- **`ReviewPane`** — wraps the drawer body (`ActiveSessionView` / `CreateSessionView`) in the pane-level boundary, so a render throw in the body can never blank the review again.
+- **`ActiveSessionView`** — designed loading state; split load-ERROR (retryable: Try again/Close, reads `isError`) from session-GONE (no longer available: Close), replacing the bare "Session not found". Both name what is intact.
+- New `reviewPaneSurvivability.render.test.tsx` (loading / load-error+refetch / gone / crash→fallback); the `ActiveSessionView` #310 guard stays green.
+
+**Current build state.** `main` = **`c28481b`**. Prod = **`64ea044`** (R2-1 not yet deployed — merge ≠ deploy; MODE B). **No DB migrations** (display-only). Local gates were green pre-merge (tsc 0, eslint 0 errors, render tests pass); CI green on the PR.
+
+**Open items / gate residuals.** (a) **R2-1 deploy + light live-check pending** (operator-gated; degrade states are hard to trigger on demand — confirm the review pane still opens clean + loading renders; can be batched with later R2 surfaces to save deploy cycles). (b) Carryforwards unchanged (`LLN-PROD-CLEANUP-1`; reviewer reliability; flip-to-enforce export gate; MODE-A smoke secrets deferred; the FOLD-SEND-1-DEPLOYED STATE.md divergence on `fold/phase-3-cont`).
+
+**Next.** **R2 #2 — review-pane clarity rebuild** (honest "X of N reviewers returned", convergent grouping, visibly-persistent divergent items, standardized deliberate-commit, "review basis: version X as of [time]") — the visual layer of the ORCH-1 decision-authority contract; still no state-transition/acknowledgment changes. Run the §7 verifications before surfaces that depend on them (header/export-gate/Matter-Record).
+
+---
+
 ## 2026-06-05 (evening) — WHEREAS REBRAND R1 (tokenize + rename) DEPLOYED (`64ea044`) + LIVE-VERIFIED PASS → COMPLETE
 
 **What changed.** Built and merged **R1 of the Whereas redesign** (display-layer only, zero layout change) on branch `whereas/r1-tokenize` → `main` via [PR #159](https://github.com/kelly148/lex-law-next5/pull/159), squash commit **`64ea044`**, both CI checks green (tsc + tests; lint). This is the first increment of the Cowork rebrand handoff (R0 design package → R1 tokenize/rename → R2 component redesign → R3 dark polish). Scope:
