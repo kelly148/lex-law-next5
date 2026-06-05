@@ -4,6 +4,54 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (afternoon) — FOLD-SEND-1 export-safety BUILD COMPLETE (shadow) → awaiting_live_verification; Phase-3 build complete
+
+**What changed.** Built the full FOLD-SEND-1 deterministic export-safety / outbound-readiness gate on `fold/phase-3-cont` (HEAD `a9c7b58`), 4 increments, each CI-green, built to the triad disposition:
+- **Inc 1** ([#154](https://github.com/kelly148/lex-law-next5/pull/154)) — data core: `sendability_rule` + `jurisdiction_rule` + `sendability_override` + `sendability_evaluation` + idempotent owner-null firm-default seeds (migration `0018`); `SENDABILITY_GATE_ENABLED` flag default-OFF.
+- **Inc 2** ([#155](https://github.com/kelly148/lex-law-next5/pull/155)) — pure deterministic engine (block/warn/pass; **`wrong_matter_id` the only v1 block**; `stale_baseline` pinned to the `adopt_ledger` baseline, LLM-free; fail-to-warn; content/jurisdiction heuristics) + read-only `getGate`.
+- **Inc 3** ([#156](https://github.com/kelly148/lex-law-next5/pull/156), **operator-accepted** — egress touch) — export-boundary wiring: **shadow logging** + enforce-behind-flag + content-hash-bound **override POST** (typed confirm for `wrong_matter_id`); fail-safe at the export endpoint.
+- **Inc 4** ([#157](https://github.com/kelly148/lex-law-next5/pull/157)) — the "Export safety" UI panel + recorded-override flow + render test.
+
+**Gate runs SHADOW by default** (flag OFF): exports evaluate + log but are **never blocked** — export behavior is unchanged. v1 block = `wrong_matter_id` only; the rest warn.
+
+**State / gate.** FOLD-SEND-1 `in_progress` → **`awaiting_live_verification`** (operator `y`, Rule 11) — the UI + export wiring need Pattern-16 at the next deploy; migration `0018` is **not yet on prod**. **This was the last Phase-3 engagement → the Phase-3 BUILD is complete** (L0-1 · KB-1 · ORCH-1 · DRAFT-1 · SEND-1). Queue head = **FOLD-PM-1** (Phase 4).
+
+**Current build state.** `main`/prod unchanged at `0d704c9`. `fold/phase-3-cont` ahead by all of FOLD-SEND-1 (migration `0018` + the export-safety panel + the shadow gate wiring).
+
+**Next (operator-gated).** (a) **Deploy** `0018` + SEND-1 (gate stays **OFF/shadow** — no export-behavior change) → live-verify the Export-safety panel + confirm exports still work + shadow logging. (b) **Flip-to-enforce** (`SENDABILITY_GATE_ENABLED=true`) is a **separate, later** decision made on the shadow-mode false-positive data — not now. Carryforwards unchanged (`LLN-PROD-CLEANUP-1`; reviewer reliability; retention sign-off; MODE-A smoke secrets deferred). A full phase-boundary handoff brief is due once Phase 3 fully closes (after deploy + live-verify).
+
+---
+
+## 2026-06-05 (midday) — FOLD-SEND-1 triad disposition (PROCEED WITH NAMED CHANGES) recorded → Inc 1 started
+
+**What changed.** The FOLD-SEND-1 §3.1 FIRE triad completed — three independent lanes (GPT-5 + two independent Claude), all "proceed with named changes"; operator consolidated + signed (`…\_analytical\phase2\reviews\FOLD-SEND-1_consolidated_disposition_2026-06-04.md` + the three raw lanes). Repo-side binding record written: **`docs/reviews/FOLD-SEND-1_disposition.md`** (supersedes the plan's open decisions). Rule-11 transition recorded: FOLD-SEND-1 `queue head` → **`in_progress`**.
+
+**Binding named changes (build to these — not the plan defaults):** gate at the DOCX export boundary, **v1 hard-stops only `wrong_matter_id`** (stale_baseline + missing-signer **warn**, not block; engine reusable for a future real delivery/share); `unverified_statute_citation` **deferred** (warn-only via the LLM layer); every block **overridable + recorded** (append-only, content-hash-bound, typed confirm for matter-id, POST not GET, supersedes on version change); **shadow mode** (flag OFF still computes+logs per category, with an explicit flip criterion); append-only **`sendability_evaluation`** logging + per-category telemetry from the first commit; **fail-to-warn** not fail-to-block; `jurisdiction_rule` document-type-scoped + source-tagged + idempotent seeds + scope-guard (no settlement/title); **no config UI v1** (owner-null firm-default seeds); LLM classifier = **warn layer only**, deterministic blocks pure/LLM-free; audience-leak/GOV-1b **separate, warn-only v1**; rename user-facing **"sendability" → "export safety"/"outbound readiness"** (legacy code name kept).
+
+**Verify-before-relying — both resolved.** (1) `open_items` severity **is LLM-derived** (orchestration `divergentOpenItemRegistration` → `mapOrchSeverityToOpenItemSeverity(group.severity)`); therefore `stale_baseline` is **pinned** to the `adopt_ledger` baseline + version-drift (no `open_items`-severity dependency) — an Inc-2 constraint. (2) the review packet's inlining **held** (all parts inline in the file); the "only the plan arrived" report was a paste issue → paste the whole packet next time.
+
+**Build state.** `main`/prod unchanged at `0d704c9`. FOLD-SEND-1 `in_progress`; **Inc 1 (data core)** building on a sub-branch off `fold/phase-3-cont`: `sendability_rule` + `jurisdiction_rule` + `sendability_override` + `sendability_evaluation` + idempotent owner-null seeds + additive migration + `SENDABILITY_GATE_ENABLED` default-OFF; no behavior change. Deferred: statute-citation block, audience-leak deterministic block, export-intent selector, config UI, flip-to-enforce.
+
+---
+
+## 2026-06-05 (morning, later) — Phase-3 EARLY DEPLOY (`0d704c9`) + FOLD-DRAFT-1 LIVE-VERIFIED PASS → COMPLETE
+
+**What changed.** Operator-gated early partial-phase deploy (Rule-17 deviation — phase 3 isn't done; FOLD-SEND-1 remains). `fold/phase-3-cont` merged to `main` via PR [#153](https://github.com/kelly148/lex-law-next5/pull/153) as **merge commit `0d704c9`** (CI-green, preserves per-engagement commits); operator deployed via Railway. The wired `preDeployCommand` applied additive migrations **`0016` (ldd_key_term)** + **`0017` (closure_package_item)** automatically — **confirmed** because recording into both tables succeeded live. Prod = `0d704c9` (`/api/version`, health 200, builtAt 2026-06-05 13:03Z). MODE B (manual verify, no auto-rollback).
+
+**Live verification — PASS** (`operator approve live-verified:phase-3-early-deploy pass`; Claude-driven UAT, hard-reload first):
+- **No #310 regression** — document page + `ActiveSessionView` render clean through create→active; console **zero React errors**.
+- **LOI-vs-draft panel** (review pane) — recorded "Governing Law = Virginia" → **present** (engine found it in the draft); "Closing Date = December 31, 2099" → **not found — review** (drift, amber); header "1 to review"; `sourceType`↔`sourceId` invariant enforced.
+- **Closing-package panel** (matter page) — "Executed Durable POA" (required/present) → **complete**; added "Witness signature page" (required/missing) → **"1 missing"** with the missing item listed; `itemType`↔`refId` invariant enforced.
+- Both **default-safe** (flag/surface only; never edit/finalize/send/lock).
+
+**Current build state.** `main` = **prod** = `0d704c9` — now carries ORCH-1 + provenance + LDD + closing-package; migrations `0007`–`0017` applied. **FOLD-DRAFT-1 → completed** (audience format/tone split + audience-leak filter remain **DEFERRED** → ride FOLD-SEND-1 + GOV-1b egress). `awaiting_live_verification` cleared.
+
+**Open items.** `LLN-PROD-CLEANUP-1` += 2 `ldd_key_term` rows (doc `cbf83ad7`), 2 `closure_package_item` rows (matter `3917bf68`), 1 abandoned GPT-Lite review session (iteration 28). Carryforwards unchanged (reviewer reliability; ORCH-1 FIRE re-triage sufficiency still un-confirmed, non-blocking; retention sign-off; MODE A smoke secrets deferred). Rollback target if ever needed: `3df92dc`.
+
+**Next.** Queue head = **FOLD-SEND-1** — a **§3.1 FIRE** (advisory→deterministic block/warn/pass sendability gate). When started: auto-assemble the triad-review packet to `docs/reviews/FOLD-SEND-1_packet.md` (+ phase2 Desktop mirror) and **HALT** before any implementation.
+
+---
+
 ## 2026-06-05 (morning) — FOLD-DRAFT-1 non-deferred scope BUILD-COMPLETE (LDD + closing-package primitives); → awaiting_live_verification
 
 **What changed.** Built **both** remaining FOLD-DRAFT-1 primitives on `fold/phase-3-cont` (HEAD `f0cc384`) — 6 increments, each auto-merged on green CI (Rule 15 reversible lane):

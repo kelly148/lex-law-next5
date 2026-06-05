@@ -1692,6 +1692,116 @@ export type ClosurePackageItem = typeof closurePackageItem.$inferSelect;
 export type NewClosurePackageItem = typeof closurePackageItem.$inferInsert;
 
 // ============================================================
+// FOLD-SEND-1 — export-safety / outbound-readiness data core (Increment 1)
+// ============================================================
+// Deterministic block/warn/pass gate data core (triad-reviewed; docs/reviews/FOLD-SEND-1_disposition.md).
+// Inc 1 = tables + idempotent firm-default seeds only; NO behavior change; SENDABILITY_GATE_ENABLED
+// default OFF. Enum values mirror src/shared/schemas/sendability.ts (Zod Wall). Legacy `sendability_*`
+// code name kept; user-facing copy says "export safety / outbound readiness".
+// ============================================================
+export const SENDABILITY_CHECK_CATEGORY_VALUES = [
+  'wrong_matter_id', 'stale_baseline', 'missing_required_signer', 'open_execution_item',
+  'unverified_statute_citation', 'tone', 'package_completeness', 'low_confidence_match', 'audience_leak',
+] as const;
+export const SENDABILITY_RULE_LEVEL_VALUES = ['block', 'warn', 'off'] as const;
+export const SENDABILITY_VERDICT_VALUES = ['block', 'warn', 'pass'] as const;
+export const SENDABILITY_DEGRADATION_VALUES = ['none', 'partial', 'error'] as const;
+export const SENDABILITY_OVERRIDE_REASON_VALUES = [
+  'verified_correct', 'intentional_choice', 'will_correct_before_send', 'not_applicable', 'other',
+] as const;
+export const JURISDICTION_REQUIREMENT_VALUES = [
+  'notary', 'two_witnesses', 'self_proving_affidavit', 'signer_capacity_recital',
+] as const;
+
+// sendability_rule — which checks are enabled + at what level; owner-null = firm default (no UI v1).
+export const sendabilityRule = mysqlTable(
+  'sendability_rule',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }), // NULL = firm default
+    category: mysqlEnum('category', SENDABILITY_CHECK_CATEGORY_VALUES).notNull(),
+    documentType: varchar('documentType', { length: 128 }), // NULL = all types
+    level: mysqlEnum('level', SENDABILITY_RULE_LEVEL_VALUES).notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxSendabilityRuleCategory: index('idx_sendability_rule_category').on(table.category),
+  }),
+);
+
+// jurisdiction_rule — document-type-scoped, source-tagged execution formalities (scope-guarded).
+export const jurisdictionRule = mysqlTable(
+  'jurisdiction_rule',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }), // NULL = firm default
+    jurisdiction: varchar('jurisdiction', { length: 16 }).notNull(),
+    documentType: varchar('documentType', { length: 128 }).notNull(),
+    requirement: mysqlEnum('requirement', JURISDICTION_REQUIREMENT_VALUES).notNull(),
+    sourceTag: varchar('sourceTag', { length: 256 }).notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxJurisdictionRuleType: index('idx_jurisdiction_rule_type').on(table.jurisdiction, table.documentType),
+  }),
+);
+
+// sendability_override — APPEND-ONLY; content-hash-bound; supersedes on version change.
+export const sendabilityOverride = mysqlTable(
+  'sendability_override',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    contentHash: varchar('contentHash', { length: 128 }).notNull(),
+    category: mysqlEnum('category', SENDABILITY_CHECK_CATEGORY_VALUES).notNull(),
+    blockPayload: json('blockPayload'),
+    reasonCode: mysqlEnum('reasonCode', SENDABILITY_OVERRIDE_REASON_VALUES).notNull(),
+    reasonText: text('reasonText'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxSendabilityOverrideVersion: index('idx_sendability_override_version').on(table.versionId),
+    idxSendabilityOverrideUserMatter: index('idx_sendability_override_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+// sendability_evaluation — APPEND-ONLY log of every evaluation (incl. shadow mode).
+export const sendabilityEvaluation = mysqlTable(
+  'sendability_evaluation',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    versionId: char('versionId', { length: 36 }).notNull(),
+    verdict: mysqlEnum('verdict', SENDABILITY_VERDICT_VALUES).notNull(),
+    blocks: json('blocks').notNull(),
+    warnings: json('warnings').notNull(),
+    llmComponentUsed: boolean('llmComponentUsed').notNull().default(false),
+    degraded: mysqlEnum('degraded', SENDABILITY_DEGRADATION_VALUES).notNull().default('none'),
+    durationMs: int('durationMs').notNull().default(0),
+    enforced: boolean('enforced').notNull().default(false),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxSendabilityEvalVersion: index('idx_sendability_eval_version').on(table.versionId),
+    idxSendabilityEvalUserMatter: index('idx_sendability_eval_user_matter').on(table.userId, table.matterId),
+  }),
+);
+
+export type SendabilityRule = typeof sendabilityRule.$inferSelect;
+export type JurisdictionRule = typeof jurisdictionRule.$inferSelect;
+export type SendabilityOverride = typeof sendabilityOverride.$inferSelect;
+export type SendabilityEvaluation = typeof sendabilityEvaluation.$inferSelect;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked

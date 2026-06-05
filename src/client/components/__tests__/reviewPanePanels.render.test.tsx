@@ -20,6 +20,7 @@ import OrchestrationConsolidationPanel from '../OrchestrationConsolidationPanel.
 import ProvisionProvenancePanel from '../ProvisionProvenancePanel.js';
 import LddDiffPanel from '../LddDiffPanel.js';
 import ClosurePackagePanel from '../ClosurePackagePanel.js';
+import ExportSafetyPanel from '../ExportSafetyPanel.js';
 import PanelErrorBoundary from '../PanelErrorBoundary.js';
 
 afterEach(() => {
@@ -53,6 +54,11 @@ describe('review-pane panels — render smoke (the missing CI guard)', () => {
   it('ClosurePackagePanel mounts without throwing', () => {
     const { getByText } = render(withProviders(<ClosurePackagePanel matterId={DOCUMENT_ID} />));
     expect(getByText('Closing package')).toBeTruthy();
+  });
+
+  it('ExportSafetyPanel mounts without throwing', () => {
+    const { getByText } = render(withProviders(<ExportSafetyPanel documentId={DOCUMENT_ID} />));
+    expect(getByText('Export safety')).toBeTruthy();
   });
 
   it('OrchestrationConsolidationPanel mounts (visible) without throwing', () => {

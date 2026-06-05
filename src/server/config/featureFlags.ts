@@ -42,6 +42,19 @@ export function isEvaluatorEnabled(): boolean {
 }
 
 /**
+ * Export-safety / outbound-readiness deterministic gate (FOLD-SEND-1). DEFAULT OFF.
+ *
+ * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged
+ * to sendability_evaluation per category, but NOTHING is enforced — the DOCX export proceeds exactly
+ * as before. When exactly "true", the gate ENFORCES at the export boundary (v1 hard-stops only
+ * wrong_matter_id; other categories warn) with the recorded attorney override path. The flip to
+ * enforce is operator-gated on the shadow-mode false-positive data (FOLD-SEND-1 disposition).
+ */
+export function isSendabilityGateEnabled(): boolean {
+  return process.env['SENDABILITY_GATE_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

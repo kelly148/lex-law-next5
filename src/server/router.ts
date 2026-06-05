@@ -37,6 +37,7 @@ import { orchestrationRouter } from './procedures/orchestration.js';
 import { provisionProvenanceRouter } from './procedures/provisionProvenance.js';
 import { lddKeyTermRouter } from './procedures/lddKeyTerm.js';
 import { closurePackageRouter } from './procedures/closurePackage.js';
+import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -74,6 +75,9 @@ export const appRouter = router({
   // FOLD-DRAFT-1 / package — closing-package items + advisory completeness check (record + read;
   // surfaces missing required items, never finalizes/sends/locks; sending is FOLD-SEND-1).
   closurePackage: closurePackageRouter,
+  // FOLD-SEND-1 — deterministic export-safety / outbound-readiness gate (read-only verdict in Inc 2;
+  // enforcement + override + shadow logging at the export boundary land in Inc 3).
+  sendabilityGate: sendabilityGateRouter,
 });
 
 export type AppRouter = typeof appRouter;
