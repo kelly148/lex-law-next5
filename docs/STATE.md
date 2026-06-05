@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (later, +Inc 4) — R2-PRE-CONFLICT-1 Inc 4 AUTO-MERGED (`628ddb0`, PR #178) — check-party snapshot + stale-clear invalidation; BLOCK #4 satisfied (only #3 / Inc 5 remains)
+
+**What changed.** Built + **auto-merged** (Rule 15: reversible lane, CI green, no fork/residual surfaced) **Inc 4** on `whereas/r2-pre-conflict-1-inc4` → `main` via [PR #178](https://github.com/kelly148/lex-law-next5/pull/178), squash **`628ddb0`**. Closes **BLOCK-until #4** (constraint D). Pure code; **no migration** (the `conflict_checks.checkedPartyIds` column was already additive from migration 0020).
+
+**Mechanism.** (1) `runConflictCheck` snapshots the exact screened party-id set onto `checkedPartyIds` (additive write of a previously-null column). (2) `evaluateConflictClearance` gains the 4th CLEARED condition (constraint A "current vs the party set") via a **pure, exported, unit-tested** comparator `partyIdSetUnchanged`: a party **added/removed** since the latest check invalidates a prior clear → `NOT_ESTABLISHED 'check_stale_parties_changed'` (re-check); **confirming** a party does NOT change the id set, so it does not force a re-check; a **null/legacy snapshot is fail-closed** (treated as stale).
+
+**Safety.** The new branch is strictly more restrictive — it can only add a `NOT_ESTABLISHED` path, never make something CLEARED that wasn't before (fail-safe). `evaluateConflictClearance` is consumed only behind `CONFLICT_GATE_ENABLED` (OFF), so this is **inert** until the flip; the snapshot write is harmless additive. **Flip-time note:** any matter whose latest check predates Inc 4 (null snapshot) reads stale → must re-check before clearing — consistent with the existing activation constraint (re-checks happen pre-flip / via Inc 5).
+
+**Build state.** `main` = **`628ddb0`** (prod still `3bff333`). `CONFLICT_GATE_ENABLED` still OFF. No migration; reversible.
+
+**BLOCK-until status:** #1 (3b) ✓ · #2 (2/3a) ✓ · #4 (4) ✓ · #5 (3c) ✓ · #6 (3c) ✓. **ONLY #3 REMAINS — Inc 5** (retroactive migration + Conflicts Compliance Review queue; **operator-gated/STAGED data migration**). After Inc 5: the `CONFLICT_GATE_ENABLED` flip (single reversible flag flip), then R2 #3.
+
+**NEXT = Inc 5 (the data-migration increment).** Build (migration runner + Conflicts Compliance Review queue) is reversible build-and-PR; **EXECUTION against prod data is a HARD STOP** (irreversible data mutation — operator-gated; preview count+sample → staging → prod; no auto-confirm, no history rewrite). Plan to be presented for sign-off before building.
+
+**Open items unchanged.** Local: tsc 0, eslint 0; Inc4 + Inc3a + intake-conflicts green; ~12 Windows-only env false-negatives unrelated/green in CI.
+
+---
+
 ## 2026-06-05 (later, +Inc 3c) — R2-PRE-CONFLICT-1 Inc 3c MERGED (`c21c7ce`, PR #176) — consumer audit (G/#6) + first-class confirm UX (#5); BLOCK #5 + #6 now satisfied
 
 **What changed.** Built + merged **Inc 3c** on `whereas/r2-pre-conflict-1-inc3c` → `main` via [PR #176](https://github.com/kelly148/lex-law-next5/pull/176), squash **`c21c7ce`**, CI green; `operator approve accept:R2-PRE-CONFLICT-1-Inc3c`. Completes the **consumer audit (constraint G / BLOCK #6)**: no reader of `matter_parties` may treat an UNCONFIRMED row as attorney-asserted. 5 files (+226/-8).
