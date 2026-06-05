@@ -4,6 +4,31 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (late night) — WHEREAS R2 #3 §7 verifications run → R2 #3 PAUSED on two prerequisites (PREREQ-1 jurisdiction PR'd; PREREQ-2 conflicts = §3.1 FIRE, triad pending)
+
+**What happened.** Started R2 #3 (matter-state header / readiness strip) with the prerequisite **§7 verifications**. Findings (by server-side code inspection):
+- **§7-1 open_items.severity — MIXED source** (NOT uniformly rule/attorney-assigned): rule-based for conflict-origin items (engine computes blocker/review deterministically); LLM-derived for orchestration/divergent items (mapped from reviewer/evaluator severity). Mitigant in place: FOLD-SEND-1 pinned `stale_baseline` to the adopt-ledger baseline, NOT `open_items.severity`, so the export gate does not inherit it. Impact on #3: open-items COUNT is fine; a severity LABEL carries mixed provenance (display caveat).
+- **§7-2 clientName-not-a-party — APPEARS UNCLOSED (ethics-adjacent).** Conflict checking runs only over the attorney-curated `matter_parties` table; `matters.clientName` is never auto-represented as a party and no transition is guarded on the client being a party. So a conflict check can read "cleared" while the client was never checked (`hasUndispositionedBlocker` is vacuously false). The "fix-these-now" item does not appear to have landed. **→ R2-PRE-CONFLICT-1.**
+- **§7-3 deliberate-commit audit writes — SATISFIED** (audit_events/kb_events wired across lock/adopt/disposition/kb-adopt/override/conflict-disposition). ✅
+
+Also found: **`matters` has NO `jurisdiction` column** (the handoff's "Source: matters.jurisdiction" was inaccurate; jurisdiction lived only in `jurisdiction_rule` + `practice_memos`). The jurisdiction chip (the LEAD of the strip) needs a new field. **→ R2-PRE-JURIS-1.**
+
+**Decision (operator: "go B").** Pause R2 #3; do both prerequisites first.
+
+**PREREQ-1 — R2-PRE-JURIS-1 (jurisdiction field): BUILT → [PR #167](https://github.com/kelly148/lex-law-next5/pull/167) (CI green, awaiting `operator approve accept:`).** Additive backend-only (migration `0019` `matters.jurisdiction VARCHAR(16)` on its OWN PR, ordered ahead of any §7-2 schema; schema.ts + MatterRowSchema; matter.create/updateMetadata accept+persist+audit; source-scan test). No UI — the VA/MD chip + inline editor land in R2 #3. tsc 0, eslint 0; zodWall + matter-state 46/46.
+
+**PREREQ-2 — R2-PRE-CONFLICT-1 (conflicts fix): §3.1 FIRE — TRIAD PENDING (HALT).** Self-contained triad packet written to `docs/reviews/R2-PRE-CONFLICT-1_packet.md`, mirrored to the Cowork `…\_analytical\phase2\reviews\` (for the GPT+Grok+fresh-Claude triad). Central question = the fix-design fork: (a) auto-represent clientName as a party vs (b) [builder's lean] guard conflict-sensitive transitions until the attorney explicitly adds the client (consistent with explicit matter_parties curation + automate-the-labor-not-the-judgment). **Not pre-implemented; blocked until `operator approve checkpoint:R2-PRE-CONFLICT-1`.** Tracked as chip `task_dcd54aed`.
+
+**R2 #3 re-scope (operator-set).** When PREREQ-1 lands, R2 #3 ships the **jurisdiction chip + non-conflicts header elements** (source-authority currency, open-items count, rolled-up review status, sendability) + the jurisdiction VA/MD inline editor; **only the conflicts-status chip is held** for §7-2. Don't block the whole header on the FIRE.
+
+**Current build state.** `main` = **`57894a8`** (prod = `64ea044`). On `main` awaiting **batched deploy**: R2 #1 + R2 #2 Inc A + R2 #2 Inc B (all display-only, no migrations). PREREQ-1 (`db0ca79`, PR #167, +migration 0019) awaiting accept; once merged + deployed it adds migration 0019 to the deploy batch's pre-deploy step.
+
+**Open items.** (a) PR #167 awaiting `operator approve accept:`. (b) R2-PRE-CONFLICT-1 triad pending (operator-run). (c) `task_99ce99c5` (auto-register divergent items — ORCH-1 contract). (d) **Untracked file flagged (NOT created by this thread):** `docs/engagements/FOLD-ORCH-1-divergent-persistence-decision.md` — likely produced by the spawned auto-register task session; left untouched per Hard Rule 3. (e) Batched deploy still pending. (f) Carryforwards unchanged.
+
+**Next.** Operator: accept PR #167 (jurisdiction) + run the R2-PRE-CONFLICT-1 triad. Then build R2 #3 (jurisdiction chip + non-conflicts header; hold conflicts-status). Deploy batch still parked.
+
+---
+
 ## 2026-06-05 (night, later) — WHEREAS R2 #2 Inc B (persistent divergent items + deliberate-act) MERGED to `main` (`57894a8`) → R2 #2 COMPLETE; awaiting batched deploy
 
 **What changed.** Built and merged **R2 #2 Inc B** on `whereas/r2-2b-divergent-persistence` → `main` via [PR #165](https://github.com/kelly148/lex-law-next5/pull/165), squash commit **`57894a8`**, CI green. **Completes R2 #2.** Display-only; no state-machine / acknowledgment changes; **NO new backend** (reuses `matterState.dashboard` + a client filter). 7 files (2 new components/tests, `ReviewPane`, `OrchestrationConsolidationPanel`, + a one-line `matterState.dashboard` stub into 3 existing render tests):
