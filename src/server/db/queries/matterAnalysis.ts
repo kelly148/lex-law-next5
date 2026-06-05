@@ -15,7 +15,8 @@ import { db } from '../connection.js';
 import { matterAnalysis, matters, type MatterAnalysisStatus } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
 import { insertAuditEvent } from './auditEvents.js';
-import { allHitsDispositionedForLatest } from './conflicts.js';
+import { allHitsDispositionedForLatest, evaluateConflictClearance } from './conflicts.js';
+import { isConflictGateEnabled } from '../../config/featureFlags.js';
 import {
   MatterAnalysisRowSchema,
   type MatterAnalysisRow,
@@ -140,6 +141,23 @@ export async function lockPlan(params: { analysisId: string; userId: string; rat
   const gate = await allHitsDispositionedForLatest(a.matterId, params.userId);
   if (!gate) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONFLICTS_NOT_CHECKED: run the conflicts check before locking a plan.' });
   if (!gate.ok) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONFLICTS_UNDISPOSITIONED: every conflict hit must be dispositioned before locking a plan.' });
+
+  // R2-PRE-CONFLICT-1 Inc 3b (behind CONFLICT_GATE_ENABLED): lockPlan is BOTH the lockPlan transition
+  // AND the cleared-disposition ROOT — it writes conflictsClearedForPlanning=true below. That clearance
+  // flag must never be asserted vacuously, so when the gate is ON we additionally require the affirmative
+  // shared predicate (a CONFIRMED role='client' party etc.), on top of the all-hits-dispositioned gate
+  // above (which we KEEP — it is lockPlan's stronger requirement that EVERY hit, not just blockers, is
+  // dispositioned). One shared predicate (evaluateConflictClearance); no per-site copy of the logic.
+  // FLAG OFF (default): unchanged behavior — the all-hits gate alone governs.
+  if (isConflictGateEnabled()) {
+    const clearance = await evaluateConflictClearance(a.matterId, params.userId);
+    if (clearance.state !== 'CLEARED') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `CONFLICTS_NOT_CLEARED: the plan cannot be locked until the matter is conflict-cleared (${clearance.reasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker before locking.`,
+      });
+    }
+  }
 
   const eventId = uuidv4();
   await db.transaction(async (tx) => {
