@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (night, deploy) — R2 BATCH DEPLOYED (`3bff333`) + light live-verify PASS; migrations 0019+0020 applied
+
+**What changed.** Operator deployed the batched `main` (`3bff333`) via Railway "Deploy Latest Commit". **prod = `3bff333`** (`/api/version` confirmed `3bff3335…`, builtAt 2026-06-05T19:57Z — correct merged commit, SHA check clean). **MODE B** (manual verify, no auto-rollback). The wired pre-deploy runner ran (deploy succeeded ⇒ its migration step succeeded): **migrations `0019` (matters.jurisdiction) + `0020` (matter_parties.confirmed/confirmedAt/confirmedByUserId + conflict_checks.checkedPartyIds) applied** (both additive).
+
+**Now on prod.** Display: R2 #1 survivability + R2 #2 Inc A (denominator/review-basis) + Inc B (persistent disagreements + ✦ DeliberateActButton). Backend: R2-PRE-JURIS-1 (jurisdiction field) + R2-PRE-CONFLICT-1 Inc 1 (schema) + Inc 2 (auto-create client party) + Inc 3a (clearance predicate + confirm act — **ADDITIVE, NOT enforced**).
+
+**Live verification — PASS (light)** (Claude-driven, browser "UNIVERSALTITLE", authed `kelly`, hard-reloaded): the document page hosting the rebuilt `ReviewPane` renders clean (rebrand intact, serif title, Sendability panel, Version History, tabs, Notes); **no #310 / no console errors** — the big review-pane batch is healthy. Not exercised live: the deep `ActiveSessionView` surfaces (denominator/persistent-disagreements/✦) need an active review session (quota + stuck-session risk) — covered by green CI render tests; hosting bundle verified healthy.
+
+**Caveats true on prod.** (a) **The conflicts gap is NOT closed** — Inc 3a is additive/inert (predicate consumed nowhere; old `hasUndispositionedBlocker` still governs); closes only when **Inc 3b** (enforcement) deploys. (b) **New matters now auto-get an UNCONFIRMED `role='client'` party** (Inc 2); confirm UI + unconfirmed treatment come in Inc 3b/3c. (c) Still **self-use, not client-facing.**
+
+**Build state.** `main` = prod = **`3bff333`**. Deploy batch DRAINED.
+
+**Open items unchanged** from the handoff entry below: Inc 3b → 3c → 4 → 5 (resume per `HANDOFF_BRIEF_2026-06-05_whereas-r2-conflict.md`), then R2 #3, then R2 #4–#9; `task_99ce99c5`; the untracked FOLD-ORCH file; carryforwards.
+
+---
+
 ## 2026-06-05 (late night, later) — PREREQ-1 jurisdiction MERGED; R2-PRE-CONFLICT-1 triad DISPOSITIONED (hybrid) → Inc 1/2/3a MERGED (mechanism only; enforcement = Inc 3b, NOT yet wired). Session handoff.
 
 **Consolidated catch-up (several closes since the §7 entry above).**
