@@ -1214,6 +1214,12 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // hooks MUST run before any early return.
   const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
 
+  // R2-2 Inc A: the honest N-of-M denominator is computed server-side and is reused here from the
+  // orchestration consolidation (React Query dedupes it with the panel's identical query — one
+  // fetch). Surfaced in the session strip so "how many reviewers actually returned" is visible
+  // without opening a panel. HOISTED above the early returns with the other hooks (stable order).
+  const consolidationQuery = trpc.orchestration.getConsolidation.useQuery({ reviewSessionId: sessionId });
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-sm text-ink-secondary">
@@ -1287,32 +1293,68 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // MR-4 P2: Count unique selected suggestionIds across all feedback cards.
   const totalSelected = session.selections.length;
 
+  // R2-2 Inc A: denominator (only meaningful once the run is complete) + review-basis timestamp.
+  const denominator = consolidationQuery.data?.denominator;
+  const convergenceFloorMet = consolidationQuery.data?.convergenceFloorMet ?? true;
+  // Show the denominator once reviewers have returned (feedback rows exist). Gated on feedback
+  // presence rather than the completionState completed-with-feedback literal, so this does not
+  // introduce an earlier copy of the marker that the source-scan tests slice the render block on.
+  const showDenominator = denominator !== undefined && feedback.length > 0;
+  const reviewedAt = ((): string | null => {
+    const raw = session.createdAt as unknown;
+    if (raw === null || raw === undefined) return null;
+    const d = new Date(raw as string | number | Date);
+    return Number.isNaN(d.getTime())
+      ? null
+      : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  })();
+
   return (
     <div className="flex flex-col h-full">
-      {/* Session info */}
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <div>
-          <span className="text-xs text-gray-500">Iteration {session.iterationNumber}</span>
-          <span className={clsx(
-            'ml-2 text-xs px-1.5 py-0.5 rounded',
-            session.state === 'active' && 'bg-green-100 text-green-700',
-            session.state === 'regenerated' && 'bg-blue-100 text-blue-700',
-            session.state === 'abandoned' && 'bg-gray-100 text-gray-600',
-          )}>
-            {session.state}
-          </span>
+      {/* Session-info strip — R2-2 Inc A: rethemed, with the honest N-of-M denominator and a
+          "review basis" line (the anti-stale-review safeguard: WHICH draft this review judged
+          and WHEN). Detail lives here; the matter-state header (R2 #3) carries only a rolled-up
+          review-status chip, so the two never duplicate. */}
+      <div className="px-4 py-3 bg-surface-2 border-b border-line">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-secondary">Iteration {session.iterationNumber}</span>
+            <span className={clsx(
+              'text-xs px-1.5 py-0.5 rounded',
+              session.state === 'active' && 'bg-success-tint text-success',
+              session.state === 'regenerated' && 'bg-accent-tint text-accent',
+              session.state === 'abandoned' && 'bg-surface text-ink-hint',
+            )}>
+              {session.state}
+            </span>
+          </div>
+          <span className="text-xs text-ink-secondary">{totalSelected} selected</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">
-            {totalSelected} selected
-          </span>
-        </div>
+
+        {showDenominator && denominator && (
+          <p className="mt-1.5 text-[11px] text-ink-secondary leading-snug">
+            <span className="font-medium text-ink">{denominator.successful} of {denominator.intended}</span>{' '}
+            configured reviewers returned substantive feedback
+            {denominator.missing.length > 0 && (
+              <> · no return: {denominator.missing.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}</>
+            )}
+            {!convergenceFloorMet && (
+              <> · fewer than two returned, so nothing is treated as convergent</>
+            )}.
+          </p>
+        )}
+
+        {reviewedAt && (
+          <p className="mt-0.5 text-[11px] text-ink-hint">
+            Review basis: the draft at iteration {session.iterationNumber}, reviewed {reviewedAt}.
+          </p>
+        )}
       </div>
 
       {/* Global instructions */}
-      <div className="px-4 py-3 border-b border-gray-100">
+      <div className="px-4 py-3 border-b border-line">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-gray-600">Global Instructions</span>
+          <span className="text-xs font-medium text-ink-secondary">Global Instructions</span>
           {!editingInstructions && (
             <button
               onClick={() => setEditingInstructions(true)}
@@ -1349,8 +1391,8 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
             </div>
           </div>
         ) : (
-          <p className="text-xs text-gray-500">
-            {session.globalInstructions || <em>No global instructions</em>}
+          <p className="text-xs text-ink-secondary">
+            {session.globalInstructions || <em className="text-ink-hint">No global instructions</em>}
           </p>
         )}
       </div>
@@ -1360,13 +1402,13 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         {completionState === 'pending_or_running' && (
           // MR-UAT-PROGRESS-1: show reviewer-specific label when available.
           <div className="text-center py-8" aria-live="polite" aria-busy={true}>
-            <RefreshCw className="w-6 h-6 text-gray-300 mx-auto mb-2 animate-spin" />
-            <p className="text-sm text-gray-400">
+            <RefreshCw className="w-6 h-6 text-ink-hint mx-auto mb-2 animate-spin" />
+            <p className="text-sm text-ink-secondary">
               {session.selectedReviewers[0]
                 ? `${REVIEWER_LABELS[session.selectedReviewers[0]] ?? session.selectedReviewers[0]} reviewer is analyzing…`
                 : 'Review in progress…'}
             </p>
-            <p className="text-xs text-gray-300 mt-1">Checking for results every few seconds.</p>
+            <p className="text-xs text-ink-hint mt-1">Checking for results every few seconds.</p>
           </div>
         )}
         {completionState === 'completed_with_feedback' && (
