@@ -1,0 +1,113 @@
+/* ============================================================
+   Whereas — Design Tokens (R0)
+   Single source of truth for the R1 retheme. Light is the default;
+   dark applies via prefers-color-scheme AND an explicit [data-theme="dark"].
+   Prefix --wa- avoids collisions with existing app variables.
+   Type principle: chrome = sans (--wa-font-sans); the law = serif (--wa-font-serif).
+   ============================================================ */
+
+:root {
+  /* — Surfaces — */
+  --wa-paper:        #FAF8F2;   /* page background */
+  --wa-surface:      #FFFDF8;   /* cards, panels */
+  --wa-surface-2:    #F3EFE4;   /* left rail, inset wells */
+
+  /* — Text — */
+  --wa-ink:          #17191C;   /* primary; matter & document names */
+  --wa-text-secondary:#6F6A60;  /* metadata, supporting copy */
+  --wa-text-hint:    #9A9486;   /* timestamps, placeholders */
+
+  /* — Lines — */
+  --wa-border:       #EFE9DC;   /* hairline */
+  --wa-border-strong:#E2D9C7;   /* emphasized divider */
+
+  /* — Accent (oxblood) — */
+  --wa-accent:       #6E2436;   /* primary actions, the comma, brand moments */
+  --wa-accent-hover: #5A1D2C;
+  --wa-accent-tint:  #EFE3E6;   /* accent pill/badge background */
+  --wa-on-accent:    #FAF8F2;   /* text/icon on accent fill */
+
+  /* — Neutral fill — */
+  --wa-sand:         #E8E0D0;
+
+  /* — Semantic (muted, document-appropriate) — */
+  --wa-success:      #2E6B4F;  --wa-success-tint:#E2EBE6;
+  --wa-warning:      #9A6B1F;  --wa-warning-tint:#F1E9D8;
+  --wa-danger:       #9A2D2D;  --wa-danger-tint: #F3E2E0;
+
+  /* — Type — */
+  --wa-font-serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --wa-font-sans:  'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --wa-font-mono:  'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --wa-size-meta:     12px;   /* labels, metadata */
+  --wa-size-sm:       13px;
+  --wa-size-body:     14px;
+  --wa-size-section:  16px;   /* section headers (sans) */
+  --wa-size-matter:   18px;   /* matter & document names (serif) */
+  --wa-size-title:    22px;   /* page title (serif) */
+  --wa-size-wordmark: 30px;   /* wordmark (serif) */
+
+  --wa-weight-regular:400;
+  --wa-weight-medium: 500;    /* two weights only — never 600/700 in UI */
+  --wa-leading-ui:  1.55;
+  --wa-leading-doc: 1.7;      /* rendered legal content */
+
+  /* — Space — */
+  --wa-space-1:4px; --wa-space-2:8px; --wa-space-3:12px;
+  --wa-space-4:16px; --wa-space-6:24px; --wa-space-8:32px;
+
+  /* — Radius — */
+  --wa-radius:    8px;    /* cards, buttons, pills */
+  --wa-radius-lg: 12px;   /* large containers */
+  --wa-radius-icon: 22%;  /* app-icon squircle */
+
+  /* — Component semantics (reference these, not raw colors, in components) — */
+  --wa-btn-primary-bg: var(--wa-accent);
+  --wa-btn-primary-fg: var(--wa-on-accent);
+  --wa-card-bg:        var(--wa-surface);
+  --wa-card-border:    var(--wa-border);
+  --wa-rail-bg:        var(--wa-surface-2);
+  --wa-pill-bg:        var(--wa-accent-tint);
+  --wa-pill-fg:        var(--wa-accent);
+}
+
+/* ---- Dark mode ---- */
+:root[data-theme="dark"],
+:root:not([data-theme="light"]) {
+  /* placeholder so the media query below carries the real dark values;
+     explicit toggle uses [data-theme="dark"] (see block at end). */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wa-paper:        #181A1D;
+    --wa-surface:      #232529;
+    --wa-surface-2:    #1F2125;
+    --wa-ink:          #ECEAE4;
+    --wa-text-secondary:#9A968C;
+    --wa-text-hint:    #7E7A72;
+    --wa-border:       #34373C;
+    --wa-border-strong:#42454B;
+    --wa-accent:       #8A3147;   /* lifted for contrast on dark */
+    --wa-accent-hover: #9A3850;
+    --wa-accent-tint:  #2A2024;
+    --wa-on-accent:    #F3ECEA;
+    --wa-sand:         #2E2C28;
+    --wa-success:#7FB79C; --wa-success-tint:#1C2A22;
+    --wa-warning:#D2A45E; --wa-warning-tint:#2A2417;
+    --wa-danger: #D98A8A; --wa-danger-tint: #2A1B1B;
+  }
+}
+
+/* Explicit dark toggle — same values, wins over the media query. */
+:root[data-theme="dark"] {
+  --wa-paper:#181A1D; --wa-surface:#232529; --wa-surface-2:#1F2125;
+  --wa-ink:#ECEAE4; --wa-text-secondary:#9A968C; --wa-text-hint:#7E7A72;
+  --wa-border:#34373C; --wa-border-strong:#42454B;
+  --wa-accent:#8A3147; --wa-accent-hover:#9A3850; --wa-accent-tint:#2A2024; --wa-on-accent:#F3ECEA;
+  --wa-sand:#2E2C28;
+  --wa-success:#7FB79C; --wa-success-tint:#1C2A22;
+  --wa-warning:#D2A45E; --wa-warning-tint:#2A2417;
+  --wa-danger:#D98A8A;  --wa-danger-tint:#2A1B1B;
+}

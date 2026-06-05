@@ -183,7 +183,7 @@ export default function ProvisionProvenancePanel({ documentId }: ProvisionProven
             <button
               onClick={submit}
               disabled={!canRecord}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
             >
               <Plus className="w-3 h-3" />
               {record.isPending ? 'Recording…' : 'Record provenance'}

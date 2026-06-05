@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whereas — R0 reference mockup (matter workspace)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+
+/* --- tokens (mirror of whereas-tokens.css; light default + dark) --- */
+:root{
+  --wa-paper:#FAF8F2;--wa-surface:#FFFDF8;--wa-surface-2:#F3EFE4;
+  --wa-ink:#17191C;--wa-text-secondary:#6F6A60;--wa-text-hint:#9A9486;
+  --wa-border:#EFE9DC;--wa-border-strong:#E2D9C7;
+  --wa-accent:#6E2436;--wa-accent-tint:#EFE3E6;--wa-on-accent:#FAF8F2;
+  --wa-success:#2E6B4F;--wa-success-tint:#E2EBE6;--wa-warning:#9A6B1F;--wa-warning-tint:#F1E9D8;
+  --wa-font-serif:'Fraunces',Georgia,serif;--wa-font-sans:'Inter',system-ui,sans-serif;
+  --wa-radius:8px;--wa-radius-lg:12px;
+}
+[data-theme="dark"]{
+  --wa-paper:#181A1D;--wa-surface:#232529;--wa-surface-2:#1F2125;
+  --wa-ink:#ECEAE4;--wa-text-secondary:#9A968C;--wa-text-hint:#7E7A72;
+  --wa-border:#34373C;--wa-border-strong:#42454B;
+  --wa-accent:#8A3147;--wa-accent-tint:#2A2024;--wa-on-accent:#F3ECEA;
+  --wa-success:#7FB79C;--wa-success-tint:#1C2A22;--wa-warning:#D2A45E;--wa-warning-tint:#2A2417;
+}
+
+body{margin:0;background:var(--wa-paper);color:var(--wa-ink);font-family:var(--wa-font-sans);
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;transition:background .2s,color .2s}
+.toolbar{padding:12px 20px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--wa-border)}
+.toolbar .wm{font-family:var(--wa-font-serif);font-weight:500;font-size:20px}
+.toolbar .wm i{color:var(--wa-accent);font-style:normal}
+.toolbar button{font-family:var(--wa-font-sans);font-size:12px;border:1px solid var(--wa-border-strong);
+  background:var(--wa-surface);color:var(--wa-ink);border-radius:8px;padding:6px 12px;cursor:pointer;margin-left:auto}
+
+/* --- app shell --- */
+.shell{display:flex;min-height:560px}
+.rail{width:172px;flex-shrink:0;background:var(--wa-surface-2);padding:18px 14px}
+.rail .wm{font-family:var(--wa-font-serif);font-weight:500;font-size:21px;margin:0 0 20px}
+.rail .wm i{color:var(--wa-accent);font-style:normal}
+.nav{font-size:13px;padding:8px 10px;border-radius:8px;color:var(--wa-text-secondary);margin-bottom:3px}
+.nav.active{background:var(--wa-surface);color:var(--wa-ink);border:1px solid var(--wa-border)}
+.main{flex:1;min-width:0;padding:22px 28px}
+.crumb{font-size:12px;color:var(--wa-text-hint);margin:0 0 12px}
+.mtitle{font-family:var(--wa-font-serif);font-weight:500;font-size:22px;margin:0}
+.tags{display:flex;gap:8px;align-items:center;margin:10px 0 18px}
+.pill{font-size:12px;padding:3px 11px;border-radius:8px;background:var(--wa-accent-tint);color:var(--wa-accent)}
+.pill.pa{background:var(--wa-surface-2);color:var(--wa-text-secondary)}
+
+/* recital band */
+.band{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.stat{flex:1 1 100px;min-width:96px;background:var(--wa-surface);border:1px solid var(--wa-border);
+  border-radius:8px;padding:10px 12px}
+.slab{font-size:12px;color:var(--wa-text-hint);margin:0}
+.sval{font-size:13px;font-weight:500;color:var(--wa-ink);margin:4px 0 0}
+.sval.ok{color:var(--wa-success)}.sval.warn{color:var(--wa-warning)}
+
+.card{background:var(--wa-surface);border:1px solid var(--wa-border);border-radius:8px;padding:16px 18px;margin-bottom:14px}
+.cname{font-family:var(--wa-font-serif);font-weight:500;font-size:18px;margin:0}
+.cmeta{font-size:12px;color:var(--wa-text-hint);margin:4px 0 0}
+.doc{font-family:var(--wa-font-serif);font-size:15px;line-height:1.7;color:var(--wa-ink);
+  margin:12px 0 14px;max-width:64ch}
+.btn{font-family:var(--wa-font-sans);font-size:13px;font-weight:500;background:var(--wa-accent);
+  color:var(--wa-on-accent);border:none;border-radius:8px;padding:9px 16px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--wa-ink);border:1px solid var(--wa-border-strong)}
+
+.notes{padding:18px 28px;border-top:1px solid var(--wa-border);font-size:13px;color:var(--wa-text-secondary)}
+.notes h3{font-family:var(--wa-font-sans);font-weight:500;font-size:13px;color:var(--wa-ink);margin:0 0 8px}
+.notes li{margin:4px 0}
+.k{font-family:var(--wa-font-mono);font-size:12px;color:var(--wa-accent)}
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <span class="wm">Whereas<i>,</i></span>
+    <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark'">Toggle light / dark</button>
+  </div>
+
+  <div class="shell">
+    <nav class="rail">
+      <p class="wm">Whereas<i>,</i></p>
+      <div class="nav active">Matters</div>
+      <div class="nav">Templates</div>
+      <div class="nav">Upload &amp; format</div>
+      <div class="nav">Settings</div>
+    </nav>
+    <main class="main">
+      <p class="crumb">Matters / Dubin Revocable Trust</p>
+      <h1 class="mtitle">Dubin Revocable Trust</h1>
+      <div class="tags">
+        <span class="pill pa">Estate planning</span>
+        <span class="pill">Drafting</span>
+      </div>
+
+      <div class="band">
+        <div class="stat"><p class="slab">Client</p><p class="sval">Harold Dubin</p></div>
+        <div class="stat"><p class="slab">Parties</p><p class="sval">3</p></div>
+        <div class="stat"><p class="slab">Source authority</p><p class="sval ok">Current</p></div>
+        <div class="stat"><p class="slab">Sendable</p><p class="sval warn">Not yet</p></div>
+      </div>
+
+      <div class="card">
+        <p class="cname">POA — Durable</p>
+        <p class="cmeta">Version 7 · updated May 30</p>
+        <p class="doc">This Durable Power of Attorney is made this ___ day of __________, by Harold Dubin
+          ("Principal"), who hereby appoints the agent named below to act in the Principal's name and stead&hellip;</p>
+        <button class="btn">Request review</button>
+        <button class="btn ghost" style="margin-left:8px">Open draft</button>
+      </div>
+    </main>
+  </div>
+
+  <div class="notes">
+    <h3>Annotations — why it looks this way</h3>
+    <ul>
+      <li><b>Serif for the law, sans for the software.</b> The wordmark, matter name, document name, and the rendered draft body are <span class="k">--wa-font-serif</span> (Fraunces). Nav, metadata, labels, buttons are <span class="k">--wa-font-sans</span> (Inter).</li>
+      <li><b>The recital band</b> (Client / Parties / Source authority / Sendable) surfaces the matter's established record first — the premises everything proceeds from.</li>
+      <li><b>One accent.</b> Oxblood (<span class="k">--wa-accent</span>) does the brand + primary-action work; the comma in the wordmark is the recital mark. Everything else is paper, ink, and hairlines — no shadows.</li>
+      <li><b>Sendable = "Not yet"</b> reads from the future export-safety gate (FOLD-SEND-1), shown here as a warn state, not a block.</li>
+      <li><b>Dark mode</b> is the same token set inverted (toggle above) — it ships with the system, not as a separate skin.</li>
+    </ul>
+  </div>
+</body>
+</html>

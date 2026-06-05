@@ -568,7 +568,7 @@ export default function InformationRequestPage(): React.ReactElement {
           <button
             onClick={() => generateMutation.mutate({ matterId })}
             disabled={generateMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-firm-navy text-white text-sm rounded hover:bg-opacity-90 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-firm-navy text-white text-sm rounded hover:bg-firm-navy/90 disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             {generateMutation.isPending ? 'Generating…' : 'Generate Information Request'}

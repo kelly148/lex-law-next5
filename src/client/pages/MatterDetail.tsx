@@ -193,7 +193,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             <button
               type="submit"
               disabled={createMutation.isPending || (documentType === 'custom' && !customTypeLabel.trim())}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating…' : 'Create Document'}
             </button>
@@ -280,7 +280,7 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
             <button
               type="submit"
               disabled={updateMutation.isPending}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
             >
               {updateMutation.isPending ? 'Saving…' : 'Save'}
             </button>
@@ -336,7 +336,7 @@ export default function MatterDetail(): React.ReactElement {
       {/* Matter header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-garamond font-semibold text-firm-navy">{matter.title}</h1>
+          <h1 className="text-2xl font-garamond font-medium text-firm-navy">{matter.title}</h1>
           <div className="flex items-center gap-3 mt-1">
             {matter.clientName && <span className="text-sm text-gray-600">{matter.clientName}</span>}
             {matter.practiceArea && <span className="text-sm text-gray-400">{matter.practiceArea}</span>}
@@ -394,7 +394,7 @@ export default function MatterDetail(): React.ReactElement {
           {!matter.archivedAt && (
             <button
               onClick={() => setShowCreateDoc(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
             >
               <Plus className="w-4 h-4" />
               New Document
@@ -424,7 +424,7 @@ export default function MatterDetail(): React.ReactElement {
               <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-firm-navy text-sm truncate">{doc.title}</span>
+                  <span className="font-serif font-medium text-firm-navy text-sm truncate">{doc.title}</span>
                   {doc.archivedAt && (
                     <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Archived</span>
                   )}

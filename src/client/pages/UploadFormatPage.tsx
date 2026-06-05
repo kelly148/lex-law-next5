@@ -325,7 +325,7 @@ export default function UploadFormatPage(): React.ReactElement {
           type="button"
           onClick={() => void handleFormat()}
           disabled={formatting || (!usePaste && !file) || (usePaste && !pastedText.trim())}
-          className="px-5 py-2.5 bg-firm-navy text-white text-sm font-medium rounded hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-5 py-2.5 bg-firm-navy text-white text-sm font-medium rounded hover:bg-firm-navy/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           data-testid="upload-format-button"
         >
           {formatting ? 'Formatting document…' : 'Format Document'}

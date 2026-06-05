@@ -263,7 +263,7 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
       <button
         onClick={handleCreate}
         disabled={createMutation.isPending || selectedReviewers.length === 0}
-        className="w-full px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+        className="w-full px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
       >
         {createMutation.isPending ? 'Creating Review Session…' : 'Start Review'}
       </button>
@@ -1415,7 +1415,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
                 regenerateMutation.mutate({ sessionId });
               }}
               disabled={regenerateMutation.isPending || totalSelected === 0}
-              className="flex-1 px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+              className="flex-1 px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
             >
               {regenerateMutation.isPending ? 'Regenerating…' : `Regenerate (${totalSelected} selected)`}
             </button>

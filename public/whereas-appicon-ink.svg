@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Whereas app icon (ink variant)">
+  <!-- R0 app icon — ink/monochrome variant for dark or sober surfaces. -->
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;display=swap');
+      .g { font-family: 'Fraunces', Georgia, serif; font-weight: 600; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="#17191C"/>
+  <text x="64" y="93" text-anchor="middle" class="g" font-size="88" fill="#ECEAE4">W</text>
+</svg>

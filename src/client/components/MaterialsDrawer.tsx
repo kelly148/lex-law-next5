@@ -116,7 +116,7 @@ function PasteForm({ matterId, onDone }: PasteFormProps): React.ReactElement {
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
         >
           {createMutation.isPending ? 'Adding…' : 'Add Material'}
         </button>
@@ -212,7 +212,7 @@ function UploadForm({ matterId, onDone }: UploadFormProps): React.ReactElement {
         <button
           type="submit"
           disabled={uploading}
-          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-opacity-90 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
         >
           {uploading ? 'Uploading…' : 'Upload'}
         </button>
@@ -521,7 +521,7 @@ export default function MaterialsDrawer({ matterId, matterTitle, clientName, onC
           <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50">
             <button
               onClick={() => setMode('paste')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90"
             >
               <FileText className="w-3.5 h-3.5" />
               Paste Text

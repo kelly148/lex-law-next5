@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Whereas app icon">
+  <!-- R0 app icon — primary. Serif W (Fraunces) in paper on an oxblood squircle.
+       Production: outline the W to a path. rx≈22% of the tile. -->
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&amp;display=swap');
+      .g { font-family: 'Fraunces', Georgia, serif; font-weight: 600; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="#6E2436"/>
+  <text x="64" y="93" text-anchor="middle" class="g" font-size="88" fill="#FAF8F2">W</text>
+</svg>

@@ -18,6 +18,9 @@ import { httpBatchLink } from '@trpc/client';
 import { BrowserRouter } from 'react-router-dom';
 import { trpc } from './trpc.js';
 import App from './App.js';
+// Whereas design tokens (verbatim R0 source of truth) load before globals so the
+// --wa-* CSS variables exist when Tailwind utilities reference them.
+import './styles/whereas-tokens.css';
 import './styles/globals.css';
 
 const trpcClient = trpc.createClient({

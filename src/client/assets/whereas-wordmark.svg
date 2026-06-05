@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" role="img" aria-label="Whereas">
+  <!-- R0 reference wordmark. Production: outline the text to paths so it renders
+       without the web font. Uses Fraunces 500; comma in oxblood (the recital mark). -->
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&amp;display=swap');
+      .wm { font-family: 'Fraunces', Georgia, 'Times New Roman', serif; font-weight: 500; font-size: 66px; }
+    </style>
+  </defs>
+  <text x="6" y="68" class="wm" fill="#17191C">Whereas<tspan fill="#6E2436">,</tspan></text>
+</svg>
