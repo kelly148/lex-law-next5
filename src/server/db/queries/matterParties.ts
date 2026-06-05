@@ -85,6 +85,39 @@ export async function getMatterPartyById(id: string, userId: string): Promise<Ma
   return parseRow(rows[0]!, { userId });
 }
 
+/**
+ * R2-PRE-CONFLICT-1 Inc 2: ensure the matter's client is represented as a conflict PARTY.
+ *
+ * If the matter has a non-empty clientName and NO role='client' party yet, auto-create one as an
+ * UNCONFIRMED party (source='auto_from_clientName', confirmed=false). It is screened from creation
+ * (the deterministic conflict check reads matter_parties), so a real hit surfaces while the attorney
+ * is confirming identity — but it CANNOT satisfy clearance until the attorney confirms it (Inc 3
+ * gate). "Automate the labor (row creation), never the judgment (party identity)."
+ *
+ * Idempotent + non-destructive: a no-op when the clientName is empty OR a role='client' party
+ * already exists (manual OR a prior auto/migration one). Never overwrites, re-screens, or
+ * auto-confirms an existing client party. Composes the owner-scoped list/insert wrappers (no new
+ * owner-scope chokepoint).
+ */
+export async function ensureAutoClientParty(
+  matterId: string,
+  userId: string,
+  clientName: string | null | undefined,
+): Promise<MatterPartyRow | null> {
+  const name = (clientName ?? '').trim();
+  if (name === '') return null;
+  const parties = await listPartiesForMatter(matterId, userId);
+  if (parties.some((p) => p.role === 'client')) return null;
+  return insertMatterParty({
+    userId,
+    matterId,
+    role: 'client',
+    displayName: name,
+    source: 'auto_from_clientName',
+    confirmed: false,
+  });
+}
+
 export async function listPartiesForMatter(matterId: string, userId: string): Promise<MatterPartyRow[]> {
   const rows = await db
     .select()

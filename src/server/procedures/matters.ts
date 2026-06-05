@@ -28,6 +28,7 @@ import {
   deleteMatter,
 } from '../db/queries/matters.js';
 import { listDocumentsForMatter } from '../db/queries/documents.js';
+import { ensureAutoClientParty } from '../db/queries/matterParties.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { MatterOrchestrationLanesSchema } from '../../shared/schemas/matters.js';
@@ -57,6 +58,10 @@ export const matterRouter = router({
         archivedAt: null,
         completedAt: null,
       });
+
+      // R2-PRE-CONFLICT-1 Inc 2: auto-create the (unconfirmed) client party so the client is
+      // screened from creation. It cannot satisfy clearance until the attorney confirms it (Inc 3).
+      await ensureAutoClientParty(matter.id, ctx.userId, matter.clientName);
 
       const payload: { title: string; clientName?: string; practiceArea?: string } = {
         title: matter.title,
@@ -144,6 +149,13 @@ export const matterRouter = router({
       );
       if (!updated) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      // R2-PRE-CONFLICT-1 Inc 2: if clientName was set/changed, ensure a client party exists
+      // (idempotent — a no-op when a role='client' party already exists). Auto-created parties are
+      // unconfirmed; an existing client party (manual or auto) is never overwritten or re-confirmed.
+      if (input.clientName !== undefined) {
+        await ensureAutoClientParty(input.matterId, ctx.userId, updated.clientName);
       }
 
       const changedFields: Record<string, { old: unknown; new: unknown }> = {};
