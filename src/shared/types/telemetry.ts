@@ -88,7 +88,10 @@ type ReviewPaneEvent =
   | 'adopt_ledger_status_overridden'
   // MR-CAL-8B: advisory sendability classifier.
   | 'sendability_checked'
-  | 'sendability_check_failed';
+  | 'sendability_check_failed'
+  // FOLD-SEND-1: deterministic export-safety gate (per-category; emitted from Inc 2 shadow mode on).
+  | 'sendability_evaluation_recorded'
+  | 'sendability_override_recorded';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -314,6 +317,17 @@ export interface TelemetryPayload {
     blockerCategories: string[];
   };
   sendability_check_failed: { errorMessage: string };
+  // FOLD-SEND-1: deterministic export-safety gate (emitted from Inc 2 shadow mode onward).
+  sendability_evaluation_recorded: {
+    verdict: 'block' | 'warn' | 'pass';
+    enforced: boolean;
+    blockCategories: string[];
+    warningCategories: string[];
+    llmComponentUsed: boolean;
+    degraded: 'none' | 'partial' | 'error';
+    durationMs: number;
+  };
+  sendability_override_recorded: { category: string; reasonCode: string };
 
   // E.6 Materials library
   material_uploaded: {
