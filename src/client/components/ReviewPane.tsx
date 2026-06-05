@@ -34,6 +34,7 @@ import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/fe
 import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
 import LddDiffPanel from './LddDiffPanel.js';
+import ExportSafetyPanel from './ExportSafetyPanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
@@ -1385,6 +1386,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       {/* FOLD-DRAFT-1 / LDD: LOI-vs-draft key-term check (flag value drift; never edits the draft) */}
       <PanelErrorBoundary label="LOI-vs-draft check">
         <LddDiffPanel documentId={documentId} />
+      </PanelErrorBoundary>
+
+      {/* FOLD-SEND-1: export-safety / outbound-readiness gate (advisory/shadow in v1; recorded override) */}
+      <PanelErrorBoundary label="Export safety">
+        <ExportSafetyPanel documentId={documentId} />
       </PanelErrorBoundary>
 
       {/* History section — MR-2 §S2c */}
