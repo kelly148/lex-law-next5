@@ -21,6 +21,12 @@ export const MatterPartyRowSchema = z.object({
   normalizedName: z.string(),
   partyType: z.enum(['person', 'entity', 'unknown']),
   source: z.string(),
+  // R2-PRE-CONFLICT-1 §3F: confirmation lifecycle. ADDITIVE (.optional()) so pre-migration reads /
+  // legacy fixtures parse; a post-migration row always carries `confirmed` (NOT NULL). The clearance
+  // gate (Inc 3) requires `confirmed === true` on a role='client' party.
+  confirmed: z.boolean().optional(),
+  confirmedAt: z.date().nullable().optional(),
+  confirmedByUserId: z.string().uuid().nullable().optional(),
   aliasOfPartyId: z.string().uuid().nullable(),
   externalIdentityKey: z.string().nullable(),
   createdAt: z.date(),
@@ -37,6 +43,9 @@ export const ConflictCheckRowSchema = z.object({
   matterId: z.string().uuid(),
   status: z.enum(['clear', 'hits_pending', 'dispositioned']),
   runAt: z.date(),
+  // R2-PRE-CONFLICT-1 §3D: party-id set this check evaluated (null until a terminal check snapshots
+  // it, Inc 4). ADDITIVE.
+  checkedPartyIds: z.array(z.string().uuid()).nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
