@@ -4,6 +4,23 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (night, later) — WHEREAS R2 #2 Inc B (persistent divergent items + deliberate-act) MERGED to `main` (`57894a8`) → R2 #2 COMPLETE; awaiting batched deploy
+
+**What changed.** Built and merged **R2 #2 Inc B** on `whereas/r2-2b-divergent-persistence` → `main` via [PR #165](https://github.com/kelly148/lex-law-next5/pull/165), squash commit **`57894a8`**, CI green. **Completes R2 #2.** Display-only; no state-machine / acknowledgment changes; **NO new backend** (reuses `matterState.dashboard` + a client filter). 7 files (2 new components/tests, `ReviewPane`, `OrchestrationConsolidationPanel`, + a one-line `matterState.dashboard` stub into 3 existing render tests):
+- **Persistent reviewer disagreements (load-bearing safety property):** a new always-visible "Unresolved reviewer disagreements" section in `ActiveSessionView` reads the DURABLE open-items store (`matterState.dashboard → full.openItems`, filtered `origin='orchestration'` + open + this document) — so recorded disagreements **never vanish** on regenerate / session-close / locked-decision overlap. Shown regardless of session/completion state; a render test proves it **survives a session change**. Read-only here + a one-click "Resolve on the matter page" pointer (matterId via `document.get`); boundary-wrapped.
+- **`DeliberateActButton`:** reusable ✦ "deliberate act" affordance, visually heavier than an ordinary oxblood primary (filled oxblood + 2px border + accent ring + ✦). **R2 #4/#6/#7 will reuse it.** Used for the orchestration panel's confirm-group + record-disagreements acts.
+- **Prominent non-persistence flag** in the orchestration panel ("until you record them, these disappear on the next regeneration or session close") + light token retheme of the disagreements box.
+
+**Decisions (operator-set).** Reuse dashboard (no new query — doc-scoped query is a future optimization only). Read-only + resolve pointer (inline-resolve = pre-approved fast-follow if nav friction-y; SPA soft-nav + scroll-to-item + auto-return is part of that). Keep manual-record + prominent flag. **Separate engagement filed** (chip `task_99ce99c5`): should consolidation AUTO-register divergent items so ORCH-1's never-disappear invariant holds for *unrecorded* items? — surfaced, NOT resolved here (a behavior/contract question, likely a future FIRE).
+
+**Current build state.** `main` = **`57894a8`**. Prod = **`64ea044`** (R1). **Awaiting a BATCHED deploy (all display-only, no DB migrations):** R2 #1 (`c28481b`) + R2 #2 Inc A (`2942222`) + R2 #2 Inc B (`57894a8`). Local gates green pre-merge; CI green on the PR.
+
+**Open items / gate residuals.** (a) **Batched deploy + live-check pending** for the three R2 surfaces (operator-gated, MODE B). (b) `task_99ce99c5` auto-register contract question (independent). (c) Carryforwards unchanged (`LLN-PROD-CLEANUP-1`; reviewer reliability; flip-to-enforce export gate; MODE-A smoke secrets; the FOLD-SEND-1-DEPLOYED STATE.md divergence on `fold/phase-3-cont`).
+
+**Next.** **R2 #3 — matter-state header / readiness strip** (jurisdiction chip LEADS, then conflicts / source-authority currency / open-items count / review status / sendability; the header carries only a **rolled-up review-status chip**, NOT the detailed denominator — that stays in the review pane per Inc A). **Run the §7 verifications first** (open_items.severity is rule/attorney-assigned not LLM; clientName-not-a-party closes before conflict-sensitive transitions; deliberate-commit acts write immutable audit/kb rows) — these gate #3/#4/#7. Investigate + present a plan before building.
+
+---
+
 ## 2026-06-05 (night) — WHEREAS R2 #2 Inc A (review-pane clarity) MERGED to `main` (`2942222`) → awaiting deploy
 
 **What changed.** Built and merged **R2 #2 Inc A — review-pane clarity** on `whereas/r2-2a-review-clarity` → `main` via [PR #163](https://github.com/kelly148/lex-law-next5/pull/163), squash commit **`2942222`**, CI green. First of the two-increment R2 #2 split (Inc A = clarity; Inc B = persistence + convergent + deliberate-commit). **Display-only; no state-machine / acknowledgment changes; NO new backend** (re-presents the server-computed orchestration denominator + existing session fields). Changes (`ReviewPane.tsx` + new render test):
