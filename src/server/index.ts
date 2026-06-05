@@ -37,6 +37,8 @@ import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
 import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
+import { runExportGate } from './send/exportGate.js';
+import { isSendabilityGateEnabled } from './config/featureFlags.js';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -365,6 +367,31 @@ app.get(
         message: 'No exportable version is available for this document',
       });
       return;
+    }
+
+    // ── FOLD-SEND-1 export-safety gate ─────────────────────────────────────────
+    // Shadow mode (SENDABILITY_GATE_ENABLED off, the v1 default): evaluate + log, NEVER block.
+    // Enforce (flag on): a v1 block (wrong_matter_id) hard-stops the export unless overridden.
+    // FAIL-SAFE: any gate error lets the export proceed (fail-to-warn, never fail-to-block).
+    try {
+      const gate = await runExportGate({
+        documentId,
+        userId,
+        matterId: doc.matterId,
+        exportVersionId: version.id,
+        exportContent: version.content,
+        enforced: isSendabilityGateEnabled(),
+      });
+      if (gate.blocked) {
+        res.status(409).json({
+          error: 'EXPORT_BLOCKED',
+          message: 'Export blocked by the export-safety check. Resolve the issue or record an attorney override.',
+          blocks: gate.unoverriddenBlocks,
+        });
+        return;
+      }
+    } catch {
+      // fail-to-warn: the gate must never break a real export
     }
 
     // ── Watermark string (Ch 32 locked wording) ───────────────────────────────
