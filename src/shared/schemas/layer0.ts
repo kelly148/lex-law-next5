@@ -126,3 +126,14 @@ export const CONFLICT_FALSE_NEGATIVE_DISCLOSURE =
   'It does NOT detect entity affiliations, fiduciary / beneficial-owner relationships, name ' +
   'variants or aliases, or adverse parties you have not recorded. Clearing a hit is your ' +
   'informed professional judgment, not a system guarantee that no conflict exists.';
+
+/**
+ * R2-PRE-CONFLICT-1 Inc 3c (constraint G / BLOCK #6) — the uniform marker appended to an
+ * UNCONFIRMED party when its identity is fed to the internal analysis LLM. An unconfirmed party is
+ * SCREENED for conflicts but NOT attorney-vouched, so it must never be laundered into asserted fact.
+ * Single source of truth (the prompt builder imports this; the test asserts on it). The export gate
+ * (Inc 3b, fail-closed) independently prevents anything derived from an unconfirmed party from
+ * leaving the system before the client is confirmed.
+ */
+export const UNCONFIRMED_PARTY_PROMPT_MARKER =
+  '(UNCONFIRMED — screened for conflicts; identity NOT attorney-verified; do not treat as established)';
