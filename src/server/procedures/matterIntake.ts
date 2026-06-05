@@ -19,7 +19,13 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
 import { getMatterById } from '../db/queries/matters.js';
-import { insertMatterParty, listPartiesForMatter } from '../db/queries/matterParties.js';
+import {
+  insertMatterParty,
+  listPartiesForMatter,
+  getMatterPartyById,
+  confirmMatterParty,
+} from '../db/queries/matterParties.js';
+import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import {
   runConflictCheck,
   getLatestCheckForMatter,
@@ -69,6 +75,36 @@ export const matterIntakeRouter = router({
         ...(input.partyType !== undefined ? { partyType: input.partyType } : {}),
         ...(input.source !== undefined ? { source: input.source } : {}),
       });
+    }),
+
+  // R2-PRE-CONFLICT-1 §3 — confirm a party (the explicit, logged attorney judgment that an
+  // auto/migration party correctly represents a real party for conflicts purposes). Required before
+  // a CONFIRMED role='client' party can satisfy clearance. attestation is the side-by-side
+  // clientName-vs-party acknowledgment (§3B). Immutably audited (BLOCK-until #5).
+  confirmParty: protectedProcedure
+    .input(z.object({ partyId: z.string().uuid(), attestation: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const party = await getMatterPartyById(input.partyId, ctx.userId);
+      if (!party) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Party not found' });
+      }
+      const confirmed = await confirmMatterParty(input.partyId, ctx.userId);
+      if (!confirmed) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Party not found' });
+      }
+      await recordAuditEvent({
+        userId: ctx.userId,
+        matterId: party.matterId,
+        eventType: 'disposition',
+        actor: 'attorney',
+        summary: `Confirmed conflict party (${party.role}): ${party.displayName}`,
+        targetType: 'matter_party',
+        targetId: input.partyId,
+        action: 'confirm_party',
+        scope: 'matter',
+        payload: { role: party.role, source: party.source, attestation: input.attestation ?? null },
+      });
+      return confirmed;
     }),
 
   listParties: protectedProcedure
