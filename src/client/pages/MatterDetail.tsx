@@ -26,6 +26,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
+import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
 
 const DOCUMENT_TYPES: { value: string; label: string }[] = [
@@ -458,6 +459,9 @@ export default function MatterDetail(): React.ReactElement {
 
       {/* FOLD-L1-5 — matter-state dashboard + the five explicit acts */}
       <MatterStateDashboard matterId={matterId} />
+
+      {/* FOLD-DRAFT-1 / package — closing-package assembly + advisory completeness (never sends/locks) */}
+      <ClosurePackagePanel matterId={matterId} />
 
       {/* Modals */}
       {showCreateDoc && (
