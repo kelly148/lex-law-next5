@@ -4,6 +4,25 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (evening) — WHEREAS REBRAND R1 (tokenize + rename) DEPLOYED (`64ea044`) + LIVE-VERIFIED PASS → COMPLETE
+
+**What changed.** Built and merged **R1 of the Whereas redesign** (display-layer only, zero layout change) on branch `whereas/r1-tokenize` → `main` via [PR #159](https://github.com/kelly148/lex-law-next5/pull/159), squash commit **`64ea044`**, both CI checks green (tsc + tests; lint). This is the first increment of the Cowork rebrand handoff (R0 design package → R1 tokenize/rename → R2 component redesign → R3 dark polish). Scope:
+- **Token layer:** the verbatim R0 `src/client/styles/whereas-tokens.css` loads as the CSS-variable layer; `tailwind.config.ts` re-points the legacy `firm-*` names to the Whereas palette and adds the `--wa-` semantic palette. Brand colours that take Tailwind opacity use the `rgb(var(--wa-*-rgb) / <alpha-value>)` channel form (RGB companions in `globals.css`) so opacity modifiers keep working; 25 legacy `hover:bg-opacity-90` → `hover:bg-firm-navy/90`.
+- **Rename:** serif **"Whereas,"** wordmark (oxblood comma) replaces the "LexLawNext" lockup; light Whereas rail; favicon → `public/whereas-appicon-oxblood.svg`; Fraunces + Inter + IBM Plex Mono via `<link>` (no new npm dep).
+- **Type principle:** Fraunces (serif) for the law (matter/document names, titles, rendered draft body); Inter (sans) for chrome; two-weight rule on serif titles.
+- **Dark mode** wired via the token layer (explicit `[data-theme]`; default light — full dark polish is R3).
+- **Render-test gate:** new `appShell.render.test.tsx` covers the rebranded shell; the full `ActiveSessionView` #310 test remains green.
+
+**Current build state.** `main` = prod = **`64ea044`** (deployed via Railway `Ctrl+K` → Deploy Latest Commit; `/api/version` confirmed `64ea044`, builtAt 2026-06-05T16:34Z, health 200; MODE B). **No DB migrations** in R1 (display-only, code-only deploy). The R1 render gate (full `ActiveSessionView` test) was confirmed present + green before build.
+
+**Live verification — PASS** (`operator approve live-verified:whereas-r1`; Claude-driven in browser "UNIVERSALTITLE", authenticated as `kelly`, hard-reloaded): tab title "Whereas,"; **Matters** page renders the light Whereas rail + serif "Whereas," wordmark (oxblood comma) + matter names/title in Fraunces + warm paper + ink nav; **Matter detail** serif title/doc-names, sans chrome; **Document workspace** (POA iteration test, v7) renders rethemed — serif title, Sendability panel, regenerate band, tabs, Version History; **rendered draft body in Fraunces serif** (type principle); **no #310 / no app console errors** (only benign Chrome-extension message-channel noise). Not exercised: a *live* `ActiveSessionView` review run (LLM quota + stuck-session risk) — covered by the green CI render test + zero review-pane logic change.
+
+**Open items / gate residuals.** (a) Three intentional **R2 deferrals** (flagged, on prod as designed): cool-gray neutrals warmed per-surface in R2; primary CTAs read ink (oxblood-CTA promotion is an R2 per-control call); one blue "Accept Substantive" status button left; Google-Fonts CDN now vs. self-hosting (privacy) in R3. (b) **STATE-TRACKING DIVERGENCE flagged (not reconciled):** the "FOLD-SEND-1 DEPLOYED + PHASE-3 CLOSED" close-out entry (commit `ea979fd`) + the `031b6c8` live record live on `fold/phase-3-cont` and were never merged to `main`, so `main`'s STATE.md lacked them (prod was genuinely deployed at `18d8816`; now `64ea044`). Surface to operator — do not silently reconcile. (c) **This R1 STATE.md upkeep commit is on LOCAL main only** — direct push to `main` was correctly blocked (PR-only workflow); it will reach `origin/main` via R2's PR. Desktop mirror is current. (d) Carryforwards unchanged: `LLN-PROD-CLEANUP-1`; reviewer reliability; flip-to-enforce export gate; MODE-A smoke secrets deferred.
+
+**Next.** **R1 COMPLETE.** Begin **R2 item #1 (review-pane survivability pass)** when the operator is ready — branch off `main` (which will carry this STATE.md commit into R2's PR). R2 re-presents existing data only (no new backend); each surface ships empty/loading/error/partial/stale states + a render test.
+
+---
+
 ## 2026-06-05 (afternoon) — FOLD-SEND-1 export-safety BUILD COMPLETE (shadow) → awaiting_live_verification; Phase-3 build complete
 
 **What changed.** Built the full FOLD-SEND-1 deterministic export-safety / outbound-readiness gate on `fold/phase-3-cont` (HEAD `a9c7b58`), 4 increments, each CI-green, built to the triad disposition:
