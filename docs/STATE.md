@@ -4,6 +4,28 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (later) — R2-PRE-CONFLICT-1 Inc 3b ENFORCEMENT WIRING MERGED (`cfe201c`, PR #174) — flag-gated, DEFAULT OFF (inert); BLOCK-until #1 satisfied
+
+**What changed.** Built + merged **Inc 3b** on `whereas/r2-pre-conflict-1-inc3b` → `main` via [PR #174](https://github.com/kelly148/lex-law-next5/pull/174), squash commit **`cfe201c`**, CI green (Lint + Type Check + Tests). This wires the affirmative `evaluateConflictClearance` predicate (Inc 3a) into **every** conflict-sensitive transition (disposition §3C), replacing the overloaded `hasUndispositionedBlocker` — a complete static + runtime caller audit, **no bypass** (BLOCK-until #1). 5 files (4 edits + 1 test), +339/-14.
+
+**The four transitions, behind a new `CONFLICT_GATE_ENABLED` flag (DEFAULT OFF, same pattern as `SENDABILITY_GATE_ENABLED`):**
+- **advance-to-drafting** (`document.create`, documents.ts): FLAG ON → require state `CLEARED`; OFF → legacy `hasUndispositionedBlocker` exactly.
+- **lockPlan + cleared-disposition ROOT** (`matterAnalysis.lockPlan`, writes `conflictsClearedForPlanning`): FLAG ON → adds the affirmative clearance requirement on top of the **kept** all-hits-dispositioned gate, so the clearance flag can never be set vacuously.
+- **export/send** (`GET /api/documents/:documentId/export`, index.ts): **adds** a conflict gate (none existed). **FAIL-CLOSED** and **independent of `SENDABILITY_GATE_ENABLED`** — the intentional opposite of FOLD-SEND-1's fail-to-warn (documented in code so a future reader won't "fix" it). Gates ALL export states (a draft still leaves the system); carries the distinct reason codes into the 409.
+- **finalize** — deliberately NOT gated (export is the deliverable boundary).
+
+One shared predicate, no per-site copies. Distinct non-cleared reasons (`no_conflict_check` / `no_client_party` / `unconfirmed_client_party` / `undispositioned_blocker`) surfaced at every site.
+
+**Build state.** `main` = **`cfe201c`** (prod still **`3bff333`**). **NO behavior change yet** — the flag is OFF, so all four sites behave exactly as before; Inc 3b merges/deploys **inert**. System is in a safe, coherent state.
+
+**ACTIVATION CONSTRAINT (deploy-sequencing — record + honor).** `CONFLICT_GATE_ENABLED` must stay **OFF** until **Inc 3c** (confirm UX + consumer audit G/#6) **and Inc 5** (retroactive client-party migration E/#3) are live. Reason: enforcement requires a CONFIRMED `role='client'` party; today existing matters have none and new matters get an UNCONFIRMED auto-party (Inc 2), so flipping the flag early would **hard-block drafting, plan-lock, and export for every matter** (no confirm UI yet). Activation is then a **single reversible flag flip** — not a combined high-risk deploy. Shipping/deploying 3b now (flag OFF) is safe because merge ≠ deploy and the gate is dormant.
+
+**Remaining on R2-PRE-CONFLICT-1.** Inc 3c (consumer audit G/#6 — `listPartiesForMatter` readers incl. the analysis-prompt injection at `matterIntake.ts:~160`; + the confirm-party UX / conflicts chip; closes BLOCK #5/#6) → Inc 4 (snapshot + invalidate D/#4 — populate `conflict_checks.checkedPartyIds`, add the 4th CLEARED condition) → Inc 5 (retroactive migration + Conflicts Compliance Review queue E/#3 — **operator-gated/STAGED** data migration). Then the flag flip, then R2 #3 (jurisdiction chip + header; conflicts chip rides Inc 3).
+
+**Open items unchanged** from below: deploy batch (now also carries Inc 3b code, flag OFF — additive, no new migration); `task_99ce99c5`; the untracked FOLD-ORCH file (left per Hard Rule 3); carryforwards. Local: tsc 0, eslint 0; targeted Inc3a/3b + fold_l0_1_inc3 + fold_send_1_inc3 + phase3.acceptance + conflicts-intake + matter-state all green. The ~12 Windows-only env false-negatives (`[[ci-gotchas]]` #11) are unrelated and green in CI.
+
+---
+
 ## 2026-06-05 (night, deploy) — R2 BATCH DEPLOYED (`3bff333`) + light live-verify PASS; migrations 0019+0020 applied
 
 **What changed.** Operator deployed the batched `main` (`3bff333`) via Railway "Deploy Latest Commit". **prod = `3bff333`** (`/api/version` confirmed `3bff3335…`, builtAt 2026-06-05T19:57Z — correct merged commit, SHA check clean). **MODE B** (manual verify, no auto-rollback). The wired pre-deploy runner ran (deploy succeeded ⇒ its migration step succeeded): **migrations `0019` (matters.jurisdiction) + `0020` (matter_parties.confirmed/confirmedAt/confirmedByUserId + conflict_checks.checkedPartyIds) applied** (both additive).
