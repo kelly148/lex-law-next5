@@ -61,7 +61,10 @@ export async function runConflictCheck(matterId: string, userId: string): Promis
 
   const checkId = uuidv4();
   const status = computed.length === 0 ? 'clear' : 'hits_pending';
-  await db.insert(conflictChecks).values({ id: checkId, userId, matterId, status });
+  // R2-PRE-CONFLICT-1 §3D (Inc 4): snapshot the exact party-id set this check evaluated. The
+  // clearance predicate later compares it to the matter's CURRENT party set so a party added/removed
+  // after a clear invalidates the clearance (re-check required). thisParties is what was screened.
+  await db.insert(conflictChecks).values({ id: checkId, userId, matterId, status, checkedPartyIds: thisParties.map((p) => p.id) });
 
   for (const c of computed) {
     await db.insert(conflictHits).values({
@@ -200,6 +203,20 @@ export interface ConflictClearance {
 }
 
 /**
+ * R2-PRE-CONFLICT-1 §3D (Inc 4) currency check (PURE). Is the latest check's snapshotted party-id set
+ * IDENTICAL (as a set, order-independent) to the matter's CURRENT party-id set? A null/absent snapshot
+ * (a pre-Inc-4 check) is treated as NOT current — fail-closed, forcing a re-check. Adding or removing
+ * a party changes the set (=> stale); CONFIRMING a party does NOT change the id set (=> still current),
+ * so confirmation enables clearance without forcing a re-check. The exported pure fn is unit-tested.
+ */
+export function partyIdSetUnchanged(snapshot: readonly string[] | null | undefined, currentIds: readonly string[]): boolean {
+  if (!Array.isArray(snapshot)) return false;
+  if (snapshot.length !== currentIds.length) return false;
+  const snap = new Set(snapshot);
+  return currentIds.every((id) => snap.has(id));
+}
+
+/**
  * The headline fix. Replaces the overloaded `hasUndispositionedBlocker` boolean ("not blocked" was
  * read as "cleared", satisfied vacuously when the client was never a checked party). Returns an
  * AFFIRMATIVE three-state result. CLEARED is asserted ONLY when ALL hold:
@@ -223,6 +240,13 @@ export async function evaluateConflictClearance(matterId: string, userId: string
   const check = await getLatestCheckForMatter(matterId, userId);
   if (!check) {
     return { state: 'NOT_ESTABLISHED', reasons: ['no_conflict_check'] };
+  }
+  // §3D (Inc 4): the latest check must be CURRENT vs the matter's party set. A party added/removed
+  // since the check — or a pre-Inc-4 null snapshot — makes the check stale: its hit verdict was
+  // computed against a different party set, so neither CLEARED nor the BLOCKED verdict can be trusted.
+  // Re-check required. (Confirming a party does not change the id set, so it does NOT trip this.)
+  if (!partyIdSetUnchanged(check.checkedPartyIds, parties.map((p) => p.id))) {
+    return { state: 'NOT_ESTABLISHED', reasons: ['check_stale_parties_changed'] };
   }
   const hits = await listHitsForCheck(check.id, userId);
   if (hasBlocker(hits.filter((h) => h.disposition === 'pending'))) {
