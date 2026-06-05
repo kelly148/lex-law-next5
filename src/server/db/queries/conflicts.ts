@@ -188,6 +188,60 @@ export async function hasUndispositionedBlocker(matterId: string, userId: string
   return hasBlocker(hits.filter((h) => h.disposition === 'pending'));
 }
 
+// ============================================================
+// R2-PRE-CONFLICT-1 §3A/§3B/§3C — AFFIRMATIVE conflict-clearance predicate
+// ============================================================
+
+export type ConflictClearanceState = 'CLEARED' | 'BLOCKED' | 'NOT_ESTABLISHED';
+export interface ConflictClearance {
+  state: ConflictClearanceState;
+  /** machine reasons (never silently empty for a non-cleared state). */
+  reasons: string[];
+}
+
+/**
+ * The headline fix. Replaces the overloaded `hasUndispositionedBlocker` boolean ("not blocked" was
+ * read as "cleared", satisfied vacuously when the client was never a checked party). Returns an
+ * AFFIRMATIVE three-state result. CLEARED is asserted ONLY when ALL hold:
+ *   - a conflict check exists for the matter;
+ *   - it has no undispositioned BLOCKER;
+ *   - the matter has a CONFIRMED role='client' party — structural (existence of a confirmed client
+ *     party), never name-match (§3B; real legal names produce false-negatives). The client is
+ *     screened from creation (Inc 2 auto-party) but confirmation is the explicit attorney judgment.
+ * "No check" and "unconfirmed/absent client party" are DISTINCT NOT_ESTABLISHED states, never
+ * silently false. (Inc 4 adds the 4th condition: the check is current vs the snapshotted party set.)
+ *
+ * This is the SINGLE source of truth every conflict-sensitive transition must consume (§3C):
+ * cleared-disposition, lockPlan, advance-to-drafting, export — wired in Inc 3b. Use `isConflictCleared`
+ * for a boolean gate.
+ */
+export async function evaluateConflictClearance(matterId: string, userId: string): Promise<ConflictClearance> {
+  const parties = await listPartiesForMatter(matterId, userId);
+  const clientParties = parties.filter((p) => p.role === 'client');
+  const hasConfirmedClient = clientParties.some((p) => p.confirmed === true);
+
+  const check = await getLatestCheckForMatter(matterId, userId);
+  if (!check) {
+    return { state: 'NOT_ESTABLISHED', reasons: ['no_conflict_check'] };
+  }
+  const hits = await listHitsForCheck(check.id, userId);
+  if (hasBlocker(hits.filter((h) => h.disposition === 'pending'))) {
+    return { state: 'BLOCKED', reasons: ['undispositioned_blocker'] };
+  }
+  if (!hasConfirmedClient) {
+    return {
+      state: 'NOT_ESTABLISHED',
+      reasons: [clientParties.length > 0 ? 'unconfirmed_client_party' : 'no_client_party'],
+    };
+  }
+  return { state: 'CLEARED', reasons: [] };
+}
+
+/** §3C boolean gate: a matter is conflict-clearable IFF the affirmative predicate is CLEARED. */
+export async function isConflictCleared(matterId: string, userId: string): Promise<boolean> {
+  return (await evaluateConflictClearance(matterId, userId)).state === 'CLEARED';
+}
+
 /** Plan-lock gate (Fork A): every hit of the latest check must be dispositioned. */
 export async function allHitsDispositionedForLatest(matterId: string, userId: string): Promise<{ checkId: string; ok: boolean } | null> {
   const latest = await getLatestCheckForMatter(matterId, userId);

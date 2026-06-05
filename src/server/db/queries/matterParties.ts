@@ -118,6 +118,21 @@ export async function ensureAutoClientParty(
   });
 }
 
+/**
+ * R2-PRE-CONFLICT-1 §3: confirm a party — the explicit attorney act that flips an auto/migration
+ * party from screened-but-not-vouched to VOUCHED (sets confirmed=true + the confirmation stamp).
+ * Owner-scoped. The clearance gate (evaluateConflictClearance) requires a CONFIRMED role='client'
+ * party, so this is the act that enables clearance. The immutable audit_events row is written by the
+ * matterIntake.confirmParty procedure (BLOCK-until #5: confirmation is first-class + logged).
+ */
+export async function confirmMatterParty(partyId: string, userId: string): Promise<MatterPartyRow | null> {
+  await db
+    .update(matterParties)
+    .set({ confirmed: true, confirmedAt: new Date(), confirmedByUserId: userId })
+    .where(and(eq(matterParties.id, partyId), ownerScope(matterParties.userId, userId)));
+  return getMatterPartyById(partyId, userId);
+}
+
 export async function listPartiesForMatter(matterId: string, userId: string): Promise<MatterPartyRow[]> {
   const rows = await db
     .select()
