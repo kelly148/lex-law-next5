@@ -1143,7 +1143,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     },
   );
 
-  const { data, isLoading, refetch } = trpc.reviewSession.get.useQuery({ sessionId }, {
+  const { data, isLoading, isError, refetch } = trpc.reviewSession.get.useQuery({ sessionId }, {
     // S1c (MR-3): Poll only when state is PENDING_OR_RUNNING.
     // Aligned with deriveCompletionState — stop polling on any terminal state.
     refetchInterval: (query) => {
@@ -1215,11 +1215,60 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
 
   if (isLoading) {
-    return <div className="p-6 text-center text-gray-400 text-sm">Loading review session…</div>;
+    return (
+      <div className="flex-1 flex items-center justify-center p-8 text-sm text-ink-secondary">
+        Loading review session…
+      </div>
+    );
+  }
+
+  // R2-1 survivability: distinguish a load FAILURE (retryable) from a session that is genuinely
+  // GONE. Both name what is still intact so the attorney is never left with a blank or a bare
+  // "not found". State transitions / acknowledgment mechanics are untouched (display only).
+  if (isError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <p className="text-sm font-medium text-ink">
+          The review session could not be loaded — this may be a temporary connection issue.
+        </p>
+        <p className="text-sm text-ink-secondary mt-2 max-w-sm">
+          Your draft and matter record are intact.
+        </p>
+        <div className="mt-5 flex gap-2">
+          <button
+            onClick={() => void refetch()}
+            className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+          >
+            Try again
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!data) {
-    return <div className="p-6 text-center text-red-600 text-sm">Session not found.</div>;
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <p className="text-sm font-medium text-ink">
+          This review session is no longer available — it may have been completed or abandoned.
+        </p>
+        <p className="text-sm text-ink-secondary mt-2 max-w-sm">
+          Your draft and matter record are intact.
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-5 px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+        >
+          Close
+        </button>
+      </div>
+    );
   }
 
   const { session, feedback, evaluation } = data;
@@ -1469,17 +1518,21 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
           </button>
         </div>
 
-        {/* Content */}
+        {/* Content — wrapped in a pane-level error boundary (R2-1 survivability): a render throw
+            in the view body degrades to a designed full-pane notice that names what is intact and
+            offers a way out, instead of white-screening the whole review (the #310 failure mode). */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {sessionId ? (
-            <ActiveSessionView sessionId={sessionId} documentId={documentId} onClose={onClose} />
-          ) : (
-            <CreateSessionView
-              documentId={documentId}
-              iterationNumber={iterationNumber}
-              onCreated={(id) => setSessionId(id)}
-            />
-          )}
+          <PanelErrorBoundary variant="pane" label="Review session" onClose={handleClose}>
+            {sessionId ? (
+              <ActiveSessionView sessionId={sessionId} documentId={documentId} onClose={onClose} />
+            ) : (
+              <CreateSessionView
+                documentId={documentId}
+                iterationNumber={iterationNumber}
+                onCreated={(id) => setSessionId(id)}
+              />
+            )}
+          </PanelErrorBoundary>
         </div>
       </div>
     </div>
