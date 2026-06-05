@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (afternoon) — FOLD-SEND-1 export-safety BUILD COMPLETE (shadow) → awaiting_live_verification; Phase-3 build complete
+
+**What changed.** Built the full FOLD-SEND-1 deterministic export-safety / outbound-readiness gate on `fold/phase-3-cont` (HEAD `a9c7b58`), 4 increments, each CI-green, built to the triad disposition:
+- **Inc 1** ([#154](https://github.com/kelly148/lex-law-next5/pull/154)) — data core: `sendability_rule` + `jurisdiction_rule` + `sendability_override` + `sendability_evaluation` + idempotent owner-null firm-default seeds (migration `0018`); `SENDABILITY_GATE_ENABLED` flag default-OFF.
+- **Inc 2** ([#155](https://github.com/kelly148/lex-law-next5/pull/155)) — pure deterministic engine (block/warn/pass; **`wrong_matter_id` the only v1 block**; `stale_baseline` pinned to the `adopt_ledger` baseline, LLM-free; fail-to-warn; content/jurisdiction heuristics) + read-only `getGate`.
+- **Inc 3** ([#156](https://github.com/kelly148/lex-law-next5/pull/156), **operator-accepted** — egress touch) — export-boundary wiring: **shadow logging** + enforce-behind-flag + content-hash-bound **override POST** (typed confirm for `wrong_matter_id`); fail-safe at the export endpoint.
+- **Inc 4** ([#157](https://github.com/kelly148/lex-law-next5/pull/157)) — the "Export safety" UI panel + recorded-override flow + render test.
+
+**Gate runs SHADOW by default** (flag OFF): exports evaluate + log but are **never blocked** — export behavior is unchanged. v1 block = `wrong_matter_id` only; the rest warn.
+
+**State / gate.** FOLD-SEND-1 `in_progress` → **`awaiting_live_verification`** (operator `y`, Rule 11) — the UI + export wiring need Pattern-16 at the next deploy; migration `0018` is **not yet on prod**. **This was the last Phase-3 engagement → the Phase-3 BUILD is complete** (L0-1 · KB-1 · ORCH-1 · DRAFT-1 · SEND-1). Queue head = **FOLD-PM-1** (Phase 4).
+
+**Current build state.** `main`/prod unchanged at `0d704c9`. `fold/phase-3-cont` ahead by all of FOLD-SEND-1 (migration `0018` + the export-safety panel + the shadow gate wiring).
+
+**Next (operator-gated).** (a) **Deploy** `0018` + SEND-1 (gate stays **OFF/shadow** — no export-behavior change) → live-verify the Export-safety panel + confirm exports still work + shadow logging. (b) **Flip-to-enforce** (`SENDABILITY_GATE_ENABLED=true`) is a **separate, later** decision made on the shadow-mode false-positive data — not now. Carryforwards unchanged (`LLN-PROD-CLEANUP-1`; reviewer reliability; retention sign-off; MODE-A smoke secrets deferred). A full phase-boundary handoff brief is due once Phase 3 fully closes (after deploy + live-verify).
+
+---
+
 ## 2026-06-05 (midday) — FOLD-SEND-1 triad disposition (PROCEED WITH NAMED CHANGES) recorded → Inc 1 started
 
 **What changed.** The FOLD-SEND-1 §3.1 FIRE triad completed — three independent lanes (GPT-5 + two independent Claude), all "proceed with named changes"; operator consolidated + signed (`…\_analytical\phase2\reviews\FOLD-SEND-1_consolidated_disposition_2026-06-04.md` + the three raw lanes). Repo-side binding record written: **`docs/reviews/FOLD-SEND-1_disposition.md`** (supersedes the plan's open decisions). Rule-11 transition recorded: FOLD-SEND-1 `queue head` → **`in_progress`**.
