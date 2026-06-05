@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (later, +Inc 3c) — R2-PRE-CONFLICT-1 Inc 3c MERGED (`c21c7ce`, PR #176) — consumer audit (G/#6) + first-class confirm UX (#5); BLOCK #5 + #6 now satisfied
+
+**What changed.** Built + merged **Inc 3c** on `whereas/r2-pre-conflict-1-inc3c` → `main` via [PR #176](https://github.com/kelly148/lex-law-next5/pull/176), squash **`c21c7ce`**, CI green; `operator approve accept:R2-PRE-CONFLICT-1-Inc3c`. Completes the **consumer audit (constraint G / BLOCK #6)**: no reader of `matter_parties` may treat an UNCONFIRMED row as attorney-asserted. 5 files (+226/-8).
+
+**Audit result.** Readers classified: `runConflictCheck` (screening — unconfirmed *should* be screened), `evaluateConflictClearance` (requires confirmed client, Inc 3a), `ensureAutoClientParty` (existence check) — all correct, **unchanged**. Two fixed: (1) the **analysis-prompt injection** (`matterIntake.generateAnalysis`) now appends a uniform shared `UNCONFIRMED_PARTY_PROMPT_MARKER` (layer0.ts) — `(UNCONFIRMED — screened for conflicts; identity NOT attorney-verified; do not treat as established)` — for unconfirmed parties, plain for confirmed (operator chose option A: annotate, not exclude); (2) the **intake UI** (`MatterIntakePanel`).
+
+**Confirm UX (BLOCK #5).** Per-party status badge (confirmed vs "unconfirmed — screened, not yet verified") + a first-class **Confirm** button → `matterIntake.confirmParty` (procedure + immutable audit already from Inc 3a). Constraint-B side-by-side `clientName`-vs-party display + a **soft, overridable** name-mismatch advisory (never a gate; advisory-grade normalize client-side — canonical `normalizeName` stays server-side). Jsdom render test added (ci-gotchas #10).
+
+**Build state.** `main` = **`c21c7ce`** (prod still `3bff333`). `CONFLICT_GATE_ENABLED` still **OFF** → all conflict enforcement remains inert; the confirm UX + prompt marker are live additively (the marker only matters once the gate enforces; harmless before). No migration; reversible.
+
+**BLOCK-until status:** #1 (caller audit, 3b) ✓ · #2 (auto-party screened + can't clear, Inc 2/3a) ✓ · #5 (confirm UX first-class + logged, 3c) ✓ · #6 (consumer audit, 3c) ✓. **Remaining: #3** (retroactive migration, Inc 5) · **#4** (check-party snapshot + stale-clear invalidation, Inc 4).
+
+**Remaining on R2-PRE-CONFLICT-1.** **Inc 4** (D/#4 — populate `conflict_checks.checkedPartyIds` on a terminal check; add the 4th CLEARED condition to `evaluateConflictClearance`: current check vs current party set; a party mutation after a clear invalidates it) → **Inc 5** (E/#3 — retroactive migration + Conflicts Compliance Review queue; **operator-gated/STAGED** data migration) → then the `CONFLICT_GATE_ENABLED` flip (single reversible flag flip; activation constraint per the entry below) → then R2 #3.
+
+**Open items unchanged** from the entries below. Local: tsc 0, eslint 0; Inc3a/3c + intake-conflicts + panel render all green; the ~12 Windows-only env false-negatives unrelated/green in CI.
+
+---
+
 ## 2026-06-05 (later) — R2-PRE-CONFLICT-1 Inc 3b ENFORCEMENT WIRING MERGED (`cfe201c`, PR #174) — flag-gated, DEFAULT OFF (inert); BLOCK-until #1 satisfied
 
 **What changed.** Built + merged **Inc 3b** on `whereas/r2-pre-conflict-1-inc3b` → `main` via [PR #174](https://github.com/kelly148/lex-law-next5/pull/174), squash commit **`cfe201c`**, CI green (Lint + Type Check + Tests). This wires the affirmative `evaluateConflictClearance` predicate (Inc 3a) into **every** conflict-sensitive transition (disposition §3C), replacing the overloaded `hasUndispositionedBlocker` — a complete static + runtime caller audit, **no bypass** (BLOCK-until #1). 5 files (4 edits + 1 test), +339/-14.
