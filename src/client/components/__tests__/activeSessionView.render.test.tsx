@@ -59,6 +59,7 @@ vi.mock('../../trpc.js', async () => {
       orchestration: { getConsolidation: { useQuery: q(undefined) } },
       provisionProvenance: { listForDocument: { useQuery: q([]) } },
       document: { get: { useQuery: q({ currentVersionId: null, matterId: '22222222-2222-2222-2222-222222222222' }) } },
+      matterState: { dashboard: { useQuery: q(undefined) } },
     },
   };
 });
