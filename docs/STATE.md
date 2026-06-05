@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (afternoon, later) — FOLD-SEND-1 DEPLOYED + LIVE-VERIFIED PASS → COMPLETE; **PHASE-3 BUILD CLOSED**
+
+**What changed.** Deployed FOLD-SEND-1 via the Phase-3 boundary merge: `fold/phase-3-cont` → `main` as merge commit **`18d8816`** ([PR #158](https://github.com/kelly148/lex-law-next5/pull/158), CI-green). `preDeployCommand` applied migration `0018` (confirmed live). prod = `18d8816` (`/api/version`, health 200, builtAt 2026-06-05 15:00Z). MODE B.
+
+**Deploy mis-sequence (caught + corrected).** The operator first triggered Railway "Deploy Latest Commit" **before** PR #158 was merged, so prod redeployed the *old* commit `0d704c9` (builtAt updated, SHA unchanged). The **`/api/version` SHA check caught it** (Railway lists deploy IDs, not git SHAs — `/api/version` is the bridge). Corrected: `operator approve accept:phase-3-send-deploy` → merged #158 → `main` = `18d8816` → re-deployed → `/api/version` = `18d8816`.
+
+**Live verification — PASS** (`operator approve live-verified:phase-3-send-deploy`): (1) `getGate` works on prod — `verdict warn`, **`enforced:false` (shadow)**, `inScope:true`, **no false-positive blocks** (`wrong_matter_id` correctly silent — doc is owned), `package_completeness` warning matching the incomplete closing package; (2) **DOCX export still succeeds** (HTTP 200, real 20 KB docx) — shadow does **not** block, the gate-wired endpoint is non-breaking/fail-safe; (3) the **Export-safety panel renders** on prod (shadow advisory copy, "1 to review" badge, the warning, coexisting with the LOI / provenance / legacy-advisory panels); (4) **no #310 regression**. Caveat: the block-override flow wasn't exercised on-screen (no block present — the correct result; render-tested + `recordOverride` unit-tested).
+
+**Build state.** prod = `main` = **`18d8816`**. **FOLD-SEND-1 → completed.** **The Phase-3 build is fully closed** — L0-1 · KB-1 · ORCH-1 · DRAFT-1 · SEND-1 all built, live-verified, and on prod. Migrations `0007`–`0018` applied. The export-safety gate runs in **shadow mode** (`SENDABILITY_GATE_ENABLED` OFF).
+
+**Next.** Queue head = **FOLD-PM-1 (Phase 4 — practice-management spine).** Per Rule 17, Phase 4 starts a fresh phase branch `fold/phase-4` off `main`. Open items: **flip-to-enforce** the export-safety gate is a separate later decision on shadow-mode FP data; `LLN-PROD-CLEANUP-1` (synthetic prod data, now incl. this session's abandoned review sessions + shadow eval rows); reviewer reliability; retention sign-off; MODE-A smoke secrets deferred. A dated phase-boundary handoff brief is written alongside this entry.
+
+---
+
 ## 2026-06-05 (afternoon) — FOLD-SEND-1 export-safety BUILD COMPLETE (shadow) → awaiting_live_verification; Phase-3 build complete
 
 **What changed.** Built the full FOLD-SEND-1 deterministic export-safety / outbound-readiness gate on `fold/phase-3-cont` (HEAD `a9c7b58`), 4 increments, each CI-green, built to the triad disposition:
