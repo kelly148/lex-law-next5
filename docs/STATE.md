@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (midday) — FOLD-SEND-1 triad disposition (PROCEED WITH NAMED CHANGES) recorded → Inc 1 started
+
+**What changed.** The FOLD-SEND-1 §3.1 FIRE triad completed — three independent lanes (GPT-5 + two independent Claude), all "proceed with named changes"; operator consolidated + signed (`…\_analytical\phase2\reviews\FOLD-SEND-1_consolidated_disposition_2026-06-04.md` + the three raw lanes). Repo-side binding record written: **`docs/reviews/FOLD-SEND-1_disposition.md`** (supersedes the plan's open decisions). Rule-11 transition recorded: FOLD-SEND-1 `queue head` → **`in_progress`**.
+
+**Binding named changes (build to these — not the plan defaults):** gate at the DOCX export boundary, **v1 hard-stops only `wrong_matter_id`** (stale_baseline + missing-signer **warn**, not block; engine reusable for a future real delivery/share); `unverified_statute_citation` **deferred** (warn-only via the LLM layer); every block **overridable + recorded** (append-only, content-hash-bound, typed confirm for matter-id, POST not GET, supersedes on version change); **shadow mode** (flag OFF still computes+logs per category, with an explicit flip criterion); append-only **`sendability_evaluation`** logging + per-category telemetry from the first commit; **fail-to-warn** not fail-to-block; `jurisdiction_rule` document-type-scoped + source-tagged + idempotent seeds + scope-guard (no settlement/title); **no config UI v1** (owner-null firm-default seeds); LLM classifier = **warn layer only**, deterministic blocks pure/LLM-free; audience-leak/GOV-1b **separate, warn-only v1**; rename user-facing **"sendability" → "export safety"/"outbound readiness"** (legacy code name kept).
+
+**Verify-before-relying — both resolved.** (1) `open_items` severity **is LLM-derived** (orchestration `divergentOpenItemRegistration` → `mapOrchSeverityToOpenItemSeverity(group.severity)`); therefore `stale_baseline` is **pinned** to the `adopt_ledger` baseline + version-drift (no `open_items`-severity dependency) — an Inc-2 constraint. (2) the review packet's inlining **held** (all parts inline in the file); the "only the plan arrived" report was a paste issue → paste the whole packet next time.
+
+**Build state.** `main`/prod unchanged at `0d704c9`. FOLD-SEND-1 `in_progress`; **Inc 1 (data core)** building on a sub-branch off `fold/phase-3-cont`: `sendability_rule` + `jurisdiction_rule` + `sendability_override` + `sendability_evaluation` + idempotent owner-null seeds + additive migration + `SENDABILITY_GATE_ENABLED` default-OFF; no behavior change. Deferred: statute-citation block, audience-leak deterministic block, export-intent selector, config UI, flip-to-enforce.
+
+---
+
 ## 2026-06-05 (morning, later) — Phase-3 EARLY DEPLOY (`0d704c9`) + FOLD-DRAFT-1 LIVE-VERIFIED PASS → COMPLETE
 
 **What changed.** Operator-gated early partial-phase deploy (Rule-17 deviation — phase 3 isn't done; FOLD-SEND-1 remains). `fold/phase-3-cont` merged to `main` via PR [#153](https://github.com/kelly148/lex-law-next5/pull/153) as **merge commit `0d704c9`** (CI-green, preserves per-engagement commits); operator deployed via Railway. The wired `preDeployCommand` applied additive migrations **`0016` (ldd_key_term)** + **`0017` (closure_package_item)** automatically — **confirmed** because recording into both tables succeeded live. Prod = `0d704c9` (`/api/version`, health 200, builtAt 2026-06-05 13:03Z). MODE B (manual verify, no auto-rollback).
