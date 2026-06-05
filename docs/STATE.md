@@ -4,6 +4,33 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (late night, later) — PREREQ-1 jurisdiction MERGED; R2-PRE-CONFLICT-1 triad DISPOSITIONED (hybrid) → Inc 1/2/3a MERGED (mechanism only; enforcement = Inc 3b, NOT yet wired). Session handoff.
+
+**Consolidated catch-up (several closes since the §7 entry above).**
+
+**PREREQ-1 — R2-PRE-JURIS-1 (jurisdiction):** MERGED to `main` ([PR #167](https://github.com/kelly148/lex-law-next5/pull/167)). Additive `matters.jurisdiction VARCHAR(16)` + migration `0019`; settable via create/updateMetadata; no UI (the VA/MD chip + editor are R2 #3). **R2 #3 unblocked on its non-conflicts elements.**
+
+**PREREQ-2 — R2-PRE-CONFLICT-1 (client-not-a-party conflicts fix): §3.1 FIRE triad RETURNED → operator DISPOSITIONED (hybrid).** Binding repo record: `docs/reviews/R2-PRE-CONFLICT-1_disposition.md` (chosen design, constraints A–G, six BLOCK-until items, 5-increment plan). Consolidated triad doc + lanes in Cowork `…\_analytical\phase2\reviews\`. **Chosen: hybrid, in-table, screen-early, confirmation-gated** + the gate-overload fix as the true headline (all three lanes: `hasUndispositionedBlocker` conflated "no blockers" with "no check / client uncovered" → "cleared" vacuously).
+
+**Conflict-fix increments DONE this session (each CI-green, merged):**
+- **Inc 1 ([#169](https://github.com/kelly148/lex-law-next5/pull/169)) — schema.** Migration `0020`: `matter_parties.confirmed` (BOOL NOT NULL DEFAULT TRUE → existing rows confirmed) + `confirmedAt`/`confirmedByUserId`; `conflict_checks.checkedPartyIds` (the §3D snapshot, populated Inc 4). Zod + `insertMatterParty` default `confirmed=true`. No hard `role='client'` constraint.
+- **Inc 2 ([#170](https://github.com/kelly148/lex-law-next5/pull/170)) — auto-create + screen-early.** `ensureAutoClientParty` (idempotent, non-destructive) creates an UNCONFIRMED `role='client'` party (`source='auto_from_clientName'`, `confirmed=false`) from `clientName` when none exists; called by `matter.create` + `updateMetadata`. The client is screened from creation (BLOCK #2 first half).
+- **Inc 3a ([#171](https://github.com/kelly148/lex-law-next5/pull/171)) — affirmative predicate + confirm act (ADDITIVE; NO enforcement yet).** `evaluateConflictClearance → CLEARED|BLOCKED|NOT_ESTABLISHED` (CLEARED ⇔ check exists ∧ no undispositioned BLOCKER ∧ a CONFIRMED `role='client'` party; "no check"/"unconfirmed-client" are distinct NOT_ESTABLISHED) + `isConflictCleared`. `confirmMatterParty` query + `matterIntake.confirmParty` procedure (immutably audited, attestation) — the explicit confirm act (BLOCK #5).
+
+**Build state.** `main` = **`98eb7ee`** (prod = `64ea044`). **No behaviour change yet** from the conflict work: Inc 3a is additive — the new predicate is NOT consumed anywhere; the OLD `hasUndispositionedBlocker` still gates lockPlan + advance-to-drafting. So the system is in a safe, coherent state at this pause.
+
+**Pending deploy batch (operator-gated, MODE B; all additive).** Display layer: R2 #1 + R2 #2 Inc A + Inc B. Backend: R2-PRE-JURIS-1 (migration `0019`) + R2-PRE-CONFLICT-1 Inc 1 (migration `0020`). **Migrations `0019` + `0020` apply at the deploy gate (pre-deploy runner).** Not yet deployed.
+
+**REMAINING on R2-PRE-CONFLICT-1 (resume in a fresh session — see the HANDOFF_BRIEF):**
+- **Inc 3b — enforcement wiring (the ethics-critical caller audit, BLOCK #1).** Replace `hasUndispositionedBlocker` with `isConflictCleared`/`evaluateConflictClearance` at ALL transitions. Audit map found: `hasUndispositionedBlocker` is consumed at exactly two sites today — advance-to-drafting (`documents.ts:175`, `document.create`) and `lockPlan` (`matterAnalysis.lockPlan` via conflicts). **Export is NOT conflict-gated today — must be added** (the FOLD-SEND-1 export/sendability path). Plus the "cleared-disposition" root. Full static+runtime caller audit required — no bypass.
+- **Inc 3c — consumer audit (G, BLOCK #6).** Every `listPartiesForMatter` reader must not treat an UNCONFIRMED row as attorney-asserted. Consumers found: the check itself (`conflicts.ts:58` — screening, correct), the intake party list UI (`matterIntake.listParties`), and the **analysis-prompt injection** (`matterIntake.ts:160` "Parties:" — decide whether/how to flag unconfirmed there). + confirmation UX (the conflicts chip in R2 #3).
+- **Inc 4 — check-party snapshot + invalidate-on-party-change (D, BLOCK #4).** Persist `checkedPartyIds` on terminal check; party mutation after a clear invalidates it (add the 4th CLEARED condition to `evaluateConflictClearance`).
+- **Inc 5 — retroactive migration + Conflicts Compliance Review queue (E, BLOCK #3) — OPERATOR-GATED/STAGED data migration.** Matters with `clientName` + no client party → insert `source='migration'`, `confirmed=false`; preview + staging first; no auto-confirm/history-rewrite.
+
+**Open items.** (a) Inc 3b–5 + R2 #3 (jurisdiction chip + non-conflicts header; conflicts chip rides Inc 3). (b) Deploy batch pending. (c) `task_99ce99c5` (auto-register divergent items — ORCH-1 contract). (d) Untracked `docs/engagements/FOLD-ORCH-1-divergent-persistence-decision.md` (NOT created by this thread; left per Hard Rule 3 — likely the auto-register task's output). (e) Carryforwards unchanged. A dated HANDOFF_BRIEF is written alongside this entry.
+
+---
+
 ## 2026-06-05 (late night) — WHEREAS R2 #3 §7 verifications run → R2 #3 PAUSED on two prerequisites (PREREQ-1 jurisdiction PR'd; PREREQ-2 conflicts = §3.1 FIRE, triad pending)
 
 **What happened.** Started R2 #3 (matter-state header / readiness strip) with the prerequisite **§7 verifications**. Findings (by server-side code inspection):
