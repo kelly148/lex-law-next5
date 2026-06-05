@@ -42,6 +42,9 @@ export const MatterRowSchema = z.object({
   title: z.string().min(1).max(256),
   clientName: z.string().max(256).nullable(),
   practiceArea: z.string().max(128).nullable(),
+  // R2-PRE-JURIS-1: governing jurisdiction ('VA' | 'MD'). ADDITIVE: .nullable().optional() so
+  // pre-migration reads / legacy fixtures parse; a post-migration row carries null|string.
+  jurisdiction: z.string().max(16).nullable().optional(),
   // FOLD-KB-1 (Fork E) attorney-confirmed PA key. ADDITIVE: .nullable().optional() so
   // pre-migration reads / legacy fixtures parse and a post-migration row carries null|string.
   paKey: z.string().max(64).nullable().optional(),
