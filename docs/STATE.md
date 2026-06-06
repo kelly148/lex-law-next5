@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #5 inc1) — R2 #5 increment 1 MERGED (`dfb61af`, PR #190) — provenance/currency badge grammar + low-risk surfaces
+
+**What changed.** Built + merged **R2 #5 increment 1** → `main` via [PR #190](https://github.com/kelly148/lex-law-next5/pull/190), squash **`dfb61af`**, CI green (merged by Claude per the standing rule). One reusable **`ProvenanceBadge`** with a fixed four-facet grammar (origin · verification · currency · severity), tone-coded chips, **click/focus inline-expand** disclosure (never hover-only — a11y rule; real `<button>` for keyboard). Semantic `--wa-` tints only (no blue). Display-only; flags untouched; no migration; reversible.
+- **Grammar (pure unit-tested resolvers):** model_derived/counterparty → attention; verified/attorney_verified_current → good; unverified/stale → attention; superseded/not_legal_authority → muted; lifecycle superseded → muted; severity blocker → alert / review → attention. Normalizes source-authority (3-state) + KB-memo (5-state) verification vocabularies.
+- **Low-risk surfaces (per disposition "KB/citations/authorities first"):** KnowledgeBasePanel (raw gray verificationStatus pill → badge) + MatterStateDashboard source-authority rows (origin/lifecycle text → badge with origin+verification+currency).
+- **STAGED:** this is **increment 1**. Draft body + review-pane provenance = a **LATER R2 #5 increment** (deferred per disposition "draft body + review pane last").
+Tests: pure facet-grammar + render/disclosure (ci-gotchas #10); full client render suite green (no regression).
+
+**Build state.** `main` = **`dfb61af`**; prod still `3ce1324`. Display-only → rides the next operator deploy (batches with R1-CLEANUP-1 + R2 #3 + R2 #4 — all display-only, no migration; a sizable unshipped display batch is accumulating).
+
+**Next (R2):** R2 #5 increment 2 (draft body + review-pane provenance), then R2 #6 (KB/source-authority adoption surface), #7 (Matter Record ledger), #8 (nav-only command palette), #9 (R3 polish). Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Open chips: `task_bc281353`, `task_b0f9ffb5`. Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 (+R2 #4) — R2 #4 MERGED (`656ed92`, PR #188) — unverified-KB flag at the override moment (WARN-only) + grouped reasons
 
 **What changed.** Built + merged **R2 #4** (export-safety gate UI delta) → `main` via [PR #188](https://github.com/kelly148/lex-law-next5/pull/188), squash **`656ed92`**, CI green (merged by Claude per the standing rule). R2 #4's core was already shipped by FOLD-SEND-1 Inc 4 (`ExportSafetyPanel`: verdict + findings + recorded-override + shadow/enforce + matter-header sendability chip from R2 #3); this PR adds the two genuine deltas. Display-layer + read of an existing flag; **flags untouched** (`SENDABILITY_GATE_ENABLED` + `CONFLICT_GATE_ENABLED` stay OFF); **NO migration**; reversible.
