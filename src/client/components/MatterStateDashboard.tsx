@@ -132,7 +132,7 @@ export default function MatterStateDashboard({ matterId, documentId }: MatterSta
               <span className="flex-1 text-amber-800">Confirm: {pending.label}</span>
               <button
                 onClick={() => { pending.run(); setPending(null); }}
-                className="px-2 py-1 text-xs bg-firm-navy text-white rounded"
+                className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface"
               >
                 Confirm
               </button>
@@ -202,7 +202,7 @@ export default function MatterStateDashboard({ matterId, documentId }: MatterSta
                           }),
                       })
                     }
-                    className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40"
+                    className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"
                   >
                     Record
                   </button>
@@ -306,7 +306,7 @@ export default function MatterStateDashboard({ matterId, documentId }: MatterSta
                             }),
                         });
                       }}
-                      className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40"
+                      className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"
                     >
                       Tier
                     </button>

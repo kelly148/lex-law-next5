@@ -218,7 +218,7 @@ function OutlinePanel({ documentId, matterId }: OutlinePanelProps): React.ReactE
         <button
           onClick={() => generateMutation.mutate({ documentId })}
           disabled={generateMutation.isPending}
-          className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+          className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
         >
           {generateMutation.isPending ? 'Generating…' : 'Generate Outline'}
         </button>
@@ -267,7 +267,7 @@ function OutlinePanel({ documentId, matterId }: OutlinePanelProps): React.ReactE
             <button
               onClick={() => approveMutation.mutate({ outlineId: outline.id })}
               disabled={approveMutation.isPending}
-              className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              className="px-2 py-1 text-xs bg-success text-white rounded hover:bg-success/90 disabled:opacity-50"
             >
               Approve
             </button>
@@ -313,7 +313,7 @@ function OutlinePanel({ documentId, matterId }: OutlinePanelProps): React.ReactE
             <button
               onClick={() => editMutation.mutate({ outlineId: outline.id, sections: sectionEdits })}
               disabled={editMutation.isPending}
-              className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+              className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               Save
             </button>
@@ -471,7 +471,7 @@ function VariableMapEditor({ documentId, variableMap }: VariableMapEditorProps):
         <button
           onClick={() => updateMutation.mutate({ documentId, variableMap: localMap })}
           disabled={updateMutation.isPending}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
         >
           <Save className="w-3 h-3" />
           {updateMutation.isPending ? 'Saving…' : 'Save Variables'}
@@ -821,11 +821,11 @@ export default function DocumentDetail(): React.ReactElement {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setGenerationModelMode('full')}
-                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'full' ? 'bg-firm-navy text-white border-firm-navy' : 'border-gray-300 text-gray-600 hover:bg-gray-50')}
+                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'full' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
                   >Full</button>
                   <button
                     onClick={() => setGenerationModelMode('lite')}
-                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'lite' ? 'bg-firm-navy text-white border-firm-navy' : 'border-gray-300 text-gray-600 hover:bg-gray-50')}
+                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'lite' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
                   >Lite</button>
                 </div>
                 <button
@@ -837,7 +837,7 @@ export default function DocumentDetail(): React.ReactElement {
                     }
                   }}
                   disabled={generateDraftMutation.isPending}
-                  className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+                  className="px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
                 >
                   {generateDraftMutation.isPending ? 'Queuing\u2026' : 'Generate Draft'}
                 </button>
@@ -851,7 +851,7 @@ export default function DocumentDetail(): React.ReactElement {
                           setShowDraftWarning(false);
                           generateDraftMutation.mutate({ documentId, generationModelMode });
                         }}
-                        className="px-2 py-1 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
+                        className="px-2 py-1 text-xs bg-warning text-white rounded hover:bg-warning/90"
                       >
                         Draft anyway
                       </button>
@@ -896,7 +896,7 @@ export default function DocumentDetail(): React.ReactElement {
                   onClick={() => finalizeMutation.mutate({ documentId })}
                   disabled={finalizeMutation.isPending || isFormattingActive}
                   aria-busy={finalizeMutation.isPending || isFormattingActive}
-                  className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  className="px-3 py-1.5 text-xs bg-success text-white rounded hover:bg-success/90 disabled:opacity-50"
                 >
                   {(finalizeMutation.isPending || isFormattingActive) ? 'Finalizing document…' : 'Finalize'}
                 </button>
@@ -934,7 +934,7 @@ export default function DocumentDetail(): React.ReactElement {
                   <button
                     onClick={() => extractVariablesMutation.mutate({ documentId })}
                     disabled={extractVariablesMutation.isPending}
-                    className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+                    className="px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
                   >
                     {extractVariablesMutation.isPending ? 'Extracting…' : 'Extract Variables'}
                   </button>
@@ -943,14 +943,14 @@ export default function DocumentDetail(): React.ReactElement {
                     <button
                       onClick={() => populateFromMatterMutation.mutate({ documentId })}
                       disabled={populateFromMatterMutation.isPending}
-                      className="px-3 py-1.5 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
+                      className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50 transition-colors"
                     >
                       Auto-populate from Matter
                     </button>
                     <button
                       onClick={() => renderMutation.mutate({ documentId })}
                       disabled={renderMutation.isPending}
-                      className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+                      className="px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
                     >
                       {renderMutation.isPending ? 'Rendering…' : 'Render Document'}
                     </button>
@@ -958,6 +958,7 @@ export default function DocumentDetail(): React.ReactElement {
                       onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
                       disabled={acceptSubstantiveMutation.isPending}
                       size="sm"
+                      tone="ghost"
                     >
                       Accept Substantive
                     </DeliberateActButton>
@@ -978,7 +979,7 @@ export default function DocumentDetail(): React.ReactElement {
                   onClick={() => finalizeMutation.mutate({ documentId })}
                   disabled={finalizeMutation.isPending || isFormattingActive}
                   aria-busy={finalizeMutation.isPending || isFormattingActive}
-                  className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  className="px-3 py-1.5 text-xs bg-success text-white rounded hover:bg-success/90 disabled:opacity-50"
                 >
                   {(finalizeMutation.isPending || isFormattingActive) ? 'Finalizing document…' : 'Finalize'}
                 </button>
@@ -1068,7 +1069,7 @@ export default function DocumentDetail(): React.ReactElement {
                     }
                   }}
                   disabled={regenerateMutation.isPending || !regenerateInstructions.trim()}
-                  className="px-3 py-1.5 text-xs border border-firm-navy text-firm-navy rounded hover:bg-firm-navy hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50 transition-colors"
                 >
                   {regenerateMutation.isPending ? 'Queuing…' : 'Regenerate'}
                 </button>
@@ -1144,7 +1145,7 @@ export default function DocumentDetail(): React.ReactElement {
                       <button
                         onClick={() => setNotesMutation.mutate({ documentId, notes: notesInput.trim() || null })}
                         disabled={setNotesMutation.isPending}
-                        className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
                       >
                         Save
                       </button>

@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (R2-CTA-OXBLOOD-1 — primary-CTA oxblood + full Whereas button-grammar sweep · Phase A built, awaiting accept + deploy)
+
+**What changed.** R1-CLEANUP-1 follow-on + R2 primary-CTA oxblood, built as one sweep. Applied the Whereas button grammar across the entire client: exactly one oxblood primary per view (`bg-accent`/`text-on-accent`), every other affirmative control demoted to ghost (`border-line`/`text-ink`), segmented/mode-toggle active → quiet surface (`bg-surface`), semantic button fills → wa `success`/`warning`/`danger` tokens. Added a `tone="ghost"` variant to the shared `DeliberateActButton` so a non-primary ✦ deliberate act keeps its friction (the ✦ mark + heavier border/ring) without the scarce oxblood fill — color and friction are orthogonal (R2 §2). MatterDetail + all matter panels + Review = promote-none / ghost-everywhere (R2 §5/§8.1). 22 files; new `r2_cta_oxblood.source.test.ts`; one `r1_cleanup_1.source.test.ts` assertion updated where R2 superseded R1 (the InformationRequestPage ink-fill hover, now the oxblood primary) — the off-palette-blue guarantee is preserved and strengthened.
+
+**Reconciliation (Cowork brief had no repo mounted).** `firm-navy` is the **ink** token (not navy); `accent` is oxblood. R1-CLEANUP-1 was **already merged (#184)** — this builds on it. The `DeliberateActButton` was **already oxblood by design** (shipped R2 #2/#4/#6) → hence the new ghost tone.
+
+**Build state.** Branch `lex-next/r2-cta-oxblood-grammar` (commit `9414357`); **PR #207 CI-green** (Lint + Type Check + Tests). Display-only; reversible; flags untouched (`CONFLICT_GATE_ENABLED` ON, `SENDABILITY_GATE_ENABLED` OFF); no migration. **NOT YET MERGED** → `prod = main = 9e9e93a`; no visual change on prod until **merge → deploy** (the 06-05 merge-before-deploy lesson). `/api/version` confirmed `9e9e93a` (builtAt 22:42Z) = a faithful deploy of pre-oxblood main.
+
+**Open items / gate residuals.** Awaiting `operator approve accept:R2-CTA-OXBLOOD-1` → squash-merge #207 → operator deploy → re-verify `/api/version` = new SHA + hard-refresh. Out of scope (flagged): read-only status-tint pills incl. off-palette `bg-blue-100` → rides existing chip **task_b0f9ffb5** (status-pill tokens), not duplicated; pre-existing neutral gray outline buttons → cosmetic token-normalization follow-up. Sole committer on the MatterDetail / Dispatch-#8 surface (parallel desktop UAT session makes no commits).
+
+---
+
 ## 2026-06-06 (CONFLICT LADDER UAT — SYNTHETIC) — new-predicate enforcement ladder live-verified; FOLD-L0-1 second-REAL-matter REMAINS OPEN
 
 **Disposition.** New-predicate enforcement ladder **live-verified on a SYNTHETIC matter** (protocol §4 option (c), mechanics-only — `_verification\SECOND_MATTER_LIVE_VERIFY_PROTOCOL_2026-06-06.md`): `undispositioned_blocker → BLOCKED → rationale-required disposition → unconfirmed_client_party → confirm → CLEARED → allow`. **First live firing of `undispositioned_blocker` AND `unconfirmed_client_party` under `CONFLICT_GATE_ENABLED`.** **FOLD-L0-1 second-REAL-matter intake condition REMAINS OPEN — app stays self-use** (this was synthetic, not a second real matter). **Evidence class:** Claude-driven UAT via authed prod session (acts `actor:'attorney'`/`kelly`); operator-gated at every mutating step; HTTP codes/bodies captured. prod = `facf5db` + `CONFLICT_GATE_ENABLED=true`; `SENDABILITY_GATE_ENABLED` OFF.

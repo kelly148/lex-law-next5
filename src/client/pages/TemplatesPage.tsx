@@ -130,7 +130,7 @@ function UploadTemplateForm({ onClose, onUploaded }: UploadTemplateFormProps): R
             <button
               type="submit"
               disabled={uploadMutation.isPending}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
             >
               {uploadMutation.isPending ? 'Uploading…' : 'Upload Template'}
             </button>
@@ -349,7 +349,7 @@ export default function TemplatesPage(): React.ReactElement {
           </label>
           <button
             onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-firm-navy text-white text-sm rounded hover:bg-firm-navy/90"
+            className="flex items-center gap-2 px-4 py-2 bg-accent text-on-accent text-sm rounded hover:bg-accent-hover"
           >
             <Plus className="w-4 h-4" />
             Upload Template

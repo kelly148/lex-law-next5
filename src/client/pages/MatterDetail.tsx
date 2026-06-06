@@ -195,7 +195,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             <button
               type="submit"
               disabled={createMutation.isPending || (documentType === 'custom' && !customTypeLabel.trim())}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating…' : 'Create Document'}
             </button>
@@ -282,7 +282,7 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
             <button
               type="submit"
               disabled={updateMutation.isPending}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               {updateMutation.isPending ? 'Saving…' : 'Save'}
             </button>
@@ -399,7 +399,7 @@ export default function MatterDetail(): React.ReactElement {
           {!matter.archivedAt && (
             <button
               onClick={() => setShowCreateDoc(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface"
             >
               <Plus className="w-4 h-4" />
               New Document

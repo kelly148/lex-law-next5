@@ -116,7 +116,7 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
             </div>
             <div className="flex items-center gap-2 mt-2">
               <input value={paKeyInput} onChange={(e) => setPaKeyInput(e.target.value)} placeholder="e.g. real_estate" className="flex-1 text-xs border border-gray-300 rounded px-2 py-1" />
-              <button disabled={!paKeyInput.trim() || confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: paKeyInput.trim() })} className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40">Confirm</button>
+              <button disabled={!paKeyInput.trim() || confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: paKeyInput.trim() })} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">Confirm</button>
               {currentPaKey && <button disabled={confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: null })} className="px-2 py-1 text-xs border border-gray-300 rounded">Clear</button>}
             </div>
           </section>
@@ -155,7 +155,7 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
                           <span>Adopted into this matter (recorded as <span className="font-medium">{adoption.verificationStatusAtAdoption.replace(/_/g, ' ')}</span>).</span>
                         </div>
                       ) : (
-                        <DeliberateActButton size="sm" disabled={adoptMemo.isPending} onClick={() => adoptMemo.mutate({ memoId: c.memoId, targetMatterId: matterId })} title="Authorize use of this memo in this matter (recorded)">
+                        <DeliberateActButton size="sm" tone="ghost" disabled={adoptMemo.isPending} onClick={() => adoptMemo.mutate({ memoId: c.memoId, targetMatterId: matterId })} title="Authorize use of this memo in this matter (recorded)">
                           Adopt into this matter
                         </DeliberateActButton>
                       )}
@@ -183,13 +183,13 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
                     <div className="space-y-1">
                       <textarea value={abstractBody[m.id] ?? ''} onChange={(e) => setAbstractBody((s) => ({ ...s, [m.id]: e.target.value }))} placeholder="Abstracted (de-identified) body — your certification that client specifics are removed" className="w-full text-[11px] border border-gray-300 rounded px-2 py-1" rows={2} />
                       {/* R2 #6: abstraction IS the attorney's de-identification certification — a deliberate, recorded act. */}
-                      <DeliberateActButton size="sm" disabled={!(abstractBody[m.id] ?? '').trim() || abstractMemo.isPending} onClick={() => abstractMemo.mutate({ rawMemoId: m.id, abstractedBody: (abstractBody[m.id] ?? '').trim(), abstractedBy: 'attorney' })}>Abstract (attorney-attested)</DeliberateActButton>
+                      <DeliberateActButton size="sm" tone="ghost" disabled={!(abstractBody[m.id] ?? '').trim() || abstractMemo.isPending} onClick={() => abstractMemo.mutate({ rawMemoId: m.id, abstractedBody: (abstractBody[m.id] ?? '').trim(), abstractedBy: 'attorney' })}>Abstract (attorney-attested)</DeliberateActButton>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       {/* R2 #6: promote + mark-verified change a memo's reuse/currency posture — deliberate-commit acts. */}
-                      {m.reuseScope !== 'firm_wide' && <DeliberateActButton size="sm" disabled={promoteMemo.isPending} onClick={() => promoteMemo.mutate({ memoId: m.id })}><Lock className="w-3 h-3" aria-hidden /> Promote to firm-wide</DeliberateActButton>}
-                      <DeliberateActButton size="sm" disabled={markReverified.isPending} onClick={() => markReverified.mutate({ memoId: m.id, verificationStatus: 'attorney_verified_current' })}><RefreshCw className="w-3 h-3" aria-hidden /> Mark verified current</DeliberateActButton>
+                      {m.reuseScope !== 'firm_wide' && <DeliberateActButton size="sm" tone="ghost" disabled={promoteMemo.isPending} onClick={() => promoteMemo.mutate({ memoId: m.id })}><Lock className="w-3 h-3" aria-hidden /> Promote to firm-wide</DeliberateActButton>}
+                      <DeliberateActButton size="sm" tone="ghost" disabled={markReverified.isPending} onClick={() => markReverified.mutate({ memoId: m.id, verificationStatus: 'attorney_verified_current' })}><RefreshCw className="w-3 h-3" aria-hidden /> Mark verified current</DeliberateActButton>
                     </div>
                   )}
                 </div>
@@ -207,9 +207,9 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
             <input value={memoTitle} onChange={(e) => setMemoTitle(e.target.value)} placeholder="Memo title" className="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-1" />
             <textarea value={memoBody} onChange={(e) => setMemoBody(e.target.value)} placeholder="Memo body (filed client-confidential / matter-only until you abstract it)" className="w-full text-xs border border-gray-300 rounded px-2 py-1" rows={3} />
             <div className="flex items-center gap-2 mt-1">
-              <button disabled={!memoTitle.trim() || !memoBody.trim() || createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: memoTitle.trim(), body: memoBody.trim() })} className="flex items-center gap-1 px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40"><FilePlus className="w-3 h-3" /> File memo</button>
+              <button disabled={!memoTitle.trim() || !memoBody.trim() || createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: memoTitle.trim(), body: memoBody.trim() })} className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"><FilePlus className="w-3 h-3" /> File memo</button>
               {a != null && (
-                <button disabled={createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: `Analysis memo`, body: typeof a.assessment === 'string' ? a.assessment : 'Filed from matter analysis.', sourceAnalysisId: a.id })} className="flex items-center gap-1 px-2 py-1 text-xs border border-firm-navy text-firm-navy rounded disabled:opacity-40"><ShieldCheck className="w-3 h-3" /> File latest analysis as memo</button>
+                <button disabled={createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: `Analysis memo`, body: typeof a.assessment === 'string' ? a.assessment : 'Filed from matter analysis.', sourceAnalysisId: a.id })} className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"><ShieldCheck className="w-3 h-3" /> File latest analysis as memo</button>
               )}
             </div>
             {createMemo.error && <p className="text-[11px] text-red-600 mt-1">{createMemo.error.message}</p>}
