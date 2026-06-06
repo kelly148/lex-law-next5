@@ -98,6 +98,13 @@ export async function insertSendabilityOverride(data: {
   reasonCode: SendabilityOverrideReason;
   reasonText?: string | null;
 }): Promise<SendabilityOverrideRow> {
+  // R2 #4 no-migration invariant (runtime hardening, complements the guard test): 'unverified_kb' is
+  // an ENGINE-ONLY warn category, never persisted to the sendability_override.category mysqlEnum
+  // (overrides are block-only; a warn is never overridden). Reject it here so it can never reach the
+  // DB enum without a conscious migration. The throw also narrows data.category to the column's type.
+  if (data.category === 'unverified_kb') {
+    throw new Error('unverified_kb is a warn-only diligence signal and cannot be overridden (it never blocks export).');
+  }
   const id = data.id ?? uuidv4();
   await db.insert(sendabilityOverride).values({
     id,

@@ -38,6 +38,15 @@ export const SENDABILITY_CHECK_CATEGORY_VALUES = [
   'package_completeness',
   'low_confidence_match',
   'audience_leak',
+  // R2 #4: the draft drew on an UNVERIFIED KB memo (documents.drewOnUnverifiedKb, KB-1). WARN-only,
+  // ENGINE-ONLY: intentionally NOT mirrored into the schema.ts mysqlEnum, so it is never persisted to
+  // sendability_rule.category / sendability_override.category (no DB migration). A warn finding needs
+  // no rule row (engine defaults to 'warn') and is never overridden (overrides are block-only). The
+  // r2_4 guard test pins this asymmetry. INTERIM posture — see STATE: the disposition leans
+  // block-with-override ("barred from clearing outbound without current verification"); revisit when
+  // SENDABILITY_GATE_ENABLED flips (block-with-override would then need an additive override.category
+  // enum migration).
+  'unverified_kb',
 ] as const;
 
 export const SENDABILITY_RULE_LEVEL_VALUES = ['block', 'warn', 'off'] as const;
