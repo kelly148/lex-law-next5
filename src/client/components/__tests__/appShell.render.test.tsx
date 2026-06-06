@@ -13,13 +13,27 @@ import { render, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // AppShell calls trpc.useUtils() (for the logout mutation). A deep no-op proxy
-// satisfies utils.client.auth.logout.mutate / utils.auth.me.invalidate.
-vi.mock('../../trpc.js', () => {
+// satisfies utils.client.auth.logout.mutate / utils.auth.me.invalidate. AppShell now also mounts
+// CommandPalette (R2 #8), which calls matter.list.useQuery — stub it (real useRef for #310 fidelity).
+vi.mock('../../trpc.js', async () => {
+  const React = await import('react');
   const utilsProxy: unknown = new Proxy(function () {}, {
     get: () => utilsProxy,
     apply: () => undefined,
   });
-  return { trpc: { useUtils: () => utilsProxy } };
+  return {
+    trpc: {
+      useUtils: () => utilsProxy,
+      matter: {
+        list: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: [], isLoading: false, isError: false, error: null };
+          },
+        },
+      },
+    },
+  };
 });
 
 vi.mock('../../hooks/useAuth.js', () => ({
