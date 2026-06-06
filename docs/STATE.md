@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (DEPLOY) — R2 display batch DEPLOYED (`4e6e7fa`) + light UAT PASS (Claude-driven)
+
+**What changed.** Operator deployed `main` (`4e6e7fa`) via Railway "Deploy Latest Commit". **prod = `4e6e7fa`** (`/api/version` confirmed `4e6e7fa…`, builtAt 2026-06-06T16:34:39Z — SHA check clean). **MODE B** (manual verify; no auto-rollback). **No migrations in the range** (3ce1324→4e6e7fa is display + additive-read only; no `migrations/`/`schema.ts` changes) — clean code-only deploy.
+
+**Now on prod (since 3ce1324):** R1-CLEANUP-1 (control colors→tokens) · R2 #3 (matter-state readiness strip + additive read-only `matterState.dashboard` conflictClearance/jurisdiction) · R2 #4 (unverified-KB-at-override WARN + grouped reasons; additive engine-only category) · R2 #5 (provenance badge grammar + low-risk surfaces + draft-body badge) · R2 #6 (KB adoption surface — built via operator Dispatch). Both gates stay **OFF** (`CONFLICT_GATE_ENABLED`, `SENDABILITY_GATE_ENABLED`).
+
+**Live verification — light UAT PASS** (Claude-driven, browser "UNIVERSALTITLE", authed `kelly`): `/matters` renders (`matter.list` OK; only `poa` remains post-cleanup); **R2 #3 readiness strip** renders on MatterDetail with all six chips + correct advisory states (Set jurisdiction · Conflicts: not yet checked · No sources · No open items · Drafting · Safe to send); matter panels (Intake/KB/Matter State/Closing package) render; **no React/#310 errors** (only Chrome-extension message-channel noise); `/upload-format` (R1-CLEANUP-1 controls) renders. **Not exercised live** (prod has only `poa`, minimal data): provenance badges *with* data, export-safety grouping *with* findings + unverified-KB-at-override, KB adoption candidates — covered by green render/unit tests; hosting pages render healthy. **Evidence class:** Claude-driven light UAT; operator directed advance — formal Pattern-16 `live-verified` verdict not separately stated (recorded as light PASS evidence, not overstated).
+
+**Build state.** `main` = prod = **`4e6e7fa`**. Deploy batch DRAINED. Both flags OFF.
+
+**Next.** R2 #7 (Matter Record ledger — read-only projection of `audit_events`), then #8 (nav-only command palette), #9 (R3 polish). Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Open chips: `task_bc281353`, `task_b0f9ffb5`. Cowork: conflict-arc corrective STATE. (Note: a parallel operator Dispatch session is also building R2 — coordinate to avoid main collisions.)
+
+---
+
 ## 2026-06-06 (+R2 #6) — R2 #6 MERGED (`5bdeb44`, PR #194) — KB / source-authority adoption surface (candidate-vs-adopted + deliberate-commit)
 
 **What changed.** Built + merged **R2 #6** → `main` via [PR #194](https://github.com/kelly148/lex-law-next5/pull/194), squash **`5bdeb44`**, CI green (merged by Claude per the standing reversible-lane rule). A **display-only** delta on `KnowledgeBasePanel` re-presenting existing reads — **no backend, no schema/migration, no flag, no new egress; reversible.** Four deltas, all from build-order item #6 + the state-flow matrix §D:
