@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 — R1-CLEANUP-1 MERGED (`a9a3ab7`, PR #184) — off-palette/off-spec control colors → tokens (display-only)
+
+**What changed.** Standalone low-risk brand cleanup; merged to `main` via [PR #184](https://github.com/kelly148/lex-law-next5/pull/184), squash **`a9a3ab7`**, CI green. Display-only; no layout restructure; no migration; **flags untouched (`CONFLICT_GATE_ENABLED` stays OFF)**. Removes blue (nowhere in the Whereas palette) + heavy navy/black control fills, mapping each control to its button-grammar role. **NOT** a blanket primary→oxblood promotion (that stays the R2 per-control call).
+- **UploadFormatPage** (the Document-formatting panel): "Format Document" download primary → oxblood (`bg-accent`/`text-on-accent`); "Upload File / Paste Text" segmented active → subtle surface card (`bg-surface`/`text-ink`/`border-line`/`shadow-sm`), inactive muted.
+- **DocumentDetail**: both "Accept Substantive" buttons (the R1-deferred blue) → the `DeliberateActButton` ✦ oxblood commit affordance (`size="sm"`).
+- **InformationRequestPage**: `hover:bg-blue-900` → `hover:bg-firm-navy/90`.
+Tests: UploadFormatPage render test + source guard (4 control fixes). 
+
+**Out of scope (filed follow-up `task_*`):** non-control status-tint pills still using `bg-blue-100` (substantively_accepted / intake / minor / generating / KB tags) — a semantic status-color decision.
+
+**Build state.** `main` = **`a9a3ab7`**. Display-only — rides the next deploy (operator-gated); not yet on prod. *(NOTE: the R2-PRE-CONFLICT-1 deploy/incident-fix/cleanup arc — prod `3ce1324`, migrations 0019/0020 applied via PR #182, the 9-matter synthetic purge, and the corrective note that the prior `3bff333` "0019/0020 applied" line was an unverified inference — is being recorded separately by Cowork; not duplicated here.)*
+
+---
+
 ## 2026-06-05 (later, +Inc 5) — R2-PRE-CONFLICT-1 Inc 5 MERGED (`9626172`, PR #180) → **ENGAGEMENT BUILD COMPLETE** (all 6 BLOCK-until items satisfied). Remaining: operator-gated migration EXECUTION + the flag flip.
 
 **What changed.** Built + merged **Inc 5** on `whereas/r2-pre-conflict-1-inc5` → `main` via [PR #180](https://github.com/kelly148/lex-law-next5/pull/180), squash **`9626172`**, CI green (operator authorized "build now, merge ≠ deploy"). Closes **BLOCK-until #3** — the last. Pure code; **NO schema migration** (it's a runtime data backfill behind an operator-triggered procedure; inert until invoked).
