@@ -47,6 +47,12 @@ const MIGRATIONS = [
   '0016_fold_draft_1_ldd_key_term.sql',
   '0017_fold_draft_1_closure_package.sql',
   '0018_fold_send_1_export_safety.sql',
+  // R2 prereqs — additive (ADD COLUMN IF NOT EXISTS). These were authored expecting auto-apply but
+  // were never appended here, so the pre-deploy runner silently skipped them: matters.jurisdiction
+  // (0019) and matter_parties.confirmed/confirmedAt/confirmedByUserId + conflict_checks.checkedPartyIds
+  // (0020) were missing on prod, breaking every `SELECT * FROM matters`. Idempotent re-apply restores it.
+  '0019_r2_pre_juris_1_matter_jurisdiction.sql',
+  '0020_r2_pre_conflict_1_party_confirmation.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
