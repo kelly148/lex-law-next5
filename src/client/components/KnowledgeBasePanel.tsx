@@ -15,6 +15,7 @@ import { BookMarked, ChevronDown, ChevronUp, AlertTriangle, FilePlus, ShieldChec
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { KB_DERIVED_DISCLOSURE } from '../../shared/schemas/practiceKb.js';
+import ProvenanceBadge from './ProvenanceBadge.js';
 
 interface KnowledgeBasePanelProps {
   matterId: string;
@@ -130,7 +131,7 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
                     <span className="flex-1 font-medium text-gray-700">{m.title}</span>
                     <span className="px-1 rounded text-[10px] bg-gray-200 text-gray-600">{m.abstractionStatus}</span>
                     <span className="px-1 rounded text-[10px] bg-gray-200 text-gray-600">{m.reuseScope}</span>
-                    <span className="px-1 rounded text-[10px] bg-gray-200 text-gray-600">{m.verificationStatus}</span>
+                    <ProvenanceBadge verification={m.verificationStatus} />
                   </div>
                   {m.abstractionStatus === 'raw' ? (
                     <div className="space-y-1">
