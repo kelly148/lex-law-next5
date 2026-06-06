@@ -22,6 +22,7 @@ import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { trpc } from '../trpc.js';
+import CommandPalette from './CommandPalette.js';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -52,6 +53,8 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
 
   return (
     <div className="flex min-h-screen">
+      {/* R2 #8 — nav-only command palette (Ctrl/Cmd-K); available on every protected page. */}
+      <CommandPalette />
       {/* Sidebar — Whereas light rail */}
       <aside className="w-56 bg-surface-2 flex flex-col flex-shrink-0 border-r border-line">
         {/* Wordmark — serif (Fraunces); the comma is the oxblood recital mark. */}
