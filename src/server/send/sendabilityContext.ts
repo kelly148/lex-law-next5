@@ -111,6 +111,8 @@ export async function assembleSendabilityContext(documentId: string, userId: str
       documentMatterLinkOk,
       hasAdoptions,
       currentIsLastAdopted,
+      // R2 #4: the durable KB-1 flag (survives versioning) — read directly off the export-target doc.
+      drewOnUnverifiedKb: doc.drewOnUnverifiedKb ?? false,
       jurisdictionRequirements,
       openExecutionItemCount,
       packageComplete,

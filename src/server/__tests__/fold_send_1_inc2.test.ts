@@ -28,7 +28,7 @@ const V1_RULES: RuleLevelLookup[] = [
 const CLEAN: SendabilityContext = {
   documentId: 'd', versionId: 'v', matterId: 'm', documentType: 'Durable_poa', inScope: true,
   matterResolved: true, matterArchived: false, documentMatterLinkOk: true,
-  hasAdoptions: false, currentIsLastAdopted: true,
+  hasAdoptions: false, currentIsLastAdopted: true, drewOnUnverifiedKb: false,
   jurisdictionRequirements: [], openExecutionItemCount: 0, packageComplete: null, degraded: [],
 };
 

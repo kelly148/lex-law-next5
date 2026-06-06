@@ -117,7 +117,8 @@ export default function ExportSafetyPanel({ documentId }: ExportSafetyPanelProps
             <p className="inline-flex items-center gap-1 text-[11px] text-green-700"><CheckCircle2 className="w-3 h-3" /> No export-safety issues found.</p>
           )}
 
-          {/* Blocks */}
+          {/* Blocks — grouped under a "Blocking" header (severity grouping; R2 #4 grouped reasons) */}
+          {blocks.length > 0 && <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400" data-testid="export-group-blocking">Blocking</div>}
           {blocks.map((b, i) => (
             <div key={`b-${i}`} className="px-2 py-1.5 border border-red-200 bg-red-50 rounded text-[11px] text-gray-700">
               <div className="flex items-center justify-between gap-2">
@@ -148,7 +149,8 @@ export default function ExportSafetyPanel({ documentId }: ExportSafetyPanelProps
             </div>
           ))}
 
-          {/* Warnings */}
+          {/* Warnings — grouped under a "Review" header (severity grouping; R2 #4 grouped reasons) */}
+          {warnings.length > 0 && <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400" data-testid="export-group-review">Review</div>}
           {warnings.map((w, i) => (
             <div key={`w-${i}`} className="px-2 py-1.5 border border-amber-200 bg-amber-50 rounded text-[11px] text-gray-700">
               <span className="inline-flex items-center gap-1 font-medium text-amber-800"><AlertTriangle className="w-3 h-3" /> {w.category}</span>

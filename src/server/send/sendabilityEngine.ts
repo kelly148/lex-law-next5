@@ -36,6 +36,8 @@ export interface SendabilityContext {
   // stale_baseline inputs (baseline = last attorney-adopted version, from adopt_ledger)
   hasAdoptions: boolean;
   currentIsLastAdopted: boolean;
+  // unverified_kb input — the durable KB-1 flag: this draft drew on an unverified KB memo
+  drewOnUnverifiedKb: boolean;
   // execution inputs
   jurisdictionRequirements: JurisdictionRequirementCheck[];
   openExecutionItemCount: number;
@@ -167,6 +169,15 @@ export function evaluateSendability(ctx: SendabilityContext, rules: readonly Rul
   // package_completeness — advisory warning if a recorded closing package is incomplete.
   if (ctx.packageComplete === false) {
     place({ category: 'package_completeness', summary: 'The closing package has required items still missing.' });
+  }
+
+  // unverified_kb (R2 #4) — the draft drew on an UNVERIFIED KB memo (documents.drewOnUnverifiedKb,
+  // KB-1; durable, survives versioning). A diligence signal, attorney-final: WARN, never a hard block
+  // (fail-to-warn — distinct from the conflicts gate's fail-closed). Surfacing it here lands it in the
+  // findings list in front of the attorney at the override moment. Engine-only category (no DB rule/
+  // override row) — see the r2_4 no-migration guard test. (`place` defaults an unruled category to warn.)
+  if (ctx.drewOnUnverifiedKb) {
+    place({ category: 'unverified_kb', summary: 'This draft drew on an unverified knowledge-base memo — re-verify it against current law before sending.' });
   }
 
   // FAIL-TO-WARN: any check that could not run is a loud warning, never a block.
