@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #8) — R2 #8 inc 1 MERGED (`f862435`, PR #200) — nav-only command palette (Ctrl/Cmd-K)
+
+**What changed.** Built + merged **R2 #8 increment 1** → `main` via [PR #200](https://github.com/kelly148/lex-law-next5/pull/200), squash **`f862435`**, CI green (operator `accept:` — a scope fork + a deferred-increment limitation were surfaced, so NOT auto-merged per Rule 15). A navigation-only **command palette**. Display/nav layer only: **no new backend, no schema, no migration, no flag**; reversible. Rides the R2 parent UI-scope review (Rule 13) — not a FIRE.
+- **`CommandPalette.tsx` (new):** Ctrl/Cmd-K opens; Esc / click-out closes; ↑/↓/Enter navigate. Entries — **Navigate** (Matters/Templates/Upload & Format/Settings) · **Jump to matter** (type-to-filter over `matter.list`, fetched only when opened — zero footprint otherwise) · **This matter** (Open overview, Information requests; only when a matter route is active). Whereas tokens, no blue; a11y dialog + labeled search + focus-on-open; all hooks before any early return (#310-safe).
+- **`AppShell.tsx`:** +1 import, +1 `<CommandPalette/>` mount (available on every protected page). **No edits to MatterDetail/DocumentDetail/any panel** → no Dispatch-collision surface.
+- **NO material-act shortcuts** (lock/adopt/disposition/send/override) — deliberate-act thesis (brand plan item #8); the render test asserts they never appear.
+- **Test (ci-gotchas #10):** `commandPalette.render.test.tsx` — hidden-by-default → Ctrl/Cmd-K opens → nav + jump-to-matter + filter + contextual; no-material-act + no-blue guards; mocked useQuery calls a real hook.
+
+**One CI-red cycle, then green.** First run failed: (a) react-hooks lint — `setState` synchronously in the open-effect; (b) the existing `appShell.render.test.tsx` crashed because AppShell now calls `matter.list.useQuery` and that test's mock didn't stub it. Fixed: moved the reset into event handlers (open-effect is now side-effect-only); extended the AppShell mock with a `matter.list` stub (stub-add for a new signature — **no assertion changed**). My own test passed first run.
+
+**Build state.** `main` = **`f862435`**; prod = `2e2bdd7` (R2 #8 is display-only → NOT deployed; rides the next operator deploy alongside any other display work). Both gates OFF.
+
+**Deferred (limitation, operator-acked):** distinct deep-jumps to the conflicts/export/review panels = **R2 #8 increment 2** (they'd touch shared page surfaces; sequenced after the Dispatch builder's surface edits settle).
+
+**Next (R2):** **#9 (R3 polish — last R2 piece; scope to confirm: global empty/loading states + print stylesheet).** Then R2 complete. Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Parallel Dispatch session also building R2 — coordinate on main. Open chips: `task_bc281353`, `task_b0f9ffb5`, R1-CLEANUP-1, fail-loud migration-runner.
+
+---
+
 ## 2026-06-06 (DEPLOY) — R2 #7 DEPLOYED (`2e2bdd7`) — Matter Record ledger now on prod; merge↔deploy gap closed
 
 **What changed.** Operator deployed `main` (`2e2bdd7`) via Railway "Deploy Latest Commit". **prod = `2e2bdd7`** (`/api/version` confirmed `2e2bdd7…`, builtAt 2026-06-06T18:42:38Z — SHA check clean). **MODE B** (manual verify; no auto-rollback). Deploy range `4e6e7fa`→`2e2bdd7` = R2 #7 ledger (`f532620`) + two `docs(state)` commits. **No migrations in the range** (`git diff --name-only` shows zero `migrations/`/`schema.ts`/`.sql` — still through 0020; the wired `preDeployCommand apply-prod-migrations.mjs` ran as a no-op against the existing allowlist) — clean code-only deploy. The unshipped piece is now drained: **prod = main**.
