@@ -160,6 +160,7 @@ export default function OrchestrationConsolidationPanel({
                                 onClick={() => confirmGroup(g.members)}
                                 disabled={allSelected || updateSelection.isPending}
                                 size="sm"
+                                tone="ghost"
                               >
                                 {allSelected ? 'Selected for regeneration' : 'Confirm group'}
                               </DeliberateActButton>
@@ -231,6 +232,7 @@ export default function OrchestrationConsolidationPanel({
                       disabled={registerDivergent.isPending}
                       size="sm"
                       className="mt-1.5"
+                      tone="ghost"
                     >
                       {registerDivergent.isPending ? 'Recording…' : 'Record disagreements as open items'}
                     </DeliberateActButton>

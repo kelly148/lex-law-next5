@@ -263,7 +263,7 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
       <button
         onClick={handleCreate}
         disabled={createMutation.isPending || selectedReviewers.length === 0}
-        className="w-full px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+        className="w-full px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
       >
         {createMutation.isPending ? 'Creating Review Session…' : 'Start Review'}
       </button>
@@ -1255,7 +1255,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         <div className="mt-5 flex gap-2">
           <button
             onClick={() => void refetch()}
-            className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+            className="px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface"
           >
             Try again
           </button>
@@ -1281,7 +1281,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         </p>
         <button
           onClick={onClose}
-          className="mt-5 px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+          className="mt-5 px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface"
         >
           Close
         </button>
@@ -1455,7 +1455,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
               <button
                 onClick={() => updateInstructionsMutation.mutate({ sessionId, globalInstructions })}
                 disabled={updateInstructionsMutation.isPending}
-                className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
               >
                 Save
               </button>
@@ -1577,7 +1577,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
                 regenerateMutation.mutate({ sessionId });
               }}
               disabled={regenerateMutation.isPending || totalSelected === 0}
-              className="flex-1 px-3 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="flex-1 px-3 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               {regenerateMutation.isPending ? 'Regenerating…' : `Regenerate (${totalSelected} selected)`}
             </button>

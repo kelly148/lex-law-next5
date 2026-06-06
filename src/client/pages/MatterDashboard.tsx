@@ -129,7 +129,7 @@ function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating…' : 'Create Matter'}
             </button>
@@ -239,7 +239,7 @@ function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
           onClick={handleDelete}
           disabled={deleteMutation.isPending}
           title="Delete"
-          className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+          className="p-1.5 text-gray-400 hover:text-danger rounded disabled:opacity-50"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -286,7 +286,7 @@ export default function MatterDashboard(): React.ReactElement {
           </label>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-firm-navy text-white text-sm rounded hover:bg-firm-navy/90 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-accent text-on-accent text-sm rounded hover:bg-accent-hover transition-colors"
           >
             <Plus className="w-4 h-4" />
             New Matter

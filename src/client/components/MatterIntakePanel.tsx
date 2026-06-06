@@ -102,7 +102,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
               <button
                 disabled={!partyName.trim() || addParty.isPending}
                 onClick={() => addParty.mutate({ matterId, role: partyRole, displayName: partyName.trim() })}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40"
+                className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"
               >
                 <UserPlus className="w-3 h-3" /> Add
               </button>
@@ -139,7 +139,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
                           onClick={() => confirmParty.mutate({ partyId: p.id, attestation: true })}
                           disabled={confirmParty.isPending}
                           title="Confirm this party's identity — the explicit attorney judgment required before conflicts clearance"
-                          className="flex items-center gap-1 px-2 py-0.5 text-[11px] border border-firm-navy text-firm-navy rounded disabled:opacity-40"
+                          className="flex items-center gap-1 px-2 py-0.5 text-[11px] border border-line text-ink rounded hover:bg-surface disabled:opacity-40"
                         >
                           <BadgeCheck className="w-3 h-3" /> Confirm
                         </button>
@@ -166,7 +166,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
           <section>
             <div className="flex items-center gap-2 mb-2">
               <div className="text-xs font-medium text-gray-700 flex-1">Conflicts check</div>
-              <button onClick={() => runCheck.mutate({ matterId })} disabled={runCheck.isPending} className="px-2 py-1 text-xs border border-firm-navy text-firm-navy rounded disabled:opacity-40">
+              <button onClick={() => runCheck.mutate({ matterId })} disabled={runCheck.isPending} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">
                 Run conflicts check
               </button>
             </div>
@@ -232,7 +232,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
             <div className="text-xs font-medium text-gray-700 mb-2">Assessment &amp; plan</div>
             {a == null ? (
               <div className="space-y-1">
-                <button onClick={() => generateAnalysis.mutate({ matterId })} disabled={generateAnalysis.isPending} className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40">
+                <button onClick={() => generateAnalysis.mutate({ matterId })} disabled={generateAnalysis.isPending} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">
                   {generateAnalysis.isPending ? 'Generating analysis…' : 'Generate analysis (Claude, single-lane)'}
                 </button>
                 <p className="text-[11px] text-gray-400">Internal attorney work-product — not a client-facing or sendable document.</p>
@@ -280,7 +280,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
                     onClick={() => lockPlan.mutate({ analysisId: a.id, rationale: null })}
                     disabled={lockPlan.isPending || pendingHits.length > 0}
                     title={pendingHits.length > 0 ? 'Disposition all conflict hits before locking the plan' : ''}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-40"
+                    className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"
                   >
                     <Lock className="w-3 h-3" /> Lock plan (plan-only closure)
                   </button>

@@ -241,7 +241,7 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
         <button
           onClick={handleSave}
           disabled={updateMutation.isPending}
-          className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+          className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
         >
           {updateMutation.isPending ? 'Saving…' : 'Save Voice Settings'}
         </button>

@@ -36,8 +36,14 @@ describe('R1-CLEANUP-1: control colors mapped to tokens', () => {
     expect(deliberateUses).toBeGreaterThanOrEqual(2); // both Accept Substantive sites
   });
 
-  it('InformationRequestPage: the off-palette blue hover is gone (navy hover instead)', () => {
+  it('InformationRequestPage: off-palette blue stays gone; the CTA is now the R2 oxblood primary', () => {
+    // R1 re-pointed this control's hover from off-palette blue to the ink-fill hover (bg-firm-navy/90).
+    // The R2 primary-CTA-oxblood sweep then SUPERSEDED that: "Add to Client Materials" and "Generate
+    // Information Request" are now the per-state oxblood primaries (bg-accent / hover:bg-accent-hover),
+    // so the ink-fill hover no longer exists. R1's actual guarantee — no off-palette blue on controls —
+    // is preserved and strengthened here.
     expect(infoReq).not.toContain('hover:bg-blue-900');
-    expect(infoReq).toContain('hover:bg-firm-navy/90');
+    expect(infoReq).not.toMatch(/hover:bg-blue/);
+    expect(infoReq).toContain('bg-accent text-on-accent');
   });
 });

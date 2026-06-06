@@ -117,7 +117,7 @@ function ItemRow({ item, matrixId, isArchived, onRefresh }: ItemRowProps): React
                 <button
                   onClick={() => editMutation.mutate({ itemId: item.id, questionText: questionInput.trim() })}
                   disabled={editMutation.isPending}
-                  className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                  className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
                 >
                   Save
                 </button>
@@ -139,7 +139,7 @@ function ItemRow({ item, matrixId, isArchived, onRefresh }: ItemRowProps): React
             <button
               onClick={() => deleteMutation.mutate({ itemId: item.id })}
               disabled={deleteMutation.isPending}
-              className="p-1 text-gray-400 hover:text-red-600 disabled:opacity-50"
+              className="p-1 text-gray-400 hover:text-danger disabled:opacity-50"
               title="Delete question"
             >
               <Trash2 className="w-3 h-3" />
@@ -169,7 +169,7 @@ function ItemRow({ item, matrixId, isArchived, onRefresh }: ItemRowProps): React
               <button
                 onClick={() => attachAnswerMutation.mutate({ itemId: item.id, answerText: answerInput })}
                 disabled={attachAnswerMutation.isPending}
-                className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
               >
                 Save Answer
               </button>
@@ -301,7 +301,7 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
             <button
               onClick={() => markCompleteMutation.mutate({ matrixId })}
               disabled={markCompleteMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-success text-white rounded hover:bg-success/90 disabled:opacity-50"
             >
               <CheckCircle className="w-3.5 h-3.5" />
               Mark Complete
@@ -312,7 +312,7 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
             <button
               onClick={() => createMaterialMutation.mutate({ matrixId })}
               disabled={createMaterialMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
             >
               <FileText className="w-3.5 h-3.5" />
               Add to Client Materials
@@ -367,7 +367,7 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
                 });
               }}
               disabled={addMutation.isPending || !newCategory.trim() || !newQuestion.trim()}
-              className="px-3 py-1.5 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+              className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               Add
             </button>
@@ -568,7 +568,7 @@ export default function InformationRequestPage(): React.ReactElement {
           <button
             onClick={() => generateMutation.mutate({ matterId })}
             disabled={generateMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-firm-navy text-white text-sm rounded hover:bg-firm-navy/90 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-accent text-on-accent text-sm rounded hover:bg-accent-hover disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             {generateMutation.isPending ? 'Generating…' : 'Generate Information Request'}

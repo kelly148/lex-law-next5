@@ -116,7 +116,7 @@ function PasteForm({ matterId, onDone }: PasteFormProps): React.ReactElement {
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
         >
           {createMutation.isPending ? 'Adding…' : 'Add Material'}
         </button>
@@ -212,7 +212,7 @@ function UploadForm({ matterId, onDone }: UploadFormProps): React.ReactElement {
         <button
           type="submit"
           disabled={uploading}
-          className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
         >
           {uploading ? 'Uploading…' : 'Upload'}
         </button>
@@ -360,7 +360,7 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
               onClick={() => softDeleteMutation.mutate({ materialId: material.id })}
               disabled={softDeleteMutation.isPending}
               title="Delete"
-              className="p-1 text-gray-400 hover:text-red-600 disabled:opacity-50"
+              className="p-1 text-gray-400 hover:text-danger disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -401,7 +401,7 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
                 <button
                   onClick={saveDesc}
                   disabled={updateDescMutation.isPending}
-                  className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                  className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
                 >
                   Save
                 </button>
@@ -444,7 +444,7 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
                 <button
                   onClick={saveTags}
                   disabled={updateTagsMutation.isPending}
-                  className="px-2 py-1 text-xs bg-firm-navy text-white rounded disabled:opacity-50"
+                  className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
                 >
                   Save
                 </button>
@@ -497,20 +497,20 @@ export default function MaterialsDrawer({ matterId, matterTitle, clientName, onC
       {/* Drawer panel */}
       <div className="w-96 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200 bg-firm-navy">
+        <div className="px-4 py-3 border-b border-line bg-surface-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-white font-semibold text-sm">Materials</h2>
-            <button onClick={onClose} className="text-white/70 hover:text-white">
+            <h2 className="text-ink font-semibold text-sm">Materials</h2>
+            <button onClick={onClose} className="text-ink-secondary hover:text-ink">
               <X className="w-4 h-4" />
             </button>
           </div>
           {(matterTitle || clientName) && (
-            <div className="mt-1 border-t border-white/20 pt-1.5">
+            <div className="mt-1 border-t border-line pt-1.5">
               {matterTitle && (
-                <p className="text-white/90 text-xs font-medium truncate">{matterTitle}</p>
+                <p className="text-ink text-xs font-medium truncate">{matterTitle}</p>
               )}
               {clientName && (
-                <p className="text-white/60 text-xs truncate">{clientName}</p>
+                <p className="text-ink-secondary text-xs truncate">{clientName}</p>
               )}
             </div>
           )}
@@ -521,14 +521,14 @@ export default function MaterialsDrawer({ matterId, matterTitle, clientName, onC
           <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50">
             <button
               onClick={() => setMode('paste')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface"
             >
               <FileText className="w-3.5 h-3.5" />
               Paste Text
             </button>
             <button
               onClick={() => setMode('upload')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-100"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface"
             >
               <Upload className="w-3.5 h-3.5" />
               Upload File

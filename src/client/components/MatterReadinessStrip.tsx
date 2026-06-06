@@ -108,7 +108,7 @@ export default function MatterReadinessStrip({ matterId }: MatterReadinessStripP
               onClick={() => setJurisdiction.mutate({ matterId, jurisdiction: j })}
               className={clsx(
                 'px-1.5 py-0.5 rounded border text-[11px]',
-                jurisdiction === j ? 'bg-accent text-on-accent border-accent' : 'border-line text-ink hover:bg-surface',
+                jurisdiction === j ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface',
               )}
             >
               {j}

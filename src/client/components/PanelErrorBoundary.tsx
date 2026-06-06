@@ -61,7 +61,7 @@ export default class PanelErrorBoundary extends React.Component<
             {this.props.onClose && (
               <button
                 onClick={this.props.onClose}
-                className="mt-5 px-4 py-2 text-sm bg-firm-navy text-white rounded hover:bg-firm-navy/90"
+                className="mt-5 px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface"
               >
                 Close
               </button>
