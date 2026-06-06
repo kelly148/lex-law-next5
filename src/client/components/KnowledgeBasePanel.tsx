@@ -9,13 +9,24 @@
  * Memos are surfaced, never auto-injected (surface-not-inject). The KB_DERIVED_DISCLOSURE is
  * shown at the surface. All mutations route through useGuardedMutation (Ch 35.13); no business
  * logic in React (Ch 35.3) — the server enforces the gate, abstraction requirement, and audit.
+ *
+ * Whereas R2 #6 (KB / source-authority adoption surface) — DISPLAY-ONLY delta, no backend:
+ *  (1) candidate-vs-adopted — surfaced candidates already adopted into this matter read as
+ *      "Adopted" (snapshotted currency posture) instead of offering re-adoption (reads the
+ *      existing practiceKb.listAdoptions provenance);
+ *  (2) deliberate-commit + audit — the material KB acts (adopt / abstract / promote / mark-verified)
+ *      use the standardized DeliberateActButton (the server kb_events audit is unchanged);
+ *  (3) provenance/currency legibility — surfaced candidates carry the R2 #5 ProvenanceBadge;
+ *  (4) show-ready states (definition of done) — loading skeleton + a designed inline error notice
+ *      (never blank), and no blue on this surface (semantic --wa- tints only).
  */
 import React, { useState } from 'react';
-import { BookMarked, ChevronDown, ChevronUp, AlertTriangle, FilePlus, ShieldCheck, Lock, RefreshCw } from 'lucide-react';
+import { BookMarked, ChevronDown, ChevronUp, AlertTriangle, FilePlus, ShieldCheck, Lock, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { KB_DERIVED_DISCLOSURE } from '../../shared/schemas/practiceKb.js';
 import ProvenanceBadge from './ProvenanceBadge.js';
+import DeliberateActButton from './DeliberateActButton.js';
 
 interface KnowledgeBasePanelProps {
   matterId: string;
@@ -32,11 +43,13 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
   const matter = trpc.matter.get.useQuery({ matterId }, { enabled: open });
   const candidates = trpc.practiceKb.surfaceCandidates.useQuery({ matterId }, { enabled: open });
   const memos = trpc.practiceKb.listMemosForMatter.useQuery({ matterId }, { enabled: open });
+  const adoptions = trpc.practiceKb.listAdoptions.useQuery({ matterId }, { enabled: open });
   const analysis = trpc.matterIntake.getAnalysis.useQuery({ matterId }, { enabled: open });
 
   const invalidate = () => {
     void utils.practiceKb.surfaceCandidates.invalidate({ matterId });
     void utils.practiceKb.listMemosForMatter.invalidate({ matterId });
+    void utils.practiceKb.listAdoptions.invalidate({ matterId });
     void utils.matter.get.invalidate({ matterId });
   };
 
@@ -70,12 +83,19 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
   const currentPaKey = matter.data?.paKey ?? null;
   const a = analysis.data;
 
+  // R2 #6 — candidate-vs-adopted: a memo already adopted into THIS matter (durable
+  // kb_adoptions provenance) reads as "Adopted" with its snapshotted currency posture,
+  // rather than re-offering the adopt act.
+  const adoptionByMemoId = new Map((adoptions.data ?? []).map((r) => [r.kbMemoId, r] as const));
+  const candidatesLoading = candidates.isLoading || adoptions.isLoading;
+  const candidatesError = candidates.isError || adoptions.isError;
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
       <button onClick={() => setOpen(!open)} className="flex items-center gap-2 w-full px-4 py-3 bg-gray-50 border-b border-gray-200 hover:bg-gray-100">
         <BookMarked className="w-4 h-4 text-firm-navy" />
         <h3 className="text-sm font-semibold text-firm-navy flex-1 text-left">Practice Knowledge Base</h3>
-        {surfaced.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{surfaced.length} potentially relevant</span>}
+        {surfaced.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-surface text-ink-secondary border border-line">{surfaced.length} potentially relevant</span>}
         {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
 
@@ -101,23 +121,49 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
             </div>
           </section>
 
-          {/* Surfaced candidates (Fork F) + adopt (Fork A) */}
+          {/* Surfaced candidates (Fork F) + adopt (Fork A). R2 #6: candidate-vs-adopted, provenance, deliberate-commit. */}
           <section>
             <div className="text-xs font-medium text-gray-700 mb-2">Potentially relevant memos</div>
-            {surfaced.length === 0 && <p className="text-xs text-gray-400">No relevant memos surfaced for this matter.</p>}
-            <div className="space-y-2">
-              {surfaced.map((c) => (
-                <div key={c.memoId} className="text-xs rounded p-2 border border-gray-200 bg-gray-50">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="flex-1 font-medium text-gray-700">{c.title}</span>
-                    {c.crossMatter && <span className="px-1 rounded text-[10px] bg-blue-100 text-blue-700">cross-matter</span>}
-                    <span className="px-1 rounded text-[10px] bg-gray-200 text-gray-600">{c.privilegeTag}</span>
-                  </div>
-                  <p className="text-[11px] text-amber-800 mb-1">{c.currencyWarning}</p>
-                  <button disabled={adoptMemo.isPending} onClick={() => adoptMemo.mutate({ memoId: c.memoId, targetMatterId: matterId })} className="px-2 py-1 text-[11px] border border-firm-navy text-firm-navy rounded disabled:opacity-40">Adopt into this matter</button>
-                </div>
-              ))}
-            </div>
+            {candidatesError ? (
+              <div data-testid="kb-candidates-error" className="flex items-start gap-2 text-[11px] text-ink-secondary bg-surface border border-line rounded p-2">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-warning" />
+                <span>Couldn&apos;t load the knowledge base just now. Your matter and filed memos are intact — reopen this panel to retry.</span>
+              </div>
+            ) : candidatesLoading ? (
+              <div data-testid="kb-candidates-loading" className="space-y-2" aria-hidden>
+                <div className="h-9 rounded bg-surface border border-line animate-pulse" />
+                <div className="h-9 rounded bg-surface border border-line animate-pulse" />
+              </div>
+            ) : surfaced.length === 0 ? (
+              <p className="text-xs text-gray-400">No relevant memos surfaced for this matter.</p>
+            ) : (
+              <div className="space-y-2">
+                {surfaced.map((c) => {
+                  const adoption = adoptionByMemoId.get(c.memoId);
+                  return (
+                    <div key={c.memoId} className="text-xs rounded p-2 border border-gray-200 bg-gray-50">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="flex-1 font-medium text-gray-700">{c.title}</span>
+                        {c.crossMatter && <span className="px-1 rounded text-[10px] bg-surface text-ink-secondary border border-line">cross-matter</span>}
+                        <span className="px-1 rounded text-[10px] bg-gray-200 text-gray-600">{c.privilegeTag}</span>
+                        <ProvenanceBadge verification={c.verificationStatus} />
+                      </div>
+                      <p className="text-[11px] text-amber-800 mb-1">{c.currencyWarning}</p>
+                      {adoption ? (
+                        <div data-testid="kb-candidate-adopted" className="flex items-center gap-1.5 text-[11px] text-success">
+                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                          <span>Adopted into this matter (recorded as <span className="font-medium">{adoption.verificationStatusAtAdoption.replace(/_/g, ' ')}</span>).</span>
+                        </div>
+                      ) : (
+                        <DeliberateActButton size="sm" disabled={adoptMemo.isPending} onClick={() => adoptMemo.mutate({ memoId: c.memoId, targetMatterId: matterId })} title="Authorize use of this memo in this matter (recorded)">
+                          Adopt into this matter
+                        </DeliberateActButton>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {adoptMemo.error && <p className="text-[11px] text-red-600 mt-1">{adoptMemo.error.message}</p>}
           </section>
 
@@ -136,12 +182,14 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
                   {m.abstractionStatus === 'raw' ? (
                     <div className="space-y-1">
                       <textarea value={abstractBody[m.id] ?? ''} onChange={(e) => setAbstractBody((s) => ({ ...s, [m.id]: e.target.value }))} placeholder="Abstracted (de-identified) body — your certification that client specifics are removed" className="w-full text-[11px] border border-gray-300 rounded px-2 py-1" rows={2} />
-                      <button disabled={!(abstractBody[m.id] ?? '').trim() || abstractMemo.isPending} onClick={() => abstractMemo.mutate({ rawMemoId: m.id, abstractedBody: (abstractBody[m.id] ?? '').trim(), abstractedBy: 'attorney' })} className="px-2 py-1 text-[11px] border border-gray-300 rounded disabled:opacity-40">Abstract (attorney-attested)</button>
+                      {/* R2 #6: abstraction IS the attorney's de-identification certification — a deliberate, recorded act. */}
+                      <DeliberateActButton size="sm" disabled={!(abstractBody[m.id] ?? '').trim() || abstractMemo.isPending} onClick={() => abstractMemo.mutate({ rawMemoId: m.id, abstractedBody: (abstractBody[m.id] ?? '').trim(), abstractedBy: 'attorney' })}>Abstract (attorney-attested)</DeliberateActButton>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      {m.reuseScope !== 'firm_wide' && <button disabled={promoteMemo.isPending} onClick={() => promoteMemo.mutate({ memoId: m.id })} className="flex items-center gap-1 px-2 py-1 text-[11px] border border-gray-300 rounded disabled:opacity-40"><Lock className="w-3 h-3" /> Promote to firm-wide</button>}
-                      <button disabled={markReverified.isPending} onClick={() => markReverified.mutate({ memoId: m.id, verificationStatus: 'attorney_verified_current' })} className="flex items-center gap-1 px-2 py-1 text-[11px] border border-gray-300 rounded disabled:opacity-40"><RefreshCw className="w-3 h-3" /> Mark verified current</button>
+                      {/* R2 #6: promote + mark-verified change a memo's reuse/currency posture — deliberate-commit acts. */}
+                      {m.reuseScope !== 'firm_wide' && <DeliberateActButton size="sm" disabled={promoteMemo.isPending} onClick={() => promoteMemo.mutate({ memoId: m.id })}><Lock className="w-3 h-3" aria-hidden /> Promote to firm-wide</DeliberateActButton>}
+                      <DeliberateActButton size="sm" disabled={markReverified.isPending} onClick={() => markReverified.mutate({ memoId: m.id, verificationStatus: 'attorney_verified_current' })}><RefreshCw className="w-3 h-3" aria-hidden /> Mark verified current</DeliberateActButton>
                     </div>
                   )}
                 </div>
