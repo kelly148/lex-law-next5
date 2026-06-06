@@ -51,6 +51,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
+import ProvenanceBadge from '../components/ProvenanceBadge.js';
 
 // ============================================================
 // Finalize diagnostic banner — MR-FINALIZE-EXPORT-2
@@ -733,6 +734,14 @@ export default function DocumentDetail(): React.ReactElement {
             </span>
             {isArchived && (
               <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Archived</span>
+            )}
+            {/* R2 #5 inc2 — draft-body provenance: flag when this draft drew on an UNVERIFIED KB memo
+                (documents.drewOnUnverifiedKb, KB-1). One meaningful badge, not confetti. */}
+            {doc.drewOnUnverifiedKb && (
+              <>
+                <span className="text-xs text-gray-300">·</span>
+                <ProvenanceBadge verification="unverified" />
+              </>
             )}
           </div>
         </div>
