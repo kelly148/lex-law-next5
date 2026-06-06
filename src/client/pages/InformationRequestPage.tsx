@@ -312,7 +312,7 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
             <button
               onClick={() => createMaterialMutation.mutate({ matrixId })}
               disabled={createMaterialMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-blue-900 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-firm-navy text-white rounded hover:bg-firm-navy/90 disabled:opacity-50"
             >
               <FileText className="w-3.5 h-3.5" />
               Add to Client Materials

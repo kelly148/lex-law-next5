@@ -50,6 +50,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
+import DeliberateActButton from '../components/DeliberateActButton.js';
 
 // ============================================================
 // Finalize diagnostic banner — MR-FINALIZE-EXPORT-2
@@ -864,13 +865,13 @@ export default function DocumentDetail(): React.ReactElement {
                 >
                   Request Review
                 </button>
-                <button
+                <DeliberateActButton
                   onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
                   disabled={acceptSubstantiveMutation.isPending}
-                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  size="sm"
                 >
                   Accept Substantive
-                </button>
+                </DeliberateActButton>
               </>
             )}
             {doc.workflowState === 'substantively_accepted' && (
@@ -944,13 +945,13 @@ export default function DocumentDetail(): React.ReactElement {
                     >
                       {renderMutation.isPending ? 'Rendering…' : 'Render Document'}
                     </button>
-                    <button
+                    <DeliberateActButton
                       onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
                       disabled={acceptSubstantiveMutation.isPending}
-                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                      size="sm"
                     >
                       Accept Substantive
-                    </button>
+                    </DeliberateActButton>
                   </>
                 )}
               </>
