@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #5 inc2) — R2 #5 increment 2 MERGED (`0bae0e0`, PR #192) — draft-body provenance badge → **R2 #5 COMPLETE**
+
+**What changed.** Built + merged **R2 #5 increment 2** → `main` via [PR #192](https://github.com/kelly148/lex-law-next5/pull/192), squash **`0bae0e0`**, CI green (merged by Claude per the standing rule). Applies the `ProvenanceBadge` (inc1) to the **draft body**: DocumentDetail's document header shows a single `verification="unverified"` badge when the draft drew on an unverified KB memo (`documents.drewOnUnverifiedKb`, KB-1). One meaningful, gated badge — not confetti. Display-only; flags untouched; no migration; reversible. Source-guard test (the badge itself is render-tested in inc1).
+
+**Review-pane provenance — intentionally NOT a per-reviewer badge** (every reviewer is an AI model → confetti, which the disposition warns against). Already served by the R2 #2 "review basis: version X as of [time]" line + the R2 #4 export-safety panel. → **R2 #5 is COMPLETE** for the in-scope surfaces (KB + authorities, inc1; draft body, inc2).
+
+**Build state.** `main` = **`0bae0e0`**; prod still `3ce1324`. Display-only → rides next deploy. **Unshipped display batch is now sizable: R1-CLEANUP-1 + R2 #3 + R2 #4 + R2 #5 (inc1+inc2)** — all display-only, no migration. Recommend a batch deploy + live-verify soon to keep the gap small.
+
+**Next (R2):** R2 #6 (KB/source-authority adoption surface) → #7 (Matter Record ledger) → #8 (nav-only command palette) → #9 (R3 polish). Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Open chips: `task_bc281353`, `task_b0f9ffb5`. Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 (+R2 #5 inc1) — R2 #5 increment 1 MERGED (`dfb61af`, PR #190) — provenance/currency badge grammar + low-risk surfaces
 
 **What changed.** Built + merged **R2 #5 increment 1** → `main` via [PR #190](https://github.com/kelly148/lex-law-next5/pull/190), squash **`dfb61af`**, CI green (merged by Claude per the standing rule). One reusable **`ProvenanceBadge`** with a fixed four-facet grammar (origin · verification · currency · severity), tone-coded chips, **click/focus inline-expand** disclosure (never hover-only — a11y rule; real `<button>` for keyboard). Semantic `--wa-` tints only (no blue). Display-only; flags untouched; no migration; reversible.
