@@ -43,10 +43,13 @@ export default function CommandPalette(): React.ReactElement {
   const matters = trpc.matter.list.useQuery(undefined, { enabled: open });
 
   // Global Ctrl/Cmd-K toggles the palette (a navigation shortcut, not a material-act shortcut).
+  // Resetting state here (an event handler) keeps the open-effect side-effect-only.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
+        setQuery('');
+        setActive(0);
         setOpen((o) => !o);
       }
     };
@@ -54,16 +57,18 @@ export default function CommandPalette(): React.ReactElement {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Reset and focus on open.
+  // Focus the search field when the palette opens (side-effect only — no state writes in the effect).
   useEffect(() => {
     if (!open) return undefined;
-    setQuery('');
-    setActive(0);
     const t = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [open]);
 
-  const close = (): void => setOpen(false);
+  const close = (): void => {
+    setOpen(false);
+    setQuery('');
+    setActive(0);
+  };
   const go = (to: string): void => {
     close();
     navigate(to);
