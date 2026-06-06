@@ -28,6 +28,7 @@ import { getMatterById } from '../db/queries/matters.js';
 import { insertSourceAuthority } from '../db/queries/sourceAuthority.js';
 import { getOpenItemById, resolveOpenItem, withdrawOpenItem } from '../db/queries/openItems.js';
 import { insertAuditEvent } from '../db/queries/auditEvents.js';
+import { evaluateConflictClearance } from '../db/queries/conflicts.js';
 
 const SUBJECT_TYPE = z.enum(['material', 'document', 'version']);
 const AUTHORITY_ORIGIN = z.enum([
@@ -87,10 +88,20 @@ export const matterStateRouter = router({
       if (full.mode !== 'full' || modelContext.mode !== 'model_context') {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Unexpected matter-state mode' });
       }
+      // R2 #3 readiness strip — re-present the already-computed conflict-clearance state (read-only,
+      // owner-scoped) so the matter-state header makes ONE coherent read. This is the SAME predicate
+      // the gate consumes; surfacing it here is display-only and INDEPENDENT of CONFLICT_GATE_ENABLED
+      // (the header frames it as advisory status until the flag activates).
+      const conflictClearance = await evaluateConflictClearance(input.matterId, ctx.userId);
+      // jurisdiction is not in the matter-state engine's curated `matter` projection; surface it here
+      // (owner-scoped read) so the readiness strip's leading chip rides the same dashboard read.
+      const matterRow = await getMatterById(input.matterId, ctx.userId);
       return {
         full,
         modelContext,
         modelContextPacket: formatMatterStateBlock(modelContext),
+        conflictClearance,
+        jurisdiction: matterRow?.jurisdiction ?? null,
       };
     }),
 

@@ -25,6 +25,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
+import MatterReadinessStrip from '../components/MatterReadinessStrip.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
@@ -377,6 +378,9 @@ export default function MatterDetail(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* R2 #3 — matter-state header / readiness strip (the first thing you see) */}
+      <MatterReadinessStrip matterId={matterId} />
 
       {/* Documents section */}
       <div className="flex items-center justify-between mb-3">
