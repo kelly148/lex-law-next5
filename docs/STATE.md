@@ -4,6 +4,38 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (CONFLICT LADDER UAT — SYNTHETIC) — new-predicate enforcement ladder live-verified; FOLD-L0-1 second-REAL-matter REMAINS OPEN
+
+**Disposition.** New-predicate enforcement ladder **live-verified on a SYNTHETIC matter** (protocol §4 option (c), mechanics-only — `_verification\SECOND_MATTER_LIVE_VERIFY_PROTOCOL_2026-06-06.md`): `undispositioned_blocker → BLOCKED → rationale-required disposition → unconfirmed_client_party → confirm → CLEARED → allow`. **First live firing of `undispositioned_blocker` AND `unconfirmed_client_party` under `CONFLICT_GATE_ENABLED`.** **FOLD-L0-1 second-REAL-matter intake condition REMAINS OPEN — app stays self-use** (this was synthetic, not a second real matter). **Evidence class:** Claude-driven UAT via authed prod session (acts `actor:'attorney'`/`kelly`); operator-gated at every mutating step; HTTP codes/bodies captured. prod = `facf5db` + `CONFLICT_GATE_ENABLED=true`; `SENDABILITY_GATE_ENABLED` OFF.
+
+**§2 TO-CONFIRM resolved from code (verified facts):**
+- **Matching = NORMALIZED**, not exact-string (`engine.ts:39-46` `normalizeName`: NFKD/lowercase/strip-punct/collapse-ws; match iff normalized names equal; `matchType party_exact` vs `party_normalized`). Near-misses ("Jon Smith") do NOT match → §7 hardening candidate.
+- **Disposition enum** = `cleared`/`screened`/`declined`; severities `blocker`\|`review`; blocker requires rationale (`engine.ts:120`).
+- **Role-crossing = BOTH directions blocker** (`engine.ts:74-76`): client↔adverse either way → `adverse-here/client-there` is a blocker (verified live).
+- **Cross-matter staleness = own-party-set only** (`conflicts.ts:248`): a new conflicting matter does NOT disturb an existing matter's CLEARED state (verified live, step 10 — poa stayed CLEARED) → §7 latency gap.
+- **No clean delete path:** `matter.delete`/`deleteMatter` (`matters.ts:184`) deletes only the `matters` row; no FK/cascade (`schema.ts:1887+`); `listOtherPartiesForOwner` (`matterParties.ts:150`) does NOT join `matters`, so **orphan parties keep matching** in future checks — which is the CORRECT ethics posture (former-client conflicts must survive matter deletion), not a cascade bug.
+
+**Ladder evidence (synthetic matter `ZZ UAT Conflict Verify 0606 (delete me)`):**
+- S1 create w/ clientName → auto client party `confirmed=false` `source=auto_from_clientName` ✓; clearance `no_conflict_check`.
+- S2 `document.create` → **412** `no_conflict_check`, no doc (gate ON confirmed).
+- S3 add `John Smith` adverse (`confirmed=true`, attorney).
+- S4 `runConflictCheck` → **1 hit**, `severity=blocker`, `matchType=party_exact`, matchBasis "adverse-here/client-there crossing" vs poa's client `John Smith`; clearance **BLOCKED/undispositioned_blocker** (FIRST live).
+- S5 `document.create` → **412** `undispositioned_blocker` (FIRST live at draft gate).
+- S6a disposition w/o rationale → **400** `RATIONALE_REQUIRED`, no state change.
+- S6b disposition `cleared` + rationale → recorded; immutable audit event `1ca655fe-…`.
+- S7 clearance → **`unconfirmed_client_party`** (FIRST live), check `dispositioned`.
+- S8 `confirmParty` (auto-client) → **CLEARED**.
+- S9 `document.create` → **200**, doc created (allow under clean clearance).
+- S10 poa unchanged → **CLEARED** (own-party-only staleness, verified).
+- S11 Matter Record ledger → attorney-decision chain (disposition+rationale, confirm), newest-first. **Precision:** the ledger projects `audit_events` (attorney ACTS); the check/hit live in `conflict_checks`/`conflict_hits`, not the ledger.
+- S13 provenance/KB skipped (synthetic doc drew on no KB).
+
+**CLEANUP LEDGER (LLN-PROD-CLEANUP — operator-gated DB surgery; ONE atomic delete keyed by matterId; `audit_events` KEPT for append-only ledger integrity, run labeled UAT):** synthetic matter `2a468f01-4ddc-4b88-b787-7b10bc253fd4` and its rows — parties `ee827404-…` (auto-client), `536bf4c4-…` (John Smith adverse); conflict_hit `60f67376-…`; the conflict_check(s) for the matter; document `478ddb50-…` (no version). KEEP `audit_events` rows (`1ca655fe-…` disposition + the confirm). No poa re-check needed (own-party-only). Atomic delete SQL + zero-rows verification handed to operator in-thread.
+
+**§7 board items registered:** (a) matter archive/close that RETAINS parties for conflicts; (b) operator-gated test-data purge helper; (c) hit-display handling for deleted-matter parties. (Reframed away from "cascade delete" — orphan-match is correct ethics posture.) Plus the existing `removeParty`/`correctParty` chip (`task_5293d757`), and a matching-hardening candidate (normalized-only misses near-name variants).
+
+---
+
 ## 2026-06-06 (R2-PRE-CONFLICT-1 CLOSE-OUT) — CONFLICT_GATE_ENABLED flipped ON (permanent) + FULL Pattern-16 UAT PASS
 
 **Disposition.** R2-PRE-CONFLICT-1 is **CLOSED OUT**. The operator flipped **`CONFLICT_GATE_ENABLED=true` on Railway (prod, PERMANENT — this is the close-out)**; the affirmative conflict-clearance gate is now LIVE/enforced on prod (`5ab91c2`; flag is env-only, no code/commit change; `/api/version` `builtAt` did NOT move — an env change restarts, not rebuilds). `SENDABILITY_GATE_ENABLED` stays OFF (shadow). **Evidence class:** Claude-driven FULL UAT via the authed prod session (acts recorded `actor: 'attorney'`/`kelly`); operator present and giving explicit go at every gated step. This is the gate to client-facing readiness (app remains self-use until FOLD-L0-1 conflicts-at-intake is separately live-verified).
