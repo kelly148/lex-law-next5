@@ -29,6 +29,7 @@ import {
 } from '../db/queries/matters.js';
 import { listDocumentsForMatter } from '../db/queries/documents.js';
 import { ensureAutoClientParty } from '../db/queries/matterParties.js';
+import { purgeMatter } from '../db/queries/matterPurge.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { MatterOrchestrationLanesSchema } from '../../shared/schemas/matters.js';
@@ -306,5 +307,24 @@ export const matterRouter = router({
       // before this procedure can emit an event.
 
       return { deleted: true };
+    }),
+
+  // ============================================================
+  // matter.purge — LLN-PROD-CLEANUP-1 (cascading, owner-scoped, operator-gated)
+  // ============================================================
+  // Completely removes a matter AND all related rows (documents+versions+feedback+sessions,
+  // parties, conflict checks/hits, analysis, open items, audit events, etc.) — unlike matter.delete
+  // (matters row only), so nothing is orphaned and no phantom conflict parties remain. DESTRUCTIVE +
+  // IRREVERSIBLE. Operator-gated discipline: call with dryRun=true FIRST for a per-table row-count
+  // preview (writes nothing), then dryRun=false to apply. Owner-scoped; each matter purged atomically.
+  purge: protectedProcedure
+    .input(z.object({ matterIds: z.array(z.string().uuid()).min(1).max(50), dryRun: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const results = [];
+      for (const matterId of input.matterIds) {
+        results.push(await purgeMatter(matterId, ctx.userId, { dryRun: input.dryRun }));
+      }
+      const grandTotal = results.reduce((a, r) => a + r.total, 0);
+      return { dryRun: input.dryRun, matterCount: results.length, grandTotal, results };
     }),
 });

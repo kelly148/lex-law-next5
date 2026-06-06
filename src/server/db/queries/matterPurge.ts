@@ -1,0 +1,172 @@
+/**
+ * matterPurge.ts — LLN-PROD-CLEANUP-1: complete, cascading purge of a matter and ALL of its related
+ * rows. Built so that purging a (synthetic/test) matter leaves NOTHING orphaned and — critically for a
+ * conflicts system — NO phantom `matter_parties` rows that would keep getting screened against real
+ * matters (`listOtherPartiesForOwner`). The bare `deleteMatter` (matters row only) does NOT do this.
+ *
+ * DESTRUCTIVE + IRREVERSIBLE. Execution is operator-gated: always run `dryRun: true` first (returns
+ * per-table row COUNTS, writes nothing) for an approval preview, then `dryRun: false` to apply.
+ * Owner-scoped throughout (Ch 35.2); each matter is purged in its own transaction (atomic per matter).
+ *
+ * COVERAGE (every matter-scoped table; verified against schema.ts — see r2 cleanup test that
+ * cross-checks this list against every table carrying a `matterId` column so a future matter-scoped
+ * table can't be silently missed):
+ *   - children of the matter's DOCUMENTS (by documentId): versions, documentOutlines, feedback,
+ *     feedbackEvaluations, feedbackManualSelections, reviewSessions; documentReferences (source/ref).
+ *   - children of the matter's INFORMATION REQUESTS (by informationRequestId): informationRequestItems.
+ *   - direct matterId rows: jobs, matterMaterials, informationRequests, lockedDecisions, adoptLedger,
+ *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
+ *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
+ *     matterAnalysis, kbAdoptions, documents — then the `matters` row itself.
+ *
+ * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
+ * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
+ * (firm-level shared), reusable_artifacts + pa_instruction_profiles + practice_memos (owner/PA-level),
+ * users / user_preferences. There are NO DB-level FK constraints (relations are app-level), so the
+ * children-first ordering below is for clean, attributable counts, not FK satisfaction.
+ */
+import { sql, and, eq, inArray, or } from 'drizzle-orm';
+import { db } from '../connection.js';
+import { ownerScope } from '../ownerScope.js';
+import {
+  matters,
+  documents,
+  versions,
+  documentOutlines,
+  documentReferences,
+  feedback,
+  feedbackEvaluations,
+  feedbackManualSelections,
+  reviewSessions,
+  informationRequests,
+  informationRequestItems,
+  jobs,
+  matterMaterials,
+  lockedDecisions,
+  adoptLedger,
+  auditEvents,
+  sourceAuthority,
+  openItems,
+  provisionProvenance,
+  lddKeyTerm,
+  closurePackageItem,
+  sendabilityOverride,
+  sendabilityEvaluation,
+  matterParties,
+  conflictChecks,
+  conflictHits,
+  matterAnalysis,
+  kbAdoptions,
+} from '../schema.js';
+
+export interface MatterPurgeResult {
+  matterId: string;
+  found: boolean; // the matter exists AND is owned by userId
+  dryRun: boolean;
+  counts: Record<string, number>; // rows deleted (or, in dryRun, that WOULD be deleted) per table
+  total: number; // total rows across all tables, EXCLUDING the matters row itself
+}
+
+/**
+ * Purge one matter. dryRun=true counts only (no writes). Returns per-table counts. Owner-scoped.
+ * Idempotent: a second run finds nothing (counts all 0, found=false once the matters row is gone).
+ */
+export async function purgeMatter(
+  matterId: string,
+  userId: string,
+  opts: { dryRun: boolean },
+): Promise<MatterPurgeResult> {
+  const { dryRun } = opts;
+
+  return db.transaction(async (tx) => {
+    const counts: Record<string, number> = {};
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const step = async (label: string, table: any, where: any): Promise<void> => {
+      const rows = await tx.select({ n: sql<number>`count(*)` }).from(table).where(where);
+      const n = Number(rows[0]?.n ?? 0) || 0;
+      counts[label] = n;
+      if (!dryRun && n > 0) {
+        await tx.delete(table).where(where);
+      }
+    };
+
+    // Matter must exist + be owned. If not, nothing to purge (idempotent).
+    const matterRows = await tx
+      .select({ id: matters.id })
+      .from(matters)
+      .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
+    if (matterRows.length === 0) {
+      return { matterId, found: false, dryRun, counts: {}, total: 0 };
+    }
+
+    // Resolve the matter's document + information-request ids (owner-scoped) for the child deletes.
+    const docRows = await tx
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.matterId, matterId), ownerScope(documents.userId, userId)));
+    const docIds = docRows.map((r) => r.id);
+    const reqRows = await tx
+      .select({ id: informationRequests.id })
+      .from(informationRequests)
+      .where(and(eq(informationRequests.matterId, matterId), ownerScope(informationRequests.userId, userId)));
+    const reqIds = reqRows.map((r) => r.id);
+
+    // 1) Children of the matter's DOCUMENTS (by documentId). Guard empty id lists (inArray([]) ).
+    if (docIds.length > 0) {
+      await step('versions', versions, inArray(versions.documentId, docIds));
+      await step('documentOutlines', documentOutlines, inArray(documentOutlines.documentId, docIds));
+      await step('feedbackManualSelections', feedbackManualSelections, inArray(feedbackManualSelections.documentId, docIds));
+      await step('feedbackEvaluations', feedbackEvaluations, inArray(feedbackEvaluations.documentId, docIds));
+      await step('feedback', feedback, inArray(feedback.documentId, docIds));
+      await step('reviewSessions', reviewSessions, inArray(reviewSessions.documentId, docIds));
+      await step(
+        'documentReferences',
+        documentReferences,
+        or(inArray(documentReferences.sourceDocumentId, docIds), inArray(documentReferences.referencedDocumentId, docIds)),
+      );
+    } else {
+      for (const l of ['versions', 'documentOutlines', 'feedbackManualSelections', 'feedbackEvaluations', 'feedback', 'reviewSessions', 'documentReferences']) counts[l] = 0;
+    }
+
+    // 2) Children of the matter's INFORMATION REQUESTS (by informationRequestId).
+    if (reqIds.length > 0) {
+      await step('informationRequestItems', informationRequestItems, inArray(informationRequestItems.informationRequestId, reqIds));
+    } else {
+      counts['informationRequestItems'] = 0;
+    }
+
+    // 3) Direct matterId rows (owner-scoped). Children-before-parent ordering (no FK constraints exist).
+    const byMatter = (table: { matterId: unknown; userId: unknown }) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      and(eq(table.matterId as any, matterId), ownerScope(table.userId as any, userId));
+    await step('informationRequests', informationRequests, byMatter(informationRequests));
+    await step('matterMaterials', matterMaterials, byMatter(matterMaterials));
+    await step('conflictHits', conflictHits, byMatter(conflictHits));
+    await step('conflictChecks', conflictChecks, byMatter(conflictChecks));
+    await step('matterParties', matterParties, byMatter(matterParties));
+    await step('matterAnalysis', matterAnalysis, byMatter(matterAnalysis));
+    await step('lockedDecisions', lockedDecisions, byMatter(lockedDecisions));
+    await step('adoptLedger', adoptLedger, byMatter(adoptLedger));
+    await step('openItems', openItems, byMatter(openItems));
+    await step('sourceAuthority', sourceAuthority, byMatter(sourceAuthority));
+    await step('provisionProvenance', provisionProvenance, byMatter(provisionProvenance));
+    await step('lddKeyTerm', lddKeyTerm, byMatter(lddKeyTerm));
+    await step('closurePackageItem', closurePackageItem, byMatter(closurePackageItem));
+    await step('sendabilityOverride', sendabilityOverride, byMatter(sendabilityOverride));
+    await step('sendabilityEvaluation', sendabilityEvaluation, byMatter(sendabilityEvaluation));
+    await step('kbAdoptions', kbAdoptions, byMatter(kbAdoptions));
+    await step('jobs', jobs, byMatter(jobs));
+    await step('auditEvents', auditEvents, byMatter(auditEvents));
+    await step('documents', documents, byMatter(documents)); // after its children above
+
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    // 4) Finally the matters row itself (not counted in `total`).
+    if (!dryRun) {
+      await tx.delete(matters).where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
+    }
+
+    return { matterId, found: true, dryRun, counts, total };
+  });
+}
