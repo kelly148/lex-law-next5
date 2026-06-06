@@ -27,19 +27,22 @@ const mock = vi.hoisted(() => ({
 vi.mock('../../trpc.js', async () => {
   const React = await import('react');
   const utilsProxy: unknown = new Proxy(function () {}, { get: () => utilsProxy, apply: () => undefined });
-  const asQuery = (s: QState) => () => {
+  // Read mock[key] FRESH on every render so per-test reassignment is picked up (capturing the
+  // object by reference would freeze the empty default — that's what failed the first CI run).
+  const asQuery = (key: keyof typeof mock) => () => {
     React.useRef(null);
+    const s = mock[key];
     return { data: s.data, isLoading: s.isLoading ?? false, isError: s.isError ?? false, error: null, refetch: () => {} };
   };
   return {
     trpc: {
       useUtils: () => utilsProxy,
-      matter: { get: { useQuery: asQuery(mock.matter) } },
-      matterIntake: { getAnalysis: { useQuery: asQuery(mock.analysis) } },
+      matter: { get: { useQuery: asQuery('matter') } },
+      matterIntake: { getAnalysis: { useQuery: asQuery('analysis') } },
       practiceKb: {
-        surfaceCandidates: { useQuery: asQuery(mock.candidates) },
-        listMemosForMatter: { useQuery: asQuery(mock.memos) },
-        listAdoptions: { useQuery: asQuery(mock.adoptions) },
+        surfaceCandidates: { useQuery: asQuery('candidates') },
+        listMemosForMatter: { useQuery: asQuery('memos') },
+        listAdoptions: { useQuery: asQuery('adoptions') },
       },
     },
   };
