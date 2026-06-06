@@ -4,6 +4,30 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-05 (later, +Inc 5) — R2-PRE-CONFLICT-1 Inc 5 MERGED (`9626172`, PR #180) → **ENGAGEMENT BUILD COMPLETE** (all 6 BLOCK-until items satisfied). Remaining: operator-gated migration EXECUTION + the flag flip.
+
+**What changed.** Built + merged **Inc 5** on `whereas/r2-pre-conflict-1-inc5` → `main` via [PR #180](https://github.com/kelly148/lex-law-next5/pull/180), squash **`9626172`**, CI green (operator authorized "build now, merge ≠ deploy"). Closes **BLOCK-until #3** — the last. Pure code; **NO schema migration** (it's a runtime data backfill behind an operator-triggered procedure; inert until invoked).
+
+**Mechanism (`src/server/db/queries/conflictsMigration.ts` + 2 procedures).** `migrateClientPartiesForOwner(userId, { dryRun })` backfills a **`confirmed=false`, `source='migration'`** `role='client'` party for every owned matter (incl. archived) with a non-empty `clientName` and no client party yet. `dryRun:true` = preview only (count + sample, **no writes**); `dryRun:false` = insert + **one immutable audit event per insert**. **Idempotent** (skips any matter already having a client party); **never auto-confirms**; **never touches prior `conflict_checks`/`hits`** (staleness is Inc 4's predicate). Pure decision `needsClientPartyMigration` unit-tested. `listConflictsComplianceQueue` = read-only queue of matters with an unconfirmed client party awaiting the Confirm act (Inc 3c). Procedures: `matterIntake.migrateClientParties` (dryRun mutation) + `conflictsComplianceQueue` (query). D2=include archived, D3=minimal queue now / polish rides R2 #3.
+
+**BLOCK-until: ALL SATISFIED** — #1 (3b) · #2 (2/3a) · #3 (5) · #4 (4) · #5 (3a/3c) · #6 (3c). The R2-PRE-CONFLICT-1 **build** is done.
+
+**Build state.** `main` = **`9626172`** (prod still `3bff333`). `CONFLICT_GATE_ENABLED` still **OFF**. Inc 3b/3c/4/5 added **NO new schema migrations** (0019/0020 already on prod from the 3bff333 deploy) → deploying `main` now is a clean **additive code-only** deploy.
+
+**REMAINING to fully close (all operator-gated, in order):**
+1. **Deploy** `main` (`9626172`) — additive, no new migration, flag OFF. Makes the confirm UX + prompt marker live and the `migrateClientParties`/queue procedures runnable. (Deploy ≠ execute; nothing enforces yet.)
+2. **Retroactive migration — dry-run preview** (`migrateClientParties dryRun:true`): produce count of affected matters + sample of names + edge-case confirmation (empty/whitespace skipped, idempotent, no dup, all `confirmed=false`, no auto-confirm, no prior-check mutation). **Surface for operator approval.**
+3. **Migration apply** (`dryRun:false`) — operator-approved only.
+4. **Work the Conflicts Compliance Review queue** — Confirm each legitimate client party.
+5. **Flip `CONFLICT_GATE_ENABLED=true`** — separate operator gate, timed for after the queue is worked (else matters with unconfirmed clients hard-block). Single reversible flag flip.
+6. **Live-verify** (Pattern 16) the enforced gate end-to-end.
+
+Then R2 #3 (the surface that surfaced all this) — jurisdiction chip + header + the now-trustworthy conflicts-status chip.
+
+**Open items unchanged.** Local: tsc 0, eslint 0; Inc5 + ownerScope ratchet + intake-conflicts green; ~12 Windows-only env false-negatives unrelated/green in CI.
+
+---
+
 ## 2026-06-05 (later, +Inc 4) — R2-PRE-CONFLICT-1 Inc 4 AUTO-MERGED (`628ddb0`, PR #178) — check-party snapshot + stale-clear invalidation; BLOCK #4 satisfied (only #3 / Inc 5 remains)
 
 **What changed.** Built + **auto-merged** (Rule 15: reversible lane, CI green, no fork/residual surfaced) **Inc 4** on `whereas/r2-pre-conflict-1-inc4` → `main` via [PR #178](https://github.com/kelly148/lex-law-next5/pull/178), squash **`628ddb0`**. Closes **BLOCK-until #4** (constraint D). Pure code; **no migration** (the `conflict_checks.checkedPartyIds` column was already additive from migration 0020).
