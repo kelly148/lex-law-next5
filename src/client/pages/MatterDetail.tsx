@@ -28,6 +28,7 @@ import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterReadinessStrip from '../components/MatterReadinessStrip.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
+import MatterRecordLedger from '../components/MatterRecordLedger.js';
 import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
 
 const DOCUMENT_TYPES: { value: string; label: string }[] = [
@@ -466,6 +467,9 @@ export default function MatterDetail(): React.ReactElement {
 
       {/* FOLD-DRAFT-1 / package — closing-package assembly + advisory completeness (never sends/locks) */}
       <ClosurePackagePanel matterId={matterId} />
+
+      {/* R2 #7 — Matter Record ledger (read-only projection of audit_events) */}
+      <MatterRecordLedger matterId={matterId} />
 
       {/* Modals */}
       {showCreateDoc && (

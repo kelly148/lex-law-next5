@@ -30,7 +30,7 @@ import {
 import { listDocumentsForMatter } from '../db/queries/documents.js';
 import { ensureAutoClientParty } from '../db/queries/matterParties.js';
 import { purgeMatter } from '../db/queries/matterPurge.js';
-import { recordAuditEvent } from '../db/queries/auditEvents.js';
+import { recordAuditEvent, listAuditEventsForMatter } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { MatterOrchestrationLanesSchema } from '../../shared/schemas/matters.js';
 
@@ -326,5 +326,19 @@ export const matterRouter = router({
       }
       const grandTotal = results.reduce((a, r) => a + r.total, 0);
       return { dryRun: input.dryRun, matterCount: results.length, grandTotal, results };
+    }),
+
+  // ============================================================
+  // matter.auditLog — R2 #7 Matter Record ledger (READ-ONLY, owner-scoped)
+  // ============================================================
+  // Re-presents the matter's existing audit_events as a read-only chronological ledger (newest first)
+  // for the Matter Record panel. No analytics/editing/charts (keep-list) — a plain ledger. No mutation,
+  // no schema/migration; just exposes the existing listAuditEventsForMatter read.
+  auditLog: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const matter = await getMatterById(input.matterId, ctx.userId);
+      if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      return listAuditEventsForMatter(input.matterId, ctx.userId);
     }),
 });
