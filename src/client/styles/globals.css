@@ -40,3 +40,47 @@
     @apply bg-firm-light text-ink;
   }
 }
+
+/* ============================================================
+   Whereas R2 #9 (R3 polish) — print stylesheet.
+   Print legal documents cleanly: drop the app chrome and interactive
+   controls, render ink-on-paper, and avoid awkward page breaks. This is
+   a pure CSS @media-print layer — no JS, no component, no render path.
+   Escape hatch: mark anything to omit from print with [data-no-print].
+   ============================================================ */
+@media print {
+  /* App chrome and interactive controls do not belong on paper. */
+  aside,
+  nav,
+  button,
+  [role="dialog"],
+  [data-no-print] {
+    display: none !important;
+  }
+
+  /* Ink-on-paper: drop the app background tint and shadows; let content flow. */
+  html,
+  body {
+    background: #fff !important;
+  }
+  main {
+    overflow: visible !important;
+  }
+  [class*="shadow"] {
+    box-shadow: none !important;
+  }
+
+  /* Avoid awkward page breaks mid-heading / mid-block. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid-page;
+  }
+  p,
+  li,
+  blockquote,
+  tr {
+    break-inside: avoid;
+  }
+}
