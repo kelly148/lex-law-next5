@@ -4,6 +4,23 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #6) — R2 #6 MERGED (`5bdeb44`, PR #194) — KB / source-authority adoption surface (candidate-vs-adopted + deliberate-commit)
+
+**What changed.** Built + merged **R2 #6** → `main` via [PR #194](https://github.com/kelly148/lex-law-next5/pull/194), squash **`5bdeb44`**, CI green (merged by Claude per the standing reversible-lane rule). A **display-only** delta on `KnowledgeBasePanel` re-presenting existing reads — **no backend, no schema/migration, no flag, no new egress; reversible.** Four deltas, all from build-order item #6 + the state-flow matrix §D:
+- **Candidate-vs-adopted:** wired the existing (previously unused) `practiceKb.listAdoptions` query in. A surfaced candidate already adopted into this matter now reads **"Adopted"** (with its snapshotted `verificationStatusAtAdoption` posture) instead of re-offering the adopt act.
+- **Deliberate-commit + audit:** the material KB acts (adopt / abstract / promote / mark-verified) now use the standardized `DeliberateActButton` (its header already named "#6 (KB adoption)" as the planned reuse). Server `kb_events` audit unchanged.
+- **Provenance/currency legibility:** surfaced candidates carry the R2 #5 `ProvenanceBadge` (verification facet).
+- **Show-ready states (definition of done):** loading skeleton + a designed inline error notice (never blank); the two remaining **blue** pills on this surface swept to semantic `--wa-` tints.
+- Tests: new jsdom render test `knowledgeBaseAdoption.render.test.tsx` (ci-gotchas #10); existing `fold_kb_1_inc5_ui` source-audit stays green (all `.mutate` call sites preserved). **First CI run went RED** (4 new render assertions "expected null to be truthy") — the test mock captured each query object by reference at `vi.mock` setup, so per-test reassignment never reached the component; fixed to read `mock[key]` fresh per render; second run green.
+
+**⚠ SCOPE JUDGMENT to revisit (non-blocking).** I scoped the deliberate-commit conversion to the KB **record/posture** acts (adopt/abstract/promote/mark-verified) and intentionally **left `paKey`-confirm and file-memo as routine** buttons. The state-flow matrix marks `paKey`-confirm as a ✦ deliberate act — I treated it as matter/profile config rather than a #6 *adoption* act and deferred it to a later profile-surface increment. Flag for the operator to veto if the matrix marking should hold.
+
+**Build state.** `main` = **`5bdeb44`**; prod still `3ce1324`. Display-only → rides the next operator deploy. **Unshipped display batch is now R1-CLEANUP-1 + R2 #3 + R2 #4 + R2 #5(inc1+inc2) + R2 #6** — all display-only, no migration. A batch deploy + live-verify is increasingly worth doing to keep the gap small (deploy stays operator-gated; not a phase boundary, so no DEPLOY PROMPT auto-fired).
+
+**Next (R2):** R2 #7 (Matter Record ledger — read-only `audit_events` projection) → #8 (nav-only command palette) → #9 (R3 polish). Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). The untracked `docs/engagements/FOLD-ORCH-1-divergent-persistence-decision.md` (§3.1 FIRE) remains uncommitted, left alone per operator. Open chips: `task_bc281353`, `task_b0f9ffb5`. Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 (+R2 #5 inc2) — R2 #5 increment 2 MERGED (`0bae0e0`, PR #192) — draft-body provenance badge → **R2 #5 COMPLETE**
 
 **What changed.** Built + merged **R2 #5 increment 2** → `main` via [PR #192](https://github.com/kelly148/lex-law-next5/pull/192), squash **`0bae0e0`**, CI green (merged by Claude per the standing rule). Applies the `ProvenanceBadge` (inc1) to the **draft body**: DocumentDetail's document header shows a single `verification="unverified"` badge when the draft drew on an unverified KB memo (`documents.drewOnUnverifiedKb`, KB-1). One meaningful, gated badge — not confetti. Display-only; flags untouched; no migration; reversible. Source-guard test (the badge itself is render-tested in inc1).
