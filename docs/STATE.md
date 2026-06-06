@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (DEPLOY) — R2 #7 DEPLOYED (`2e2bdd7`) — Matter Record ledger now on prod; merge↔deploy gap closed
+
+**What changed.** Operator deployed `main` (`2e2bdd7`) via Railway "Deploy Latest Commit". **prod = `2e2bdd7`** (`/api/version` confirmed `2e2bdd7…`, builtAt 2026-06-06T18:42:38Z — SHA check clean). **MODE B** (manual verify; no auto-rollback). Deploy range `4e6e7fa`→`2e2bdd7` = R2 #7 ledger (`f532620`) + two `docs(state)` commits. **No migrations in the range** (`git diff --name-only` shows zero `migrations/`/`schema.ts`/`.sql` — still through 0020; the wired `preDeployCommand apply-prod-migrations.mjs` ran as a no-op against the existing allowlist) — clean code-only deploy. The unshipped piece is now drained: **prod = main**.
+
+**Now on prod (since `4e6e7fa`):** R2 #7 — the read-only **Matter Record** panel on MatterDetail (chronological `audit_events` projection) + its additive read-only `matter.auditLog` procedure. Both gates stay **OFF** (`CONFLICT_GATE_ENABLED`, `SENDABILITY_GATE_ENABLED`).
+
+**Post-deploy verification.** `/api/version` = `2e2bdd7` ✓; `/api/health` = 200 ✓; unauth `trpc/matter.list` = 401 ✓ (auth intact, no bypass regression). **Matter Record ledger — Claude-driven light UAT PASS** (browser "UNIVERSALTITLE", authed `kelly`, hard-reloaded): `/matters` renders the real `poa` matter (`matter.list` live DB read OK); MatterDetail mounts fully (readiness strip + Intake/KB/Matter State/Closing package/**Matter Record**); the **Matter Record** panel renders collapsed-default and **expands** to its description + the designed **empty state** ("No recorded acts yet.") — the new `matter.auditLog` procedure returns successfully (empty for `poa`, which has no audit events; the populated path is covered by the green render test). **No React #310 / hooks violation** (only benign Chrome-extension message-channel noise). **Evidence class:** Claude-driven light UAT PASS; the formal Pattern-16 `live-verified` verdict remains the operator's (not overstated).
+
+**Build state.** `main` = prod = **`2e2bdd7`**. Deploy gap CLOSED. Both flags OFF.
+
+**Next.** R2 #8 (nav-only command palette — scope set: nav core now [global nav + jump-to-matter + contextual matter routes], deep-jumps deferred to inc 2) → #9 (R3 polish). Then R2 complete. Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Parallel operator Dispatch session also building R2 — coordinate on main. Open chips: `task_bc281353`, `task_b0f9ffb5`, R1-CLEANUP-1, fail-loud migration-runner.
+
+---
+
 ## 2026-06-06 (+R2 #7) — R2 #7 MERGED (`f532620`, PR #197) — Matter Record ledger (read-only audit_events projection)
 
 **What changed.** Built + merged **R2 #7** → `main` via [PR #197](https://github.com/kelly148/lex-law-next5/pull/197), squash **`f532620`**, CI green (merged by Claude per the standing rule). A read-only chronological **Matter Record** on MatterDetail — every recorded act (locks/adoptions/dispositions/confirmations/conflict acts), newest-first. Plain ledger (no analytics/editing/charts, per keep-list). **Re-presents existing data; no migration; reversible; flags untouched.**
