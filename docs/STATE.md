@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (DEPLOY) — R2 #8 + #9 DEPLOYED (`5ab91c2`) — palette + print on prod; both live-verified
+
+**What changed.** Operator deployed `main` (`5ab91c2`) via Railway. **prod = `5ab91c2`** (`/api/version` confirmed, builtAt 2026-06-06T19:26:39Z — SHA check clean). **MODE B** (manual verify; no auto-rollback). Deploy range `2e2bdd7`→`5ab91c2` = R2 #8 palette (`f862435`) + R2 #9 print (`1c4c53c`) + `docs(state)` commits. **No migrations in the range** (`git diff --name-only` shows zero `migrations/`/`schema.ts`/`.sql`; still through 0020) — clean code-only deploy. The undeployed display batch is now drained: **prod = main**.
+
+**Now on prod (since `2e2bdd7`):** R2 #8 nav-only command palette (Ctrl/Cmd-K) + R2 #9 print stylesheet. Both gates stay **OFF**.
+
+**Post-deploy verification — Claude-driven light UAT PASS** (browser "UNIVERSALTITLE", authed `kelly`, hard-reloaded). `/api/health` 200; unauth `trpc/matter.list` 401 (auth intact). **R2 #8 palette:** Ctrl/Cmd-K opens the dialog; groups = Navigate (Matters/Templates/Upload & Format/Settings) + Jump to matter → real `poa` matter (live `matter.list`); structurally **no material-act word** (lock/adopt/disposition/override/finalize/send) and **no blue**. **R2 #9 print:** the `@media print` rule is confirmed present in the *deployed* CSS bundle and hides `aside`/`button` (`display:none`) — print layer shipped; full print fidelity is a visual `Ctrl+P` check (operator). **Evidence class:** Claude-driven light UAT PASS; formal Pattern-16 `live-verified` verdict remains the operator's.
+
+**Build state.** `main` = prod = **`5ab91c2`**. Deploy batch DRAINED. Both flags OFF. **R2 essentially COMPLETE and LIVE** (#1–#9 per the R3-polish reading).
+
+**Next (operator's choice).** (a) R2-PRE-CONFLICT-1 close-out (operator-gated: confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify) — the gate to client-facing readiness; (b) staleness/"needs-you" list (brand-plan item 9, separate engagement); (c) R2 #8 increment 2 (panel deep-jumps); (d) an open chip (R1-CLEANUP-1, fail-loud migration-runner). Parallel Dispatch session also building R2 — coordinate on main. Open chips: `task_bc281353`, `task_b0f9ffb5`.
+
+---
+
 ## 2026-06-06 (+R2 #9) — R2 #9 inc 1 MERGED (`1c4c53c`, PR #202) — print stylesheet (R3 polish) → R2 essentially complete
 
 **What changed.** Built + merged **R2 #9 increment 1** → `main` via [PR #202](https://github.com/kelly148/lex-law-next5/pull/202), squash **`1c4c53c`**, CI green first run (operator `accept:` — a scope judgment + testability caveat were surfaced, so NOT auto-merged per Rule 15). A pure-CSS **print stylesheet**: the app had **zero** `@media print` rules, so printing produced the whole UI; now printing a document yields the document, ink-on-paper. Display-only: **no backend, no schema, no migration, no flag**; reversible. Rides the R2 parent UI-scope review (Rule 13) — not a FIRE.
