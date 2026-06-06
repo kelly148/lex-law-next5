@@ -4,6 +4,19 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #7) — R2 #7 MERGED (`f532620`, PR #197) — Matter Record ledger (read-only audit_events projection)
+
+**What changed.** Built + merged **R2 #7** → `main` via [PR #197](https://github.com/kelly148/lex-law-next5/pull/197), squash **`f532620`**, CI green (merged by Claude per the standing rule). A read-only chronological **Matter Record** on MatterDetail — every recorded act (locks/adoptions/dispositions/confirmations/conflict acts), newest-first. Plain ledger (no analytics/editing/charts, per keep-list). **Re-presents existing data; no migration; reversible; flags untouched.**
+- **Backend (additive read-only):** new `matter.auditLog` procedure (owner-scoped; NOT_FOUND on non-owned) exposing the existing `listAuditEventsForMatter` — audit events had no client read until now.
+- **Client:** `MatterRecordLedger` collapsible panel on MatterDetail (recommended matter-panel placement, not a standalone screen): timestamp · actor(+model) · action · summary · rationale; loading + empty states; no blue.
+Test: jsdom render (collapsed-default → recorded acts + rationale, empty, no-blue; ci-gotchas #10); audit-events guard `mr_fold_gov_1a` stays green.
+
+**Build state.** `main` = **`f532620`**; prod = `4e6e7fa` (R2 #7 not yet deployed — display + additive-read, no migration; rides the next deploy). Both gates OFF.
+
+**Next (R2):** #8 (nav-only command palette — jump-to-matter/open-review/conflicts/export + nav shortcuts; NO material-act shortcuts) → #9 (R3 polish: global empty/loading states, print stylesheet). Then R2 is complete. Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Parallel operator Dispatch session also building R2 — coordinate on main. Open chips: `task_bc281353`, `task_b0f9ffb5`. Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 (DEPLOY) — R2 display batch DEPLOYED (`4e6e7fa`) + light UAT PASS (Claude-driven)
 
 **What changed.** Operator deployed `main` (`4e6e7fa`) via Railway "Deploy Latest Commit". **prod = `4e6e7fa`** (`/api/version` confirmed `4e6e7fa…`, builtAt 2026-06-06T16:34:39Z — SHA check clean). **MODE B** (manual verify; no auto-rollback). **No migrations in the range** (3ce1324→4e6e7fa is display + additive-read only; no `migrations/`/`schema.ts` changes) — clean code-only deploy.
