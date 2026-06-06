@@ -17,6 +17,7 @@
  * tierSource (mutations).
  */
 import React, { useState } from 'react';
+import ProvenanceBadge from './ProvenanceBadge.js';
 import {
   LayoutDashboard,
   ChevronDown,
@@ -315,7 +316,7 @@ export default function MatterStateDashboard({ matterId, documentId }: MatterSta
                   <div className="space-y-1">
                     {full.sourceAuthorities.slice(0, 10).map((s) => (
                       <div key={s.id} className="flex items-center gap-2 text-xs px-2 py-1 bg-gray-50 rounded">
-                        <span className="text-gray-500">{s.authorityOrigin}/{s.lifecycle}</span>
+                        <ProvenanceBadge origin={s.authorityOrigin} verification={s.verificationStatus} currency={s.lifecycle} />
                         <span className="flex-1 truncate text-gray-700">{s.label ?? `${s.subjectType}:${s.subjectId.slice(0, 8)}…`}</span>
                         <span className="text-gray-400">{s.designationSource}</span>
                       </div>
