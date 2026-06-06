@@ -44,6 +44,7 @@ import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { AnalysisGenerationSchema, parseGeneratedAnalysis } from '../intake/analysisGenerationParse.js';
 import { UNCONFIRMED_PARTY_PROMPT_MARKER } from '../../shared/schemas/layer0.js';
+import { migrateClientPartiesForOwner, listConflictsComplianceQueue } from '../db/queries/conflictsMigration.js';
 
 const ROLE = z.enum(['client', 'adverse', 'related', 'other']);
 const PARTY_TYPE = z.enum(['person', 'entity', 'unknown']);
@@ -277,4 +278,19 @@ export const matterIntakeRouter = router({
         ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
       });
     }),
+
+  // R2-PRE-CONFLICT-1 Inc 5 (constraint E / BLOCK #3) — retroactive client-party migration.
+  // OPERATOR-GATED/STAGED: run with dryRun=true first (preview: count + sample, NO writes) for review +
+  // approval, then dryRun=false to apply (insert source='migration', confirmed=false; one audit event
+  // per insert). Idempotent; never auto-confirms; never mutates prior checks. Runs BEFORE the
+  // CONFLICT_GATE_ENABLED flip (a separate operator gate).
+  migrateClientParties: protectedProcedure
+    .input(z.object({ dryRun: z.boolean() }))
+    .mutation(async ({ ctx, input }) => migrateClientPartiesForOwner(ctx.userId, { dryRun: input.dryRun })),
+
+  // R2-PRE-CONFLICT-1 Inc 5 — the Conflicts Compliance Review queue (read-only): matters with an
+  // UNCONFIRMED role='client' party awaiting the attorney's explicit Confirm act (Inc 3c). The
+  // work-list to clear around the gate flip.
+  conflictsComplianceQueue: protectedProcedure
+    .query(async ({ ctx }) => listConflictsComplianceQueue(ctx.userId)),
 });
