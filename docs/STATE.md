@@ -4,6 +4,21 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #3) — R2 #3 MERGED (`f138bd9`, PR #186) — matter-state header / readiness strip on MatterDetail (display-only)
+
+**What changed.** Built + merged **R2 #3** (the highest-leverage R2 add) → `main` via [PR #186](https://github.com/kelly148/lex-law-next5/pull/186), squash **`f138bd9`**, CI green (merged by Claude per the standing rule). A single-glance readiness strip at the top of MatterDetail, from **one** `matterState.dashboard` read. Display-only; flags untouched (`CONFLICT_GATE_ENABLED` OFF); **no migration**; reversible. Prereqs were satisfied (PREREQ-1 jurisdiction live; PREREQ-2 conflicts build complete) so the full strip — incl. the conflicts chip — shipped.
+- **Backend (additive, read-only):** `matterState.dashboard` gained `conflictClearance` (re-presents the already-computed `evaluateConflictClearance` state/reasons — same predicate the gate consumes, surfaced read-only/owner-scoped) + `jurisdiction` (via `getMatterById`). **Matter-state engine untouched.**
+- **`MatterReadinessStrip`** (new), mounted at MatterDetail top only (NOT the matters list — out of scope per the cut cross-matter view). Fixed chip order: **jurisdiction LEADS** (VA/MD inline-editable via `matter.updateMetadata`) · conflicts status · source-authority count · open items (blockers emphasized) · rolled-up review status (operative-doc workflow state — **not** the review-pane denominator) · sendability (`safeToSend`).
+- **Conflicts chip framing:** ADVISORY while the flag is OFF — truthful state ("no client party" / "not yet checked" / "client unconfirmed" / "re-check needed" / "cleared"), not "blocked/enforced"; flips to enforcing framing when `CONFLICT_GATE_ENABLED` activates (a one-line copy change). No blue (R1-CLEANUP-1) — semantic `--wa-` tints only. Render test added (ci-gotchas #10).
+
+**Build state.** `main` = **`f138bd9`**; prod still `3ce1324`. Display-only → rides the next operator deploy (batches with R1-CLEANUP-1, both display-only, no migration). 
+
+**Next (R2):** R2 #4–#9 per `_brand\UI_SCOPE_consolidated_disposition_2026-06-04.md` + the state-flow matrix (provenance grammar #2 sequenced behind #3; nav-only command palette; etc.). Separately, the **R2-PRE-CONFLICT-1** close-out (operator-gated): add+confirm `poa`'s client party → flip `CONFLICT_GATE_ENABLED` → live-verify; the conflicts chip then flips to enforcing framing automatically.
+
+**Open follow-up chips:** `task_bc281353` (migration-runner fail-loud guard), `task_b0f9ffb5` (status-pill tokens). Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 — R1-CLEANUP-1 MERGED (`a9a3ab7`, PR #184) — off-palette/off-spec control colors → tokens (display-only)
 
 **What changed.** Standalone low-risk brand cleanup; merged to `main` via [PR #184](https://github.com/kelly148/lex-law-next5/pull/184), squash **`a9a3ab7`**, CI green. Display-only; no layout restructure; no migration; **flags untouched (`CONFLICT_GATE_ENABLED` stays OFF)**. Removes blue (nowhere in the Whereas palette) + heavy navy/black control fills, mapping each control to its button-grammar role. **NOT** a blanket primary→oxblood promotion (that stays the R2 per-control call).
