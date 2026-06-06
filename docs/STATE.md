@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #4) — R2 #4 MERGED (`656ed92`, PR #188) — unverified-KB flag at the override moment (WARN-only) + grouped reasons
+
+**What changed.** Built + merged **R2 #4** (export-safety gate UI delta) → `main` via [PR #188](https://github.com/kelly148/lex-law-next5/pull/188), squash **`656ed92`**, CI green (merged by Claude per the standing rule). R2 #4's core was already shipped by FOLD-SEND-1 Inc 4 (`ExportSafetyPanel`: verdict + findings + recorded-override + shadow/enforce + matter-header sendability chip from R2 #3); this PR adds the two genuine deltas. Display-layer + read of an existing flag; **flags untouched** (`SENDABILITY_GATE_ENABLED` + `CONFLICT_GATE_ENABLED` stay OFF); **NO migration**; reversible.
+- **Unverified-KB at override:** the existing `documents.drewOnUnverifiedKb` flag (KB-1, durable, survives versioning) → `assembleSendabilityContext` → `SendabilityContext.drewOnUnverifiedKb` → `evaluateSendability` emits a **WARN** finding (`unverified_kb`) via the existing place()/findings/recorded-override/eval-log machinery, landing at the override moment by construction. Warn, never block (fail-to-warn; distinct from the conflicts gate's fail-closed). Shadow-safe.
+- **No migration, hardened two ways:** `unverified_kb` added to the **shared** engine vocabulary only, NOT the `schema.ts` mysqlEnum — never reaches `sendability_rule.category`/`sendability_override.category`. (1) a guard test pins the engine-only-vs-DB-enum asymmetry; (2) a runtime guard in `insertSendabilityOverride` rejects the category at the persistence boundary (overrides are block-only anyway).
+- **Grouped reasons:** `ExportSafetyPanel` groups findings under Blocking / Review headers (severity).
+- **Deferred:** verify-to-clear (clearing the flag via `markMemoReverified`) — follow-up.
+
+**⚠ CONSCIOUS INTERIM POSTURE (operator-directed; revisit at the flag flip).** Warn-only is a deliberate interim choice. The FOLD-SEND-1/R2 disposition leans toward **block-with-override** ("barred from clearing outbound without current verification"); warn-only was chosen partly to **avoid the enum migration while the gate is in shadow** (`SENDABILITY_GATE_ENABLED` OFF). **When `SENDABILITY_GATE_ENABLED` flips to enforce, REVISIT** whether `unverified_kb` should become block-with-override — which would require an **additive `sendability_override.category` (and `sendability_rule.category`) enum migration** at that point (the guard test will force that decision to be made consciously).
+
+**Build state.** `main` = **`656ed92`**; prod still `3ce1324`. Display/additive-read only → rides the next operator deploy (batches with R1-CLEANUP-1 + R2 #3, all display-only, no migration).
+
+**Next (R2):** R2 #5 (provenance/currency visual system — staged, KB/citations/authorities first), then #6–#9. Separately the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa`'s client party → flip `CONFLICT_GATE_ENABLED` → live-verify). Open follow-up chips: `task_bc281353` (migration-runner fail-loud guard), `task_b0f9ffb5` (status-pill tokens). Cowork: conflict-arc corrective STATE.
+
+---
+
 ## 2026-06-06 (+R2 #3) — R2 #3 MERGED (`f138bd9`, PR #186) — matter-state header / readiness strip on MatterDetail (display-only)
 
 **What changed.** Built + merged **R2 #3** (the highest-leverage R2 add) → `main` via [PR #186](https://github.com/kelly148/lex-law-next5/pull/186), squash **`f138bd9`**, CI green (merged by Claude per the standing rule). A single-glance readiness strip at the top of MatterDetail, from **one** `matterState.dashboard` read. Display-only; flags untouched (`CONFLICT_GATE_ENABLED` OFF); **no migration**; reversible. Prereqs were satisfied (PREREQ-1 jurisdiction live; PREREQ-2 conflicts build complete) so the full strip — incl. the conflicts chip — shipped.
