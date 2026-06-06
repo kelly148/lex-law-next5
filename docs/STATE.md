@@ -4,6 +4,23 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-06 (+R2 #9) — R2 #9 inc 1 MERGED (`1c4c53c`, PR #202) — print stylesheet (R3 polish) → R2 essentially complete
+
+**What changed.** Built + merged **R2 #9 increment 1** → `main` via [PR #202](https://github.com/kelly148/lex-law-next5/pull/202), squash **`1c4c53c`**, CI green first run (operator `accept:` — a scope judgment + testability caveat were surfaced, so NOT auto-merged per Rule 15). A pure-CSS **print stylesheet**: the app had **zero** `@media print` rules, so printing produced the whole UI; now printing a document yields the document, ink-on-paper. Display-only: **no backend, no schema, no migration, no flag**; reversible. Rides the R2 parent UI-scope review (Rule 13) — not a FIRE.
+- **`globals.css` (additive `@media print` block):** hides app chrome + interactive controls (`aside`/`nav`/`button`/`[role=dialog]`/`[data-no-print]`); white background, shadows off, `main` overflow visible (content flows across pages); page-break hints (`break-after: avoid-page` on headings, `break-inside: avoid` on p/li/blockquote/tr). `data-no-print` is the per-element escape hatch.
+- **`printStylesheet.test.ts` (new):** print media can't be exercised in jsdom, so an intent-pinned, LF-safe source assertion (CWD-relative read like `mr_cal_5c`) that the print block exists and hides chrome. Pure CSS → no JS render path / no #310 class.
+- **No page-component edits** → no Dispatch-collision surface (append-only `globals.css` + one test).
+
+**Scope judgment (operator-acked at accept).** "R2 #9" was ambiguous — brand-plan item 9 = version/staleness indicators + matter-local "needs-you" list; this thread's briefing/STATE = "R3 polish (empty/loading + print)." Built the **R3-polish** reading; empty/loading states are already implemented piecemeal across ~28/18 files, so print was the clear gap. The **staleness / "needs-you" list remains available as a separate engagement.** Print v1 is generic clean print (no letterhead/margins/headers-footers — future increments if wanted).
+
+**Build state.** `main` = **`1c4c53c`**; prod = `2e2bdd7`. **Undeployed display batch on main = R2 #8 palette + R2 #9 print** (both display-only, no migration; ride the next operator deploy). R2 #7 ledger is already on prod. Both gates OFF.
+
+**R2 status: essentially COMPLETE** (per the R3-polish reading) — #1–#9 done. Remaining optional/separate: R2 #8 increment 2 (panel deep-jumps), the brand-plan item-9 staleness/"needs-you" list (if chosen), and any print-fidelity increments.
+
+**Next (operator's choice).** (a) Deploy the R2 #8+#9 display batch (operator-gated DEPLOY PROMPT; no migration); (b) the operator-gated R2-PRE-CONFLICT-1 close-out (confirm `poa` client party → flip `CONFLICT_GATE_ENABLED` → live-verify); (c) the staleness/"needs-you" list engagement; (d) R2 #8 inc 2 deep-jumps. Parallel Dispatch session also building R2 — coordinate on main. Open chips: `task_bc281353`, `task_b0f9ffb5`, R1-CLEANUP-1, fail-loud migration-runner.
+
+---
+
 ## 2026-06-06 (+R2 #8) — R2 #8 inc 1 MERGED (`f862435`, PR #200) — nav-only command palette (Ctrl/Cmd-K)
 
 **What changed.** Built + merged **R2 #8 increment 1** → `main` via [PR #200](https://github.com/kelly148/lex-law-next5/pull/200), squash **`f862435`**, CI green (operator `accept:` — a scope fork + a deferred-increment limitation were surfaced, so NOT auto-merged per Rule 15). A navigation-only **command palette**. Display/nav layer only: **no new backend, no schema, no migration, no flag**; reversible. Rides the R2 parent UI-scope review (Rule 13) — not a FIRE.
