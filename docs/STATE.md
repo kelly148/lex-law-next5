@@ -4,6 +4,38 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-3 BUILD COMPLETE + MERGED — review-session layout workspace + REVIEW-SKIN-1; squash 541a1b5, PR #216) — awaiting prod deploy + Pattern-16
+
+**Disposition.** Operator GO on the G6 confirmation + both design decisions (rail = body data-attribute + CSS; anchoring = focus event-delegation). RELAYOUT-3 BUILD COMPLETE; **one PR #216, two commits** — Scope A `0b0a9e4` (layout workspace), Scope B `3f56789` (REVIEW-SKIN-1). CI-green, squash-merged to `main` as **`541a1b5`**, branch deleted. Display-only; reversible; no backend/migration; flags untouched. `in_progress` cleared; **RELAYOUT-3 → `awaiting_live_verification`**.
+
+**G6 (hard gate) SATISFIED.** The review subtree sits at ONE stable keyed slot in a single responsive container; only the document-reference pane mounts/unmounts across the `matchMedia('(min-width:1360px)')` breakpoint; `ActiveSessionView` JSX byte-identical. The render test asserts the **SAME review-slot DOM node persists both directions** (reflow, not remount) — the direct defense against the two historical mount-path blank-screens.
+
+**Scope A — layout workspace.** New `DocumentReferencePane.tsx` (reuses `DocumentCanvas`, never forked, ~600–620px, read-only/zero-action/no oxblood). `ReviewPane` default export → responsive workspace: wide = collapsed rail + doc pane + hairline divider + review pane (700–760); full-page below = sticky "Reviewing: title · Iteration N" + session-preserving "view in document" overlay (review tree stays mounted beneath). Rail collapse via `html[data-review-layout="wide"]` + unlayered `globals.css` (no remount; AppShell got the data hooks). Anchoring via focus event-delegation (doc-pane-only, never touches review state). Fixed split ratios (resizable divider rejected).
+
+**Scope B — REVIEW-SKIN-1 (styling only).** Header black → `--surface-2` + hairline + ghost close + "Review session"; checkbox blue → ink (`accent-ink`); quiet hairline reviewer rows, Lite indented; **"Start review (N reviewer/s)" single oxblood primary** with live count, disabled at zero (pending text + disabled guard left verbatim — no behavioral change).
+
+**Cross-engagement assertion (surfaced, operator-approved via GO).** Removed ReviewPane from `r2_cta_oxblood`'s `ghostEverywhere` (zero-oxblood) list — the signed REVIEW-SKIN-1 mandates one-oxblood-**per-view-state** in ReviewPane, superseding the prior blanket no-oxblood assertion. ReviewPane stays in the GHOST-containing assertion. No other assertion changed.
+
+**Local gates green.** tsc + eslint clean; new `reviewWorkspace.render.test.tsx` (G6 + split/full-page/no-blank/anchoring-no-remount) + `reviewSkin1.render.test.tsx`; existing #310 guard / survivability / divergent-persistence / `mr_uat_progress_1` / `r2_cta_oxblood` green; full client sweep 341/342 (1 = pre-existing Windows-CRLF `\n`-scan on **untouched `DocumentDetail.tsx`**, green on CI — confirmed by #216 CI).
+
+**Build state.** main = **`541a1b5`**; **prod still `a14b0b1`** (display-only, rides next deploy). Gates unchanged. Open chips: RELAYOUT-2-STRIP-CLEANUP, MATTERSTATE-BADGE-1, G4-INIT.
+
+**MERGE ≠ DEPLOY.** Operator triggers Railway; desktop runs Pattern-16. **UAT checklist** (the disposition explicitly says builder-verify the breakpoint with real browser chrome): (a) **breakpoint honest-fit** ≥1360px seats doc 600 + pane 700 + 56px rail without cramping (bump px if cramped); (b) **G6 live** — open a review session, resize across the breakpoint → no blank/remount/#310, review tree keeps state/scroll; (c) rail collapses to ~56px icons at wide, restores below/on-close; (d) read-only doc pane current-version, zero actions/no oxblood; (e) anchoring scrolls/highlights the provision without disturbing review selections; (f) full-page mode + "view in document" overlay preserve the session; (g) divergent items full-height/equal-prominence both modes; (h) REVIEW-SKIN-1 visuals (surface-2 header, ink checkboxes, quiet rows, "Start review (N)" oxblood disabled at zero); (i) recital band still 50px.
+
+**Queue.** Next after RELAYOUT-3 live-verify: **FOLD-PM-1** (Phase 4).
+
+---
+
+## 2026-06-07 (RELAYOUT-3 PICKUP — Review Session layout workspace + REVIEW-SKIN-1) — architecture mapped; G6 confirmation reported; build PAUSED for operator go
+
+**Pickup.** RELAYOUT-3 registered in-progress (Rule-11, operator y); popped queue head ahead of FOLD-PM-1. One PR, two named scopes (A: layout workspace; B: REVIEW-SKIN-1 reskin). Display-layer, reversible, render-test-gated, no backend/migration, flags untouched. Branch off main `14baa5b`; sole committer (no parallel builder on ReviewPane/DocumentDetail). Governing: `RELAYOUT3_consolidated_disposition_2026-06-07.md` §2 + `FEATURE_CHIPS_COWORK_LOG.md`. Recital band stays 50px (recorded NON-scope).
+
+**Architecture map.** `ReviewPane.tsx` default export (L1594) = the drawer (`fixed inset-0` overlay) → `CreateSessionView` (L81, reviewer-selection = REVIEW-SKIN-1 target) | `ActiveSessionView` (L1119, the review tree = **G6-protected**, must stay byte-identical). Mounted in `DocumentDetail.tsx:1327` (`{showReview && <ReviewPane/>}`). `DocumentCanvas` (RELAYOUT-1) is a pure read-only renderer → reuse for Scope A's read-only doc pane at ~600–620px (container-constrained), no `emptyStatePrimaryAction` (no oxblood).
+
+**G6 confirmation + build plan reported to operator; build PAUSED** for the go, with two surfaced design decisions: the rail-collapse mechanism, and the anchoring-vs-byte-identical-review-tree resolution.
+
+---
+
 ## 2026-06-07 (RELAYOUT-2 LIVE-VERIFIED PASS → COMPLETED) — MatterDetail recital band v2, Pattern-16 on prod `a14b0b1`
 
 **Disposition.** `operator approve live-verified:RELAYOUT-2 pass`. RELAYOUT-2 (MatterDetail recital band v2) **live-verified** on prod **`a14b0b1`** (=origin/main HEAD; `/api/version` builtAt 2026-06-07T20:37Z; includes feature merge `3956a07`) → **COMPLETED**. main = prod = `a14b0b1`.
