@@ -80,6 +80,27 @@ export function isConflictGateEnabled(): boolean {
 }
 
 /**
+ * Deadline / tickler engine (FOLD-PM-1, Phase-4 head). DEFAULT OFF.
+ *
+ * When OFF (the default), the deadline engine is entirely dormant: the data-core tables exist but
+ * nothing computes a deadline, nothing materializes ticklers, and no deadline surface renders. Inc 1
+ * (data core) ships with this OFF and is therefore a behavior-preserving merge/deploy.
+ *
+ * When exactly "true", the deadline panels surface and the on-load tickler materialization runs. The
+ * flip to ON is operator-gated (Pattern-16) AND requires attorney verification of all seeded rule legal
+ * content first (CI cannot judge deadline correctness). 1031 rules carry an ADDITIONAL structural block:
+ * each 1031 deadline_rule.enabled stays 0 until attorney-approved 1031-0 fixtures pass (G-B) — flipping
+ * this flag never activates a 1031 rule on its own.
+ *
+ * INVARIANT (load-bearing): the engine SURFACES and REMINDS, it never acts. No email, no push, no
+ * external calendar, no filing — no egress contract exists in the engine by design. This flag never
+ * gates any outbound action because there is none.
+ */
+export function isDeadlineEngineEnabled(): boolean {
+  return process.env['DEADLINE_ENGINE_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
