@@ -213,43 +213,47 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   const enabledReviewerList = settings
     ? Object.entries(settings.reviewerEnablement).filter(([, v]) => v).map(([k]) => k)
     : [];
+  // REVIEW-SKIN-1: styling only — no change to reviewer-enablement logic, selection state, or
+  // session creation. Calm hairline rows; ink (not blue) checkbox accent; the one oxblood primary
+  // is "Start review (N)" with a live count, disabled at zero (the deliberate-act count echo).
+  const reviewerCount = selectedReviewers.length;
   return (
-    <div className="p-6 space-y-4">
-      <p className="text-sm text-gray-600">
+    <div className="p-6 space-y-4" data-testid="reviewer-selection">
+      <p className="text-sm text-ink-secondary">
         {multiReviewerEnabled
           ? 'Select one or more reviewers for the next review. Only enabled reviewers are shown.'
           : 'Select a reviewer for the next review. Only enabled reviewers are shown.'}
       </p>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {enabledReviewerList.length === 0 ? (
-          <p className="text-sm text-gray-400">No reviewers enabled. Enable reviewers in Settings.</p>
+          <p className="text-sm text-ink-secondary">No reviewers enabled. Enable reviewers in settings.</p>
         ) : (
           enabledReviewerList.flatMap((key) => {
             const liteKey = REVIEWER_LITE_KEY[key];
             const rows = [
-              <label key={key} className="flex items-center gap-3 cursor-pointer">
+              <label key={key} className="flex items-center gap-3 px-3 py-2 rounded border border-line hover:bg-surface cursor-pointer">
                 <input
                   type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                   name="reviewer-selection"
                   checked={selectedReviewerKeys.includes(key)}
                   onChange={() => toggleReviewer(key)}
-                  className="rounded"
+                  className="rounded accent-ink"
                 />
-                <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>
+                <span className="text-sm text-ink">{REVIEWER_LABELS[key] ?? key}</span>
               </label>,
             ];
             // MR-LLM-LITE-1: render Lite sub-option indented below each full reviewer.
             if (liteKey) {
               rows.push(
-                <label key={liteKey} className="flex items-center gap-3 cursor-pointer pl-6">
+                <label key={liteKey} className="flex items-center gap-3 px-3 py-2 ml-6 rounded border border-line hover:bg-surface cursor-pointer">
                   <input
                     type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                     name="reviewer-selection"
                     checked={selectedReviewerKeys.includes(liteKey)}
                     onChange={() => toggleReviewer(liteKey)}
-                    className="rounded"
+                    className="rounded accent-ink"
                   />
-                  <span className="text-sm text-gray-500">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
+                  <span className="text-sm text-ink-secondary">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
                 </label>
               );
             }
@@ -258,15 +262,18 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
         )}
       </div>
       {advisoryText && (
-        <p className="text-xs text-gray-400 italic">{advisoryText}</p>
+        <p className="text-xs text-ink-secondary italic">{advisoryText}</p>
       )}
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-danger text-sm">{error}</p>}
       <button
         onClick={handleCreate}
         disabled={createMutation.isPending || selectedReviewers.length === 0}
-        className="w-full px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+        className="w-full px-4 py-2 text-sm rounded font-medium bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-50"
+        data-testid="start-review"
       >
-        {createMutation.isPending ? 'Creating Review Session…' : 'Start Review'}
+        {createMutation.isPending
+          ? 'Creating Review Session…'
+          : `Start review (${reviewerCount} reviewer${reviewerCount === 1 ? '' : 's'})`}
       </button>
     </div>
   );
@@ -1726,23 +1733,23 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         <div className={clsx('flex flex-col h-full w-full', !isWide && 'max-w-[960px]')}>
           {/* Header — REVIEW-SKIN-1 reskins the tokens in commit 2. Full-page carries the session
               context line ("Reviewing: title · Iteration N") + the session-preserving doc jump. */}
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-firm-navy flex-shrink-0">
-            <h2 className="text-white font-semibold text-sm truncate">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line bg-surface-2 flex-shrink-0">
+            <h2 className="text-ink font-semibold text-sm truncate">
               {isWide
-                ? 'Review Session'
+                ? 'Review session'
                 : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
             </h2>
             <div className="flex items-center gap-3 flex-shrink-0">
               {!isWide && currentVersion && (
                 <button
                   onClick={() => setShowDocOverlay(true)}
-                  className="text-white/80 hover:text-white text-xs underline-offset-2 hover:underline"
+                  className="text-ink-secondary hover:text-ink text-xs underline-offset-2 hover:underline"
                   data-testid="view-in-document"
                 >
                   View in document
                 </button>
               )}
-              <button onClick={handleClose} disabled={autoAbandonMutation.isPending} className="text-white/70 hover:text-white disabled:opacity-50" aria-label="Close review">
+              <button onClick={handleClose} disabled={autoAbandonMutation.isPending} className="text-ink-secondary hover:text-ink disabled:opacity-50" aria-label="Close review">
                 <X className="w-4 h-4" />
               </button>
             </div>
