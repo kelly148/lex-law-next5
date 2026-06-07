@@ -4,6 +4,28 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-1 LIVE-VERIFIED PASS) — DocumentDetail page-first, Pattern-16 on prod `c643954`
+
+**Disposition.** `operator approve RELAYOUT-1` (live-verified PASS). RELAYOUT-1 (DocumentDetail page-first canvas + version switcher) is **live-verified** on prod **`c643954`** (= origin/main HEAD; `/api/version` builtAt 2026-06-07T17:50Z; includes the feature merge `ddcee1b` #209). The "pending prod deploy + Pattern-16 live-verify" note on the merge entry below is now **resolved**. **One-writer coordination:** the CLI session's entry (below) recorded the MERGE; this records the LIVE-VERIFY. RELAYOUT-1 stays in `completed_engagements` (no membership change) — this is a history-append + STATE prepend.
+
+**G1 root-cause confirmation.** The defect (blank Content landing for any not-yet-accepted document) is gone because the render path now binds to the **full versions array — latest renderable version regardless of acceptance — NOT `substantive_version_id`/`final_version_id`** (spec §1.5 G1). Confirmed live on poa's doc `c534fa53` (the exact G1 case: v1 unaccepted draft, empty substantive/final counters): the draft body renders immediately, with no blank, no Version-History expansion, and no "select a version" interstitial; the version line reads `v1 · draft (current)`.
+
+**Evidence class.** Claude-driven UAT in the operator's Chrome (UNIVERSALTITLE, `kelly`), hard-reloaded, DOM-measured + screenshots; the formal live-verified verdict is the operator's (given). **All spec §1 items PASS:** text measure **718px** (target 720; latitude 680–740); sheet `max-w-[832px]` centered, radius 2px, **no shadow**, 0.8px warm hairline (`--border`), `--surface` bg, padding 48 T/B · 56 L/R, **Fraunces 16px / 1.65**, `--ink`; version switcher = compact dropdown `v1 · 6/6/2026 · draft` (v#·date·status) with the **draft-vs-accepted label present** and tracking the canvas; Version History demoted to collapsed provenance below the canvas (expanding never gates reading); furniture order exact (header → sendability one-line strip → tabs → Regenerate collapsed below tabs/above canvas → canvas dominant → Notes → VH); **export caption recolored to amber** (`--warning`, off oxblood); **exactly one oxblood** (Accept Substantive); Outline/Variables/References tabs all function; no-blank-path held across tab switch-and-back + two reloads with **zero console errors** (no #310 class); print = 6 `@media print` rules hiding chrome / keeping `main` (visual Ctrl+P fidelity = operator eyeball, R2 #9 precedent).
+
+**Render-test-covered (states not live-exercisable on prod's single-version poa)** — `documentCanvas.render.test.tsx` (PR #209), recorded as spot-check-at-first-natural-occurrence:
+- **No-version Generate-draft (single oxblood):** `no-version state: designed empty state with exactly one oxblood (Generate draft)`
+- **Superseded amber ribbon:** `non-current selection: renders the body + an amber (never red) return-to-current ribbon` (+ switcher `reflects a superseded/accepted selection and fires onSelect…`)
+- **Error / empty-body:** `empty-body version: in-sheet message + ghost Retry, never blank, never oxblood`
+- Also: generating / versions-loading / outline-scaffold-labeled; plus `versionStatus.test.ts` + `relayout1Print.source.test.ts`.
+
+**Two low-severity observations (not failures).** (1) The document title renders body-size/left-aligned because poa's draft source carries no heading markup — the canvas correctly does **not invent heading formatting** (spec §1.1 guardrail); the centered/larger title styling applies only where the source marks a heading. (2) Hanging-indent enumerators render visually with unbroken fill-in rules, but poa has no long-wrapping enumerated item to conclusively exercise true hanging-indent behavior — spot-check at first occurrence.
+
+**Open-incident cross-reference.** poa currently shows a pending conflict blocker from a **separate DB-target-mix-up incident** (unresolved) — independent of this UAT (the document renders regardless). The conflicts panel was **not touched** during this verification.
+
+**Build state.** main = prod = **`c643954`** (RELAYOUT-1 live). Gates unchanged (`CONFLICT_GATE_ENABLED` ON, `SENDABILITY_GATE_ENABLED` shadow/OFF). **Next filler:** RELAYOUT-2 (MatterDetail recital band v2) per disposition §4 / spec §2 (awaiting its go). Queue head remains **FOLD-PM-1** (Phase 4, not started — PM-1 go comes after the relayout track per operator).
+
+---
+
 ## 2026-06-07 (RELAYOUT-1 COMPLETE + MERGED -- DocumentDetail page-first; squash ddcee1b, PR #209, CI green) -- pending prod deploy + Pattern-16 live-verify
 
 **Disposition.** `operator approve push:RELAYOUT-1` ("go") then "merge with green". Built Phase A, pushed, PR #209 into `main`, **CI green** (Lint + Type Check + Tests on both runs), **squash-merged as `ddcee1b`**, branch deleted (local + remote). **main = `ddcee1b`; prod still `827bd71`** (display change NOT live until deploy). Display-only; **no backend, no migration, flags untouched** (`CONFLICT_GATE_ENABLED` ON, `SENDABILITY_GATE_ENABLED` OFF). Section-3.1 checkpoint was **skip** (rode the parent RELAYOUT triad; spec v1.1 §1 operator-signed).
