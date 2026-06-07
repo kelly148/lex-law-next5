@@ -4,6 +4,26 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-3 LIVE-VERIFIED PASS → COMPLETED — review-session layout workspace + REVIEW-SKIN-1 + RELAYOUT-3-FIX-1; Pattern-16 on prod `8e4a4a6`)
+
+**Disposition.** `operator approve live-verified:RELAYOUT-3`. RELAYOUT-3 (review-session split/full-page layout workspace + REVIEW-SKIN-1, feature `541a1b5` PR #216) **plus RELAYOUT-3-FIX-1** (`8e4a4a6` PR #218) **live-verified** on prod **`8e4a4a6`** (`/api/version` commit=8e4a4a6, builtAt 2026-06-07T22:09:36Z) → **COMPLETED**. Operator deployed 8e4a4a6 (Railway, MODE B, no migrations) before the re-UAT. main = prod = `8e4a4a6`. This is the **single deferred Rule-16 close-out** covering RELAYOUT-3 + FIX-1 + the re-UAT in one write.
+
+**Why FIX-1 existed.** RELAYOUT-3's first UAT passed the core (split, REVIEW-SKIN-1, active-tree mount, no #310) but surfaced three issues, fixed in FIX-1 (three client-only files, no backend/migration): (1) `globals.css` — rail-collapse made deterministic with `!important` (was overlay-masked, not truly collapsing); (2) `ReviewPane.tsx` — breakpoint 1360→**1376** (honest fit); (3) `main.tsx` (+29 lines) — stale code-split-chunk recovery handler (fixed the `/matters` blank seen mid-deploy).
+
+**Re-UAT evidence (Claude-driven, Chrome "UNIVERSALTITLE" as kelly, live viewport 1536px, DOM-measured + screenshot, ALL PASS).** The three FIX-1 deltas: (1) **`/matters` chunk-recovery** — renders "2 matters" + heading on fresh load AND hard-reload, root populated, **no blank**, console clean; (2) **rail genuine 56px collapse** — `<nav>` measured **55px**, nav label spans computed `display:none`/width 0 (icons-only, **not overlay-masked**) — the deterministic `!important` collapse; (3) **breakpoint 1376 honest fit** — at 1536 `data-review-layout="wide"`, the active-session split seats **rail 55 + read-only doc-ref pane ~600 (measured 572, zero action buttons, no oxblood) + hairline divider + review pane (x=676, w=760, h=791)** = ~1436 < 1536, ~100px margin, no cramping. Core re-confirmed (FIX-1-untouched): split present; **REVIEW-SKIN-1** (surface-2 header + ghost ✕ close + "Review session"; **ink checkboxes** `accentColor rgb(23,25,28)`, not blue; **oxblood "Start review (1 reviewer)"** `rgb(110,36,54)` w/ live count); **active review tree mounted** and rendered a reviewer error as a **graceful error card** (red icon, "Reviewer failed to return feedback"), **not a blank/crash** — console clean of React #310/Minified errors (the #310 robustness demonstrated).
+
+**Not live-exercisable (documented + accepted).** The sub-1376 G6 resize transition — the Chrome viewport is **hard-clamped at 1536** (resized outer window to 1370, `innerWidth` stayed 1536). Covered by `reviewWorkspace.render.test.tsx` (same review-slot node persists across the breakpoint = no-remount proof).
+
+**Observations (reviewer-layer, NOT RELAYOUT-3 defects).** (a) the run hit **gemini-2.5-flash invalid-JSON** — the known `GEMINI-STRUCTURED-OUTPUT-INVALID-JSON` carryforward; app handled it gracefully. (b) **"Claude" was selected yet gemini-2.5-flash ran** — an unexpected reviewer-routing observation worth a future look, firmly outside RELAYOUT-3's display-only scope.
+
+**Cleanup.** Abandoned the session I created → poa document clean (no new stuck session). Pre-existing stuck session + synthetic-data cleanup remain under **LLN-PROD-CLEANUP-1**; anchoring spot-check still deferred to the first natural reviewer feedback.
+
+**Build state.** main = prod = **`8e4a4a6`**. Gates unchanged (CONFLICT ON, SENDABILITY shadow/OFF). Open chips: RELAYOUT-2-STRIP-CLEANUP, MATTERSTATE-BADGE-1, G4-INIT.
+
+**Queue.** Next = **FOLD-PM-1** (Phase 4; fresh `fold/phase-4` off `main` per Rule 17; not started).
+
+---
+
 ## 2026-06-07 (RELAYOUT-3 BUILD COMPLETE + MERGED — review-session layout workspace + REVIEW-SKIN-1; squash 541a1b5, PR #216) — awaiting prod deploy + Pattern-16
 
 **Disposition.** Operator GO on the G6 confirmation + both design decisions (rail = body data-attribute + CSS; anchoring = focus event-delegation). RELAYOUT-3 BUILD COMPLETE; **one PR #216, two commits** — Scope A `0b0a9e4` (layout workspace), Scope B `3f56789` (REVIEW-SKIN-1). CI-green, squash-merged to `main` as **`541a1b5`**, branch deleted. Display-only; reversible; no backend/migration; flags untouched. `in_progress` cleared; **RELAYOUT-3 → `awaiting_live_verification`**.
