@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-1 PICKUP -- DocumentDetail page-first; Rule-11 registration, operator y) -- gates G1/G2 confirmed + adversarially verified; build not yet started
+
+**Disposition.** `operator y` to the Rule-11 registration. RELAYOUT-1 (DocumentDetail page-first) is now `in_progress`. It implements the operator-signed RELAYOUT design spec v1.1 section 1 (`...\_analytical\phase2\reviews\RELAYOUT_design_spec_2026-06-07.md`). Display-layer only; reversible; render-test-gated; **no backend, no migration; flags untouched (`CONFLICT_GATE_ENABLED` ON, `SENDABILITY_GATE_ENABLED` OFF)**. Section-3.1 checkpoint = **skip** (rides the parent RELAYOUT triad). Reversible build-and-PR lane (Rule 8); **feature branch off `main`, NOT a fold phase branch**; sole committer on the DocumentDetail surface; **stop-before-push** per operator.
+
+**Pre-build gates CONFIRMED (code + adversarial verification -- workflow `relayout-1-gate-verify`, 4 refutation agents, every claim held `refuted:false`).**
+- **G1 binding (satisfiable display-only):** `currentVersionId` is rewritten to the newest version at every generate/regenerate/render/finalize (`documents4a.ts:564/699/445/1160`, `reviewSession.ts:1363`); `acceptSubstantive` sets only the substantive counter, never `currentVersionId` (`documents4a.ts:800-804`); `version.list` returns the full newest-first array **with `content` on every row** (`content` notNull). The canvas can default to the latest renderable version with no backend change and cannot land blank. The current blank is the Content tab rendering a **collapsed** `VersionHistory` (expand-then-click), not a binding-to-counters bug.
+- **G1 labeling (derived, not stored):** the `versions` table has **no status column**; draft/substantive/final/superseded/current are derived from `currentVersionId` + `officialSubstantiveVersionNumber` + `officialFinalVersionNumber` vs each `versionNumber`, with a **precedence order (final > substantive > current > draft)**, matched by `versionNumber` except `current` (by `id`). One row can be current+substantive+final at once (accept-unformatted) -> precedence is a correctness requirement (unit-tested). Spec "failed" status has **no backing version row** (failures yield a `jobs` row) -> omit from the switcher.
+- **G2 (auto-select):** the two-gesture/blank landing lives entirely in `VersionHistory` local state (`expanded=false`, `selectedVersionId=null`, no auto-select); no server gate. Pre-selecting current is a pure display change.
+- **Token/print:** the export caption on `main` is `text-amber-600` (raw Tailwind palette, **not** oxblood) -> the "recolor" is a token-hygiene swap to the brand advisory token; no stray oxblood caption; the 3 `bg-accent` buttons are mutually exclusive (one-oxblood holds). The always-visible canvas **incidentally fixes a latent print-blank** (today the body sits behind the VH expand `button`, which `@media print` hides). New furniture gets `[data-no-print]`.
+
+**Design point to handle in the build (no scope change).** Server export selects the official substantive/final version in accepted/complete states, which can differ from the canvas default (latest) -- the draft-vs-accepted label reconciles this; the provenance line will state which version is operative/exported.
+
+**Build state.** main = prod = `5213f51`; nothing branched or written to code. Approach: extract a pure `DocumentCanvas` + `deriveVersionStatus()` (no trpc), render-test all canvas states per the existing jsdom/testing-library harness, re-verify the print stylesheet against the new container. Stop before push/PR for operator go.
+
+**Carryforwards unchanged.**
+
+---
+
 ## 2026-06-07 (FOLD-SEND-1 LIVE-VERIFIED PASS → COMPLETED · PHASE-3 FULLY CLOSED) — narrow Pattern-16 override-flow gap-fill on prod 827bd71
 
 **Disposition.** `operator approve live-verified:FOLD-SEND-1 pass`. FOLD-SEND-1 (export-safety / outbound-readiness gate, shadow mode) is **COMPLETED** → **Phase 3 fully closed** (L0-1 · KB-1 · ORCH-1 · DRAFT-1 · SEND-1 all built, deployed, and live-verified on prod). Gate stays **shadow** (`SENDABILITY_GATE_ENABLED` OFF); flip-to-enforce is a separate later operator decision on shadow-mode FP data.
