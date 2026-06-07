@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (FOLD-PM-1 REGISTERED in_progress — deadline/tickler engine, Phase-4 head; `fold/phase-4` off `main`; build PAUSED for operator go on Inc-1 plan + seed legal-verification)
+
+**Pickup.** FOLD-PM-1 (deadline/tickler engine) registered `in_progress` on operator pickup (Rule-11 y given in the prompt). Popped queue head → queue now FOLD-PM-2…FOLD-VERIFY-1. Per Rule 17, **branch `fold/phase-4` off `main` `acd2497`** — verified main contains RELAYOUT-3 (`541a1b5` + FIX-1 `8e4a4a6`, close-out done); no remote `fold/phase-4`; remaining remote branches are stale merged feature branches (no parallel builder on the deadline tree; sole committer).
+
+**Design status.** Already **triad-reviewed + operator-APPROVED** (`_analytical/phase2/reviews/FOLD-PM-1_consolidated_disposition_2026-06-07.md`; 3 returns all PROCEED-WITH-NAMED-CHANGES; packet `FOLD-PM-1_packet.md`). **§3.1 checkpoint triage = SKIP** — the FIRE is *dispositioned*; the 6 increments implement the reviewed design and ride the parent review (Rule 13). Would only re-FIRE on a new load-bearing irreversible decision the disposition didn't cover.
+
+**Scope.** Backend + **additive migrations ONLY** + UI; flag `DEADLINE_ENGINE_ENABLED` default OFF; **NO egress / autonomous action of any kind** by design (no email/push/calendar/filing — no egress exists). Repo stays `lex-law-next5`.
+
+**Hard gates carried.** **G-A** pre-freeze typed contract `computeDeadline(rule, anchorDate, calendar) → {dueDate, basis, constraints[]}` (constraints[] a first-class unresolved-input return; **presented for review BEFORE Inc 2**; consumed by 1031-1 + PM-4). **G-B** 1031 rules land **seeded-but-disabled**, activation hard-blocked on attorney-approved 1031-0 fixtures (interview 2026-06-08). **G-C** no silent states (pending_confirm fires ticklers under unconfirmed treatment; expired_unresolved permanent + projects open_item one-directional; per-matter coverage chip; absence never reads all-clear).
+
+**Increments (each reversible build-and-PR onto `fold/phase-4`; stop before push for operator go):** 1 data core (5 tables + revisions + holiday/contingency/corporate seeds operator-verified + 1031 seeds disabled; no behavior) → [G-A review] → 2 pure computation core + constraints[] + unit suite + read-only API → 3 instance lifecycle + ticklers + recompute + open_item projection + audit → 4 UI + render tests → 5 flag-ON Pattern-16 live-verify → 6 [BLOCKED on 1031-0 fixtures] 1031 activation.
+
+**Out-of-scope chips (named, NOT built):** DEADLINE-CHECKLIST-1 / DEADLINE-EXPORT-1 / DEADLINE-TEMPLATE-1 / DEADLINE-DEPENDENCY-1; recital-band deadline chip.
+
+**Build state.** main = prod = `8e4a4a6`; `fold/phase-4` = `acd2497` (registration bookkeeping committed locally, NOT pushed). Latest migration on main = 0020 → Inc 1 = 0021. Gates unchanged (CONFLICT ON, SENDABILITY shadow/OFF). **Inc-1 data-model + seed-content-for-legal-verification presented to operator in chat; BUILD PAUSED for the go** (seeds are legal content the builder must not assert as fact).
+
+---
+
 ## 2026-06-07 (RELAYOUT-3 LIVE-VERIFIED PASS → COMPLETED — review-session layout workspace + REVIEW-SKIN-1 + RELAYOUT-3-FIX-1; Pattern-16 on prod `8e4a4a6`)
 
 **Disposition.** `operator approve live-verified:RELAYOUT-3`. RELAYOUT-3 (review-session split/full-page layout workspace + REVIEW-SKIN-1, feature `541a1b5` PR #216) **plus RELAYOUT-3-FIX-1** (`8e4a4a6` PR #218) **live-verified** on prod **`8e4a4a6`** (`/api/version` commit=8e4a4a6, builtAt 2026-06-07T22:09:36Z) → **COMPLETED**. Operator deployed 8e4a4a6 (Railway, MODE B, no migrations) before the re-UAT. main = prod = `8e4a4a6`. This is the **single deferred Rule-16 close-out** covering RELAYOUT-3 + FIX-1 + the re-UAT in one write.
