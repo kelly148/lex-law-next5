@@ -25,7 +25,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
-import MatterReadinessStrip from '../components/MatterReadinessStrip.js';
+import MatterRecitalBand from '../components/MatterRecitalBand.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import MatterRecordLedger from '../components/MatterRecordLedger.js';
@@ -207,7 +207,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
 }
 
 interface EditMatterFormProps {
-  matter: { id: string; title: string; clientName: string | null; practiceArea: string | null };
+  matter: { id: string; title: string; clientName: string | null; practiceArea: string | null; jurisdiction?: string | null };
   onClose: () => void;
 }
 
@@ -215,11 +215,14 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
   const [title, setTitle] = useState(matter.title);
   const [clientName, setClientName] = useState(matter.clientName ?? '');
   const [practiceArea, setPracticeArea] = useState(matter.practiceArea ?? '');
+  // RELAYOUT-2: jurisdiction set/changed here (a deliberate act in its panel) since the recital
+  // band is status-only and no longer carries the inline VA/MD editor.
+  const [jurisdiction, setJurisdiction] = useState(matter.jurisdiction ?? '');
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const updateMutation = useGuardedMutation(
-    (input: { matterId: string; title?: string; clientName?: string | null; practiceArea?: string | null }) =>
+    (input: { matterId: string; title?: string; clientName?: string | null; practiceArea?: string | null; jurisdiction?: string | null }) =>
       utils.client.matter.updateMetadata.mutate(input),
     {
       onSuccess: () => {
@@ -239,6 +242,7 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
       title: title.trim(),
       clientName: clientName.trim() || null,
       practiceArea: practiceArea || null,
+      jurisdiction: jurisdiction || null,
     });
   };
 
@@ -273,6 +277,18 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
               onChange={(e) => setPracticeArea(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Governing Jurisdiction</label>
+            <select
+              value={jurisdiction}
+              onChange={(e) => setJurisdiction(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+            >
+              <option value="">— Not set —</option>
+              <option value="VA">Virginia</option>
+              <option value="MD">Maryland</option>
+            </select>
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex justify-end gap-3 pt-2">
@@ -380,8 +396,8 @@ export default function MatterDetail(): React.ReactElement {
         </div>
       </div>
 
-      {/* R2 #3 — matter-state header / readiness strip (the first thing you see) */}
-      <MatterReadinessStrip matterId={matterId} />
+      {/* RELAYOUT-2 — matter recital band v2 (the established record, read in one glance) */}
+      <MatterRecitalBand matterId={matterId} />
 
       {/* Documents section */}
       <div className="flex items-center justify-between mb-3">
