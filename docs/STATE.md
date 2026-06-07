@@ -4,6 +4,26 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (INCIDENT — poa spurious pending conflict blocker) — ROOT CAUSE: rolled-back synthetic-cleanup transaction (NOT a code bug); DB-identity ruled out
+
+**Symptom.** poa (`db2793f4…`) showed a pending BLOCKER conflict hit referencing synthetic matter `2a468f01…` ("ZZ UAT Conflict Verify 0606"); dispositioning it (cleared+rationale) appeared to "revert" to pending after re-running the check + hard reload.
+
+**Diagnosis (read-only).** Code review: `dispositionConflictHit` ([conflicts.ts:129](src/server/db/queries/conflicts.ts)) persists correctly (transactional UPDATE + audit event); `runConflictCheck` ([conflicts.ts:57](src/server/db/queries/conflicts.ts)) creates a NEW check + fresh `pending` hits on every run from LIVE `matter_parties` via `listOtherPartiesForOwner` ([matterParties.ts:150](src/server/db/queries/matterParties.ts) — no join to `matters`, no snapshot/history) and does NOT carry dispositions forward. So the "revert" was a NEW pending hit on a NEW check, not a failed write. **Both functions behaved correctly.**
+
+**DB-identity check (read-only).** The hypothesis that the SQL editor and the app read different clusters/branches was RULED OUT: app `DATABASE_URL` → TiDB Serverless STARTER cluster (user-prefix `3MeC7dtFWNx7Q16`, `gateway01.us-east-1`, db `lex_law_next`); the editor session = the same single cluster, no branch (Starter has none); `SELECT id,title,phase FROM matters` returned the app's exact three matters with identical UUIDs ("showing 3 rows from database lex_law_next"). Same database, proven. (Credential safety: only host/user-prefix/db were read from `DATABASE_URL`; the password was never captured.)
+
+**Root cause.** Stale synthetic data: matter `2a468f01` still had its 2 `matter_parties` rows (verified `COUNT=2`), one ("John Smith", adverse) normalizes-matching poa's confirmed client "John Smith" → the app legitimately re-detected the conflict on every check. The operator's belief that the parties were deleted (`count 0`) is explained by the **original Block-A cleanup transaction silently rolling back in the TiDB Cloud web SQL editor** — the deletes never committed. NOT a code defect.
+
+**Resolution.** Operator ran a parties-only `DELETE` (keyed to matterId; 2 rows affected; verified `COUNT=0`) + re-ran poa's conflict check in-app → "No conflict hits found" → poa CLEARED. The fuller synthetic purge of `2a468f01` (shell + documents/versions + conflict_checks/hits + open_items + matter_analysis + abandoned review session + sendability_override/evaluation; `audit_events` KEPT) is run as INDIVIDUAL auto-commit statements (NOT a transaction) to avoid the rollback class.
+
+**TiDB-editor transaction CAUTION (new, carry forward).** Multi-statement destructive cleanups wrapped in a single transaction in the TiDB Cloud web SQL editor can **silently roll back**, leaving the data intact. For destructive cleanups: run INDIVIDUAL auto-commit statements and VERIFY from a FRESH editor session.
+
+**Cleanup status (LLN-PROD-CLEANUP).** poa ZZ-parties **DONE** (verified `COUNT=0`); full `2a468f01` synthetic purge = SQL delivered, completes on operator run (expect all-zeros except `audit_events`).
+
+**Chips.** Disposition carry-forward across re-checks registered as a followup (`DISPOSITION-CARRYFORWARD-1`, §3.1 FIRE — triad before build). Chip corrections: this is **NOT** archive-don't-delete evidence (`task_158dd932` stands on principle only); the raw-UUID hit display (`task_bf9a7a3e`) remains a valid bug. **Build state:** no code change; `main` `65b4a5d`; flags untouched. (RELAYOUT-1 live-verify recorded separately below / PR #211 — not duplicated here.)
+
+---
+
 ## 2026-06-07 (RELAYOUT-1 LIVE-VERIFIED PASS) — DocumentDetail page-first, Pattern-16 on prod `c643954`
 
 **Disposition.** `operator approve RELAYOUT-1` (live-verified PASS). RELAYOUT-1 (DocumentDetail page-first canvas + version switcher) is **live-verified** on prod **`c643954`** (= origin/main HEAD; `/api/version` builtAt 2026-06-07T17:50Z; includes the feature merge `ddcee1b` #209). The "pending prod deploy + Pattern-16 live-verify" note on the merge entry below is now **resolved**. **One-writer coordination:** the CLI session's entry (below) recorded the MERGE; this records the LIVE-VERIFY. RELAYOUT-1 stays in `completed_engagements` (no membership change) — this is a history-append + STATE prepend.
