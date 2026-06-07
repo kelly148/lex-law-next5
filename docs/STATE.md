@@ -4,6 +4,45 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-2 BUILD COMPLETE + MERGED — MatterDetail recital band v2; squash 3956a07, PR #213, CI green) — awaiting prod deploy + Pattern-16
+
+**Disposition.** Operator GO on all three judgment calls. RELAYOUT-2 (MatterDetail recital band v2) BUILD COMPLETE; source PR #213 (3 files, explicit-path commit `f2ad205`) CI-green, squash-merged to `main` as **`3956a07`**, branch deleted. Display-only; reversible; no backend/migration; flags untouched (CONFLICT ON, SENDABILITY shadow). `in_progress` cleared; **RELAYOUT-2 → `awaiting_live_verification`** (user-visible; Pattern-16 after deploy).
+
+**What shipped.** `MatterRecitalBand.tsx` — a single banded row of seven two-line blocks (Jurisdiction · Client/parties · Conflicts · Sources · Open items · Document · Sendability), vertical hairlines not cards, warm surface + hairline + 8px radius + no shadow, `flex-wrap` (never horizontal-scroll), status-only, leading-dot emphasis, never oxblood / no blue, Fraunces for identity values. `MatterDetail.tsx` swapped strip→band and **preserved jurisdiction-set as a deliberate act in the Edit-matter modal** (band is status-only). `matterRecitalBand.render.test.tsx` (6 tests).
+
+**Gate rulings honored.** G3 Document ← `operativeDocument.workflowState` (MatterStateDashboard untouched). G4 Sendability ← `safeToSend.posture` band-wording-only — unknown→"Not checked", blocked|clear→"Advisory — review", **never green** until a real checked-signal exists (the strip's truthy-object over-green bug is eliminated by the band reading posture correctly). G5 Client ← `matterIntake.listParties` (no new endpoint). Conflicts never "No conflicts"; undispositioned hit = reserved severity tint (render-test-asserted exclusive).
+
+**Judgment calls (operator-approved).** (1) `MatterReadinessStrip` kept as **dead code** — deleting it would edit another engagement's assertion test (`r2_cta_oxblood.source.test.ts:103`) → chip **RELAYOUT-2-STRIP-CLEANUP** registered (its own small pass). (2) Jurisdiction-set in the Edit-matter modal. (3) "Hit awaiting disposition" without a count — accepted spec-conformant (a count needs a new read, forbidden by the no-new-computation gate). Chips also carried from pickup: MATTERSTATE-BADGE-1, G4-INIT.
+
+**Local gates green.** tsc clean · eslint clean · band render test 6/6 · strip test 4/4 · source-audits + `r2_cta_oxblood` green · client sweep 333/334 (the 1 fail = a pre-existing Windows-CRLF `\n`-literal source-scan on **untouched `DocumentDetail.tsx`**, green on CI — confirmed by #213's CI passing).
+
+**Build state.** main = **`3956a07`**; **prod still `c643954`** (RELAYOUT-2 is display-only, rides the next deploy). Gates unchanged.
+
+**MERGE ≠ DEPLOY.** The operator triggers the Railway deploy of `3956a07`; then the desktop session runs the Pattern-16 UAT. **UAT checklist:** all 7 blocks render with correct live state wording; conflicts = "Cleared" on poa (severity-tint render-test-covered — do NOT recreate a synthetic hit); sendability = "Not checked"/"Advisory — review" (never green); no oxblood/blue; one-viewport (collapsed stack still ~660px); stack below the band unmoved; no #310/console errors; **and verify the jurisdiction-set path is discoverable** now that it lives in the Edit-matter modal (band "Not set" is deliberately not clickable — confirm a reasonable user finds the edit pencil).
+
+**Queue.** After RELAYOUT-2 live-verify: **RELAYOUT-3** (review-pane, operator-signed disposition) → FOLD-PM-1.
+
+---
+
+## 2026-06-07 (RELAYOUT-2 PICKUP — MatterDetail recital band v2) — gates G3/G4/G5 dispositioned; branch handover; build not yet started
+
+**Pickup.** RELAYOUT-2 (MatterDetail recital band v2) registered in-progress (Rule-11, operator y). Branch `lex-next/relayout-2-recital-band` off main `04aee2d`; sole committer. Display-layer, reversible, render-test-gated, no backend/migration, flags untouched. Governing spec: `_analytical/phase2/reviews/RELAYOUT_design_spec_2026-06-07.md` §2 (operator-signed v1.1).
+
+**Branch handover (operator-directed, recorded).** The parallel **desktop** session's incident branch `lex-next/incident-conflict-bookkeeping` (`991ac83`, docs-only) was found **checked out in the SHARED working tree**. Pushed AS-IS (commit unedited) + shepherded to merge on the owning session's behalf for queue-unblock: PR #212, CI green, squash **`04aee2d`**, branch deleted; handover note left on the PR. **PROCESS NOTE:** two Code sessions share one working tree → **checkout state is a shared resource; a session must verify branch ownership before any write** (this pickup's `state.json` edits were initially blocked by exactly that check — confirmed I was on the parallel branch, stopped, handed it over, then branched clean).
+
+**Pre-build gate dispositions (operator rulings).**
+- **G3 CONFIRMED** — Document block (#6) binds to **`operativeDocument.workflowState`** (authoritative; consistent across doc card / header / strip). The "unknown" on the MatterStateDashboard header badge is `full.safeToSend.posture==='unknown'` — **sendability posture mislabeled, not a matter-state conflict** → handled by block #7 / G4. **Do not touch MatterStateDashboard.** Chip **MATTERSTATE-BADGE-1** registered (relabel that badge "Sendability"; one-line display, separate).
+- **G4 APPROVED band-wording-only** — read `safeToSend.posture` (NOT the truthy-object boolean): `unknown → "Not checked"` (neutral), `blocked → "Advisory — review"` (amber), `clear → "Advisory — review"` (amber, conservative). The band **never asserts green** until a real checked-signal exists. **Also fix the same truthy-object bug in `MatterReadinessStrip`** (the line being replaced: `deriveSafeToSend` (`matterState/index.ts:85`) returns an object, the strip coerced it to a truthy boolean → always green). Chip **G4-INIT** registered (wire a sendability-check-existence signal so green can be earned; touches eval path, separate).
+- **G5 APPROVED** — Client block reuses the existing **`matterIntake.listParties`** query (eager), deriving lead confirmed `role='client'` + count of others + unconfirmed count client-side; **never the header sub-line**; no new endpoint.
+
+**poa-cleared impact accepted.** The poa conflict blocker is RESOLVED (rolled-back cleanup tx, not a code bug). The band's conflict **severity-tint** therefore becomes **render-test-covered, NOT live-exercisable** on poa — do **not** recreate a synthetic hit; first natural hit is the live spot-check (RELAYOUT-1 precedent).
+
+**Review-pane question → RELAYOUT-3.** The operator's review-pane-width/full-page observation already went through its own triad today; operator-signed disposition at `_analytical/phase2/reviews/RELAYOUT3_consolidated_disposition_2026-06-07.md`, queued **immediately behind RELAYOUT-2, ahead of FOLD-PM-1**. My ad-hoc chip was dismissed as superseded.
+
+**Build state.** main = prod = (main `04aee2d` / prod `c643954`; RELAYOUT-2 is display-only, rides a later deploy). Gates unchanged (CONFLICT ON, SENDABILITY shadow). **Build to spec §2 next; STOP before push/PR for operator go.** Queue after RELAYOUT-2: RELAYOUT-3 → FOLD-PM-1.
+
+---
+
 ## 2026-06-07 (INCIDENT — poa spurious pending conflict blocker) — ROOT CAUSE: rolled-back synthetic-cleanup transaction (NOT a code bug); DB-identity ruled out
 
 **Symptom.** poa (`db2793f4…`) showed a pending BLOCKER conflict hit referencing synthetic matter `2a468f01…` ("ZZ UAT Conflict Verify 0606"); dispositioning it (cleared+rationale) appeared to "revert" to pending after re-running the check + hard reload.
