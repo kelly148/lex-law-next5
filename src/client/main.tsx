@@ -42,6 +42,35 @@ const queryClient = new QueryClient({
   },
 });
 
+// ── RELAYOUT-3-FIX: stale code-split chunk recovery ───────────────────────────────────────────
+// After a deploy, a tab still running the PREVIOUS index references old chunk hashes; a lazy route's
+// dynamic import then 404s ("Failed to fetch dynamically imported module") and React.lazy throws ->
+// blank screen. Vite emits `vite:preloadError`; reload once (timestamp-guarded against loops) to
+// fetch the current build. A generic unhandledrejection fallback covers non-Vite import failures.
+declare global {
+  interface WindowEventMap {
+    'vite:preloadError': Event;
+  }
+}
+const CHUNK_RELOAD_KEY = 'whereas:chunk-reload-at';
+function recoverFromStaleChunk(): void {
+  const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? '0');
+  if (Date.now() - last < 10_000) return; // reloaded < 10s ago — don't loop on a genuinely missing chunk
+  sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+  window.location.reload();
+}
+window.addEventListener('vite:preloadError', (e) => {
+  e.preventDefault();
+  recoverFromStaleChunk();
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason as { message?: string } | string | undefined;
+  const msg = typeof reason === 'string' ? reason : (reason?.message ?? '');
+  if (/Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(msg)) {
+    recoverFromStaleChunk();
+  }
+});
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('Root element not found. Check index.html.');

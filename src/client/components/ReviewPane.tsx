@@ -1632,7 +1632,9 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
   // G6 (hard gate): the review subtree below REFLOWS, never REMOUNTS, across the breakpoint —
   // it sits at one stable, keyed slot; only the document-reference pane mounts/unmounts. All
   // hooks run unconditionally before the single return (the #310 lesson).
-  const BREAKPOINT = '(min-width: 1360px)';
+  // RELAYOUT-3-FIX: 1376, not 1360 — the honest-fit floor (collapsed rail 56 + doc 620 + review 700
+  // = 1376). Below this the review pane would compress under its 700px floor, so fall to full-page.
+  const BREAKPOINT = '(min-width: 1376px)';
   const [isWide, setIsWide] = useState<boolean>(
     () => typeof window !== 'undefined' && window.matchMedia(BREAKPOINT).matches,
   );
