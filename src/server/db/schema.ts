@@ -26,6 +26,7 @@ import {
   char,
   varchar,
   timestamp,
+  date,
   json,
   mysqlEnum,
   int,
@@ -2200,3 +2201,159 @@ export const kbEvents = mysqlTable(
 );
 export type KbEvent = typeof kbEvents.$inferSelect;
 export type NewKbEvent = typeof kbEvents.$inferInsert;
+
+// ============================================================
+// FOLD-PM-1 — deadline / tickler engine data core (Increment 1)
+// ============================================================
+// Phase-4 head. The first feature that computes legally consequential dates. Design triad-reviewed +
+// operator-APPROVED (FOLD-PM-1_consolidated_disposition_2026-06-07.md). Inc 1 = tables + schemas +
+// idempotent seeds; NO behavior; flag DEADLINE_ENGINE_ENABLED default OFF; NO egress/autonomous action
+// exists anywhere by design. Enum values mirror src/shared/schemas/deadline.ts (Zod Wall). Additive
+// only; nullable owner key (NULL = firm default); ownerScope() at the query layer; camelCase FKs.
+//
+// G-A: constraints are a first-class unresolved-input concept (the engine never emits a confidently
+//   wrong compound date). The runtime computeDeadline() contract freezes at the G-A review (pre Inc 2);
+//   here we store only the rule-declared constraintsSpec + the per-instance resolved snapshot.
+// G-B: 1031 rules are SEEDED with enabled=false; activation is hard-blocked on attorney-approved
+//   1031-0 fixtures. Disabled state is unmistakable in the data (deadline_rule.enabled = 0).
+// G-C: pending_confirm + expired_unresolved are first-class statuses (no silent states).
+// ============================================================
+export const DEADLINE_FAMILY_VALUES = [
+  'exchange_1031', 'contract_contingency', 'closing_recording', 'trust_funding', 'corporate_filing',
+] as const;
+export const DAY_CONVENTION_VALUES = ['calendar_no_roll', 'calendar_roll_forward', 'business_days'] as const;
+export const ROLL_RULE_VALUES = ['none', 'next_business_day', 'previous_business_day'] as const;
+export const DEADLINE_STATUS_VALUES = [
+  'pending_confirm', 'active', 'satisfied', 'waived', 'expired_unresolved',
+] as const;
+export const ANCHOR_SOURCE_VALUES = ['attorney_entered', 'document_linked'] as const;
+
+// deadline_rule — a rule's identity + enable switch + pointer to its current immutable revision.
+export const deadlineRule = mysqlTable(
+  'deadline_rule',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }), // NULL = firm default
+    family: mysqlEnum('family', DEADLINE_FAMILY_VALUES).notNull(),
+    ruleKey: varchar('ruleKey', { length: 128 }).notNull(), // stable id for idempotent seeding + lookup
+    label: varchar('label', { length: 256 }).notNull(),
+    enabled: boolean('enabled').notNull().default(false), // 1031 seeds land disabled (G-B)
+    currentRevisionId: char('currentRevisionId', { length: 36 }), // operative revision pointer
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxDeadlineRuleFamily: index('idx_deadline_rule_family').on(table.family),
+    uqDeadlineRuleKey: uniqueIndex('uq_deadline_rule_key').on(table.ruleKey),
+  }),
+);
+
+// deadline_rule_revision — IMMUTABLE legal-content snapshot. A rule edit writes a NEW revision; a
+// matter_deadline that snapshotted an older revision keeps its historical basis (never silently mutates).
+export const deadlineRuleRevision = mysqlTable(
+  'deadline_rule_revision',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    ruleId: char('ruleId', { length: 36 }).notNull(),
+    jurisdiction: varchar('jurisdiction', { length: 16 }), // NULL = federal/any
+    anchorType: varchar('anchorType', { length: 64 }).notNull(),
+    offsetDays: int('offsetDays'), // NULL = recurrence/fixed-date driven (no simple offset)
+    dayConvention: mysqlEnum('dayConvention', DAY_CONVENTION_VALUES).notNull(),
+    rollRule: mysqlEnum('rollRule', ROLL_RULE_VALUES).notNull(),
+    recurrence: json('recurrence'), // null | {type:'annual_fixed',month,day} | {type:'annual_anniversary_month_end'}
+    leadTimeDefaults: json('leadTimeDefaults').notNull(), // number[] of lead days (T-N)
+    constraintsSpec: json('constraintsSpec'), // null | DeadlineConstraintSpec[] (rule-declared compound caps)
+    sourceTag: varchar('sourceTag', { length: 256 }).notNull(), // attorney-verified legal authority
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxDeadlineRevRule: index('idx_deadline_rev_rule').on(table.ruleId),
+  }),
+);
+
+// matter_deadline — per-matter instance (computed from a rule revision, or manual). anchorDate is
+// visibly attorney-asserted. status lifecycle per G-C (pending_confirm fires ticklers; expired_unresolved
+// is permanent until a reasoned satisfy/waive).
+export const matterDeadline = mysqlTable(
+  'matter_deadline',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    ruleRevisionId: char('ruleRevisionId', { length: 36 }), // NULL = manual/ad-hoc (first-class)
+    family: mysqlEnum('family', DEADLINE_FAMILY_VALUES).notNull(),
+    description: varchar('description', { length: 512 }).notNull(),
+    anchorType: varchar('anchorType', { length: 64 }).notNull(),
+    anchorDate: date('anchorDate', { mode: 'string' }).notNull(), // date-only, America/New_York
+    anchorSource: mysqlEnum('anchorSource', ANCHOR_SOURCE_VALUES).notNull(),
+    anchorBasis: text('anchorBasis'),
+    anchorDocumentId: char('anchorDocumentId', { length: 36 }), // deadline<->source-document linkage
+    computedDueDate: date('computedDueDate', { mode: 'string' }),
+    constraints: json('constraints').notNull(), // resolved DeadlineConstraint[] snapshot (may be [])
+    attorneyOverrideDate: date('attorneyOverrideDate', { mode: 'string' }),
+    overrideReason: text('overrideReason'), // required when override set (app layer)
+    status: mysqlEnum('status', DEADLINE_STATUS_VALUES).notNull().default('pending_confirm'),
+    confirmedByUserId: char('confirmedByUserId', { length: 36 }),
+    confirmedAt: timestamp('confirmedAt'),
+    ruleSnapshot: json('ruleSnapshot'), // operative rule fields snapshotted at confirmation
+    dispositionBasis: text('dispositionBasis'), // basis on satisfy/waive (satisfy records a basis too)
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxMatterDeadlineMatter: index('idx_matter_deadline_matter').on(table.userId, table.matterId),
+    idxMatterDeadlineStatus: index('idx_matter_deadline_status').on(table.userId, table.status),
+  }),
+);
+
+// tickler — per-deadline lead-time reminder rows, materialized over a rolling 12-month horizon and
+// refreshed deterministically on-load. ack/snooze keyed to the LOGICAL lead-time (leadDays) so the
+// state survives regeneration on recompute.
+export const tickler = mysqlTable(
+  'tickler',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterDeadlineId: char('matterDeadlineId', { length: 36 }).notNull(),
+    leadDays: int('leadDays').notNull(), // logical lead-time; ack/snooze keys to this
+    fireAt: date('fireAt', { mode: 'string' }).notNull(),
+    acknowledgedByUserId: char('acknowledgedByUserId', { length: 36 }),
+    acknowledgedAt: timestamp('acknowledgedAt'),
+    snoozedUntil: date('snoozedUntil', { mode: 'string' }),
+    snoozeReason: text('snoozeReason'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxTicklerDeadline: index('idx_tickler_deadline').on(table.matterDeadlineId),
+    idxTicklerUserFire: index('idx_tickler_user_fire').on(table.userId, table.fireAt),
+  }),
+);
+
+// holiday_calendar — jurisdiction + date + label; business-day math unions US (federal) + the matter's
+// state. A coverage guard (computation core) returns a CONSTRAINT past the seeded range, never assumes.
+export const holidayCalendar = mysqlTable(
+  'holiday_calendar',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    jurisdiction: varchar('jurisdiction', { length: 16 }).notNull(), // 'US' | 'VA' | 'MD'
+    date: date('date', { mode: 'string' }).notNull(),
+    label: varchar('label', { length: 256 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    uqHolidayJurisdictionDate: uniqueIndex('uq_holiday_jurisdiction_date').on(table.jurisdiction, table.date),
+  }),
+);
+
+export type DeadlineRule = typeof deadlineRule.$inferSelect;
+export type NewDeadlineRule = typeof deadlineRule.$inferInsert;
+export type DeadlineRuleRevision = typeof deadlineRuleRevision.$inferSelect;
+export type NewDeadlineRuleRevision = typeof deadlineRuleRevision.$inferInsert;
+export type MatterDeadline = typeof matterDeadline.$inferSelect;
+export type NewMatterDeadline = typeof matterDeadline.$inferInsert;
+export type Tickler = typeof tickler.$inferSelect;
+export type NewTickler = typeof tickler.$inferInsert;
+export type HolidayCalendar = typeof holidayCalendar.$inferSelect;
+export type NewHolidayCalendar = typeof holidayCalendar.$inferInsert;
