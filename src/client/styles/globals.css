@@ -84,3 +84,19 @@
     break-inside: avoid;
   }
 }
+
+/* RELAYOUT-3: collapse the app rail to ~56px icons while a WIDE review layout is active
+   (html[data-review-layout="wide"], set by the review workspace). CSS-only — the rail stays
+   mounted; only its width + label visibility change. Unlayered, so it beats Tailwind's layered
+   width utility on the aside. Full-page review (data-review-layout="fullpage") leaves the rail
+   untouched (the workspace covers it as an intentional screen). */
+html[data-review-layout='wide'] [data-app-rail] {
+  width: 3.5rem;
+}
+html[data-review-layout='wide'] [data-app-rail] [data-rail-label] {
+  display: none;
+}
+html[data-review-layout='wide'] [data-app-rail] nav a,
+html[data-review-layout='wide'] [data-app-rail] > div > button {
+  justify-content: center;
+}

@@ -54,6 +54,10 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
 
   // 2. MatterDetail composite + matter panels + Review surfaces promote NONE — zero oxblood fill.
   //    (`bg-accent-tint` pills are unaffected: this checks the solid-fill signature only.)
+  //    RELAYOUT-3 / REVIEW-SKIN-1 (operator-signed) carved ReviewPane.tsx OUT of this list: the
+  //    reviewer-selection state now carries ONE oxblood primary ("Start review (N)"), and the
+  //    active state's one oxblood is Regenerate — one-oxblood-PER-VIEW-STATE, not zero. ReviewPane
+  //    still appears in the GHOST-containing assertion below (it keeps its ghost controls).
   const ghostEverywhere = [
     `${PAGES}/MatterDetail.tsx`,
     `${COMP}/MatterIntakePanel.tsx`, `${COMP}/MatterStateDashboard.tsx`,
@@ -61,7 +65,7 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
     `${COMP}/ProvisionProvenancePanel.tsx`, `${COMP}/LddDiffPanel.tsx`,
     `${COMP}/OrchestrationConsolidationPanel.tsx`, `${COMP}/ExportSafetyPanel.tsx`,
     `${COMP}/MatterRecordLedger.tsx`, `${COMP}/ContextPreviewPanel.tsx`,
-    `${COMP}/MaterialsDrawer.tsx`, `${COMP}/ReviewPane.tsx`, `${COMP}/MatterReadinessStrip.tsx`,
+    `${COMP}/MaterialsDrawer.tsx`, `${COMP}/MatterReadinessStrip.tsx`,
   ];
   for (const rel of ghostEverywhere) {
     it(`${rel.split('/').pop()}: promotes nothing to oxblood (no bg-accent fill)`, () => {

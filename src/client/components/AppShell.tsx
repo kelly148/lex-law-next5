@@ -55,37 +55,39 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
     <div className="flex min-h-screen">
       {/* R2 #8 — nav-only command palette (Ctrl/Cmd-K); available on every protected page. */}
       <CommandPalette />
-      {/* Sidebar — Whereas light rail */}
-      <aside className="w-56 bg-surface-2 flex flex-col flex-shrink-0 border-r border-line">
+      {/* Sidebar — Whereas light rail. RELAYOUT-3: collapses to ~56px icons when a wide review
+          layout is active (html[data-review-layout="wide"]); see the globals.css rule. The rail
+          stays mounted — only its width + label visibility change (CSS-only, no remount). */}
+      <aside data-app-rail className="w-56 bg-surface-2 flex flex-col flex-shrink-0 border-r border-line transition-[width] duration-150">
         {/* Wordmark — serif (Fraunces); the comma is the oxblood recital mark. */}
         <div className="px-4 py-5 border-b border-line">
           <div className="flex items-center gap-2">
-            <span className="font-serif text-xl font-medium text-ink">
+            <span data-rail-label className="font-serif text-xl font-medium text-ink">
               Whereas<span className="text-accent">,</span>
             </span>
           </div>
           {user && (
-            <p className="text-ink-hint text-xs mt-1 truncate">{user.displayName}</p>
+            <p data-rail-label className="text-ink-hint text-xs mt-1 truncate">{user.displayName}</p>
           )}
         </div>
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1">
           <NavLink to="/matters" className={navLinkClass}>
-            <FileText className="w-4 h-4" />
-            Matters
+            <FileText className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Matters</span>
           </NavLink>
           <NavLink to="/templates" className={navLinkClass}>
-            <FileText className="w-4 h-4" />
-            Templates
+            <FileText className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Templates</span>
           </NavLink>
           <NavLink to="/upload-format" className={navLinkClass}>
-            <FilePlus className="w-4 h-4" />
-            Upload &amp; Format
+            <FilePlus className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Upload &amp; Format</span>
           </NavLink>
           <NavLink to="/settings" className={navLinkClass}>
-            <Settings className="w-4 h-4" />
-            Settings
+            <Settings className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Settings</span>
           </NavLink>
         </nav>
 
@@ -96,8 +98,8 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             disabled={logoutMutation.isPending}
             className="flex items-center gap-2 px-3 py-2 w-full rounded text-sm font-medium text-ink-secondary hover:text-ink hover:bg-surface transition-colors disabled:opacity-50"
           >
-            <LogOut className="w-4 h-4" />
-            Sign out
+            <LogOut className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Sign out</span>
           </button>
         </div>
       </aside>

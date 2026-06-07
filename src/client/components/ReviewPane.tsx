@@ -24,7 +24,7 @@
  * Ch 35.3 — No business logic in React.
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, AlertCircle, Lock, Unlock } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
@@ -36,6 +36,7 @@ import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
 import LddDiffPanel from './LddDiffPanel.js';
 import ExportSafetyPanel from './ExportSafetyPanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
+import DocumentReferencePane from './DocumentReferencePane.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -212,43 +213,47 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
   const enabledReviewerList = settings
     ? Object.entries(settings.reviewerEnablement).filter(([, v]) => v).map(([k]) => k)
     : [];
+  // REVIEW-SKIN-1: styling only — no change to reviewer-enablement logic, selection state, or
+  // session creation. Calm hairline rows; ink (not blue) checkbox accent; the one oxblood primary
+  // is "Start review (N)" with a live count, disabled at zero (the deliberate-act count echo).
+  const reviewerCount = selectedReviewers.length;
   return (
-    <div className="p-6 space-y-4">
-      <p className="text-sm text-gray-600">
+    <div className="p-6 space-y-4" data-testid="reviewer-selection">
+      <p className="text-sm text-ink-secondary">
         {multiReviewerEnabled
           ? 'Select one or more reviewers for the next review. Only enabled reviewers are shown.'
           : 'Select a reviewer for the next review. Only enabled reviewers are shown.'}
       </p>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {enabledReviewerList.length === 0 ? (
-          <p className="text-sm text-gray-400">No reviewers enabled. Enable reviewers in Settings.</p>
+          <p className="text-sm text-ink-secondary">No reviewers enabled. Enable reviewers in settings.</p>
         ) : (
           enabledReviewerList.flatMap((key) => {
             const liteKey = REVIEWER_LITE_KEY[key];
             const rows = [
-              <label key={key} className="flex items-center gap-3 cursor-pointer">
+              <label key={key} className="flex items-center gap-3 px-3 py-2 rounded border border-line hover:bg-surface cursor-pointer">
                 <input
                   type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                   name="reviewer-selection"
                   checked={selectedReviewerKeys.includes(key)}
                   onChange={() => toggleReviewer(key)}
-                  className="rounded"
+                  className="rounded accent-ink"
                 />
-                <span className="text-sm text-gray-800">{REVIEWER_LABELS[key] ?? key}</span>
+                <span className="text-sm text-ink">{REVIEWER_LABELS[key] ?? key}</span>
               </label>,
             ];
             // MR-LLM-LITE-1: render Lite sub-option indented below each full reviewer.
             if (liteKey) {
               rows.push(
-                <label key={liteKey} className="flex items-center gap-3 cursor-pointer pl-6">
+                <label key={liteKey} className="flex items-center gap-3 px-3 py-2 ml-6 rounded border border-line hover:bg-surface cursor-pointer">
                   <input
                     type={multiReviewerEnabled ? 'checkbox' : 'radio'}
                     name="reviewer-selection"
                     checked={selectedReviewerKeys.includes(liteKey)}
                     onChange={() => toggleReviewer(liteKey)}
-                    className="rounded"
+                    className="rounded accent-ink"
                   />
-                  <span className="text-sm text-gray-500">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
+                  <span className="text-sm text-ink-secondary">{REVIEWER_LABELS[liteKey] ?? liteKey}</span>
                 </label>
               );
             }
@@ -257,15 +262,18 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
         )}
       </div>
       {advisoryText && (
-        <p className="text-xs text-gray-400 italic">{advisoryText}</p>
+        <p className="text-xs text-ink-secondary italic">{advisoryText}</p>
       )}
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && <p className="text-danger text-sm">{error}</p>}
       <button
         onClick={handleCreate}
         disabled={createMutation.isPending || selectedReviewers.length === 0}
-        className="w-full px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+        className="w-full px-4 py-2 text-sm rounded font-medium bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-50"
+        data-testid="start-review"
       >
-        {createMutation.isPending ? 'Creating Review Session…' : 'Start Review'}
+        {createMutation.isPending
+          ? 'Creating Review Session…'
+          : `Start review (${reviewerCount} reviewer${reviewerCount === 1 ? '' : 's'})`}
       </button>
     </div>
   );
@@ -1620,34 +1628,162 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-end z-50">
-      <div className="w-full max-w-lg h-full max-h-screen bg-white shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-firm-navy">
-          <h2 className="text-white font-semibold text-sm">Review Session</h2>
-          <button onClick={handleClose} disabled={autoAbandonMutation.isPending} className="text-white/70 hover:text-white disabled:opacity-50">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  // ── RELAYOUT-3: responsive review workspace (split at desktop width, full-page below) ──
+  // G6 (hard gate): the review subtree below REFLOWS, never REMOUNTS, across the breakpoint —
+  // it sits at one stable, keyed slot; only the document-reference pane mounts/unmounts. All
+  // hooks run unconditionally before the single return (the #310 lesson).
+  const BREAKPOINT = '(min-width: 1360px)';
+  const [isWide, setIsWide] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.matchMedia(BREAKPOINT).matches,
+  );
+  // Doc-pane-only anchoring target (verbatim quote of the focused feedback item). NEVER review state.
+  const [anchorQuote, setAnchorQuote] = useState<string | null>(null);
+  // Full-page "view in document" overlay (session-preserving: the review tree stays mounted beneath).
+  const [showDocOverlay, setShowDocOverlay] = useState(false);
 
-        {/* Content — wrapped in a pane-level error boundary (R2-1 survivability): a render throw
-            in the view body degrades to a designed full-pane notice that names what is intact and
-            offers a way out, instead of white-screening the whole review (the #310 failure mode). */}
-        <div className="flex-1 overflow-hidden flex flex-col">
-          <PanelErrorBoundary variant="pane" label="Review session" onClose={handleClose}>
-            {sessionId ? (
-              <ActiveSessionView sessionId={sessionId} documentId={documentId} onClose={onClose} />
-            ) : (
-              <CreateSessionView
-                documentId={documentId}
-                iterationNumber={iterationNumber}
-                onCreated={(id) => setSessionId(id)}
-              />
-            )}
-          </PanelErrorBoundary>
+  // Reads for the read-only document-reference pane (the workspace owns them; presentational pane).
+  const { data: workspaceDoc } = trpc.document.get.useQuery({ documentId });
+  const { data: workspaceVersions, isLoading: workspaceVersionsLoading } = trpc.version.list.useQuery({ documentId });
+
+  // Container-width breakpoint via matchMedia (stable; no measure feedback loop).
+  useEffect(() => {
+    // The lazy useState initializer above set the correct initial value; this only subscribes to
+    // subsequent breakpoint changes (no setState in the effect body — react-hooks/set-state-in-effect).
+    const mq = window.matchMedia(BREAKPOINT);
+    const onChange = (e: MediaQueryListEvent): void => setIsWide(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Rail-collapse signal: AppShell collapses its rail to icons via this data-attribute. Cleared on
+  // unmount so navigating away restores the full rail. Display side effect only.
+  useEffect(() => {
+    const el = document.documentElement;
+    el.dataset.reviewLayout = isWide ? 'wide' : 'fullpage';
+    return () => { delete el.dataset.reviewLayout; };
+  }, [isWide]);
+
+  // Anchoring: when a feedback item gains focus, hand its verbatim text to the doc pane to scroll +
+  // highlight. Doc-pane-only — it reads the existing DOM (review tree byte-identical) and never
+  // mutates review state. Active only in split mode (the doc pane exists).
+  const handleReviewFocus = useCallback((e: React.FocusEvent<HTMLElement>): void => {
+    let node: HTMLElement | null = e.target;
+    let best = '';
+    for (let i = 0; i < 5 && node && node !== e.currentTarget; i++) {
+      const t = node.textContent ?? '';
+      if (t.length > best.length) best = t;
+      node = node.parentElement;
+    }
+    if (best.trim().length >= 16) setAnchorQuote(best.trim().slice(0, 240));
+  }, []);
+
+  const versionList = workspaceVersions ?? [];
+  const currentVersion = versionList.find((v) => v.id === (workspaceDoc?.currentVersionId ?? null)) ?? versionList[0] ?? null;
+  const docTitle = workspaceDoc?.title ?? null;
+
+  // The review subtree — created ONCE and rendered at the single stable slot in BOTH modes.
+  const reviewBody = (
+    <PanelErrorBoundary variant="pane" label="Review session" onClose={handleClose}>
+      {sessionId ? (
+        <ActiveSessionView sessionId={sessionId} documentId={documentId} onClose={onClose} />
+      ) : (
+        <CreateSessionView
+          documentId={documentId}
+          iterationNumber={iterationNumber}
+          onCreated={(id) => setSessionId(id)}
+        />
+      )}
+    </PanelErrorBoundary>
+  );
+
+  return (
+    <div
+      className={clsx(
+        'fixed z-40 bg-paper flex',
+        isWide ? 'inset-y-0 right-0 left-14' : 'inset-0 flex-col',
+      )}
+      data-testid="review-workspace"
+      data-mode={isWide ? 'split' : 'fullpage'}
+    >
+      {/* WIDE ONLY — the read-only document reference + its hairline divider. This is the ONLY part
+          that mounts/unmounts across the breakpoint (G6); the review slot below never does. */}
+      {isWide && (
+        <div key="doc-ref" className="w-[600px] xl:w-[620px] flex-shrink-0 h-full border-r border-line" data-testid="review-doc-pane-wrap">
+          <DocumentReferencePane
+            documentId={documentId}
+            anchorQuote={anchorQuote}
+            version={currentVersion}
+            hasAnyVersion={versionList.length > 0}
+            isLoading={workspaceVersionsLoading}
+          />
         </div>
-      </div>
+      )}
+
+      {/* REVIEW SLOT — STABLE keyed slot. Identical mounted subtree in both modes; only className
+          changes (reflow). ActiveSessionView never remounts/re-inits/re-fetches across the breakpoint. */}
+      <section
+        key="review-slot"
+        data-testid="review-slot"
+        onFocusCapture={handleReviewFocus}
+        className={clsx(
+          'h-full flex flex-col bg-surface min-w-0',
+          isWide ? 'flex-1 max-w-[760px]' : 'w-full items-center',
+        )}
+      >
+        <div className={clsx('flex flex-col h-full w-full', !isWide && 'max-w-[960px]')}>
+          {/* Header — REVIEW-SKIN-1 reskins the tokens in commit 2. Full-page carries the session
+              context line ("Reviewing: title · Iteration N") + the session-preserving doc jump. */}
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line bg-surface-2 flex-shrink-0">
+            <h2 className="text-ink font-semibold text-sm truncate">
+              {isWide
+                ? 'Review session'
+                : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
+            </h2>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {!isWide && currentVersion && (
+                <button
+                  onClick={() => setShowDocOverlay(true)}
+                  className="text-ink-secondary hover:text-ink text-xs underline-offset-2 hover:underline"
+                  data-testid="view-in-document"
+                >
+                  View in document
+                </button>
+              )}
+              <button onClick={handleClose} disabled={autoAbandonMutation.isPending} className="text-ink-secondary hover:text-ink disabled:opacity-50" aria-label="Close review">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Content — pane-level error boundary (R2-1 survivability): a render throw degrades to a
+              designed full-pane notice instead of white-screening the review (the #310 failure mode). */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {reviewBody}
+          </div>
+        </div>
+      </section>
+
+      {/* Full-page only: the session-preserving document overlay. The review tree stays mounted
+          beneath (never unmounts) — this is a doc-pane-only peek, anchored to the focused provision. */}
+      {!isWide && showDocOverlay && (
+        <div className="fixed inset-0 z-50 bg-paper flex flex-col" data-testid="doc-overlay">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-surface-2 flex-shrink-0">
+            <h3 className="text-sm font-semibold text-ink truncate">{docTitle ?? 'Document'}</h3>
+            <button onClick={() => setShowDocOverlay(false)} className="text-ink-secondary hover:text-ink" aria-label="Back to review">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <DocumentReferencePane
+              documentId={documentId}
+              anchorQuote={anchorQuote}
+              version={currentVersion}
+              hasAnyVersion={versionList.length > 0}
+              isLoading={workspaceVersionsLoading}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
