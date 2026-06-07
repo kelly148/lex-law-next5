@@ -52,6 +52,8 @@ import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
+import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
+import { deriveVersionStatus } from '../utils/versionStatus.js';
 
 // ============================================================
 // Finalize diagnostic banner — MR-FINALIZE-EXPORT-2
@@ -498,6 +500,10 @@ export default function DocumentDetail(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<'content' | 'outline' | 'variables' | 'references'>('content');
   const [showDraftWarning, setShowDraftWarning] = useState(false);
   const [showRegenInput, setShowRegenInput] = useState(false);
+  const [showSendability, setShowSendability] = useState(false);
+  // RELAYOUT-1 — page-first canvas: the selected version drives the switcher + canvas.
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const previousCurrentVersionRef = React.useRef<string | null>(null);
 
   const { data: doc, isLoading } = trpc.document.get.useQuery(
     { documentId: documentId! },
@@ -515,6 +521,18 @@ export default function DocumentDetail(): React.ReactElement {
 
   const { data: references } = trpc.reference.list.useQuery(
     { sourceDocumentId: documentId! },
+    { enabled: !!documentId }
+  );
+
+  // RELAYOUT-1 (gate G1): the full versions array (newest-first, each row carries content)
+  // drives the switcher + canvas. Binding here does NOT depend on the substantive/final counters.
+  const { data: versions, isLoading: versionsLoading } = trpc.version.list.useQuery(
+    { documentId: documentId! },
+    { enabled: !!documentId }
+  );
+  // Outline headings for the no-version scaffold (same query key as OutlinePanel -> deduped).
+  const { data: canvasOutlineData } = trpc.outline.get.useQuery(
+    { documentId: documentId! },
     { enabled: !!documentId }
   );
 
@@ -630,6 +648,29 @@ export default function DocumentDetail(): React.ReactElement {
     { onSuccess: () => void utils.reference.list.invalidate({ sourceDocumentId: documentId! }) }
   );
 
+  // G2 — pre-select the current version on load (no "select a version" interstitial), and
+  // follow the current pointer when a new draft/regeneration lands, UNLESS the attorney has
+  // deliberately selected an older version that still exists.
+  useEffect(() => {
+    const list = versions ?? [];
+    const current = doc?.currentVersionId ?? null;
+    if (list.length === 0) {
+      previousCurrentVersionRef.current = current;
+      return;
+    }
+    const selectionExists =
+      selectedVersionId !== null && list.some((v) => v.id === selectedVersionId);
+    const wasViewingCurrent =
+      selectedVersionId !== null && selectedVersionId === previousCurrentVersionRef.current;
+    if (!selectionExists || wasViewingCurrent) {
+      const next =
+        current !== null && list.some((v) => v.id === current) ? current : list[0]!.id;
+      // React bails out when `next` equals the current selection, so this is a no-op in steady state.
+      setSelectedVersionId(next);
+    }
+    previousCurrentVersionRef.current = current;
+  }, [versions, doc?.currentVersionId, selectedVersionId]);
+
   // MR-FINALIZE-EXPORT-2: latest formatting job for diagnostic banner
   // MR-FINALIZE-EXPORT-3: also filter by active documentId to prevent stale jobs
   // from other documents appearing in the banner after navigation or hard refresh.
@@ -662,10 +703,96 @@ export default function DocumentDetail(): React.ReactElement {
     archived: 'bg-gray-100 text-gray-600',
   }[doc.workflowState] ?? 'bg-gray-100 text-gray-600';
 
+  // RELAYOUT-1 — page-first canvas state derivation (display-only).
+  const versionList = versions ?? [];
+  const hasAnyVersion = versionList.length > 0;
+  const selectedVersion =
+    versionList.find((v) => v.id === selectedVersionId) ?? versionList[0] ?? null;
+  const selectedStatus = selectedVersion ? deriveVersionStatus(selectedVersion, doc) : null;
+  // When the doc has no current pointer (a rare orphaned state) treat the latest as current for
+  // the ribbon — there is nothing to "return to" — so we never show a misleading superseded ribbon.
+  const isViewingCurrent =
+    selectedVersion !== null &&
+    (doc.currentVersionId === null || selectedVersion.id === doc.currentVersionId);
+  const currentVersion = versionList.find((v) => v.id === doc.currentVersionId) ?? null;
+  const activeNonFormattingJob = allJobs.find(
+    (j) =>
+      (j.status === 'queued' || j.status === 'running') &&
+      j.documentId === documentId &&
+      j.jobType !== 'formatting',
+  );
+  // First-draft generation in flight (nothing to show yet) -> in-sheet skeleton. Iterative-only,
+  // so a template data-extraction job is never mislabeled "Generating draft". During a
+  // regeneration (a current version already exists) we keep the current body, never blank.
+  const isCanvasGenerating =
+    isIterative &&
+    (generateDraftMutation.isPending ||
+      (!!activeNonFormattingJob && !doc.currentVersionId));
+  // version.list still loading with nothing to show yet -> in-sheet skeleton, NOT "No draft yet":
+  // a real draft must never flash the empty state while its versions load (the #310 state class).
+  const isCanvasLoading = versionsLoading && versionList.length === 0;
+  const outlineHeadings =
+    canvasOutlineData?.outline?.sections.map((s) => s.title) ?? null;
+
+  // No-version state's single oxblood primary, promoted INTO the canvas (RELAYOUT-1 D1).
+  // Iterative drafting only; template mode keeps its first-action controls in the action row.
+  const emptyStatePrimaryAction =
+    isIterative && doc.workflowState === 'drafting' && !doc.currentVersionId ? (
+      <div className="relative flex flex-col items-center gap-3">
+        {/* MR-LLM-LITE-1: Full / Lite model mode toggle */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setGenerationModelMode('full')}
+            className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'full' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
+          >Full</button>
+          <button
+            onClick={() => setGenerationModelMode('lite')}
+            className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'lite' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
+          >Lite</button>
+        </div>
+        <button
+          onClick={() => {
+            if (extractedMaterialsCount === 0) {
+              setShowDraftWarning(true);
+            } else {
+              generateDraftMutation.mutate({ documentId, generationModelMode });
+            }
+          }}
+          disabled={generateDraftMutation.isPending}
+          className="px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
+        >
+          {generateDraftMutation.isPending ? 'Queuing…' : 'Generate draft'}
+        </button>
+        {showDraftWarning && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-20 w-80 p-3 bg-warning-tint border border-warning/40 rounded-lg text-xs shadow-lg text-left">
+            <p className="font-semibold text-warning mb-1">No extracted materials found</p>
+            <p className="text-ink-secondary mb-3">This matter has no extracted materials in the drawer. The draft will use placeholders instead of client data. Upload a completed questionnaire or client notes first for best results.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowDraftWarning(false);
+                  generateDraftMutation.mutate({ documentId, generationModelMode });
+                }}
+                className="px-2 py-1 text-xs bg-warning text-white rounded hover:bg-warning/90"
+              >
+                Draft anyway
+              </button>
+              <button
+                onClick={() => setShowDraftWarning(false)}
+                className="px-2 py-1 text-xs border border-warning/40 text-warning rounded hover:bg-warning-tint"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    ) : undefined;
+
   return (
     <div className="p-6">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-4 text-sm text-gray-500">
+      <div data-no-print className="flex items-center gap-2 mb-4 text-sm text-gray-500">
         <Link to="/matters" className="hover:text-firm-navy">Matters</Link>
         <span>/</span>
         <Link to={`/matters/${matterId}`} className="hover:text-firm-navy flex items-center gap-1">
@@ -677,18 +804,20 @@ export default function DocumentDetail(): React.ReactElement {
       </div>
 
       {/* Job banner */}
-      <div className="mb-4">
+      <div data-no-print className="mb-4">
         <JobBanner documentId={documentId} />
       </div>
 
       {/* Finalize diagnostic banner — MR-FINALIZE-EXPORT-2 */}
-      <FinalizeDiagnosticBanner
-        mutationError={finalizeMutation.error}
-        formattingJob={latestFormattingJob}
-      />
+      <div data-no-print>
+        <FinalizeDiagnosticBanner
+          mutationError={finalizeMutation.error}
+          formattingJob={latestFormattingJob}
+        />
+      </div>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div data-no-print className="flex items-start justify-between mb-4">
         <div className="flex-1 min-w-0">
           {editingTitle ? (
             <div className="flex items-center gap-2">
@@ -782,7 +911,7 @@ export default function DocumentDetail(): React.ReactElement {
 
       {/* Stale references warning */}
       {staleRefs.length > 0 && (
-        <div className="mb-4 flex items-center gap-3 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+        <div data-no-print className="mb-4 flex items-center gap-3 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
           <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
           <span className="text-amber-800 flex-1">
             {staleRefs.length} referenced document{staleRefs.length > 1 ? 's have' : ' has'} been updated.
@@ -799,73 +928,34 @@ export default function DocumentDetail(): React.ReactElement {
 
       {/* Context preview panel */}
       {showContextPreview && (
-        <div className="mb-4">
+        <div data-no-print className="mb-4">
           <ContextPreviewPanel matterId={matterId} documentId={documentId} />
         </div>
       )}
 
       {/* Action row — compact band above document workspace, always visible */}
-      <div className="relative flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-gray-100">
-        {/* Version metadata — compact secondary line */}
-        <div className="flex items-center gap-3 text-xs text-gray-400 mr-auto">
-          <span>Subst. v: {doc.officialSubstantiveVersionNumber ?? '—'}</span>
-          <span>Final v: {doc.officialFinalVersionNumber ?? '—'}</span>
+      <div data-no-print className="relative flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+        {/* Version switcher — replaces the dead "Subst. v / Final v" counters; the label
+            always reflects what the canvas renders (RELAYOUT-1 §1.2). */}
+        <div className="flex items-center gap-3 text-xs text-ink-hint mr-auto">
+          {versionList.length > 0 ? (
+            <VersionSwitcher
+              versions={versionList}
+              selectedVersionId={selectedVersionId}
+              doc={doc}
+              disabled={isCanvasGenerating}
+              onSelect={setSelectedVersionId}
+            />
+          ) : (
+            <span>No versions yet</span>
+          )}
           <span>Created: {new Date(doc.createdAt).toLocaleDateString()}</span>
         </div>
         {/* Iterative mode action buttons */}
         {isIterative && (
           <>
-            {doc.workflowState === 'drafting' && !doc.currentVersionId && (
-              <>
-                {/* MR-LLM-LITE-1: Full / Lite model mode toggle */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setGenerationModelMode('full')}
-                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'full' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
-                  >Full</button>
-                  <button
-                    onClick={() => setGenerationModelMode('lite')}
-                    className={clsx('px-2 py-1 rounded border text-xs', generationModelMode === 'lite' ? 'bg-surface text-ink border-line shadow-sm' : 'bg-transparent text-ink-secondary border-line hover:text-ink hover:bg-surface')}
-                  >Lite</button>
-                </div>
-                <button
-                  onClick={() => {
-                    if (extractedMaterialsCount === 0) {
-                      setShowDraftWarning(true);
-                    } else {
-                      generateDraftMutation.mutate({ documentId, generationModelMode });
-                    }
-                  }}
-                  disabled={generateDraftMutation.isPending}
-                  className="px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
-                >
-                  {generateDraftMutation.isPending ? 'Queuing\u2026' : 'Generate Draft'}
-                </button>
-                {showDraftWarning && (
-                  <div className="absolute left-0 top-full mt-1 z-20 w-80 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs shadow-lg">
-                    <p className="font-semibold text-amber-800 mb-1">No extracted materials found</p>
-                    <p className="text-amber-700 mb-3">This matter has no extracted materials in the drawer. The draft will use placeholders instead of client data. Upload a completed questionnaire or client notes first for best results.</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          setShowDraftWarning(false);
-                          generateDraftMutation.mutate({ documentId, generationModelMode });
-                        }}
-                        className="px-2 py-1 text-xs bg-warning text-white rounded hover:bg-warning/90"
-                      >
-                        Draft anyway
-                      </button>
-                      <button
-                        onClick={() => setShowDraftWarning(false)}
-                        className="px-2 py-1 text-xs border border-amber-400 text-amber-800 rounded hover:bg-amber-100"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+            {/* No-version "Generate draft" promoted into the page canvas (RELAYOUT-1 D1) \u2014
+                see emptyStatePrimaryAction passed to <DocumentCanvas/>. */}
             {doc.workflowState === 'drafting' && doc.currentVersionId && (
               <>
                 <button
@@ -1020,7 +1110,7 @@ export default function DocumentDetail(): React.ReactElement {
             {doc.workflowState !== 'complete' && (
               <span
                 data-testid="export-state-disclosure"
-                className="text-[10px] text-amber-600"
+                className="text-[10px] text-warning"
               >
                 {doc.workflowState === 'finalizing'
                   ? 'Formatting in progress — export uses substantive version'
@@ -1031,60 +1121,35 @@ export default function DocumentDetail(): React.ReactElement {
         )}
       </div>
 
-      {/* MR-CAL-8B: advisory sendability checkpoint at the finalize boundary.
-          Shown in pre-send states (drafting / substantively_accepted) when a current
-          version exists. Advisory only — does not gate the Finalize/Accept buttons above. */}
+      {/* Sendability — demoted to a compact one-line strip; advisory, expands on demand
+          (RELAYOUT-1 §1.4). Does not gate the Finalize/Accept buttons above. */}
       {doc.currentVersionId &&
         (doc.workflowState === 'drafting' || doc.workflowState === 'substantively_accepted') && (
-          <div className="mb-3 border border-gray-200 rounded-lg overflow-hidden">
-            <SendabilitySection documentId={documentId} />
+          <div data-no-print className="mb-3 border border-line rounded-lg overflow-hidden">
+            <button
+              onClick={() => setShowSendability(!showSendability)}
+              className="flex items-center justify-between w-full px-4 py-2 bg-white text-xs font-medium text-ink-secondary hover:bg-surface-2"
+            >
+              <span>Sendability — advisory</span>
+              <span className="flex items-center gap-1 text-ink-hint">
+                {showSendability ? 'Hide' : 'Check'}
+                {showSendability ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </span>
+            </button>
+            {showSendability && (
+              <div className="border-t border-gray-100">
+                <SendabilitySection documentId={documentId} />
+              </div>
+            )}
           </div>
         )}
-
-      {/* Regeneration band — collapsible, above document workspace */}
-      {isIterative && doc.workflowState === 'drafting' && doc.currentVersionId && (
-        <div className="mb-3 border border-gray-200 rounded-lg overflow-hidden">
-          <button
-            onClick={() => setShowRegenInput(!showRegenInput)}
-            className="flex items-center justify-between w-full px-4 py-2.5 bg-white text-xs font-medium text-firm-navy hover:bg-gray-50"
-          >
-            <span>Regenerate with instructions</span>
-            {showRegenInput ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-          {showRegenInput && (
-            <div className="border-t border-gray-100 p-3 space-y-2">
-              <textarea
-                value={regenerateInstructions}
-                onChange={(e) => setRegenerateInstructions(e.target.value)}
-                rows={3}
-                placeholder="Instructions for regeneration…"
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy resize-none"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={() => {
-                    if (regenerateInstructions.trim()) {
-                      regenerateMutation.mutate({ documentId, instructions: regenerateInstructions.trim() });
-                      setShowRegenInput(false);
-                    }
-                  }}
-                  disabled={regenerateMutation.isPending || !regenerateInstructions.trim()}
-                  className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50 transition-colors"
-                >
-                  {regenerateMutation.isPending ? 'Queuing…' : 'Regenerate'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Main layout: full-width tabs */}
       <div className="space-y-4">
         {/* Tabs */}
         <div className="space-y-4">
           {/* Tab bar */}
-          <div className="flex border-b border-gray-200">
+          <div data-no-print className="flex border-b border-gray-200">
             {(['content', 'outline', 'variables', 'references'] as const).map((tab) => (
               <button
                 key={tab}
@@ -1104,18 +1169,67 @@ export default function DocumentDetail(): React.ReactElement {
           {/* Content tab */}
           {activeTab === 'content' && (
             <div className="space-y-4">
-              {/* Current version content */}
-              {doc.currentVersionId ? (
-                <VersionHistory documentId={documentId} currentVersionId={doc.currentVersionId} />
-              ) : (
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center">
-                  <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm text-gray-400">No draft yet.</p>
+              {/* Regenerate — sits BELOW the tab row, ABOVE the page canvas; collapsed by
+                  default; part of the selected tab's workspace (RELAYOUT-1 §1.4). */}
+              {isIterative && doc.workflowState === 'drafting' && doc.currentVersionId && (
+                <div data-no-print className="border border-line rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setShowRegenInput(!showRegenInput)}
+                    className="flex items-center justify-between w-full px-4 py-2.5 bg-white text-xs font-medium text-firm-navy hover:bg-gray-50"
+                  >
+                    <span>Regenerate with instructions</span>
+                    {showRegenInput ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  {showRegenInput && (
+                    <div className="border-t border-gray-100 p-3 space-y-2">
+                      <textarea
+                        value={regenerateInstructions}
+                        onChange={(e) => setRegenerateInstructions(e.target.value)}
+                        rows={3}
+                        placeholder="Instructions for regeneration…"
+                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy resize-none"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => {
+                            if (regenerateInstructions.trim()) {
+                              regenerateMutation.mutate({ documentId, instructions: regenerateInstructions.trim() });
+                              setShowRegenInput(false);
+                            }
+                          }}
+                          disabled={regenerateMutation.isPending || !regenerateInstructions.trim()}
+                          className="px-3 py-1.5 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50 transition-colors"
+                        >
+                          {regenerateMutation.isPending ? 'Queuing…' : 'Regenerate'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Notes */}
-              <div className="p-4 bg-white border border-gray-200 rounded-lg">
+              {/* The page sheet — always renders (cardinal rule; anti-#310). */}
+              <DocumentCanvas
+                version={selectedVersion}
+                hasAnyVersion={hasAnyVersion}
+                isGenerating={isCanvasGenerating}
+                isLoading={isCanvasLoading}
+                statusLabel={selectedStatus?.label ?? ''}
+                isViewingCurrent={isViewingCurrent}
+                currentVersionNumber={currentVersion?.versionNumber ?? null}
+                onReturnToCurrent={() => {
+                  if (doc.currentVersionId) setSelectedVersionId(doc.currentVersionId);
+                }}
+                onRetry={() => {
+                  void utils.version.list.invalidate({ documentId });
+                  void utils.document.get.invalidate({ documentId });
+                }}
+                emptyStatePrimaryAction={emptyStatePrimaryAction}
+                outlineHeadings={outlineHeadings}
+              />
+
+              {/* Notes — supporting furniture, off paper. */}
+              <div data-no-print className="p-4 bg-white border border-gray-200 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-firm-navy">Notes</h3>
                   {!editingNotes && (
@@ -1154,6 +1268,12 @@ export default function DocumentDetail(): React.ReactElement {
                 ) : (
                   <p className="text-sm text-gray-500">{doc.notes || <em className="text-gray-300">No notes</em>}</p>
                 )}
+              </div>
+
+              {/* Version History — demoted to collapsed provenance below the canvas (D2);
+                  never gates reading. */}
+              <div data-no-print>
+                <VersionHistory documentId={documentId} currentVersionId={doc.currentVersionId} />
               </div>
             </div>
           )}
