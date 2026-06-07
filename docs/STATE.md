@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-07 (RELAYOUT-2 LIVE-VERIFIED PASS → COMPLETED) — MatterDetail recital band v2, Pattern-16 on prod `a14b0b1`
+
+**Disposition.** `operator approve live-verified:RELAYOUT-2 pass`. RELAYOUT-2 (MatterDetail recital band v2) **live-verified** on prod **`a14b0b1`** (=origin/main HEAD; `/api/version` builtAt 2026-06-07T20:37Z; includes feature merge `3956a07`) → **COMPLETED**. main = prod = `a14b0b1`.
+
+**Evidence (Claude-driven UAT, DOM-measured, all PASS).** All 7 blocks render with correct live wording on poa: Jurisdiction "Not set" (amber) · Client **"John Smith"** (ink — proves the **G5** `listParties` binding, since poa's header sub-line is null) · Conflicts **"Cleared"** (green; poa cleared) · Sources "None yet" · Open items "None" · Document **"Drafting"** (**G3** `workflowState`) · Sendability **"Not checked"** (**G4** neutral, `sendabilityIsGreen=false` — never green). **No oxblood, no blue** in the band. **One-viewport** (body 791 = innerHeight 791). **Stack below the band unmoved** (Documents → Intake → KB → Matter State ["unknown" badge untouched per G3] → Closing package → Matter Record). **Console clean** — only the benign Chrome-extension "message channel closed" noise from a stale tab URL; **zero React/#310 errors**. **Jurisdiction-set discoverable:** edit pencil (top-right) → Edit-Matter modal → "Governing Jurisdiction" (— Not set — / Virginia / Maryland); modal closed without mutating.
+
+**Recorded items.** (1) **50px band height** vs spec ~56–72px — **operator-accepted as-is**; if lived use wants more air, the padding nudge **rides the RELAYOUT-2-STRIP-CLEANUP chip or the RELAYOUT-3 PR, not its own deploy**. (2) **Conflict severity-tint** and (3) the **"N hit awaiting disposition" count** are **render-test-covered / spot-check-at-first-natural-hit** (poa is cleared — do NOT recreate a synthetic hit; the count needs a new read, forbidden by the no-new-computation gate; enrich only if a count appears on an existing read).
+
+**Build state.** main = prod = **`a14b0b1`**. Gates unchanged (CONFLICT ON, SENDABILITY shadow). Open chips: **RELAYOUT-2-STRIP-CLEANUP**, **MATTERSTATE-BADGE-1**, **G4-INIT**.
+
+**Queue.** Next = **RELAYOUT-3** (review-pane; operator-directed jump ahead of FOLD-PM-1, per the signed `_analytical/phase2/reviews/RELAYOUT3_consolidated_disposition_2026-06-07.md`) → then FOLD-PM-1.
+
+---
+
 ## 2026-06-07 (RELAYOUT-2 BUILD COMPLETE + MERGED — MatterDetail recital band v2; squash 3956a07, PR #213, CI green) — awaiting prod deploy + Pattern-16
 
 **Disposition.** Operator GO on all three judgment calls. RELAYOUT-2 (MatterDetail recital band v2) BUILD COMPLETE; source PR #213 (3 files, explicit-path commit `f2ad205`) CI-green, squash-merged to `main` as **`3956a07`**, branch deleted. Display-only; reversible; no backend/migration; flags untouched (CONFLICT ON, SENDABILITY shadow). `in_progress` cleared; **RELAYOUT-2 → `awaiting_live_verification`** (user-visible; Pattern-16 after deploy).
