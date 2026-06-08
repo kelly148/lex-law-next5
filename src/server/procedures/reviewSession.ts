@@ -321,12 +321,11 @@ export const reviewSessionRouter = router({
             systemPrompt,
             userPrompt,
             temperature: 0.4,
-            // GEMINI-BUDGET-CAL-1 Inc 2: per-model calibrated reviewer ceiling from the
-            // model-capability registry (single source of truth) instead of a global number.
-            // Gemini-2.5-pro -> 32768 (measured demand curve); Claude/GPT-5/Grok/lites -> 16384
-            // floor. Supersedes the MR-LLM-1 S12 global 16384.
-            maxTokens: getReviewerCeiling(modelString),
             structuredOutputSchema: RawSuggestionsArraySchema,
+            // GEMINI-BUDGET-CAL-1 Inc 2: per-model calibrated reviewer ceiling from the
+            // model-capability registry (single source of truth). Gemini-2.5-pro -> 32768
+            // (measured); Claude/GPT-5/Grok/lites -> 16384 floor. Supersedes the global 16384.
+            maxTokens: getReviewerCeiling(modelString),
           }),
           // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
           // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default
