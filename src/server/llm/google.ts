@@ -72,6 +72,84 @@ const SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
 ];
 
+// ============================================================
+// MODEL-RELIABILITY-UAT-1: Gemini structured-output hardening
+//
+// Diagnosis (adapter smoke, gemini-2.5-pro / gemini-2.5-flash): Gemini is a
+// "thinking" model that spends output tokens on internal reasoning before emitting
+// content. When reasoning + JSON output exceeds maxOutputTokens, the output truncates.
+// The PRIOR adapter surfaced that truncation INCONSISTENTLY:
+//   - no text emitted          → api_error "no text content (finishReason MAX_TOKENS)"
+//   - partial JSON then cut off → JSON.parse fails "Unterminated string" → parse_error
+// The second case is the GEMINI-STRUCTURED-OUTPUT-INVALID-JSON carryforward: truncation
+// masquerading as a malformation. It also lacked the fence-strip + object-wrapper
+// normalization that the OpenAI/Anthropic/xAI adapters already have, so a fenced or
+// single-key-wrapped array (common Gemini deviations) failed Zod even when the content
+// was otherwise fine. The helpers below bring Gemini to parity and make truncation a
+// single, clear, correctly-classified error.
+// ============================================================
+
+// Known wrapper key names for Gemini structured-output normalization (parity with siblings).
+const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
+
+/**
+ * Strip a whole-response ```json ... ``` code fence. Gemini may fence its JSON despite
+ * responseMimeType: application/json. If the response is not a whole-response fence it is
+ * returned unchanged. (Mirrors the Anthropic adapter's helper.)
+ */
+export function stripJsonCodeFenceIfWholeResponse(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fenceMatch && fenceMatch[1] !== undefined) {
+    return fenceMatch[1].trim();
+  }
+  return text;
+}
+
+/**
+ * Normalize a Gemini structured-output value when the expected schema is a bare array.
+ * Only used as a FALLBACK after direct validation fails, so object-shaped schemas pass
+ * untouched (same ordering the Anthropic adapter uses, MR-CAL-5D).
+ *   1. already an array            → unchanged
+ *   2. single-key object {k: [...]}→ extract the array
+ *   3. known wrapper key with array→ extract the array
+ *   4. otherwise                   → unchanged (Zod rejects with parse_error)
+ */
+export function normalizeGoogleStructuredOutput(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 1) {
+      const inner = obj[keys[0]!];
+      if (Array.isArray(inner)) return inner;
+    }
+    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
+      if (knownKey in obj && Array.isArray(obj[knownKey])) return obj[knownKey];
+    }
+  }
+  return value;
+}
+
+/**
+ * Safe structural descriptor for a parsed value — top-level type, key names, value
+ * types, array lengths. MUST NOT include document text, feedback body, or keys.
+ * (Mirrors the OpenAI/xAI adapters' diagnostic helper.)
+ */
+export function sanitizeShapeForDiagnostic(value: unknown): Record<string, unknown> {
+  if (value === null) return { topLevelType: 'null' };
+  if (Array.isArray(value)) return { topLevelType: 'array', length: value.length };
+  if (typeof value !== 'object') return { topLevelType: typeof value };
+  const obj = value as Record<string, unknown>;
+  const keys: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (Array.isArray(v)) keys[k] = `array(length=${v.length})`;
+    else if (v !== null && typeof v === 'object') keys[k] = 'object';
+    else keys[k] = v === null ? 'null' : typeof v;
+  }
+  return { topLevelType: 'object', keys };
+}
+
 export class GoogleAdapter implements LlmClient {
   constructor(private readonly modelId: string) {}
 
@@ -160,28 +238,67 @@ export class GoogleAdapter implements LlmClient {
     const rawText = candidateText;
 
     if (structuredOutputSchema) {
+      const finishReason = data.candidates[0]?.finishReason;
+      // MODEL-RELIABILITY-UAT-1: truncation guard. A "thinking" Gemini model can emit
+      // partial JSON then stop at the token ceiling (finishReason MAX_TOKENS), which
+      // JSON.parse would report as a cryptic "Unterminated string" parse_error. Surface
+      // truncation as ONE clear, correctly-classified api_error instead — consistent with
+      // the no-text MAX_TOKENS branch above and with the OpenAI adapter's finish_reason
+      // 'length' guard. Only the two confirmed-problem values are caught; all others fall
+      // through to the existing parse path (failing-open default).
+      if (finishReason === 'MAX_TOKENS') {
+        throw new LlmProviderError(
+          'api_error',
+          `Google Gemini structured output was truncated (finishReason: MAX_TOKENS) before valid JSON could be produced. ` +
+            `This is an output-budget truncation, not a malformed response — raise maxOutputTokens or reduce input size.`,
+        );
+      }
+
+      // MODEL-RELIABILITY-UAT-1: strip a whole-response code fence before parsing.
+      const effectiveText = stripJsonCodeFenceIfWholeResponse(rawText);
+
       let parsed: unknown;
       try {
-        parsed = JSON.parse(rawText);
+        parsed = JSON.parse(effectiveText);
       } catch (err) {
         throw new LlmProviderError(
           'parse_error',
-          `Google Gemini response is not valid JSON for structured output: ${String(err)}`,
+          `Google Gemini response is not valid JSON for structured output (finishReason: ${finishReason ?? 'unknown'}): ${String(err)}`,
           err,
         );
       }
 
-      const result = (structuredOutputSchema as z.ZodSchema).safeParse(parsed);
-      if (!result.success) {
-        throw new LlmProviderError(
-          'parse_error',
-          `Google Gemini structured output failed Zod validation: ${result.error.message}`,
-          result.error,
-        );
+      // MODEL-RELIABILITY-UAT-1: validate the raw parsed value FIRST so object-shaped
+      // schemas pass untouched; only fall back to array-unwrap normalization on failure
+      // (same ordering as the Anthropic adapter; avoids unwrapping a legit object result).
+      const schema = structuredOutputSchema as z.ZodSchema;
+      const direct = schema.safeParse(parsed);
+      let validated: unknown;
+      let usedNormalization: boolean;
+      if (direct.success) {
+        validated = parsed;
+        usedNormalization = false;
+      } else {
+        const normalized = normalizeGoogleStructuredOutput(parsed);
+        const result = schema.safeParse(normalized);
+        if (!result.success) {
+          const shapeDiag = sanitizeShapeForDiagnostic(normalized);
+          throw new LlmProviderError(
+            'parse_error',
+            `Google Gemini structured output failed Zod validation: ${result.error.message}. Sanitized output shape: ${JSON.stringify(shapeDiag)}`,
+            result.error,
+          );
+        }
+        validated = normalized;
+        usedNormalization = normalized !== parsed;
       }
 
+      // Return content as a string (consistent with the other adapters). Re-serialize
+      // only when normalization actually transformed the value.
+      const contentText = usedNormalization ? JSON.stringify(validated) : effectiveText;
+
       return {
-        content: rawText,
+        content: contentText,
         tokensPrompt: data.usageMetadata.promptTokenCount,
         tokensCompletion: data.usageMetadata.candidatesTokenCount,
         providerMetadata: {
