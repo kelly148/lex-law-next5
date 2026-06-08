@@ -25,7 +25,7 @@
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, RefreshCw, CheckCircle, ChevronDown, ChevronUp, AlertCircle, AlertTriangle, Lock, Unlock, Check, Info, Gavel, CircleDashed, History, GitCompare, ListChecks, Users, Settings, Clock } from 'lucide-react';
+import { X, RefreshCw, CheckCircle, ChevronDown, ChevronUp, ChevronRight, ChevronsLeft, AlertCircle, AlertTriangle, Lock, Unlock, Check, Info, Gavel, CircleDashed, History, GitCompare, ListChecks, Users, Settings, Clock, PanelLeftClose } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -1681,6 +1681,40 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
 }
 
 // ============================================================
+// REVIEW-UX-REDESIGN-1: resizable + two-level-collapsible document pane (disposition §G).
+// State is workspace-local and persisted to localStorage; seeded via lazy useState initializers
+// (NOT a setState-in-effect) so there is no first-paint flash and no react-hooks lint hit.
+// ============================================================
+type DocCollapse = 'expanded' | 'rail' | 'hidden';
+const DOC_COLLAPSE_KEY = 'lln.review.docCollapse';
+const DOC_WIDTH_KEY = 'lln.review.docWidthPct';
+const DOC_MIN_PX = 520; // readable minimum (~50-60 char line) — the narrow read-only strip is rejected.
+const DOC_WIDTH_DEFAULT = 40; // ~40% document / 60% review (disposition §G default split).
+
+function clampPct(pct: number): number {
+  if (Number.isNaN(pct)) return DOC_WIDTH_DEFAULT;
+  return Math.min(60, Math.max(25, Math.round(pct)));
+}
+function readDocCollapse(): DocCollapse {
+  if (typeof window === 'undefined') return 'expanded';
+  try {
+    const v = window.localStorage.getItem(DOC_COLLAPSE_KEY);
+    return v === 'rail' || v === 'hidden' ? v : 'expanded';
+  } catch {
+    return 'expanded';
+  }
+}
+function readDocWidthPct(): number {
+  if (typeof window === 'undefined') return DOC_WIDTH_DEFAULT;
+  try {
+    const v = window.localStorage.getItem(DOC_WIDTH_KEY);
+    return v === null ? DOC_WIDTH_DEFAULT : clampPct(Number(v));
+  } catch {
+    return DOC_WIDTH_DEFAULT;
+  }
+}
+
+// ============================================================
 // ReviewPane — main export
 // ============================================================
 export default function ReviewPane({ documentId, iterationNumber, onClose }: ReviewPaneProps): React.ReactElement {
@@ -1726,6 +1760,37 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
   const [anchorQuote, setAnchorQuote] = useState<string | null>(null);
   // Full-page "view in document" overlay (session-preserving: the review tree stays mounted beneath).
   const [showDocOverlay, setShowDocOverlay] = useState(false);
+
+  // REVIEW-UX-REDESIGN-1: resizable + two-level-collapsible document pane (wide mode only). These
+  // change ONLY the left doc column's width/existence — the keyed review slot below NEVER remounts
+  // (G6). Seeded lazily from localStorage (no setState-in-effect); persisted in the handlers below.
+  const [docCollapse, setDocCollapse] = useState<DocCollapse>(() => readDocCollapse());
+  const [docWidthPct, setDocWidthPct] = useState<number>(() => readDocWidthPct());
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const docWidthPctRef = React.useRef<number>(docWidthPct);
+
+  const setCollapse = (n: DocCollapse): void => {
+    setDocCollapse(n);
+    try { window.localStorage.setItem(DOC_COLLAPSE_KEY, n); } catch { /* ignore */ }
+  };
+  // Drag-to-resize via pointer capture on the handle itself — no window listener, no new effect, so
+  // nothing perturbs the review slot's identity. The move updates state for live reflow; the up
+  // persists the final width.
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const r = containerRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return;
+    const pct = clampPct(((e.clientX - r.left) / r.width) * 100);
+    docWidthPctRef.current = pct;
+    setDocWidthPct(pct);
+  };
+  const onHandleUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    try { window.localStorage.setItem(DOC_WIDTH_KEY, String(docWidthPctRef.current)); } catch { /* ignore */ }
+  };
 
   // Reads for the read-only document-reference pane (the workspace owns them; presentational pane).
   const { data: workspaceDoc } = trpc.document.get.useQuery({ documentId });
@@ -1784,6 +1849,7 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
 
   return (
     <div
+      ref={containerRef}
       className={clsx(
         'fixed z-40 bg-paper flex',
         isWide ? 'inset-y-0 right-0 left-14' : 'inset-0 flex-col',
@@ -1791,10 +1857,16 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
       data-testid="review-workspace"
       data-mode={isWide ? 'split' : 'fullpage'}
     >
-      {/* WIDE ONLY — the read-only document reference + its hairline divider. This is the ONLY part
-          that mounts/unmounts across the breakpoint (G6); the review slot below never does. */}
-      {isWide && (
-        <div key="doc-ref" className="w-[600px] xl:w-[620px] flex-shrink-0 h-full border-r border-line" data-testid="review-doc-pane-wrap">
+      {/* WIDE + expanded — the resizable read-only document reference. The doc column is the ONLY part
+          that mounts/unmounts (G6); the review slot below never does. Width is a dynamic % (inline
+          style, NOT a Tailwind class) with a readable px floor. */}
+      {isWide && docCollapse === 'expanded' && (
+        <div
+          key="doc-ref"
+          className="flex-shrink-0 h-full border-r border-line"
+          style={{ width: `${docWidthPct}%`, minWidth: DOC_MIN_PX }}
+          data-testid="review-doc-pane-wrap"
+        >
           <DocumentReferencePane
             documentId={documentId}
             anchorQuote={anchorQuote}
@@ -1804,6 +1876,34 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
           />
         </div>
       )}
+      {/* Drag handle — a SEPARATE sibling; mounting/unmounting it never touches the review slot node. */}
+      {isWide && docCollapse === 'expanded' && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize document pane"
+          data-testid="review-doc-resize"
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onLostPointerCapture={onHandleUp}
+          className="w-1.5 flex-shrink-0 h-full cursor-col-resize bg-line hover:bg-surface-2"
+        />
+      )}
+      {/* WIDE + rail — level-1 peek/restore: a thin, always-mounted button; the doc pane is unmounted. */}
+      {isWide && docCollapse === 'rail' && (
+        <button
+          type="button"
+          data-testid="review-doc-rail"
+          onClick={() => setCollapse('expanded')}
+          aria-label="Show document"
+          title="Show document"
+          className="w-10 flex-shrink-0 h-full border-r border-line bg-surface-2 text-ink-secondary hover:text-ink flex items-start justify-center pt-3"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )}
+      {/* docCollapse === 'hidden' (or !isWide): nothing on the left — the same legal unmount as full-page. */}
 
       {/* REVIEW SLOT — STABLE keyed slot. Identical mounted subtree in both modes; only className
           changes (reflow). ActiveSessionView never remounts/re-inits/re-fetches across the breakpoint. */}
@@ -1813,7 +1913,10 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         onFocusCapture={handleReviewFocus}
         className={clsx(
           'h-full flex flex-col bg-surface min-w-0',
-          isWide ? 'flex-1 max-w-[760px]' : 'w-full items-center',
+          isWide ? 'flex-1' : 'w-full items-center',
+          // Keep a readable cap while the doc shares the row; when the doc is hidden the review
+          // reclaims the full width (no empty gap). Reflow only — never a remount.
+          isWide && docCollapse !== 'hidden' && 'max-w-[760px]',
         )}
       >
         <div className={clsx('flex flex-col h-full w-full', !isWide && 'max-w-[960px]')}>
@@ -1826,6 +1929,37 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
                 : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
             </h2>
             <div className="flex items-center gap-3 flex-shrink-0">
+              {/* REVIEW-UX-REDESIGN-1: document-pane controls (wide only). Collapse to a rail, hide
+                  entirely, or restore — a persistent "Show document" is always present when collapsed. */}
+              {isWide && docCollapse === 'expanded' && (
+                <button
+                  onClick={() => setCollapse('rail')}
+                  aria-label="Collapse document to a rail"
+                  title="Collapse document"
+                  className="text-ink-secondary hover:text-ink"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+              )}
+              {isWide && docCollapse === 'rail' && (
+                <button
+                  onClick={() => setCollapse('hidden')}
+                  aria-label="Hide document"
+                  title="Hide document"
+                  className="text-ink-secondary hover:text-ink"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
+              )}
+              {isWide && docCollapse !== 'expanded' && (
+                <button
+                  onClick={() => setCollapse('expanded')}
+                  data-testid="review-show-document"
+                  className="text-ink-secondary hover:text-ink text-xs underline-offset-2 hover:underline"
+                >
+                  Show document
+                </button>
+              )}
               {!isWide && currentVersion && (
                 <button
                   onClick={() => setShowDocOverlay(true)}
