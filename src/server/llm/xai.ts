@@ -41,6 +41,7 @@
 
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { llmFetch } from './llmFetch.js';
 import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
 
 // xAI uses OpenAI-compatible API shape
@@ -265,7 +266,7 @@ export class XaiAdapter implements LlmClient {
 
     let response: Response;
     try {
-      response = await fetch(XAI_API_URL, {
+      response = await llmFetch(XAI_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

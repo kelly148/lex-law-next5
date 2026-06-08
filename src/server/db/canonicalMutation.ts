@@ -142,11 +142,12 @@ export function isTransientRetryable(err: unknown): boolean {
   // review otherwise burns ~3x its multi-minute wall clock on doomed reruns). Genuine transient
   // network errors (ECONNRESET, socket hang up) fall through to the retryable check below.
   //
-  // FORWARD NOTE (REVIEWER-ASYNC-FANOUT-1): suppress-always is correct ONLY while the per-lane
-  // envelope is ~300s — a timeout here means the model already exceeded the budget, so a
-  // same-budget retry just times out again. When the async build raises the envelope (~720s),
-  // REVISIT whether a timeout at that RAISED boundary (which may signal a genuine transient stall
-  // rather than the model's normal deep-reasoning latency) warrants a single retry. Don't lose it.
+  // REVIEWER-ASYNC-FANOUT-1 Inc 2: the background reviewer envelope is now RAISED to 720s (async
+  // mode) and llmFetch raises undici's internal headers/body timeout above it, so the per-call
+  // AbortSignal governs. Suppress-always REMAINS correct: a timeout at the 720s boundary means the
+  // model exceeded a GENEROUS deep-reasoning budget (big-doc GPT-5 completes in ~11 min < 12), so a
+  // same-budget retry would just time out again and burn another ~12 min. Re-evaluate only if a
+  // genuine transient mid-stream stall (distinct from the model's normal latency) is ever observed.
   if (isUndiciTimeoutError(err)) return false;
   const cls = classifyProviderError(err);
   if (cls === 'rate_limited') return true;

@@ -38,6 +38,7 @@
 
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { llmFetch } from './llmFetch.js';
 import { LLM_FETCH_TIMEOUT_MS } from './config.js';
 
 // Anthropic Messages API types (minimal — we only use what v1 needs)
@@ -168,7 +169,7 @@ export class AnthropicAdapter implements LlmClient {
 
     let response: Response;
     try {
-      response = await fetch(ANTHROPIC_API_URL, {
+      response = await llmFetch(ANTHROPIC_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

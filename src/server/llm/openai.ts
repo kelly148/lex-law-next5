@@ -38,6 +38,7 @@
 
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { llmFetch } from './llmFetch.js';
 import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
 
 interface OpenAiMessage {
@@ -271,7 +272,7 @@ export class OpenAiAdapter implements LlmClient {
 
     let response: Response;
     try {
-      response = await fetch(OPENAI_API_URL, {
+      response = await llmFetch(OPENAI_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
