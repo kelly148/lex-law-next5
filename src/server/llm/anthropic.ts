@@ -37,7 +37,7 @@
  */
 
 import { z } from 'zod';
-import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
 import { LLM_FETCH_TIMEOUT_MS } from './config.js';
 
 // Anthropic Messages API types (minimal — we only use what v1 needs)
@@ -188,8 +188,9 @@ export class AnthropicAdapter implements LlmClient {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
+      // MODEL-RELIABILITY-UAT-1: 429 → rate_limited, 401/403 → auth_error, else api_error.
       throw new LlmProviderError(
-        'api_error',
+        httpStatusToErrorClass(response.status),
         `Anthropic API error ${response.status}: ${body}`,
       );
     }

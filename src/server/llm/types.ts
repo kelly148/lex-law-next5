@@ -59,9 +59,32 @@ export type ProviderId = (typeof PROVIDER_IDS)[number];
 export type JobErrorClass =
   | 'timeout'
   | 'api_error'
+  // MODEL-RELIABILITY-UAT-1: finer-grained transient/auth differentiation. Additive —
+  // jobs.errorClass is a varchar(64) (NOT a DB enum) and the telemetry job_failed.errorClass
+  // field is a plain string, so adding values needs no migration and no schema change. The
+  // only runtime consumers that switch on errorClass compare === 'timeout'; these new values
+  // are inert for them and simply make 429 / auth distinguishable in logs and the failure
+  // surface. Retry logic (canonicalMutation) treats rate_limited as transient and auth_error
+  // as non-retryable.
+  | 'rate_limited'
+  | 'auth_error'
   | 'parse_error'
   | 'revert_failed'
   | 'other';
+
+/**
+ * Map a non-OK HTTP status from a provider response to the canonical errorClass.
+ * MODEL-RELIABILITY-UAT-1: shared by all four adapters so 429 (rate limit) and
+ * 401/403 (auth) are classified consistently rather than collapsing to api_error.
+ *   - 429            → rate_limited (transient; retryable with backoff)
+ *   - 401, 403       → auth_error   (NOT transient; never retried)
+ *   - everything else→ api_error    (unchanged default, incl. 5xx and other 4xx)
+ */
+export function httpStatusToErrorClass(status: number): JobErrorClass {
+  if (status === 429) return 'rate_limited';
+  if (status === 401 || status === 403) return 'auth_error';
+  return 'api_error';
+}
 
 export class LlmProviderError extends Error {
   public readonly errorClass: JobErrorClass;
@@ -88,6 +111,10 @@ export function classifyProviderError(err: unknown): JobErrorClass {
   if (err instanceof Error) {
     if (err.name === 'AbortError' || err.name === 'TimeoutError') return 'timeout';
     if (err.message.includes('parse') || err.message.includes('schema')) return 'parse_error';
+    // MODEL-RELIABILITY-UAT-1: fallback differentiation for raw (non-LlmProviderError) errors.
+    const lower = err.message.toLowerCase();
+    if (/\b429\b/.test(err.message) || lower.includes('rate limit') || lower.includes('too many requests')) return 'rate_limited';
+    if (/\b401\b/.test(err.message) || /\b403\b/.test(err.message) || lower.includes('unauthorized')) return 'auth_error';
     if (err.message.includes('API') || err.message.includes('HTTP')) return 'api_error';
   }
   return 'other';

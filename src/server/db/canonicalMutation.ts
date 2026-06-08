@@ -104,6 +104,65 @@ function getPaProfileProvider(): PaProfileProvider {
 }
 
 // ============================================================
+// MODEL-RELIABILITY-UAT-1 — bounded retry on transient provider failures
+// ============================================================
+// The single LLM chokepoint had NO retry layer: any transient blip (provider 5xx,
+// 429 rate limit, a dropped socket) failed the job — and, for a multi-reviewer session,
+// surfaced to the attorney as a failed lane. We add a bounded retry around the generate()
+// call ONLY for transient classes. We deliberately do NOT retry:
+//   - timeout aborts  — the budget is already spent; retrying multiplies wall-clock and
+//                       worsens the exact "reviewer timeout" symptom this engagement chased.
+//   - cancellation    — the attorney asked to stop.
+//   - auth_error      — a bad/again-bad key; retrying spams a 401/403.
+//   - parse_error     — deterministic-ish output shape; a re-roll is a separate decision.
+//   - generic api_error (4xx / no-candidates / missing-key) — not transient.
+
+const MAX_LLM_RETRIES = 2;
+
+/** Backoff before retry attempt N (1-based): 500ms, 1500ms. */
+function retryBackoffMs(attempt: number): number {
+  return 500 * Math.pow(3, attempt - 1);
+}
+
+/**
+ * Decide whether a failed generate() attempt should be retried. Transient =
+ * rate_limited (429), a 5xx server error (classified api_error with a 5xx in the
+ * message), or a transient network error. Aborts (timeout/cancel), auth, and parse
+ * are never retried.
+ */
+export function isTransientRetryable(err: unknown): boolean {
+  // Never retry an abort (timeout fired or cancel requested).
+  if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+    return false;
+  }
+  const cls = classifyProviderError(err);
+  if (cls === 'rate_limited') return true;
+  if (cls === 'auth_error' || cls === 'parse_error') return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  // 5xx server errors are classified api_error; distinguish by the status in the message.
+  if (cls === 'api_error' && /\b5\d\d\b/.test(msg)) return true;
+  // Transient network failures (adapters wrap these as api_error "<provider> fetch failed: ...").
+  if (/fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|network/i.test(msg)) return true;
+  return false;
+}
+
+/** A delay that resolves early if the abort signal fires (so cancel isn't blocked by backoff). */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(t);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// ============================================================
 // Types
 // ============================================================
 
@@ -333,16 +392,17 @@ export async function executeCanonicalMutation(
   // MR-LLM-GPT-1: use caller-supplied timeoutMs when provided (e.g. reviewer_feedback
   // with gpt-5 needs 300 000 ms); fall back to global default for all other jobs.
   const effectiveTimeoutMs = timeoutMs ?? getLlmFetchTimeoutMs();
-  const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
 
-  // Combine timeout signal with the job's abort controller
-  // so job.cancel can fire the abort
+  // Combine timeout signal with the job's abort controller so job.cancel can fire the abort.
   registerAbortController(jobId, abortController);
 
-  // Create a combined signal that aborts on either timeout or cancel
-  const combinedSignal = AbortSignal.any
-    ? AbortSignal.any([timeoutSignal, abortController.signal])
-    : abortController.signal; // fallback for environments without AbortSignal.any
+  // MODEL-RELIABILITY-UAT-1: timeoutSignal is (re)created per attempt inside the retry
+  // helper below (AbortSignal.timeout is one-shot). This outer binding holds the LAST
+  // attempt's signal so the failure handler can still tell a timeout abort from a cancel
+  // abort. The abortController (cancel) persists across all retry attempts; each attempt
+  // gets the FULL per-job timeout budget (retries are for fast transient failures, not
+  // for extending a slow call).
+  let timeoutSignal!: AbortSignal;
 
   let llmParams = buildLlmParams(jobId);
 
@@ -410,9 +470,42 @@ export async function executeCanonicalMutation(
   // Update heartbeat before LLM call (Ch 8.5 checkpoint 2)
   await jw.updateJobHeartbeat(jobId, userId);
 
+  // MODEL-RELIABILITY-UAT-1: call generate() with a bounded retry on transient failures.
+  // Each attempt re-arms a fresh timeout signal (recorded in the outer timeoutSignal for
+  // the failure handler) combined with the persistent cancel controller. A cancel stops
+  // retries immediately; the backoff itself is cancel-aware.
+  const generateWithRetry = async (): Promise<Awaited<ReturnType<typeof adapter.generate>>> => {
+    let attempt = 0;
+    for (;;) {
+      timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
+      const combinedSignal = AbortSignal.any
+        ? AbortSignal.any([timeoutSignal, abortController.signal])
+        : abortController.signal; // fallback for environments without AbortSignal.any
+      try {
+        return await adapter.generate({ ...llmParams, signal: combinedSignal });
+      } catch (err) {
+        // Cancel always stops immediately; never retry once the attorney cancelled.
+        if (abortController.signal.aborted) throw err;
+        if (attempt >= MAX_LLM_RETRIES || !isTransientRetryable(err)) throw err;
+        attempt += 1;
+        await abortableDelay(retryBackoffMs(attempt), abortController.signal);
+        if (abortController.signal.aborted) throw err;
+        await jw.updateJobHeartbeat(jobId, userId);
+        const cls = classifyProviderError(err);
+        // Surface retries in the server log (no new telemetry event type — keeps the
+        // telemetry contract untouched). errorClass on the eventual failure still records
+        // the final class if all retries are exhausted.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[canonicalMutation] transient ${cls} on job ${jobId} (${jobType}); retry ${attempt}/${MAX_LLM_RETRIES}`,
+        );
+      }
+    }
+  };
+
   let llmResult: Awaited<ReturnType<typeof adapter.generate>>;
   try {
-    llmResult = await adapter.generate({ ...llmParams, signal: combinedSignal });
+    llmResult = await generateWithRetry();
   } catch (err) {
     unregisterAbortController(jobId);
     const elapsedMs = Date.now() - startTime;
