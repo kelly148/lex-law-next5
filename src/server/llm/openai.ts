@@ -37,7 +37,7 @@
  */
 
 import { z } from 'zod';
-import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
 import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
 
 interface OpenAiMessage {
@@ -283,8 +283,10 @@ export class OpenAiAdapter implements LlmClient {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
+      // MODEL-RELIABILITY-UAT-1: classify 429 → rate_limited, 401/403 → auth_error,
+      // else api_error (unchanged), so transient vs auth is distinguishable downstream.
       throw new LlmProviderError(
-        'api_error',
+        httpStatusToErrorClass(response.status),
         `OpenAI API error ${response.status}: ${body}`,
       );
     }
