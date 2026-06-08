@@ -37,8 +37,15 @@ export function buildAnalysisMaterialsBlock(
   materials: AnalysisMaterialInput[],
   totalCharBudget: number = DEFAULT_TOTAL_CHAR_BUDGET,
 ): AnalysisMaterialsBlock {
+  // Include materials that have usable extracted text: extractionStatus 'extracted' (full) or 'partial'
+  // (some text), with non-empty textContent. EXTRACTION_STATUS_VALUES = extracted|partial|failed|not_supported
+  // (NOT 'completed' — that is JOB_STATUS_VALUES). 'failed'/'not_supported' carry no usable text (e.g. PDFs
+  // today, pending MATERIALS-EXTRACTION-1) and are excluded.
   const usable = materials.filter(
-    (m) => m.extractionStatus === 'completed' && typeof m.textContent === 'string' && m.textContent.trim().length > 0,
+    (m) =>
+      (m.extractionStatus === 'extracted' || m.extractionStatus === 'partial') &&
+      typeof m.textContent === 'string' &&
+      m.textContent.trim().length > 0,
   );
   if (usable.length === 0) return { block: '', includedCount: 0, truncatedCount: 0, omittedCount: 0 };
 
