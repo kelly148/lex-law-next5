@@ -131,3 +131,40 @@ export function classifyProviderError(err: unknown): JobErrorClass {
   }
   return 'other';
 }
+
+// ============================================================
+// REVIEWER-RETRY-SUPPRESS-1: request-level timeout vs. transient network blip
+// ============================================================
+
+/**
+ * Undici (Node's global fetch) timeout cause codes. A SLOW response — headers/body/connect not
+ * received within undici's internal window — surfaces as a generic `TypeError: fetch failed`
+ * whose cause carries one of these codes. This is distinct from a genuinely transient network
+ * blip (ECONNRESET, socket hang up) which may legitimately succeed on retry.
+ */
+const UNDICI_TIMEOUT_CODES: ReadonlySet<string> = new Set([
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+/**
+ * Detect a request-level TIMEOUT that surfaces as a generic `fetch failed` (undici's internal
+ * headers/body/connect timeout), as opposed to a genuinely transient network error. A slow MODEL
+ * whose headers/first byte exceed undici's window produces UND_ERR_HEADERS_TIMEOUT /
+ * UND_ERR_BODY_TIMEOUT; re-running it at the same budget just times out again, so it must NOT be
+ * transient-retried (REVIEWER-RETRY-SUPPRESS-1) — a big-doc GPT-5 review otherwise burns ~3x its
+ * multi-minute wall clock on doomed reruns. Walks the error `cause` chain because the adapters
+ * wrap the original fetch error as the LlmProviderError's cause (and undici nests its own cause).
+ */
+export function isUndiciTimeoutError(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let depth = 0; depth < 8 && cur != null && typeof cur === 'object'; depth += 1) {
+    const code = (cur as { code?: unknown }).code;
+    if (typeof code === 'string' && UNDICI_TIMEOUT_CODES.has(code)) return true;
+    const message = (cur as { message?: unknown }).message;
+    if (typeof message === 'string' && /\b(headers? timeout|body timeout|connect timeout)\b/i.test(message)) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
