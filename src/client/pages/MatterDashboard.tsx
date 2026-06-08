@@ -22,6 +22,7 @@ import { Plus, Archive, ArchiveRestore, Trash2, ChevronRight } from 'lucide-reac
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import UpcomingDeadlines from '../components/UpcomingDeadlines.js';
 
 const PRACTICE_AREAS = [
   'Corporate',
@@ -293,6 +294,9 @@ export default function MatterDashboard(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* FOLD-PM-1 — minimal cross-matter next-30-days + integrity (NOT PM-4); flag-gated, surfaces only */}
+      <UpcomingDeadlines />
 
       {/* Matter list */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
