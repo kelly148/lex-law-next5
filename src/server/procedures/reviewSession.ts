@@ -23,6 +23,7 @@ import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
+import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
 import { parseEvaluatorOutputFull } from '../llm/parsers/evaluatorOutputParse.js';
@@ -320,8 +321,11 @@ export const reviewSessionRouter = router({
             systemPrompt,
             userPrompt,
             temperature: 0.4,
-            maxTokens: 16384, // MR-LLM-1 S12: raised from 8192 to 16384 (model ceiling floor) to handle any legal document size; supersedes S11 8192 budget
             structuredOutputSchema: RawSuggestionsArraySchema,
+            // GEMINI-BUDGET-CAL-1 Inc 2: per-model calibrated reviewer ceiling from the
+            // model-capability registry (single source of truth). Gemini-2.5-pro -> 32768
+            // (measured); Claude/GPT-5/Grok/lites -> 16384 floor. Supersedes the global 16384.
+            maxTokens: getReviewerCeiling(modelString),
           }),
           // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
           // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default
