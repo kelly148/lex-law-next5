@@ -337,7 +337,12 @@ export const reviewSessionRouter = router({
           // is insufficient. 300 000 ms (5 min) gives a safe margin for all four
           // reviewer adapters (Claude, GPT, Gemini, Grok) at any document size.
           // Non-reviewer jobs continue to use the global 120 000 ms default.
-          timeoutMs: 300_000,
+          // REVIEWER-ASYNC-FANOUT-1 Inc 2: in async mode the reviewer runs in the BACKGROUND, so
+          // raise the envelope to 720 000 ms (12 min) — big-doc GPT-5 needs ~11 min at full effort
+          // (measured), and llmFetch raises undici's internal timeout above this so the per-call
+          // AbortSignal governs. The SYNC path keeps 300 000 ms (a 720s SYNC block is exactly what
+          // the operator rejected).
+          timeoutMs: reviewerAsync ? 720_000 : 300_000,
           // S3b (MR-1): Parse LLM output and persist to feedback table
           txn2Commit: async ({ jobId, output }) => {
             const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);

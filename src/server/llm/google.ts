@@ -29,6 +29,7 @@
 
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { llmFetch } from './llmFetch.js';
 
 interface GeminiContent {
   role: 'user' | 'model';
@@ -196,7 +197,7 @@ export class GoogleAdapter implements LlmClient {
 
     let response: Response;
     try {
-      response = await fetch(apiUrl, {
+      response = await llmFetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
