@@ -27,6 +27,9 @@ export const AuditEventRowSchema = z.object({
     'judgment_required',
     // FOLD-L1-1 (Fork C): attorney decision recorded in the same append-only stream.
     'disposition',
+    // FOLD-PM-1 Inc 3: deadline engine system events, audited distinctly from attorney disposition.
+    'deadline_fired',
+    'deadline_acknowledged',
   ]),
   actor: z.enum(['model', 'attorney', 'system']),
   actorModel: z.string().nullable(),

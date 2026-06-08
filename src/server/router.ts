@@ -38,6 +38,7 @@ import { provisionProvenanceRouter } from './procedures/provisionProvenance.js';
 import { lddKeyTermRouter } from './procedures/lddKeyTerm.js';
 import { closurePackageRouter } from './procedures/closurePackage.js';
 import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
+import { deadlineRouter } from './procedures/deadlines.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -78,6 +79,9 @@ export const appRouter = router({
   // FOLD-SEND-1 — deterministic export-safety / outbound-readiness gate (read-only verdict in Inc 2;
   // enforcement + override + shadow logging at the export boundary land in Inc 3).
   sendabilityGate: sendabilityGateRouter,
+  // FOLD-PM-1 — deadline / tickler engine (Phase 4). Read + lifecycle surface; gated behind
+  // DEADLINE_ENGINE_ENABLED (default OFF, fully dormant); surfaces + records only, never acts.
+  deadline: deadlineRouter,
 });
 
 export type AppRouter = typeof appRouter;
