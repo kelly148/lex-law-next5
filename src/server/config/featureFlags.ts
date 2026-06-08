@@ -42,6 +42,30 @@ export function isEvaluatorEnabled(): boolean {
 }
 
 /**
+ * Async + progressive reviewer fan-out (REVIEWER-ASYNC-FANOUT-1 Inc 1). DEFAULT OFF.
+ *
+ * When OFF (the default), reviewSession.create runs reviewers INLINE and SEQUENTIALLY within the
+ * tRPC request and only returns after every reviewer (and the evaluator) has finished — the
+ * established behavior. With a slow big-doc reviewer (e.g. GPT-5) this can block the attorney for
+ * many minutes.
+ *
+ * When exactly "true", create FIRES the reviewer jobs concurrently in the background
+ * (fire-and-forget, still via executeCanonicalMutation per R4) and returns { sessionId }
+ * immediately — the operator is NEVER blocked. The frontend's existing job.poll / reviewSession.get
+ * polling surfaces each reviewer's feedback progressively as it lands. The advisory evaluator (which
+ * must read ALL reviewer feedback) is SKIPPED in async-mode v1 (operator decision; it is advisory-
+ * only and default-OFF) — evaluator fan-in is a fast-follow increment. The background-lane timeout
+ * envelope raise (so deep GPT-5 reviews survive past 300s) is a separate increment.
+ *
+ * v1 LIMITATION (documented, not a defect): fire-and-forget is in-process — a server restart mid-
+ * review loses the in-flight LLM call (the job is left non-terminal). Moving to the DB-backed
+ * dispatcher for restart-robustness is a deferred fast-follow.
+ */
+export function isReviewerAsyncEnabled(): boolean {
+  return process.env['REVIEWER_ASYNC_ENABLED'] === 'true';
+}
+
+/**
  * Export-safety / outbound-readiness deterministic gate (FOLD-SEND-1). DEFAULT OFF.
  *
  * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged
