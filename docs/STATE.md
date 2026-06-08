@@ -16,7 +16,9 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 **Build state.** main = `41c7e36`; prod = `8e4a4a6`. Gates unchanged (CONFLICT ON, SENDABILITY shadow, DEADLINE OFF). Local gates green throughout; full suite shows only the 12 pre-existing Windows-local failures (green on CI). One judgment call surfaced (purge wiring); firing-audit approach operator-delegated (chose dedicated enum values).
 
-**REMAINING (operator-gated).** Inc 5 = **DEPLOY PROMPT** (Rule 18, MODE B; runner applies 0021+0022) → **attorney seed-verification** → flip `DEADLINE_ENGINE_ENABLED` → Pattern-16 live-verify on a contingency/corporate matter. Inc 6 = 1031 activation, **BLOCKED** on attorney-approved 1031-0 fixtures. Queue head **FOLD-PM-2** (Phase 4 continues).
+**DEPLOYED flag-OFF 2026-06-08 (operator-triggered, MODE B).** prod = **`ef903be`** (`/api/version` builtAt 2026-06-08T01:03:55Z; `/api/health` ok). The wired pre-deploy runner applied migrations **0021 + 0022** (deploy passed the EXPECTED_TABLES assertion for the 5 new deadline tables → applied). Light by-hand verify (Claude-driven Chrome, kelly): MatterDetail renders all panels incl. **"Deadlines & ticklers" in the engine-off state** (flag OFF → zero behavior); no app/#310 errors (only the known benign Chrome-extension message-channel noise). main = prod = `ef903be`. **NOT live-verified** (flag OFF — live-verify is the post-flag-on step).
+
+**REMAINING (operator-gated).** Inc 5 (cont.) = **attorney seed-verification** (VA SCC anniversary-month-end + MD SDAT Apr-15 + the US/MD holiday calendar) → flip `DEADLINE_ENGINE_ENABLED` → Pattern-16 live-verify on a contingency/corporate matter. Inc 6 = 1031 activation, **BLOCKED** on attorney-approved 1031-0 fixtures. Queue head **FOLD-PM-2** (Phase 4 continues).
 
 ---
 
