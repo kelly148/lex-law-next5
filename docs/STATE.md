@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-08 (FOLD-PM-1 progress — Inc 1 + G-A frozen contract + Inc 2 merged onto `fold/phase-4`; Inc 3 next, paused for an audit-firing decision)
+
+**Where it stands.** `fold/phase-4` = `682bedc` on origin. Merged increments (each its own PR into the phase branch, CI-green): **Inc 1** data core (PR #220, squash `7ee6e80` — 5 tables, flag OFF, idempotent seeds, 1031 seeded-DISABLED, purge wiring); **Inc 2** pure `computeDeadline` engine + 22-fixture suite (PR #221, squash `682bedc`). **G-A contract FROZEN** (`docs/engagements/FOLD-PM-1-GA-contract.md`; operator approve contract:FOLD-PM-1 + the 1031-0 panel's named changes — constraintInputs resolution seam, three-leg `return_due_date_cap` earliest-of, cap-rolls/statutory-don't asymmetry). `main`/prod untouched at `8e4a4a6` (no deploy this engagement yet; flag OFF, no behavior).
+
+**Engine proven.** `src/server/deadline/` (dateMath + computeDeadline + index) is pure/deterministic/DST-immune; importable consumable contract for 1031-1 + PM-4. 22 fixtures green incl. all G-A + 1031-0 cases (Feb29, DST, 45-on-weekend no-roll, holiday+weekend roll, consecutive holidays, business-days, cap unresolved/partial, entity/individual/fiscal-year caps, extension, cap-boundary tie, filed-early truncation, cap-on-weekend roll, recurrence, coverage guard).
+
+**Next = Inc 3 (lifecycle), PAUSED for an operator decision on the firing-audit.** Scope: instance lifecycle (pending_confirm fires ticklers under unconfirmed treatment; confirm/batch-confirm; override/waive/satisfy with reasons + basis; recompute propose-and-confirm); 12-month rolling tickler materialization refreshed deterministically on-load (injectable clock seam); `expired_unresolved` -> one-directional `open_item` projection (cleared by satisfy/waive); audit every lifecycle act + the FIRING distinct from acknowledgment; the read-only tRPC API (deferred from Inc 2). DECISION: how to audit the system "firing" event — add `deadline_fired`/`deadline_acknowledged` to the `audit_events.eventType` mysqlEnum (an additive ALTER-MODIFY migration), OR reuse the existing `disposition` eventType with actor=`system` + free-form targetType/action (no migration). Attorney lifecycle acts can already use `disposition` either way.
+
+---
+
 ## 2026-06-07 (FOLD-PM-1 REGISTERED in_progress — deadline/tickler engine, Phase-4 head; `fold/phase-4` off `main`; build PAUSED for operator go on Inc-1 plan + seed legal-verification)
 
 **Pickup.** FOLD-PM-1 (deadline/tickler engine) registered `in_progress` on operator pickup (Rule-11 y given in the prompt). Popped queue head → queue now FOLD-PM-2…FOLD-VERIFY-1. Per Rule 17, **branch `fold/phase-4` off `main` `acd2497`** — verified main contains RELAYOUT-3 (`541a1b5` + FIX-1 `8e4a4a6`, close-out done); no remote `fold/phase-4`; remaining remote branches are stale merged feature branches (no parallel builder on the deadline tree; sole committer).
