@@ -1,0 +1,7 @@
+# GEMINI-BUDGET-CAL-1 (Increment 1): pin the calibration fixture + generators to LF so the
+# committed bytes match the LF-emitting generator and stay reproducible regardless of a
+# platform's core.autocrlf. Scoped to these paths only — intentionally NOT a repo-wide
+# `* text=auto`, to avoid mass line-ending renormalization of the existing tree.
+tools/calibration/fixtures/synthetic_large_provision.txt text eol=lf
+tools/calibration/fixtures/*.mjs text eol=lf
+tools/calibration/*.mjs text eol=lf

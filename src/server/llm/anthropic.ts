@@ -205,6 +205,22 @@ export class AnthropicAdapter implements LlmClient {
     const rawText = data.content[0]?.text ?? '';
 
     if (structuredOutputSchema) {
+      // GEMINI-BUDGET-CAL-1 (Inc 1): truncation guard, for parity with the OpenAI
+      // (finish_reason 'length') and Gemini (finishReason 'MAX_TOKENS') adapters. Anthropic
+      // signals an output-budget truncation with stop_reason 'max_tokens'; the partial JSON
+      // that follows would otherwise reach JSON.parse below and surface as a cryptic
+      // parse_error, where neither the transient-retry nor the future L2 escalation (which key
+      // on the truncation error class) can act on it. Classify it as a single, correct
+      // api_error (truncation) BEFORE parse — the same invariant the MODEL-RELIABILITY-UAT-1
+      // Gemini fix established, extended to Claude.
+      if (data.stop_reason === 'max_tokens') {
+        throw new LlmProviderError(
+          'api_error',
+          `Anthropic structured output was truncated (stop_reason: max_tokens) before valid JSON could be produced. ` +
+            `This is an output-budget truncation, not a malformed response — raise max_tokens or reduce input size.`,
+        );
+      }
+
       // MR-LLM-LITE-2: claude-sonnet-4-5 may return fenced JSON. Strip fence first.
       const effectiveText = stripJsonCodeFenceIfWholeResponse(rawText);
 

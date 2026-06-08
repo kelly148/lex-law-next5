@@ -61,6 +61,10 @@ interface GeminiResponse {
     promptTokenCount: number;
     candidatesTokenCount: number;
     totalTokenCount: number;
+    // GEMINI-BUDGET-CAL-1 (Inc 1, measurement): Gemini 2.5 "thinking" models report reasoning
+    // tokens here, SEPARATE from candidatesTokenCount (the emitted output). Both consume the
+    // maxOutputTokens budget. Optional — absent when the model emits no thinking tokens.
+    thoughtsTokenCount?: number;
   };
 }
 
@@ -301,6 +305,7 @@ export class GoogleAdapter implements LlmClient {
         content: contentText,
         tokensPrompt: data.usageMetadata.promptTokenCount,
         tokensCompletion: data.usageMetadata.candidatesTokenCount,
+        tokensReasoning: data.usageMetadata.thoughtsTokenCount,
         providerMetadata: {
           provider: 'google',
           model: this.modelId,
@@ -313,6 +318,7 @@ export class GoogleAdapter implements LlmClient {
       content: rawText,
       tokensPrompt: data.usageMetadata.promptTokenCount,
       tokensCompletion: data.usageMetadata.candidatesTokenCount,
+      tokensReasoning: data.usageMetadata.thoughtsTokenCount,
       providerMetadata: {
         provider: 'google',
         model: this.modelId,

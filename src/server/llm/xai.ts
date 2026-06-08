@@ -70,6 +70,13 @@ interface XaiResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    // GEMINI-BUDGET-CAL-1 (Inc 1, measurement): xAI is OpenAI-compatible; reasoning models may
+    // report reasoning tokens here (a SUBSET of completion_tokens). Best-effort/optional — xAI's
+    // public reasoning-token reporting is less explicit than OpenAI's, so this is recorded where
+    // present and treated as unavailable (null) otherwise.
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
 }
 
@@ -293,6 +300,20 @@ export class XaiAdapter implements LlmClient {
     const rawText = data.choices[0]?.message.content ?? '';
 
     if (structuredOutputSchema) {
+      // GEMINI-BUDGET-CAL-1 (Inc 1): truncation guard. xAI Grok is OpenAI-compatible and
+      // signals an output-budget truncation with finish_reason 'length'; the partial JSON
+      // would otherwise reach JSON.parse below and surface as a cryptic parse_error, where
+      // neither the transient-retry nor the future L2 escalation (which key on the truncation
+      // error class) can act. Classify it as a single, correct api_error (truncation) BEFORE
+      // parse — parity with the OpenAI and Gemini adapters.
+      const finishReason = data.choices[0]?.finish_reason;
+      if (finishReason === 'length') {
+        throw new LlmProviderError(
+          'api_error',
+          `xAI Grok returned finish_reason 'length' (token truncation) before valid JSON could be produced. ` +
+            `This is an output-budget truncation, not a malformed response — raise max_tokens or reduce input size.`,
+        );
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(rawText);
@@ -332,6 +353,7 @@ export class XaiAdapter implements LlmClient {
         content: contentText,
         tokensPrompt: data.usage.prompt_tokens,
         tokensCompletion: data.usage.completion_tokens,
+        tokensReasoning: data.usage.completion_tokens_details?.reasoning_tokens,
         providerMetadata: {
           provider: 'xai',
           model: data.model,
@@ -345,6 +367,7 @@ export class XaiAdapter implements LlmClient {
       content: rawText,
       tokensPrompt: data.usage.prompt_tokens,
       tokensCompletion: data.usage.completion_tokens,
+      tokensReasoning: data.usage.completion_tokens_details?.reasoning_tokens,
       providerMetadata: {
         provider: 'xai',
         model: data.model,
