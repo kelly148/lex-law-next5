@@ -36,6 +36,7 @@ import {
   isMultiReviewerEnabled,
   isReviewerSelectionCountAllowed,
   isEvaluatorEnabled,
+  isReviewerAsyncEnabled,
 } from '../config/featureFlags.js';
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
@@ -278,7 +279,11 @@ export const reviewSessionRouter = router({
         ].filter((s) => s !== '').join('\n');
       }
 
-      // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation)
+      // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation).
+      // REVIEWER-ASYNC-FANOUT-1 Inc 1: when async is enabled, fire each reviewer in the BACKGROUND
+      // (concurrent, not awaited) so create returns { sessionId } immediately and the operator is
+      // never blocked; otherwise keep the established inline + sequential path.
+      const reviewerAsync = isReviewerAsyncEnabled();
       const reviewerJobIds: string[] = [];
       for (const reviewerRole of input.selectedReviewers) {
         const modelString = resolveReviewerModel(reviewerRole);
@@ -308,7 +313,7 @@ export const reviewSessionRouter = router({
           ...(previouslyAdoptedSection ? [previouslyAdoptedSection] : []),
         ].join('\n');
         const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
-        const reviewerResult = await executeCanonicalMutation({
+        const reviewerResultPromise = executeCanonicalMutation({
           userId,
           jobType: 'reviewer_feedback',
           modelString,
@@ -395,7 +400,19 @@ export const reviewSessionRouter = router({
           },
           telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
         });
-        reviewerJobIds.push(reviewerResult.jobId);
+        if (reviewerAsync) {
+          // Fire-and-forget: the reviewer runs in the BACKGROUND and persists its feedback on
+          // completion (txn2Commit); the frontend's existing polling surfaces it progressively and
+          // the operator is not blocked. executeCanonicalMutation marks the job failed INTERNALLY on
+          // any LLM error, so a rejection here is only an unexpected error — log it, never surface it.
+          void reviewerResultPromise.catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error(`[reviewer-async] unexpected background reviewer error (session ${sessionId}):`, err);
+          });
+        } else {
+          const reviewerResult = await reviewerResultPromise;
+          reviewerJobIds.push(reviewerResult.jobId);
+        }
       }
 
       // EVALUATOR PATH — MR-CAL-5C (advisory output contract; default OFF)
@@ -413,7 +430,10 @@ export const reviewSessionRouter = router({
       // flags business decisions for the attorney (P8-T10). The attorney decides.
       //
       // References: MR-CAL-5A investigation; MR-CAL-5C plan; decision #41 (EVALUATOR_MODEL).
-      if (isEvaluatorEnabled() && input.selectedReviewers.length > 1) {
+      // REVIEWER-ASYNC-FANOUT-1 Inc 1: the evaluator reads ALL reviewer feedback and must run only
+      // after every reviewer completes — incompatible with the fire-and-forget async path, so it is
+      // SKIPPED in async-mode v1 (advisory-only + default-OFF; evaluator fan-in is a fast-follow).
+      if (!reviewerAsync && isEvaluatorEnabled() && input.selectedReviewers.length > 1) {
         const evaluatorModelString = EVALUATOR_MODEL;
         // Read the just-persisted reviewer feedback for this iteration/session.
         const evaluatorFeedbackRows = await listFeedbackForSession(sessionId, userId);
