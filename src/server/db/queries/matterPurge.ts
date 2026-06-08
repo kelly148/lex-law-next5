@@ -14,10 +14,11 @@
  *   - children of the matter's DOCUMENTS (by documentId): versions, documentOutlines, feedback,
  *     feedbackEvaluations, feedbackManualSelections, reviewSessions; documentReferences (source/ref).
  *   - children of the matter's INFORMATION REQUESTS (by informationRequestId): informationRequestItems.
+ *   - children of the matter's DEADLINES (by matterDeadlineId): tickler (FOLD-PM-1).
  *   - direct matterId rows: jobs, matterMaterials, informationRequests, lockedDecisions, adoptLedger,
  *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
- *     matterAnalysis, kbAdoptions, documents — then the `matters` row itself.
+ *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documents — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -57,6 +58,8 @@ import {
   conflictHits,
   matterAnalysis,
   kbAdoptions,
+  matterDeadline,
+  tickler,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -111,6 +114,13 @@ export async function purgeMatter(
       .from(informationRequests)
       .where(and(eq(informationRequests.matterId, matterId), ownerScope(informationRequests.userId, userId)));
     const reqIds = reqRows.map((r) => r.id);
+    // FOLD-PM-1: the matter's DEADLINE ids, for the tickler child delete (tickler is keyed by
+    // matterDeadlineId, not matterId, so it is a deadline-child like versions are a document-child).
+    const deadlineRows = await tx
+      .select({ id: matterDeadline.id })
+      .from(matterDeadline)
+      .where(and(eq(matterDeadline.matterId, matterId), ownerScope(matterDeadline.userId, userId)));
+    const deadlineIds = deadlineRows.map((r) => r.id);
 
     // 1) Children of the matter's DOCUMENTS (by documentId). Guard empty id lists (inArray([]) ).
     if (docIds.length > 0) {
@@ -136,6 +146,14 @@ export async function purgeMatter(
       counts['informationRequestItems'] = 0;
     }
 
+    // 2b) Children of the matter's DEADLINES (by matterDeadlineId): tickler (FOLD-PM-1). Deleted before
+    // matter_deadline below so no tickler is orphaned.
+    if (deadlineIds.length > 0) {
+      await step('tickler', tickler, inArray(tickler.matterDeadlineId, deadlineIds));
+    } else {
+      counts['tickler'] = 0;
+    }
+
     // 3) Direct matterId rows (owner-scoped). Children-before-parent ordering (no FK constraints exist).
     const byMatter = (table: { matterId: unknown; userId: unknown }) =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -156,6 +174,7 @@ export async function purgeMatter(
     await step('sendabilityOverride', sendabilityOverride, byMatter(sendabilityOverride));
     await step('sendabilityEvaluation', sendabilityEvaluation, byMatter(sendabilityEvaluation));
     await step('kbAdoptions', kbAdoptions, byMatter(kbAdoptions));
+    await step('matterDeadline', matterDeadline, byMatter(matterDeadline)); // after its tickler children above
     await step('jobs', jobs, byMatter(jobs));
     await step('auditEvents', auditEvents, byMatter(auditEvents));
     await step('documents', documents, byMatter(documents)); // after its children above
