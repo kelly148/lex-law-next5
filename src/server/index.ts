@@ -19,6 +19,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import multer from 'multer';
 import mammoth from 'mammoth';
+import { extractPdfText } from './intake/pdfExtract.js';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
 import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.js';
@@ -243,8 +244,14 @@ app.post(
         extractionStatus = 'failed';
         extractionError = err instanceof Error ? err.message : String(err);
       }
+    } else if (mimeType === 'application/pdf' || ext === 'pdf') {
+      // MATERIALS-EXTRACTION-1 (Bug B): digital PDF text-layer extraction via unpdf (pdf.js). OCR deferred.
+      const r = await extractPdfText(file.buffer);
+      textContent = r.textContent;
+      extractionStatus = r.extractionStatus;
+      extractionError = r.extractionError;
     }
-    // else: pdf and other types — extractionStatus remains 'not_supported'
+    // else: other types — extractionStatus remains 'not_supported'
 
     // ── Persist via existing insertMaterial() primitive ───────────────────────
     const material = await insertMaterial({
