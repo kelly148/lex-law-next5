@@ -32,6 +32,18 @@ export interface LlmGenerateResult {
   content: string | ParsedStructuredOutput;
   tokensPrompt: number;
   tokensCompletion: number;
+  /**
+   * GEMINI-BUDGET-CAL-1 (Increment 1, measurement): provider-reported reasoning/thinking
+   * tokens for this call, where the provider exposes them as a separate count. Additive and
+   * optional — undefined when the provider does not report a separate reasoning count
+   * (Anthropic folds thinking into output_tokens and exposes no split). Token accounting is
+   * PER-PROVIDER: for OpenAI/xAI the reasoning count is a SUBSET of tokensCompletion
+   * (max_completion_tokens budget); for Gemini thoughtsTokenCount is SEPARATE from
+   * candidatesTokenCount (both consume maxOutputTokens). See src/server/llm/tokenAccounting.ts
+   * for the normalization that turns these raw counts into a comparable reasoning/output split.
+   * This field is measurement-only: no runtime control flow reads it.
+   */
+  tokensReasoning?: number | undefined;
   /** Provider-specific metadata for debugging/audit */
   providerMetadata: Record<string, unknown>;
 }

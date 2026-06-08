@@ -67,6 +67,12 @@ interface OpenAiResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    // GEMINI-BUDGET-CAL-1 (Inc 1, measurement): GPT-5 / o-series report reasoning tokens here.
+    // reasoning_tokens is a SUBSET of completion_tokens (it counts against max_completion_tokens
+    // before any JSON is emitted). Optional — absent for non-reasoning models.
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
 }
 
@@ -367,6 +373,7 @@ export class OpenAiAdapter implements LlmClient {
         content: effectiveRawText,
         tokensPrompt: data.usage.prompt_tokens,
         tokensCompletion: data.usage.completion_tokens,
+        tokensReasoning: data.usage.completion_tokens_details?.reasoning_tokens,
         providerMetadata: {
           provider: 'openai',
           model: data.model,
@@ -380,6 +387,7 @@ export class OpenAiAdapter implements LlmClient {
       content: rawText,
       tokensPrompt: data.usage.prompt_tokens,
       tokensCompletion: data.usage.completion_tokens,
+      tokensReasoning: data.usage.completion_tokens_details?.reasoning_tokens,
       providerMetadata: {
         provider: 'openai',
         model: data.model,

@@ -2,3 +2,8 @@
 # They contain full provider output and are large; only sanitized summaries are
 # committed (at CAL-7B-LIVE close-out), and never any credential material.
 runs/
+
+# GEMINI-BUDGET-CAL-1 — real-shaped calibration inputs (the operator's anonymized real-shaped
+# lease text) stay LOCAL. The committed, prod-content-free synthetic fixture under fixtures/ is
+# the shareable CI artifact; the real-shaped input is operator-supplied and local-only.
+inputs/

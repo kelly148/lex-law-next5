@@ -50,6 +50,7 @@ import { emitTelemetry, type TelemetryContext } from '../telemetry/emitTelemetry
 import { getPromptVersionForJobType } from '../llm/promptVersions.js';
 import { resolveAdapter } from '../llm/registry.js';
 import { classifyProviderError, type LlmGenerateParams } from '../llm/types.js';
+import { deriveTokenAccounting, formatTokenAccounting } from '../llm/tokenAccounting.js';
 import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
 import { buildMatterStateContextBlock } from '../matterState/injection.js';
 import { buildActivePaProfileForMatter, type LoadedPaProfile } from '../practiceKb/profileInjection.js';
@@ -662,6 +663,30 @@ export async function executeCanonicalMutation(
     },
     { ...telemetryCtx, jobId },
   );
+
+  // GEMINI-BUDGET-CAL-1 (Inc 1, measurement): per-call token-accounting log — the per-provider
+  // reasoning/output split, distance-to-truncation (leading indicator on a SUCCESSFUL call),
+  // and emitted-output fraction. Best-effort observability ONLY: wrapped so it can never affect
+  // the job outcome, emits to the server log (no telemetry-contract or schema change), and reads
+  // the finish/stop reason from providerMetadata.
+  try {
+    const finishReason =
+      (llmResult.providerMetadata?.['finishReason'] as string | undefined) ??
+      (llmResult.providerMetadata?.['stopReason'] as string | undefined) ??
+      null;
+    const accounting = deriveTokenAccounting({
+      modelString,
+      requestedMaxTokens: llmParams.maxTokens ?? null,
+      tokensPrompt: llmResult.tokensPrompt,
+      tokensCompletion: llmResult.tokensCompletion,
+      tokensReasoning: llmResult.tokensReasoning ?? null,
+      finishReason,
+    });
+    // eslint-disable-next-line no-console
+    console.info(`[token-accounting] job=${jobId} ${jobType} ${formatTokenAccounting(accounting)}`);
+  } catch {
+    // observability must never affect the job outcome
+  }
 
   return { jobId, status: 'completed' };
 }
