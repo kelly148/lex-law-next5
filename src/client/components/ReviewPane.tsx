@@ -1337,7 +1337,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Session-info strip — R2-2 Inc A: rethemed, with the honest N-of-M denominator and a
           "review basis" line (the anti-stale-review safeguard: WHICH draft this review judged
           and WHEN). Detail lives here; the matter-state header (R2 #3) carries only a rolled-up
@@ -1476,8 +1476,15 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         )}
       </div>
 
-      {/* Feedback area — MR-3 §S1b: render based on derived completion state */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      {/* REVIEW-PANE-SCROLL-1: ONE scroll body for the whole review pane — the feedback area AND all
+          the secondary panels below it live in this single scrollable container, so expanding a panel
+          never pushes content past an unreachable fold (the prior defect: the scroll wrapped only the
+          feedback cards; the panels were siblings clipped by the overflow-hidden parent). Fixed header
+          above, fixed footer below; no nested scroll containers inside the panels. Mirrors the left
+          DocumentReferencePane pattern (a single h-full overflow-y-auto body). */}
+      <div className="flex-1 min-h-0 overflow-y-auto" data-testid="review-scroll-body">
+        {/* Feedback area — MR-3 §S1b: render based on derived completion state */}
+        <div className="p-4 space-y-3">
         {completionState === 'pending_or_running' && (
           // MR-UAT-PROGRESS-1: show reviewer-specific label when available.
           <div className="text-center py-8" aria-live="polite" aria-busy={true}>
@@ -1566,9 +1573,14 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       {/* History section — MR-2 §S2c */}
       <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
 
+        {/* REVIEW-PANE-SCROLL-1: bottom spacer (>= the footer's height) so the last focusable control
+            clears the fixed footer strip when the body is fully scrolled. */}
+        <div aria-hidden="true" className="h-20" />
+      </div>
+
       {/* Footer actions */}
       {session.state === 'active' && (
-        <div className="px-4 py-3 border-t border-gray-200 flex flex-col gap-2">
+        <div className="px-4 py-3 border-t border-gray-200 flex flex-col gap-2 flex-shrink-0">
           {/* MR-4 P2: regenError inline display — same pattern as CreateSessionView */}
           {regenError && <p className="text-red-600 text-sm">{regenError}</p>}
           <div className="flex gap-2">
