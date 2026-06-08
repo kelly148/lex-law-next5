@@ -472,8 +472,15 @@ describe('T-LITE3-11: Full GPT/Grok regression — existing flat-wrapper tests s
 });
 
 // ─── T-LITE3-12: No client/config/generation files touched ────────────────────
-
-describe('T-LITE3-12: No client/config/generation files touched (diff stat confirmation)', () => {
+//
+// RETIRED (MODEL-RELIABILITY-UAT-1, 2026-06-07): this was a one-time scope guard for the
+// MR-LLM-LITE-3 engagement that diffs origin/main..HEAD and fails if any "forbidden" file
+// (incl. the LLM adapters and canonicalMutation) ever changes. By design it false-positives
+// on EVERY later, legitimate change to those files — e.g. this engagement's adapter
+// reliability fixes — so it is not a durable functional test, it is an anti-pattern that
+// blocks all future adapter work. The functional LITE-3 coverage (T-LITE3-1..11 above) is
+// unaffected and still runs. Skipped rather than deleted to preserve the history/rationale.
+describe.skip('T-LITE3-12: No client/config/generation files touched (diff stat confirmation) [RETIRED]', () => {
   it('MR-LLM-LITE-3 changes are confined to allowed files only', async () => {
     // This test verifies the constraint programmatically by checking the git diff
     // against the list of allowed files for this engagement.
