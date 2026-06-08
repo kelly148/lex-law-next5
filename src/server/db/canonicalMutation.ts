@@ -49,7 +49,7 @@ import {
 import { emitTelemetry, type TelemetryContext } from '../telemetry/emitTelemetry.js';
 import { getPromptVersionForJobType } from '../llm/promptVersions.js';
 import { resolveAdapter } from '../llm/registry.js';
-import { classifyProviderError, type LlmGenerateParams } from '../llm/types.js';
+import { classifyProviderError, isUndiciTimeoutError, type LlmGenerateParams } from '../llm/types.js';
 import { deriveTokenAccounting, formatTokenAccounting } from '../llm/tokenAccounting.js';
 import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
 import { buildMatterStateContextBlock } from '../matterState/injection.js';
@@ -128,14 +128,26 @@ function retryBackoffMs(attempt: number): number {
 /**
  * Decide whether a failed generate() attempt should be retried. Transient =
  * rate_limited (429), a 5xx server error (classified api_error with a 5xx in the
- * message), or a transient network error. Aborts (timeout/cancel), auth, and parse
- * are never retried.
+ * message), or a transient network error. Aborts (timeout/cancel), auth, parse, and a
+ * request-level undici timeout (a slow model — REVIEWER-RETRY-SUPPRESS-1) are never retried.
  */
 export function isTransientRetryable(err: unknown): boolean {
   // Never retry an abort (timeout fired or cancel requested).
   if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
     return false;
   }
+  // REVIEWER-RETRY-SUPPRESS-1: a request-level timeout that surfaces as a generic "fetch failed"
+  // (undici headers/body/connect timeout) is a SLOW-RESPONSE failure, not a transient network
+  // blip — re-running at the same budget just times out again. Do NOT retry it (a big-doc GPT-5
+  // review otherwise burns ~3x its multi-minute wall clock on doomed reruns). Genuine transient
+  // network errors (ECONNRESET, socket hang up) fall through to the retryable check below.
+  //
+  // FORWARD NOTE (REVIEWER-ASYNC-FANOUT-1): suppress-always is correct ONLY while the per-lane
+  // envelope is ~300s — a timeout here means the model already exceeded the budget, so a
+  // same-budget retry just times out again. When the async build raises the envelope (~720s),
+  // REVISIT whether a timeout at that RAISED boundary (which may signal a genuine transient stall
+  // rather than the model's normal deep-reasoning latency) warrants a single retry. Don't lose it.
+  if (isUndiciTimeoutError(err)) return false;
   const cls = classifyProviderError(err);
   if (cls === 'rate_limited') return true;
   if (cls === 'auth_error' || cls === 'parse_error') return false;
