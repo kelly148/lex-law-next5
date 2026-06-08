@@ -43,6 +43,8 @@ import { suggestAnalysisLane } from '../intake/modelLane.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { AnalysisGenerationSchema, parseGeneratedAnalysis } from '../intake/analysisGenerationParse.js';
+import { listMaterialsForMatter } from '../db/queries/materials.js';
+import { buildAnalysisMaterialsBlock } from '../intake/analysisContext.js';
 import { UNCONFIRMED_PARTY_PROMPT_MARKER } from '../../shared/schemas/layer0.js';
 import { migrateClientPartiesForOwner, listConflictsComplianceQueue } from '../db/queries/conflictsMigration.js';
 
@@ -196,6 +198,11 @@ export const matterIntakeRouter = router({
     .mutation(async ({ ctx, input }) => {
       const matter = await assertMatterOwned(input.matterId, ctx.userId);
       const parties = await listPartiesForMatter(input.matterId, ctx.userId);
+      // ASSESSMENT-DRAWER-1: ingest the matter's extraction-complete material TEXT into the analysis
+      // context (token-budgeted). Previously this path read title + parties only, so the assessment
+      // reported "no information provided" even with a full intake packet in the drawer.
+      const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+      const materialsBlock = buildAnalysisMaterialsBlock(materials);
 
       let analysisId = '';
       const result = await executeCanonicalMutation({
@@ -222,6 +229,12 @@ export const matterIntakeRouter = router({
             'must be resolved, and the candidate documents that may need to be drafted.',
             'Return JSON with: assessment (string), plan (string), openQuestions (array of strings),',
             'and recommendedDocuments (array of { documentType, title, rationale }).',
+            // ASSESSMENT-DRAWER-1: base the analysis on the provided source materials; never claim no
+            // information was provided when materials are present below (a truncated/limited packet is
+            // still "received" — say so, rather than "none provided").
+            'If "Source materials" are provided below, BASE the assessment on them. Do NOT state that no',
+            'information, assets, family circumstances, or documents were provided when materials are',
+            'present; if the materials are truncated or limited, say so explicitly.',
           ].join('\n'),
           userPrompt: [
             `Matter: ${matter.title}`,
@@ -233,6 +246,8 @@ export const matterIntakeRouter = router({
                   .map((p) => (p.confirmed ? `- ${p.role}: ${p.displayName}` : `- ${p.role}: ${p.displayName} ${UNCONFIRMED_PARTY_PROMPT_MARKER}`))
                   .join('\n')}`
               : '\n(No parties recorded yet.)',
+            // ASSESSMENT-DRAWER-1: the matter's extraction-complete material text (token-budgeted).
+            materialsBlock.block !== '' ? `\n${materialsBlock.block}` : '\n(No source materials with extracted text yet.)',
           ].join('\n'),
           temperature: 0.2,
           maxTokens: 4096,
