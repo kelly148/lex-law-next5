@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-08 (FOLD-PM-1 BUILD COMPLETE + Phase-4 boundary-merged to `main` — deadline/tickler engine; flag OFF; awaiting deploy + seed-verification + flag-on live-verify)
+
+**Disposition.** `operator approve accept:FOLD-PM-1`. The whole Phase-4 build is complete and **boundary-merged `fold/phase-4` → `main` as one merge commit `41c7e36`** (PR #224, full CI green) per Rule 17 — a **merge commit** (not squash) preserving per-increment history + both revert granularities, matching the prior FOLD phase-merge pattern. `fold/phase-4` deleted. **MERGE ≠ DEPLOY:** flag `DEADLINE_ENGINE_ENABLED` OFF → zero behavior; Railway auto-deploy OFF → prod untouched. **main = `41c7e36`; prod still `8e4a4a6` (NOT deployed).**
+
+**What shipped (5 increments, each its own PR into the phase branch, all CI-green).** Inc 1 #220 data core (5 additive tables, migration 0021, idempotent seeds, **1031 seeded-DISABLED** per G-B, purge wiring for matter_deadline/tickler). G-A **frozen contract** (`docs/engagements/FOLD-PM-1-GA-contract.md` + the 1031-0 panel's named changes: typed `constraintInputs` resolution seam, three-leg `return_due_date_cap` earliest-of, cap-rolls/statutory-don't). Inc 2 #221 pure `computeDeadline` engine + 22-fixture suite (DST/leap/cap-tie/filed-early/cap-on-weekend/coverage). Inc 3 #222 lifecycle (pending_confirm fires ticklers; confirm/batch/override/satisfy/waive; recompute propose-and-confirm; 12-month rolling tickler materialization + injectable clock seam; `expired_unresolved` sweep → **firing audited distinctly** via `deadline_fired`/migration 0022 + **one-directional `open_item` projection** cleared only by satisfy/waive; coverage + integrity; flag-gated `deadline.*` tRPC API). Inc 4+4b #223 full UI (DeadlinePanel: coverage chip / unconfirmed + unmissable-overdue treatments / confirm / satisfy / waive / per-tickler ack-snooze / override / recompute propose-and-confirm / in-app-only banner / no-blank; UpcomingDeadlines: next-30 + integrity/health; 13 render tests).
+
+**Safety posture.** No egress/autonomous action anywhere by design (surfaces + records only). 1031 stays seeded-DISABLED. **Attorney verification of all seed legal content is required before flag-ON.**
+
+**Migrations.** 0021 + 0022 ADDITIVE, on the pre-deploy allowlist, **NOT yet on prod** (auto-apply at deploy via the wired runner).
+
+**Build state.** main = `41c7e36`; prod = `8e4a4a6`. Gates unchanged (CONFLICT ON, SENDABILITY shadow, DEADLINE OFF). Local gates green throughout; full suite shows only the 12 pre-existing Windows-local failures (green on CI). One judgment call surfaced (purge wiring); firing-audit approach operator-delegated (chose dedicated enum values).
+
+**REMAINING (operator-gated).** Inc 5 = **DEPLOY PROMPT** (Rule 18, MODE B; runner applies 0021+0022) → **attorney seed-verification** → flip `DEADLINE_ENGINE_ENABLED` → Pattern-16 live-verify on a contingency/corporate matter. Inc 6 = 1031 activation, **BLOCKED** on attorney-approved 1031-0 fixtures. Queue head **FOLD-PM-2** (Phase 4 continues).
+
+---
+
 ## 2026-06-08 (FOLD-PM-1 progress — Inc 1 + G-A frozen contract + Inc 2 merged onto `fold/phase-4`; Inc 3 next, paused for an audit-firing decision)
 
 **Where it stands.** `fold/phase-4` = `682bedc` on origin. Merged increments (each its own PR into the phase branch, CI-green): **Inc 1** data core (PR #220, squash `7ee6e80` — 5 tables, flag OFF, idempotent seeds, 1031 seeded-DISABLED, purge wiring); **Inc 2** pure `computeDeadline` engine + 22-fixture suite (PR #221, squash `682bedc`). **G-A contract FROZEN** (`docs/engagements/FOLD-PM-1-GA-contract.md`; operator approve contract:FOLD-PM-1 + the 1031-0 panel's named changes — constraintInputs resolution seam, three-leg `return_due_date_cap` earliest-of, cap-rolls/statutory-don't asymmetry). `main`/prod untouched at `8e4a4a6` (no deploy this engagement yet; flag OFF, no behavior).
