@@ -28,6 +28,7 @@ import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterRecitalBand from '../components/MatterRecitalBand.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
+import DeadlinePanel from '../components/DeadlinePanel.js';
 import MatterRecordLedger from '../components/MatterRecordLedger.js';
 import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
 
@@ -483,6 +484,10 @@ export default function MatterDetail(): React.ReactElement {
 
       {/* FOLD-DRAFT-1 / package — closing-package assembly + advisory completeness (never sends/locks) */}
       <ClosurePackagePanel matterId={matterId} />
+
+      {/* FOLD-PM-1 — deadline/tickler surface (coverage chip + unconfirmed/overdue treatments; flag-gated,
+          renders "engine off" when DEADLINE_ENGINE_ENABLED is OFF). Surfaces + records; never acts. */}
+      <DeadlinePanel matterId={matterId} />
 
       {/* R2 #7 — Matter Record ledger (read-only projection of audit_events) */}
       <MatterRecordLedger matterId={matterId} />
