@@ -141,6 +141,12 @@ export function isTransientRetryable(err: unknown): boolean {
   // blip — re-running at the same budget just times out again. Do NOT retry it (a big-doc GPT-5
   // review otherwise burns ~3x its multi-minute wall clock on doomed reruns). Genuine transient
   // network errors (ECONNRESET, socket hang up) fall through to the retryable check below.
+  //
+  // FORWARD NOTE (REVIEWER-ASYNC-FANOUT-1): suppress-always is correct ONLY while the per-lane
+  // envelope is ~300s — a timeout here means the model already exceeded the budget, so a
+  // same-budget retry just times out again. When the async build raises the envelope (~720s),
+  // REVISIT whether a timeout at that RAISED boundary (which may signal a genuine transient stall
+  // rather than the model's normal deep-reasoning latency) warrants a single retry. Don't lose it.
   if (isUndiciTimeoutError(err)) return false;
   const cls = classifyProviderError(err);
   if (cls === 'rate_limited') return true;
