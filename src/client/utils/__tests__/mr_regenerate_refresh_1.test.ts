@@ -177,8 +177,11 @@ describe('T-REGEN-4: accept-feedback state is preserved through regenerate', () 
     expect(regenBlock).toContain('REVIEW_SESSION_EMPTY');
   });
 
-  it('regenerate button is disabled when totalSelected is 0', () => {
-    expect(reviewPane).toContain('disabled={regenerateMutation.isPending || totalSelected === 0}');
+  it('apply button stays enabled at 0 accepted with a dynamic label (REVIEW-UX-REDESIGN-1)', () => {
+    // The apply button is no longer dead-ended at zero selections; it reads
+    // "Generate revised draft (new iteration)" and is gated only on the in-flight mutation.
+    expect(reviewPane).toContain('Generate revised draft (new iteration)');
+    expect(reviewPane).not.toContain('totalSelected === 0');
   });
 
   it('fix does not change the regenerateMutation input shape', () => {
@@ -208,7 +211,8 @@ describe('T-REGEN-5: regeneration failure surfaces visibly', () => {
   });
 
   it('regenError is rendered in the footer actions', () => {
-    expect(reviewPane).toContain('{regenError && <p className="text-red-600 text-sm">{regenError}</p>}');
+    // REVIEW-UX-REDESIGN-1 re-roled the off-palette text-red-600 to the wa token text-danger.
+    expect(reviewPane).toContain('{regenError && <p className="text-danger text-sm">{regenError}</p>}');
   });
 
   it('SUGGESTION_NOT_RESOLVED sentinel is handled with a user-safe message', () => {

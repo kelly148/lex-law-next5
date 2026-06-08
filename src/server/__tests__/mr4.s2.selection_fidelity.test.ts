@@ -664,43 +664,34 @@ describe('T11–T13: SUGGESTION_NOT_RESOLVED fail-safe (MR-4 §2)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// T14: latest-local-state merge (source-inspection)
+// T14: selection fidelity — a single-card change never drops other selections (source-inspection)
+// REVIEW-UX-REDESIGN-1: the per-reviewer FeedbackCard became a per-suggestion SuggestionCard. The
+// race-guarding "latest-local-state merge" is now the others()/thisSelection() pair — others()
+// carries every OTHER suggestion's selection verbatim, thisSelection() carries this card's pending
+// note/adopt — so the fidelity guarantee (toggling/noting one card never drops the rest) is intact.
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('T14: ReviewPane.tsx — latest-local-state merge in toggleSuggestion (MR-4 P2)', () => {
-  // Evidence: grep -n "noteInputs\[sel.suggestionId\]\|latestSelections\|pending noteInputs" src/client/components/ReviewPane.tsx
-  it('T14a: toggleSuggestion derives latestSelections from server selections merged with pending noteInputs', () => {
-    // Source-inspection: the toggle handler must merge server selections with noteInputs
-    // before building the mutation payload, not read from the `selections` prop alone.
-    expect(reviewPaneFile).toContain('latestSelections');
-    expect(reviewPaneFile).toContain('noteInputs[sel.suggestionId]');
+describe('T14: ReviewPane.tsx — a single-card change preserves the other selections (MR-4 P2)', () => {
+  it('T14a: SuggestionCard rebuilds the payload from others() + thisSelection(), not the prop alone', () => {
+    expect(reviewPaneFile).toContain('const others =');
+    expect(reviewPaneFile).toContain('const thisSelection =');
   });
 
-  it('T14b: toggleSuggestion comment documents the latest-local-state merge rationale', () => {
-    // The comment must explain why the merge is needed (race guard).
-    expect(reviewPaneFile).toContain('pending noteInputs');
+  it('T14b: a comment documents that the other suggestions are preserved verbatim (the race guard)', () => {
+    expect(reviewPaneFile).toContain('never drops them');
   });
 
-  it('T14c: updateNote handler also preserves other suggestions\' notes from latest local state', () => {
-    // The updateNote handler must build latestSelections from the full selections array,
-    // not just update the one note and drop others.
-    // Evidence: grep -n "updateNote\|latestSelections" src/client/components/ReviewPane.tsx
-    const updateNoteIdx = reviewPaneFile.indexOf('const updateNote');
-    expect(updateNoteIdx).toBeGreaterThanOrEqual(0);
-    // After updateNote definition, latestSelections must appear (within the function body).
-    const afterUpdateNote = reviewPaneFile.slice(updateNoteIdx, updateNoteIdx + 800);
-    expect(afterUpdateNote).toContain('latestSelections');
+  it('T14c: the setNote handler preserves the other suggestions via others()', () => {
+    const setNoteIdx = reviewPaneFile.indexOf('const setNote');
+    expect(setNoteIdx).toBeGreaterThanOrEqual(0);
+    const afterSetNote = reviewPaneFile.slice(setNoteIdx, setNoteIdx + 400);
+    expect(afterSetNote).toContain('others()');
   });
 
-  it('T14d: toggleSuggestion does NOT build payload from selections prop alone', () => {
-    // The toggle handler must not pass `selections` directly as the new payload.
-    // It must first derive latestSelections via the merge.
-    // Negative assertion: the pattern "selections: selections" (passing prop directly) must not appear.
-    // (This is a structural check; the positive assertion in T14a is the primary evidence.)
-    const toggleIdx = reviewPaneFile.indexOf('const toggleSuggestion');
-    expect(toggleIdx).toBeGreaterThanOrEqual(0);
-    const toggleBody = reviewPaneFile.slice(toggleIdx, toggleIdx + 1000);
-    // The merge variable must be present in the toggle body.
-    expect(toggleBody).toContain('latestSelections');
+  it('T14d: acceptIntoNextDraft builds the payload from others(), not the selections prop alone', () => {
+    const acceptIdx = reviewPaneFile.indexOf('const acceptIntoNextDraft');
+    expect(acceptIdx).toBeGreaterThanOrEqual(0);
+    const acceptBody = reviewPaneFile.slice(acceptIdx, acceptIdx + 400);
+    expect(acceptBody).toContain('others()');
   });
 });
 
@@ -738,9 +729,9 @@ describe('T15: ReviewPane.tsx — SUGGESTION_NOT_RESOLVED safe error message (MR
   });
 
   it('T15d: regenError uses the existing inline error pattern (not a new error framework)', () => {
-    // The pattern must match the existing CreateSessionView inline error pattern:
-    // a state variable rendered as <p className="text-red-600 ...">
-    expect(reviewPaneFile).toContain('text-red-600');
+    // The pattern is a state variable rendered as <p className="text-danger ...">{regenError}</p>
+    // (REVIEW-UX-REDESIGN-1 re-roled the off-palette text-red-600 to the wa token text-danger).
+    expect(reviewPaneFile).toContain('text-danger');
     expect(reviewPaneFile).toContain('{regenError}');
   });
 
@@ -881,42 +872,32 @@ describe('C1–C7: Source-inspection (MR-4 S2)', () => {
     expect(ifBranchBody).not.toContain('setRegenError(err.message)');
   });
 
-  // C7: FeedbackCard structural — per-suggestion granularity (MR-4 P2 §3)
-  // Evidence:
-  //   grep -n "feedback.suggestions.map" src/client/components/ReviewPane.tsx
-  //   grep -n "type=\"checkbox\"" src/client/components/ReviewPane.tsx
-  //   grep -n "per-suggestion note input" src/client/components/ReviewPane.tsx
-  //   grep -n "count badge\|selectedCount" src/client/components/ReviewPane.tsx
-  //   grep -n "latestSelections\|noteInputs\[sel.suggestionId\]" src/client/components/ReviewPane.tsx
-  it('C7.a: ReviewPane.tsx renders one checkbox per suggestion (per-suggestion granularity)', () => {
-    // The FeedbackCard iterates over feedback.suggestions and renders a checkbox per item.
-    expect(reviewPaneFile).toContain('feedback.suggestions.map');
-    expect(reviewPaneFile).toContain('type="checkbox"');
-    // The onChange calls toggleSuggestion with the individual suggestionId.
-    expect(reviewPaneFile).toContain('onChange={() => toggleSuggestion(suggestion.suggestionId)');
+  // C7: per-suggestion granularity (MR-4 P2 §3). REVIEW-UX-REDESIGN-1: the per-reviewer FeedbackCard
+  // became a flattened per-suggestion SuggestionCard; the N/M-per-card badge was replaced by the
+  // footer "N accepted · M declined" tally. Per-suggestion granularity + note-scoping + selection
+  // fidelity are preserved in the new structure.
+  it('C7.a: ReviewPane.tsx renders one card per suggestion (per-suggestion granularity)', () => {
+    // The list is flattened into per-suggestion cards (suggestionItems.map -> <SuggestionCard).
+    expect(reviewPaneFile).toContain('suggestionItems.map');
+    expect(reviewPaneFile).toContain('<SuggestionCard');
   });
 
-  it('C7.b: ReviewPane.tsx renders one note input per selected suggestion (note scoped at suggestion level)', () => {
-    // The note input is gated on isChecked and calls updateNote with the individual suggestionId.
-    expect(reviewPaneFile).toContain('MR-4 P2: per-suggestion note input, shown only when selected');
-    expect(reviewPaneFile).toContain('onChange={(e) => updateNote(suggestion.suggestionId, e.target.value)');
-    // The note input is only rendered when the suggestion is selected.
-    expect(reviewPaneFile).toContain('{isChecked && (');
+  it('C7.b: ReviewPane.tsx scopes the optional note at the suggestion level (revealed when accepted)', () => {
+    // The note input lives in SuggestionCard and updates via setNote (revealed only when accepted).
+    expect(reviewPaneFile).toContain('Optional note for this suggestion');
+    expect(reviewPaneFile).toContain('const setNote =');
   });
 
-  it('C7.c: ReviewPane.tsx contains the selected-count badge (N / M selected)', () => {
-    // The count badge source must be present.
-    expect(reviewPaneFile).toContain('MR-4 P2: count badge showing N / M selected for this card');
-    expect(reviewPaneFile).toContain('selectedCount');
-    expect(reviewPaneFile).toContain('feedback.suggestions.length} selected');
+  it('C7.c: ReviewPane.tsx surfaces the accepted/declined tally in the footer', () => {
+    // The per-card N/M badge was replaced by the footer "N accepted · M declined" count.
+    expect(reviewPaneFile).toContain('accepted ·');
+    expect(reviewPaneFile).toContain('declined');
   });
 
-  it('C7.d: toggleSuggestion handler preserves note state for other suggestions (note-preservation structure)', () => {
-    // The toggleSuggestion handler must build latestSelections from the full selections array
-    // merged with noteInputs, so that toggling one checkbox does not drop notes on others.
-    // Evidence: the comment and the noteInputs[sel.suggestionId] merge pattern.
-    expect(reviewPaneFile).toContain('This prevents the race where a note typed before a checkbox toggle is dropped.');
-    expect(reviewPaneFile).toContain('noteInputs[sel.suggestionId]');
+  it('C7.d: a single-card change preserves the other suggestions (selection-fidelity structure)', () => {
+    // others() carries every OTHER suggestion's selection verbatim, so one change never drops the rest.
+    expect(reviewPaneFile).toContain('const others =');
+    expect(reviewPaneFile).toContain('never drops them');
   });
 });
 

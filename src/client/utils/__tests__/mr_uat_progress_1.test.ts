@@ -273,9 +273,11 @@ describe('T-PROGRESS-7: Reviewer failure diagnostics preserved', () => {
   });
 
   it('FailedReviewView receives errorMessage from job data', () => {
+    // Anchored on the JSX render (REVIEW-UX-REDESIGN-1 added a humanized status-line check that also
+    // references completionState === 'failed', so slice from the <FailedReviewView render site).
     const failedBlock = pane.slice(
-      pane.indexOf('completionState === \'failed\''),
-      pane.indexOf('completionState === \'failed\'') + 400,
+      pane.indexOf('<FailedReviewView'),
+      pane.indexOf('<FailedReviewView') + 400,
     );
     expect(failedBlock).toContain('errorMessage');
   });
@@ -303,9 +305,10 @@ describe('T-PROGRESS-7: Reviewer failure diagnostics preserved', () => {
 describe('T-PROGRESS-8: Existing successful feedback rendering preserved', () => {
   const pane = readSrc('client/components/ReviewPane.tsx');
 
-  it("completionState === 'completed_with_feedback' renders FeedbackCard", () => {
+  it("completionState === 'completed_with_feedback' renders the SuggestionCard list", () => {
     expect(pane).toContain("completionState === 'completed_with_feedback'");
-    expect(pane).toContain('FeedbackCard');
+    // REVIEW-UX-REDESIGN-1: per-reviewer FeedbackCard -> per-suggestion SuggestionCard.
+    expect(pane).toContain('SuggestionCard');
   });
 
   it("completionState === 'completed_without_feedback' renders CompletedWithoutFeedbackView", () => {

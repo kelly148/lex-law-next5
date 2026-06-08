@@ -159,8 +159,10 @@ describe('MR-CAL-8B UI wiring (source audit)', () => {
     expect(reviewPane).toContain('{ enabled: false }');
   });
 
-  it('SendabilitySection renders in the active session view', () => {
-    expect(reviewPane).toContain('<SendabilitySection documentId={documentId} />');
+  it('SendabilitySection is no longer docked in the review pane (REVIEW-UX-REDESIGN-1: finalize gates move to the doc page)', () => {
+    // The advisory sendability gate is a FINALIZE gate, so it left the review session and surfaces at
+    // the document/export boundary instead (asserted below). The component itself stays exported here.
+    expect(reviewPane).not.toContain('<SendabilitySection documentId={documentId} />');
   });
 
   it('DocumentDetail surfaces SendabilitySection at the finalize boundary', () => {
