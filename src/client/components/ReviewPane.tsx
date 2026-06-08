@@ -25,7 +25,7 @@
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, RefreshCw, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, AlertCircle, Lock, Unlock } from 'lucide-react';
+import { X, RefreshCw, CheckCircle, ChevronDown, ChevronUp, ChevronRight, ChevronsLeft, AlertCircle, AlertTriangle, Lock, Unlock, Check, Info, Gavel, CircleDashed, History, GitCompare, ListChecks, Users, Settings, Clock, PanelLeftClose } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -34,9 +34,9 @@ import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/fe
 import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
 import LddDiffPanel from './LddDiffPanel.js';
-import ExportSafetyPanel from './ExportSafetyPanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
 import DocumentReferencePane from './DocumentReferencePane.js';
+import ReviewToolOverlay from './ReviewToolOverlay.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -280,60 +280,75 @@ function CreateSessionView({ documentId, iterationNumber, onCreated }: CreateSes
 }
 
 // ============================================================
-// FeedbackCard — single reviewer's feedback
-// MR-4 P2: per-suggestion selection model.
+// SuggestionCard — REVIEW-UX-REDESIGN-1
+// One card per suggestion (flattened from the per-reviewer feedback rows). Roomier layout —
+// severity chip + serif title + muted metadata + Issue / Recommend / Revision rows with an
+// oxblood-edged revision block — and the "Attorney decision required" signal kept prominent.
+// THREE decision states: Accept into next draft / Decline (this iteration) / Decline & lock.
+// No green anywhere: accepted reads as a check glyph + "Accepted for next draft" in oxblood ink.
+// Accept (selections) and Decline & lock (locked_decisions) persist via the existing mutations;
+// "Decline (this iteration)" is a within-session triage mark owned by the parent (non-permanent
+// by design — it resets on reload; persisting it would need a schema migration, out of scope here).
 // ============================================================
-interface FeedbackCardProps {
-  feedback: {
-    id: string;
-    reviewerRole: string;
-    reviewerTitle: string;
-    reviewerModel: string;
-    iterationNumber: number;
-    suggestions: Array<{
-      suggestionId: string;
-      title: string;
-      body: string;
-      severity?: string;
-      // MR-CAL-4B: display-only native feedback cards extracted server-side from
-      // the embedded STRUCTURED_FEEDBACK_CARDS. Optional; legacy rendering when absent.
-      nativeCards?: Array<{
-        severity?: string;
-        severity_subtype?: string | null;
-        critique_type?: string;
-        requires_attorney_decision?: boolean;
-        audience_affected?: string[];
-        suggested_revision?: string | null;
-        issue?: string;
-        recommendation?: string;
-      }>;
-    }>;
-  };
-  sessionId: string;
-  // MR-4 P2: selections now keyed by suggestionId (canonical field after §3.3 normalization).
-  selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
-  evaluation: Array<{ suggestionId: string; disposition: 'adopt' | 'reject' | 'neutral'; synthesisBody?: string }> | null;
-  onRefresh: () => void;
-  // MR-CAL-6B: documentId for locked-decision list invalidation; suggestionIds already
-  // locked on this document (so the UI can show a "Locked" state and avoid duplicates).
-  documentId: string;
-  lockedSuggestionIds: Set<string>;
+interface SuggestionForCard {
+  suggestionId: string;
+  title: string;
+  body: string;
+  severity?: string;
+  // MR-CAL-4B: display-only native feedback cards extracted server-side from the embedded
+  // STRUCTURED_FEEDBACK_CARDS. Optional; the narrative body renders when absent.
+  nativeCards?: Array<{
+    severity?: string;
+    severity_subtype?: string | null;
+    critique_type?: string;
+    requires_attorney_decision?: boolean;
+    audience_affected?: string[];
+    suggested_revision?: string | null;
+    issue?: string;
+    recommendation?: string;
+  }>;
 }
 
-function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, documentId, lockedSuggestionIds }: FeedbackCardProps): React.ReactElement {
-  const [expanded, setExpanded] = useState(true);
-  // MR-4 P2: per-suggestion note inputs keyed by suggestionId.
-  const [noteInputs, setNoteInputs] = useState<Record<string, string>>({});
-  // MR-CAL-7B: per-suggestion "edit before adopting" text keyed by suggestionId.
-  // When present + different from the suggestion body, the adoption is recorded as
-  // 'adopted_modified' in the adopt ledger; otherwise verbatim.
-  const [adoptedTextInputs, setAdoptedTextInputs] = useState<Record<string, string>>({});
-  const utils = trpc.useUtils();
+interface SuggestionCardProps {
+  suggestion: SuggestionForCard;
+  reviewerLabel: string;
+  sessionId: string;
+  documentId: string;
+  // Canonical selection list (keyed by suggestionId). A suggestion is "accepted for next draft"
+  // iff it appears here.
+  selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }>;
+  evalDisposition?: { disposition: 'adopt' | 'reject' | 'neutral'; synthesisBody?: string };
+  locked: boolean;
+  declined: boolean;
+  onToggleDecline: (suggestionId: string) => void;
+  onRefresh: () => void;
+}
 
-  // MR-4 P2: Build a Set of selected suggestionIds for O(1) lookup.
-  const selectedSuggestionIds = new Set(selections.map((s) => s.suggestionId));
-  // Count how many of this card's suggestions are currently selected.
-  const selectedCount = feedback.suggestions.filter((sg) => selectedSuggestionIds.has(sg.suggestionId)).length;
+// Severity chip palette — oxblood/neutral only (no green, no blue).
+const SEVERITY_CHIP: Record<string, string> = {
+  critical: 'bg-danger-tint text-danger',
+  major: 'bg-accent-tint text-accent',
+  minor: 'bg-surface-2 text-ink-secondary',
+};
+
+function SuggestionCard({
+  suggestion,
+  reviewerLabel,
+  sessionId,
+  documentId,
+  selections,
+  evalDisposition,
+  locked,
+  declined,
+  onToggleDecline,
+  onRefresh,
+}: SuggestionCardProps): React.ReactElement {
+  const utils = trpc.useUtils();
+  const selection = selections.find((s) => s.suggestionId === suggestion.suggestionId);
+  const accepted = selection !== undefined;
+  // Local pending edits (null = "use the server value"). Only meaningful while accepted.
+  const [noteInput, setNoteInput] = useState<string | null>(null);
+  const [adoptedInput, setAdoptedInput] = useState<string | null>(null);
 
   const updateSelectionMutation = useGuardedMutation(
     (input: { sessionId: string; selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }> }) =>
@@ -343,32 +358,10 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
         void utils.reviewSession.get.invalidate({ sessionId });
         onRefresh();
       },
-    }
+    },
   );
 
-  // MR-CAL-7B: resolve the effective adopted text for a selection, preferring a
-  // pending local edit, then the server-confirmed value. Returned only when set,
-  // so verbatim adoptions stay { suggestionId, note } (backward-compatible).
-  const effectiveAdoptedText = (
-    suggestionId: string,
-    serverVal: string | undefined,
-  ): string | undefined => {
-    const local = adoptedTextInputs[suggestionId];
-    return local !== undefined ? local : serverVal;
-  };
-
-  const regenerateSingleMutation = useGuardedMutation(
-    (input: { sessionId: string; reviewerRole: string }) =>
-      utils.client.reviewSession.regenerateSingleReviewer.mutate(input),
-    {
-      onSuccess: () => {
-        void utils.reviewSession.get.invalidate({ sessionId });
-        onRefresh();
-      },
-    }
-  );
-
-  // MR-CAL-6B: lock a decision from a suggestion (decline-&-lock or lock-on-adopt).
+  // MR-CAL-6B: lock a decision (decline-&-lock). Tells future reviewers not to re-raise it.
   const lockDecisionMutation = useGuardedMutation(
     (input: { sessionId: string; suggestionId: string; origin: 'declined' | 'adopted'; summary: string }) =>
       utils.client.reviewSession.lockDecision.mutate(input),
@@ -377,261 +370,229 @@ function FeedbackCard({ feedback, sessionId, selections, evaluation, onRefresh, 
         void utils.reviewSession.listLockedDecisions.invalidate({ documentId });
         onRefresh();
       },
-    }
+    },
   );
 
-  const lockSuggestion = (suggestionId: string, title: string, origin: 'declined' | 'adopted'): void => {
-    // Summary defaults to the suggestion title; the attorney can edit it later via the
-    // Locked Decisions panel. (Phase A keeps the capture lightweight — title is the lock summary.)
-    lockDecisionMutation.mutate({ sessionId, suggestionId, origin, summary: title });
+  // Selections for every OTHER suggestion, verbatim (so a single-card change never drops them).
+  const others = (): Array<{ suggestionId: string; note: string | null; adoptedText?: string }> =>
+    selections
+      .filter((s) => s.suggestionId !== suggestion.suggestionId)
+      .map((s) =>
+        s.adoptedText !== undefined
+          ? { suggestionId: s.suggestionId, note: s.note, adoptedText: s.adoptedText }
+          : { suggestionId: s.suggestionId, note: s.note },
+      );
+
+  // This suggestion's selection entry, carrying any pending local note/adopt edit.
+  const thisSelection = (
+    noteOverride?: string,
+    adoptedOverride?: string,
+  ): { suggestionId: string; note: string | null; adoptedText?: string } => {
+    const rawNote = noteOverride !== undefined ? noteOverride : noteInput !== null ? noteInput : selection?.note ?? '';
+    const note = rawNote ? rawNote : null;
+    const adopted = adoptedOverride !== undefined ? adoptedOverride : adoptedInput !== null ? adoptedInput : selection?.adoptedText;
+    return adopted !== undefined && adopted !== ''
+      ? { suggestionId: suggestion.suggestionId, note, adoptedText: adopted }
+      : { suggestionId: suggestion.suggestionId, note };
   };
 
-  // MR-4 P2: Toggle a single suggestion's selection state.
-  // Latest-local-state merge: builds payload from server selections merged with
-  // pending noteInputs state, so unsaved note edits are preserved on toggle.
-  // MR-CAL-7B: build the canonical selection list from server state + pending local
-  // note and adopted-text edits. Used by toggle/note/adopted-text handlers so no edit
-  // is dropped on a concurrent change. adoptedText is included only when set.
-  // This prevents the race where a note typed before a checkbox toggle is dropped.
-  const buildLatestSelections = (): Array<{ suggestionId: string; note: string | null; adoptedText?: string }> =>
-    selections.map((sel) => {
-      const note = noteInputs[sel.suggestionId] !== undefined ? (noteInputs[sel.suggestionId] || null) : sel.note;
-      const adoptedText = effectiveAdoptedText(sel.suggestionId, sel.adoptedText);
-      return adoptedText !== undefined
-        ? { suggestionId: sel.suggestionId, note, adoptedText }
-        : { suggestionId: sel.suggestionId, note };
-    });
-
-  const toggleSuggestion = (suggestionId: string): void => {
-    const isCurrentlySelected = selectedSuggestionIds.has(suggestionId);
-    const latestSelections = buildLatestSelections();
-    const adoptedText = adoptedTextInputs[suggestionId];
-    const newSelections = isCurrentlySelected
-      ? latestSelections.filter((s) => s.suggestionId !== suggestionId)
-      : [...latestSelections, adoptedText !== undefined
-          ? { suggestionId, note: noteInputs[suggestionId] ?? null, adoptedText }
-          : { suggestionId, note: noteInputs[suggestionId] ?? null }];
-    updateSelectionMutation.mutate({ sessionId, selections: newSelections });
+  const acceptIntoNextDraft = (): void => {
+    if (declined) onToggleDecline(suggestion.suggestionId);
+    updateSelectionMutation.mutate({ sessionId, selections: [...others(), thisSelection()] });
+  };
+  const removeAccept = (): void => {
+    updateSelectionMutation.mutate({ sessionId, selections: others() });
+  };
+  const setNote = (v: string): void => {
+    setNoteInput(v);
+    updateSelectionMutation.mutate({ sessionId, selections: [...others(), thisSelection(v)] });
+  };
+  const setAdopted = (v: string): void => {
+    setAdoptedInput(v);
+    updateSelectionMutation.mutate({ sessionId, selections: [...others(), thisSelection(undefined, v)] });
+  };
+  const decline = (): void => {
+    if (accepted) updateSelectionMutation.mutate({ sessionId, selections: others() });
+    onToggleDecline(suggestion.suggestionId);
+  };
+  const declineAndLock = (): void => {
+    if (accepted) updateSelectionMutation.mutate({ sessionId, selections: others() });
+    if (declined) onToggleDecline(suggestion.suggestionId);
+    lockDecisionMutation.mutate({ sessionId, suggestionId: suggestion.suggestionId, origin: 'declined', summary: suggestion.title });
   };
 
-  // MR-4 P2: Update note for a single suggestion, preserving all other selections.
-  const updateNote = (suggestionId: string, value: string): void => {
-    setNoteInputs((prev) => ({ ...prev, [suggestionId]: value }));
-    const latestSelections = buildLatestSelections().map((s) =>
-      s.suggestionId === suggestionId ? { ...s, note: value || null } : s,
+  // Structured fields (native feedback card) drive the roomier layout; fall back to the narrative.
+  const card0 = suggestion.nativeCards && suggestion.nativeCards.length > 0 ? suggestion.nativeCards[0] : undefined;
+  const severity = (card0?.severity ?? suggestion.severity ?? '').toLowerCase();
+  const severityLabel = severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : null;
+  const requiresAttorney = card0?.requires_attorney_decision === true;
+  const narrative = stripEmbeddedCardsJson(suggestion.body);
+  const metaParts = [
+    card0?.critique_type ?? null,
+    card0?.audience_affected && card0.audience_affected.length > 0 ? `audience: ${card0.audience_affected.join(', ')}` : null,
+    reviewerLabel ? `raised by ${reviewerLabel}` : null,
+  ].filter((p): p is string => Boolean(p));
+
+  // Locked suggestions render as a quiet, compact row (the decision is recorded; manage it in the
+  // Locked decisions overlay).
+  if (locked) {
+    return (
+      <div data-testid="suggestion-card" data-state="locked" className="rounded-xl border border-line bg-surface px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Lock className="w-3.5 h-3.5 text-ink-hint flex-shrink-0" />
+          <span className="font-serif text-sm text-ink">{suggestion.title}</span>
+          <span className="ml-auto text-[11px] text-ink-hint">Declined &amp; locked</span>
+        </div>
+        <p className="mt-1 text-[11px] text-ink-hint">Reviewers are asked not to re-raise this — manage it in Locked decisions.</p>
+      </div>
     );
-    updateSelectionMutation.mutate({ sessionId, selections: latestSelections });
-  };
-
-  // MR-CAL-7B: update the adopted (edited) text for a selected suggestion.
-  const updateAdoptedText = (suggestionId: string, value: string): void => {
-    setAdoptedTextInputs((prev) => ({ ...prev, [suggestionId]: value }));
-    const latestSelections = buildLatestSelections().map((s) =>
-      s.suggestionId === suggestionId ? { ...s, adoptedText: value } : s,
-    );
-    updateSelectionMutation.mutate({ sessionId, selections: latestSelections });
-  };
+  }
 
   return (
-    <div className={clsx(
-      'border rounded-lg overflow-hidden',
-      selectedCount > 0 ? 'border-firm-navy' : 'border-gray-200'
-    )}>
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-white">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-firm-navy">{feedback.reviewerTitle}</span>
-            <span className="text-xs text-gray-400">({feedback.reviewerRole})</span>
-            <span className="text-xs text-gray-400">Iteration {feedback.iterationNumber}</span>
-            <span className="text-xs text-gray-400">{feedback.reviewerModel}</span>
-            <span className="text-xs text-gray-400">{feedback.suggestions.length} suggestion{feedback.suggestions.length !== 1 ? 's' : ''}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* MR-4 P2: count badge showing N / M selected for this card */}
-          {feedback.suggestions.length > 0 && (
-            <span className={clsx(
-              'text-xs px-2 py-0.5 rounded',
-              selectedCount > 0
-                ? 'bg-firm-navy text-white'
-                : 'bg-gray-100 text-gray-500'
-            )}>
-              {selectedCount} / {feedback.suggestions.length} selected
-            </span>
-          )}
-          <button
-            onClick={() => regenerateSingleMutation.mutate({ sessionId, reviewerRole: feedback.reviewerRole })}
-            disabled={regenerateSingleMutation.isPending}
-            title="Regenerate this reviewer"
-            className="p-1 text-gray-400 hover:text-firm-navy disabled:opacity-50"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => setExpanded(!expanded)} className="p-1 text-gray-400 hover:text-firm-navy">
-            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+    <div
+      data-testid="suggestion-card"
+      data-state={accepted ? 'accepted' : declined ? 'declined' : 'undecided'}
+      className={clsx(
+        'rounded-xl border bg-surface px-4 py-4',
+        accepted ? 'border-line border-l-[3px] border-l-accent' : declined ? 'border-line opacity-75' : 'border-line',
+      )}
+    >
+      {/* Chip row: severity + attorney-decision (highest-stakes signal) + accepted/declined status */}
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        {severityLabel && (
+          <span className={clsx('text-[11px] font-medium px-2 py-0.5 rounded-full', SEVERITY_CHIP[severity] ?? 'bg-surface-2 text-ink-secondary')}>
+            {severityLabel}
+          </span>
+        )}
+        {requiresAttorney && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent-tint text-accent">
+            <Gavel className="w-3 h-3" /> Attorney decision required
+          </span>
+        )}
+        {accepted && (
+          <span data-testid="accepted-indicator" className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-accent">
+            <Check className="w-4 h-4" /> Accepted for next draft
+          </span>
+        )}
+        {declined && !accepted && (
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-ink-hint">Declined this round</span>
+        )}
       </div>
 
-      {/* Suggestions — MR-4 P2: per-suggestion checkboxes and note inputs */}
-      {expanded && feedback.suggestions.length > 0 && (
-        <div className="border-t border-gray-100 divide-y divide-gray-50">
-          {feedback.suggestions.map((suggestion) => {
-            const evalDisposition = evaluation?.find((e) => e.suggestionId === suggestion.suggestionId);
-            const isChecked = selectedSuggestionIds.has(suggestion.suggestionId);
-            // LLN-FEEDBACK-CARD-UX-1: show only the clean narrative prose; the raw
-            // STRUCTURED_FEEDBACK_CARDS JSON is stripped (structured fields render as
-            // the itemized native card below).
-            const narrativeMemo = stripEmbeddedCardsJson(suggestion.body);
-            return (
-              <div key={suggestion.suggestionId} className={clsx(
-                'px-4 py-3',
-                isChecked ? 'bg-firm-navy/5' : 'bg-gray-50'
-              )}>
-                <div className="flex items-start gap-2">
-                  {/* MR-4 P2: per-suggestion checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => toggleSuggestion(suggestion.suggestionId)}
-                    disabled={updateSelectionMutation.isPending}
-                    className="mt-0.5 flex-shrink-0 cursor-pointer disabled:opacity-50"
-                  />
-                  {evalDisposition && (
-                    <span className="flex-shrink-0 mt-0.5">
-                      {evalDisposition.disposition === 'adopt' && <CheckCircle className="w-3.5 h-3.5 text-green-600" />}
-                      {evalDisposition.disposition === 'reject' && <XCircle className="w-3.5 h-3.5 text-red-500" />}
-                      {evalDisposition.disposition === 'neutral' && <Minus className="w-3.5 h-3.5 text-gray-400" />}
-                    </span>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-800">{suggestion.title}</p>
-                    {narrativeMemo && (
-                      <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-line">{narrativeMemo}</p>
-                    )}
-                    {suggestion.severity && (
-                      <span className={clsx(
-                        'text-xs px-1 py-0.5 rounded mt-1 inline-block',
-                        suggestion.severity === 'critical' && 'bg-red-100 text-red-700',
-                        suggestion.severity === 'major' && 'bg-amber-100 text-amber-700',
-                        suggestion.severity === 'minor' && 'bg-blue-100 text-blue-700',
-                      )}>
-                        {suggestion.severity}
-                      </span>
-                    )}
-                    {/* MR-CAL-4B: native feedback-card fields, shown when present. */}
-                    {suggestion.nativeCards && suggestion.nativeCards.length > 0 && (
-                      <div className="mt-1.5 space-y-1.5">
-                        {suggestion.nativeCards.map((card, idx) => (
-                          <div key={idx} className="rounded border border-firm-navy/20 bg-firm-navy/5 px-2 py-1.5">
-                            <div className="flex flex-wrap items-center gap-1">
-                              {card.severity && (
-                                <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-firm-navy text-white">
-                                  {card.severity}{card.severity_subtype ? ` · ${card.severity_subtype}` : ''}
-                                </span>
-                              )}
-                              {card.critique_type && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-gray-200 text-gray-700">{card.critique_type}</span>
-                              )}
-                              {card.requires_attorney_decision && (
-                                <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-amber-200 text-amber-800">Attorney decision required</span>
-                              )}
-                              {card.audience_affected && card.audience_affected.length > 0 && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">audience: {card.audience_affected.join(', ')}</span>
-                              )}
-                            </div>
-                            {card.issue && (
-                              <p className="text-[11px] text-gray-700 mt-1">
-                                <span className="font-medium">Issue:</span> {card.issue}
-                              </p>
-                            )}
-                            {card.recommendation && (
-                              <p className="text-[11px] text-gray-700 mt-1">
-                                <span className="font-medium">Recommendation:</span> {card.recommendation}
-                              </p>
-                            )}
-                            {card.suggested_revision && (
-                              <div className="text-[11px] text-gray-700 mt-1">
-                                <span className="font-medium">Suggested revision:</span>
-                                {splitSuggestedRevisionPaths(card.suggested_revision).length > 1 ? (
-                                  <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
-                                    {splitSuggestedRevisionPaths(card.suggested_revision).map((p, i) => (
-                                      <li key={i}>{p}</li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <span className="whitespace-pre-line"> {card.suggested_revision}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {evalDisposition?.synthesisBody && (
-                      <p className="text-xs text-gray-500 italic mt-1">{evalDisposition.synthesisBody}</p>
-                    )}
-                    {/* MR-4 P2: per-suggestion note input, shown only when selected */}
-                    {isChecked && (
-                      <input
-                        type="text"
-                        value={noteInputs[suggestion.suggestionId] ?? (selections.find((s) => s.suggestionId === suggestion.suggestionId)?.note ?? '')}
-                        onChange={(e) => updateNote(suggestion.suggestionId, e.target.value)}
-                        placeholder="Optional note for this suggestion…"
-                        className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
-                      />
-                    )}
-                    {/* MR-CAL-7B: optional "edit before adopting" — leave blank to adopt verbatim.
-                        When edited, the adoption is recorded as 'modified' in the adopt ledger.
-                        Note: adopted text is shared with the AI reviewers on later passes. */}
-                    {isChecked && (
-                      <textarea
-                        value={adoptedTextInputs[suggestion.suggestionId] ?? (selections.find((s) => s.suggestionId === suggestion.suggestionId)?.adoptedText ?? '')}
-                        onChange={(e) => updateAdoptedText(suggestion.suggestionId, e.target.value)}
-                        placeholder="Optional: edit the adopted text (blank = adopt verbatim). Shared with reviewers on later passes."
-                        rows={2}
-                        className="mt-1.5 w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
-                      />
-                    )}
-                    {/* MR-CAL-6B: lock controls — decline-&-lock or lock-on-adopt.
-                        A lock tells future reviewers not to re-raise this absent a new fact. */}
-                    {lockedSuggestionIds.has(suggestion.suggestionId) ? (
-                      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-firm-navy">
-                        <Lock className="w-3 h-3" /> Locked — reviewers asked not to re-raise this (manage below)
-                      </span>
-                    ) : (
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <button
-                          onClick={() => lockSuggestion(suggestion.suggestionId, suggestion.title, 'declined')}
-                          disabled={lockDecisionMutation.isPending}
-                          title="Record this as considered &amp; declined; reviewers should not re-raise it absent a new fact"
-                          className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
-                        >
-                          <Lock className="w-3 h-3" /> Decline &amp; lock
-                        </button>
-                        {isChecked && (
-                          <button
-                            onClick={() => lockSuggestion(suggestion.suggestionId, suggestion.title, 'adopted')}
-                            disabled={lockDecisionMutation.isPending}
-                            title="Remember this adopted decision; reviewers should not re-raise it absent a new fact"
-                            className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:text-firm-navy hover:border-firm-navy disabled:opacity-50"
-                          >
-                            <Lock className="w-3 h-3" /> Lock on adopt
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      <h4 className="font-serif text-[17px] font-medium text-ink leading-snug">{suggestion.title}</h4>
+      {metaParts.length > 0 && <p className="mt-0.5 text-[11px] text-ink-hint">{metaParts.join(' · ')}</p>}
+
+      {/* Issue / Recommend / Revision — labeled rows; revision in an oxblood-edged block. */}
+      <div className="mt-3 space-y-3">
+        {card0?.issue ? (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Issue</div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">{card0.issue}</p>
+          </div>
+        ) : narrative ? (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Issue</div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed whitespace-pre-line">{narrative}</p>
+          </div>
+        ) : null}
+        {card0?.recommendation && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Recommend</div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">{card0.recommendation}</p>
+          </div>
+        )}
+        {card0?.suggested_revision && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Revision</div>
+            <div className="font-serif text-[13px] text-ink leading-relaxed bg-accent-tint border-l-[3px] border-accent px-3 py-2 rounded-r">
+              {splitSuggestedRevisionPaths(card0.suggested_revision).length > 1 ? (
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {splitSuggestedRevisionPaths(card0.suggested_revision).map((p, i) => (
+                    <li key={i}>{p}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="whitespace-pre-line">{card0.suggested_revision}</span>
+              )}
+            </div>
+          </div>
+        )}
+        {evalDisposition?.synthesisBody && (
+          <p className="text-[12px] text-ink-hint italic">{evalDisposition.synthesisBody}</p>
+        )}
+      </div>
+
+      {/* Decision controls — three states. */}
+      <div className="mt-4 flex items-center gap-2 flex-wrap">
+        {accepted ? (
+          <button
+            onClick={removeAccept}
+            disabled={updateSelectionMutation.isPending}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+          >
+            Undo accept
+          </button>
+        ) : (
+          <button
+            onClick={acceptIntoNextDraft}
+            disabled={updateSelectionMutation.isPending}
+            data-testid="accept-into-next-draft"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
+          >
+            <Check className="w-3.5 h-3.5" /> Accept into next draft
+          </button>
+        )}
+        {declined ? (
+          <button
+            onClick={() => onToggleDecline(suggestion.suggestionId)}
+            className="text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2"
+          >
+            Undo decline
+          </button>
+        ) : (
+          <button
+            onClick={decline}
+            disabled={updateSelectionMutation.isPending}
+            className="text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+          >
+            Decline
+          </button>
+        )}
+        <button
+          onClick={declineAndLock}
+          disabled={lockDecisionMutation.isPending}
+          title="Record this as considered & declined; reviewers are asked not to re-raise it absent a new fact"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+        >
+          <Lock className="w-3.5 h-3.5" /> Decline &amp; lock
+        </button>
+      </div>
+
+      {/* When accepted: optional attorney note + edit-before-adopting (verbatim if blank). */}
+      {accepted && (
+        <div className="mt-3 space-y-2">
+          <input
+            type="text"
+            value={noteInput !== null ? noteInput : selection?.note ?? ''}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional note for this suggestion…"
+            aria-label="Optional note for this suggestion"
+            className="w-full border border-line rounded-lg px-2 py-1 text-xs bg-paper focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <textarea
+            value={adoptedInput !== null ? adoptedInput : selection?.adoptedText ?? ''}
+            onChange={(e) => setAdopted(e.target.value)}
+            placeholder="Optional: edit the adopted text (blank = adopt verbatim). Shared with reviewers on later passes."
+            aria-label="Edit the adopted text"
+            rows={2}
+            className="w-full border border-line rounded-lg px-2 py-1 text-xs bg-paper focus:outline-none focus:ring-1 focus:ring-accent"
+          />
         </div>
       )}
     </div>
   );
 }
+
 
 // ============================================================
 // LockedDecisionsSection — MR-CAL-6B
@@ -1028,7 +989,10 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
 
 // ============================================================
 // CompletedWithoutFeedbackView — MR-3 §S3 / §S1b
-// Shown when the reviewer job completed but returned zero suggestions.
+// Shown when the reviewer completed but returned ZERO suggestions. REVIEW-UX-REDESIGN-1: NEUTRAL
+// treatment — no success crown, no green. A reviewer returning nothing is NOT a clean-bill
+// guarantee, so the copy says so plainly (resolving the no-return vs no-suggestions ambiguity:
+// this is "ran and flagged nothing", distinct from the warning FailedReviewView for "no response").
 // ============================================================
 interface CompletedWithoutFeedbackViewProps {
   reviewerTitle: string;
@@ -1043,27 +1007,27 @@ function CompletedWithoutFeedbackView({
 }: CompletedWithoutFeedbackViewProps): React.ReactElement {
   return (
     <div className="text-center py-8 px-4 space-y-4">
-      <CheckCircle className="w-8 h-8 text-green-400 mx-auto" />
+      <CircleDashed className="w-8 h-8 text-ink-hint mx-auto" />
       <div>
-        <p className="text-sm font-medium text-gray-700">Review complete — no suggestions</p>
-        <p className="text-xs text-gray-400 mt-1">
-          {reviewerTitle} found no suggestions for this iteration.
+        <p className="text-sm font-medium text-ink">No suggestions returned</p>
+        <p className="text-xs text-ink-secondary mt-1">
+          {reviewerTitle} completed this pass and flagged nothing. This is not a clean-bill guarantee — treat it with your own judgment.
         </p>
       </div>
-      <div className="text-xs text-gray-500 space-y-1 text-left border border-gray-100 rounded p-3 bg-gray-50">
-        <p className="font-medium text-gray-600">Paths forward:</p>
+      <div className="text-xs text-ink-secondary space-y-1 text-left border border-line rounded-lg p-3 bg-surface-2">
+        <p className="font-medium text-ink-secondary">Paths forward:</p>
         <ul className="list-disc list-inside space-y-1">
-          <li>Start the next review iteration via Regenerate.</li>
-          <li>Try a different reviewer in a new session.</li>
-          <li>Abandon this session if no further review is needed.</li>
+          <li>Generate a revised draft to start the next iteration.</li>
+          <li>Run a different reviewer in a new session.</li>
+          <li>Close this session if no further review is needed.</li>
         </ul>
       </div>
       <button
         onClick={onAbandon}
         disabled={abandonPending}
-        className="px-4 py-2 text-xs border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50"
+        className="px-4 py-2 text-xs rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
       >
-        {abandonPending ? 'Abandoning…' : 'Abandon session'}
+        {abandonPending ? 'Closing…' : 'Close review session'}
       </button>
     </div>
   );
@@ -1071,8 +1035,9 @@ function CompletedWithoutFeedbackView({
 
 // ============================================================
 // FailedReviewView — MR-3 §S2b / §S1b
-// Shown when the reviewer job reached a terminal failure status.
-// No retry button (Option 1 locked per operator decision).
+// Shown when the reviewer job reached a terminal failure (the reviewer did NOT respond).
+// REVIEW-UX-REDESIGN-1: WARNING treatment (warning palette, AlertTriangle) — distinct from the
+// neutral empty state. No retry button (Option 1 locked per operator decision).
 // ============================================================
 interface FailedReviewViewProps {
   reviewerTitle: string;
@@ -1089,25 +1054,25 @@ function FailedReviewView({
 }: FailedReviewViewProps): React.ReactElement {
   return (
     <div className="text-center py-8 px-4 space-y-4">
-      <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+      <AlertTriangle className="w-8 h-8 text-warning mx-auto" />
       <div>
-        <p className="text-sm font-medium text-gray-700">Reviewer failed to return feedback</p>
-        <p className="text-xs text-gray-400 mt-1">
-          {reviewerTitle} — this may be a temporary LLM provider error or timeout.
+        <p className="text-sm font-medium text-ink">The reviewer did not respond</p>
+        <p className="text-xs text-ink-secondary mt-1">
+          {reviewerTitle} — this is usually a temporary provider error or timeout, not a verdict on the draft.
         </p>
         {errorMessage && errorMessage.trim() !== '' && (
-          <p className="text-xs text-gray-500 mt-1 font-mono">{errorMessage}</p>
+          <p className="text-xs text-ink-hint mt-1 font-mono">{errorMessage}</p>
         )}
       </div>
-      <div className="text-xs text-gray-500 text-left border border-red-100 rounded p-3 bg-red-50">
-        <p>Abandon this session and start a new review session to try again.</p>
+      <div className="text-xs text-ink-secondary text-left border border-line rounded-lg p-3 bg-warning-tint">
+        <p>Close this session and start a new review session to try again.</p>
       </div>
       <button
         onClick={onAbandon}
         disabled={abandonPending}
-        className="px-4 py-2 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+        className="px-4 py-2 text-xs rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
       >
-        {abandonPending ? 'Abandoning…' : 'Abandon and start a new review session'}
+        {abandonPending ? 'Closing…' : 'Close and start a new review session'}
       </button>
     </div>
   );
@@ -1126,9 +1091,28 @@ interface ActiveSessionViewProps {
 // to ReviewPane otherwise.
 export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSessionViewProps): React.ReactElement {
   const utils = trpc.useUtils();
-  const [editingInstructions, setEditingInstructions] = useState(false);
+  // REVIEW-UX-REDESIGN-1: reviewer instructions are edited in an on-demand overlay (uncontrolled
+  // textarea seeded from the server value via defaultValue + this ref — no stale local copy).
+  const instructionsRef = React.useRef<HTMLTextAreaElement>(null);
   // MR-4 P2: regenError state for SUGGESTION_NOT_RESOLVED and other regenerate errors.
   const [regenError, setRegenError] = useState<string | null>(null);
+  // REVIEW-UX-REDESIGN-1: "Decline (this iteration)" is a within-session triage mark — non-permanent
+  // by design (it resets on reload; persisting it would need a schema migration, out of scope here).
+  // Accept (selections) and Decline & lock (locked_decisions) persist via their existing mutations.
+  const [declinedThisIteration, setDeclinedThisIteration] = useState<Set<string>>(() => new Set());
+  const toggleDecline = useCallback((suggestionId: string): void => {
+    setDeclinedThisIteration((prev) => {
+      const next = new Set(prev);
+      if (next.has(suggestionId)) next.delete(suggestionId);
+      else next.add(suggestionId);
+      return next;
+    });
+  }, []);
+  // Which on-demand reference-tool overlay is open (null = none). Reference tools are NOT docked —
+  // they float over the pane with zero permanent width (disposition §G).
+  const [activeOverlay, setActiveOverlay] = useState<
+    null | 'instructions' | 'provenance' | 'ldd' | 'adopt' | 'history' | 'convergence' | 'locked'
+  >(null);
 
   // MR-3 §S2a: Poll reviewer_feedback jobs for this document to detect FAILED state.
   // job.poll returns all jobs for the document; we filter to reviewer_feedback client-side.
@@ -1162,10 +1146,6 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       return completionState === 'pending_or_running' ? 3000 : false;
     },
   });
-
-  // Derive globalInstructions from server data; local edit state is separate.
-  const serverInstructions = data?.session.globalInstructions ?? '';
-  const [globalInstructions, setGlobalInstructions] = useState(serverInstructions);
 
   const regenerateMutation = useGuardedMutation(
     (input: { sessionId: string }) => utils.client.reviewSession.regenerate.mutate(input),
@@ -1209,7 +1189,19 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     {
       onSuccess: () => {
         void utils.reviewSession.get.invalidate({ sessionId });
-        setEditingInstructions(false);
+        setActiveOverlay(null);
+      },
+    }
+  );
+
+  // REVIEW-UX-REDESIGN-1: bulk "Accept all" writes every (unlocked) suggestion into the selection
+  // set in one call. ("Decline remaining" is client-only — it marks the undecided ones declined.)
+  const bulkSelectionMutation = useGuardedMutation(
+    (input: { sessionId: string; selections: Array<{ suggestionId: string; note: string | null; adoptedText?: string }> }) =>
+      utils.client.reviewSession.updateSelection.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.reviewSession.get.invalidate({ sessionId });
       },
     }
   );
@@ -1316,10 +1308,6 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // R2-2 Inc A: denominator (only meaningful once the run is complete) + review-basis timestamp.
   const denominator = consolidationQuery.data?.denominator;
   const convergenceFloorMet = consolidationQuery.data?.convergenceFloorMet ?? true;
-  // Show the denominator once reviewers have returned (feedback rows exist). Gated on feedback
-  // presence rather than the completionState completed-with-feedback literal, so this does not
-  // introduce an earlier copy of the marker that the source-scan tests slice the render block on.
-  const showDenominator = denominator !== undefined && feedback.length > 0;
   const reviewedAt = ((): string | null => {
     const raw = session.createdAt as unknown;
     if (raw === null || raw === undefined) return null;
@@ -1336,46 +1324,110 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     (i) => i.origin === 'orchestration' && i.status === 'open' && i.documentId === documentId,
   );
 
+  // ── REVIEW-UX-REDESIGN-1: derived view state (declarations only; every hook ran above) ──
+  // Flatten the per-reviewer feedback rows into one list of suggestion cards (one card per
+  // suggestion; reviewer attribution becomes card metadata).
+  const suggestionItems = feedback.flatMap((fb) =>
+    fb.suggestions.map((s) => ({
+      key: `${fb.id}:${s.suggestionId}`,
+      suggestion: s,
+      reviewerLabel: REVIEWER_LABELS[fb.reviewerRole] ?? fb.reviewerRole,
+    })),
+  );
+  const isAccepted = (id: string): boolean => session.selections.some((sel) => sel.suggestionId === id);
+  const acceptedCount = totalSelected;
+  const declinedCount = suggestionItems.filter(
+    (it) => declinedThisIteration.has(it.suggestion.suggestionId) && !isAccepted(it.suggestion.suggestionId),
+  ).length;
+  const activeLockedCount = (lockedData?.lockedDecisions ?? []).filter((d) => d.status === 'active').length;
+  const multiReviewer = session.selectedReviewers.length > 1;
+
+  // Apply button: always enabled; at zero accepted it still starts a fresh iteration.
+  const applyLabel = acceptedCount > 0
+    ? `Apply ${acceptedCount} accepted edit${acceptedCount === 1 ? '' : 's'} → new draft`
+    : 'Generate revised draft (new iteration)';
+
+  // Humanized status line; the N-of-M convergence detail moves to a tooltip (no jargon inline).
+  const respondedCount = denominator?.successful ?? feedback.length;
+  const statusLine = ((): string => {
+    if (completionState === 'pending_or_running') return 'Review in progress — checking for results…';
+    if (completionState === 'failed') return 'The reviewer did not respond';
+    if (completionState === 'completed_without_feedback') return 'No suggestions returned';
+    const base = `${respondedCount} reviewer${respondedCount === 1 ? '' : 's'} responded`;
+    return respondedCount < 2 ? `${base} — treat as preliminary` : base;
+  })();
+  const convergenceTooltip = ((): string => {
+    const parts: string[] = [];
+    if (denominator) parts.push(`${denominator.successful} of ${denominator.intended} configured reviewers returned substantive feedback.`);
+    if (denominator && denominator.missing.length > 0) parts.push(`No return: ${denominator.missing.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}.`);
+    if (!convergenceFloorMet) parts.push('Fewer than two reviewers returned, so nothing is treated as convergent.');
+    if (reviewedAt) parts.push(`Review basis: the draft at iteration ${session.iterationNumber}, reviewed ${reviewedAt}.`);
+    return parts.join(' ');
+  })();
+
+  const acceptAll = (): void => {
+    const sels = suggestionItems
+      .filter((it) => !lockedSuggestionIds.has(it.suggestion.suggestionId))
+      .map((it) => {
+        const existing = session.selections.find((s) => s.suggestionId === it.suggestion.suggestionId);
+        return existing?.adoptedText !== undefined
+          ? { suggestionId: it.suggestion.suggestionId, note: existing.note, adoptedText: existing.adoptedText }
+          : { suggestionId: it.suggestion.suggestionId, note: existing?.note ?? null };
+      });
+    bulkSelectionMutation.mutate({ sessionId, selections: sels });
+  };
+  const declineRemaining = (): void => {
+    setDeclinedThisIteration((prev) => {
+      const next = new Set(prev);
+      for (const it of suggestionItems) {
+        const id = it.suggestion.suggestionId;
+        if (!isAccepted(id) && !lockedSuggestionIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+  };
+  const closeOverlay = (): void => setActiveOverlay(null);
+
+  // Reference-tool header icon buttons (open floating overlays — zero docked width, disposition §G).
+  const toolButtons: Array<{ key: 'instructions' | 'provenance' | 'ldd' | 'adopt' | 'history' | 'convergence' | 'locked'; label: string; icon: React.ReactNode; show: boolean }> = [
+    { key: 'instructions', label: 'Reviewer instructions', icon: <Settings className="w-4 h-4" />, show: true },
+    { key: 'provenance', label: 'Provision provenance', icon: <History className="w-4 h-4" />, show: true },
+    { key: 'ldd', label: 'LOI vs draft', icon: <GitCompare className="w-4 h-4" />, show: true },
+    { key: 'adopt', label: 'Adopted changes', icon: <ListChecks className="w-4 h-4" />, show: true },
+    { key: 'history', label: 'Prior feedback', icon: <Clock className="w-4 h-4" />, show: true },
+    { key: 'convergence', label: 'Reviewer convergence', icon: <Users className="w-4 h-4" />, show: multiReviewer },
+  ];
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Session-info strip — R2-2 Inc A: rethemed, with the honest N-of-M denominator and a
-          "review basis" line (the anti-stale-review safeguard: WHICH draft this review judged
-          and WHEN). Detail lives here; the matter-state header (R2 #3) carries only a rolled-up
-          review-status chip, so the two never duplicate. */}
-      <div className="px-4 py-3 bg-surface-2 border-b border-line">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-ink-secondary">Iteration {session.iterationNumber}</span>
-            <span className={clsx(
-              'text-xs px-1.5 py-0.5 rounded',
-              session.state === 'active' && 'bg-success-tint text-success',
-              session.state === 'regenerated' && 'bg-accent-tint text-accent',
-              session.state === 'abandoned' && 'bg-surface text-ink-hint',
-            )}>
-              {session.state}
-            </span>
-          </div>
-          <span className="text-xs text-ink-secondary">{totalSelected} selected</span>
-        </div>
-
-        {showDenominator && denominator && (
-          <p className="mt-1.5 text-[11px] text-ink-secondary leading-snug">
-            <span className="font-medium text-ink">{denominator.successful} of {denominator.intended}</span>{' '}
-            configured reviewers returned substantive feedback
-            {denominator.missing.length > 0 && (
-              <> · no return: {denominator.missing.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}</>
+    <div className="flex flex-col h-full min-h-0">
+      {/* Header — humanized status line + on-demand reference-tool icons (REVIEW-UX-REDESIGN-1).
+          The honest N-of-M denominator / convergence floor / review-basis detail is preserved, but
+          moved off the jargon line into the (i) tooltip. */}
+      <div className="px-4 py-3 bg-surface-2 border-b border-line flex items-start justify-between gap-3 flex-shrink-0">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">Review session · Iteration {session.iterationNumber}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-secondary">
+            <span className="truncate">{statusLine}</span>
+            {convergenceTooltip && (
+              <span title={convergenceTooltip} aria-label={convergenceTooltip} className="text-ink-hint cursor-help flex-shrink-0">
+                <Info className="w-3.5 h-3.5" />
+              </span>
             )}
-            {!convergenceFloorMet && (
-              <> · fewer than two returned, so nothing is treated as convergent</>
-            )}.
-          </p>
-        )}
-
-        {reviewedAt && (
-          <p className="mt-0.5 text-[11px] text-ink-hint">
-            Review basis: the draft at iteration {session.iterationNumber}, reviewed {reviewedAt}.
-          </p>
-        )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {toolButtons.filter((t) => t.show).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveOverlay(t.key)}
+              aria-label={t.label}
+              title={t.label}
+              className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-line text-ink-secondary hover:text-ink hover:bg-surface"
+            >
+              {t.icon}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* R2-2 Inc B — persistent reviewer disagreements. Read from the DURABLE open-items store
@@ -1384,7 +1436,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
           (one-click pointer). Boundary-wrapped so a render fault can't blank the review. */}
       {persistentDivergent.length > 0 && (
         <PanelErrorBoundary label="Unresolved disagreements">
-          <div className="px-4 py-3 border-b border-line bg-warning-tint">
+          <div className="px-4 py-3 border-b border-line bg-warning-tint flex-shrink-0">
             <div className="flex items-center gap-1.5">
               <AlertCircle className="w-4 h-4 text-warning flex-shrink-0" />
               <h3 className="text-xs font-semibold text-ink">
@@ -1430,170 +1482,236 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         </PanelErrorBoundary>
       )}
 
-      {/* Global instructions */}
-      <div className="px-4 py-3 border-b border-line">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-ink-secondary">Global Instructions</span>
-          {!editingInstructions && (
-            <button
-              onClick={() => setEditingInstructions(true)}
-              className="text-xs text-firm-navy hover:underline"
-            >
-              Edit
-            </button>
+      {/* SINGLE scroll body — the feedback list + bulk bar + compact locked strip live in this one
+          scrollable container; the header above and footer below are fixed. Mirrors the document
+          pane (a single overflow-y-auto body), so an expanded list never pushes the apply strip past
+          an unreachable fold. The reference tools are NOT here — they open as floating overlays. */}
+      <div className="flex-1 min-h-0 overflow-y-auto" data-testid="review-scroll-body">
+        <div className="p-4 space-y-3">
+          {completionState === 'pending_or_running' && (
+            // MR-UAT-PROGRESS-1: show reviewer-specific label when available.
+            <div className="text-center py-8" aria-live="polite" aria-busy={true}>
+              <RefreshCw className="w-6 h-6 text-ink-hint mx-auto mb-2 animate-spin" />
+              <p className="text-sm text-ink-secondary">
+                {session.selectedReviewers[0]
+                  ? `${REVIEWER_LABELS[session.selectedReviewers[0]] ?? session.selectedReviewers[0]} reviewer is analyzing…`
+                  : 'Review in progress…'}
+              </p>
+              <p className="text-xs text-ink-hint mt-1">Checking for results every few seconds.</p>
+            </div>
+          )}
+
+          {completionState === 'completed_with_feedback' && (
+            <>
+              {/* Bulk actions — useful at 5–8 suggestions. */}
+              {suggestionItems.length >= 2 && (
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <span className="text-[11px] text-ink-hint">{suggestionItems.length} suggestions</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={acceptAll}
+                      disabled={bulkSelectionMutation.isPending}
+                      className="text-[11px] px-2 py-1 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
+                    >
+                      Accept all
+                    </button>
+                    <button
+                      onClick={declineRemaining}
+                      className="text-[11px] px-2 py-1 rounded-lg border border-line text-ink-secondary hover:bg-surface-2"
+                    >
+                      Decline remaining
+                    </button>
+                  </div>
+                </div>
+              )}
+              {suggestionItems.map((it) => {
+                const ev = evalDispositions?.find((e) => e.suggestionId === it.suggestion.suggestionId);
+                return (
+                  <SuggestionCard
+                    key={it.key}
+                    suggestion={it.suggestion}
+                    reviewerLabel={multiReviewer ? it.reviewerLabel : ''}
+                    sessionId={sessionId}
+                    documentId={documentId}
+                    selections={session.selections}
+                    locked={lockedSuggestionIds.has(it.suggestion.suggestionId)}
+                    declined={declinedThisIteration.has(it.suggestion.suggestionId)}
+                    onToggleDecline={toggleDecline}
+                    onRefresh={() => void refetch()}
+                    {...(ev ? { evalDisposition: ev } : {})}
+                  />
+                );
+              })}
+              {/* Compact locked-decisions strip — opens the management overlay. */}
+              {activeLockedCount > 0 && (
+                <button
+                  onClick={() => setActiveOverlay('locked')}
+                  className="w-full flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-left hover:bg-surface"
+                >
+                  <Lock className="w-3.5 h-3.5 text-ink-hint flex-shrink-0" />
+                  <span className="text-xs text-ink">
+                    <span className="font-medium">Locked decisions ({activeLockedCount})</span>
+                  </span>
+                  <span className="ml-auto text-[11px] text-accent">View / unlock</span>
+                </button>
+              )}
+            </>
+          )}
+
+          {completionState === 'completed_without_feedback' && (
+            <CompletedWithoutFeedbackView
+              reviewerTitle={feedback[0]?.reviewerTitle ?? session.selectedReviewers[0] ?? 'Reviewer'}
+              sessionId={sessionId}
+              onAbandon={() => abandonMutation.mutate({ sessionId })}
+              abandonPending={abandonMutation.isPending}
+            />
+          )}
+
+          {completionState === 'failed' && (
+            <FailedReviewView
+              reviewerTitle={
+                jobs.find((j) => j.jobType === 'reviewer_feedback')?.modelId ??
+                session.selectedReviewers[0] ??
+                'Reviewer'
+              }
+              sessionId={sessionId}
+              errorMessage={
+                jobs.find((j) => j.jobType === 'reviewer_feedback')?.errorMessage ?? null
+              }
+              onAbandon={() => abandonMutation.mutate({ sessionId })}
+              abandonPending={abandonMutation.isPending}
+            />
           )}
         </div>
-        {editingInstructions ? (
-          <div className="space-y-2">
-            <textarea
-              value={globalInstructions}
-              onChange={(e) => setGlobalInstructions(e.target.value)}
-              rows={3}
-              maxLength={4000}
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy resize-none"
-              placeholder="Global instructions for all reviewers…"
-            />
-            <div className="flex justify-end gap-2">
+        {/* Spacer so the last control clears the fixed footer when fully scrolled. */}
+        <div aria-hidden="true" className="h-20" />
+      </div>
+
+      {/* Footer — fixed apply strip. Apply = solid oxblood primary (always enabled; at zero accepted
+          it starts a fresh iteration); Close session = oxblood outline (destructive-secondary). No
+          "Regenerate" / "Abandon" / "selected" wording. Keyboard order: Apply follows the card list. */}
+      {session.state === 'active' && (
+        <div className="px-4 py-3 border-t border-line bg-surface-2 flex flex-col gap-2 flex-shrink-0">
+          {regenError && <p className="text-danger text-sm">{regenError}</p>}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-ink-secondary">{acceptedCount} accepted · {declinedCount} declined</span>
+            <div className="ml-auto flex items-center gap-2">
               <button
-                onClick={() => setEditingInstructions(false)}
-                className="px-2 py-1 text-xs text-gray-600"
+                onClick={() => abandonMutation.mutate({ sessionId })}
+                disabled={abandonMutation.isPending}
+                className="px-3 py-2 text-sm rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
               >
-                Cancel
+                Close session
               </button>
               <button
-                onClick={() => updateInstructionsMutation.mutate({ sessionId, globalInstructions })}
-                disabled={updateInstructionsMutation.isPending}
-                className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+                onClick={() => {
+                  setRegenError(null);
+                  regenerateMutation.mutate({ sessionId });
+                }}
+                disabled={regenerateMutation.isPending}
+                data-testid="apply-accepted"
+                className="px-4 py-2 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
-                Save
+                {regenerateMutation.isPending ? 'Generating…' : applyLabel}
               </button>
             </div>
           </div>
-        ) : (
-          <p className="text-xs text-ink-secondary">
-            {session.globalInstructions || <em className="text-ink-hint">No global instructions</em>}
-          </p>
-        )}
-      </div>
-
-      {/* Feedback area — MR-3 §S1b: render based on derived completion state */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {completionState === 'pending_or_running' && (
-          // MR-UAT-PROGRESS-1: show reviewer-specific label when available.
-          <div className="text-center py-8" aria-live="polite" aria-busy={true}>
-            <RefreshCw className="w-6 h-6 text-ink-hint mx-auto mb-2 animate-spin" />
-            <p className="text-sm text-ink-secondary">
-              {session.selectedReviewers[0]
-                ? `${REVIEWER_LABELS[session.selectedReviewers[0]] ?? session.selectedReviewers[0]} reviewer is analyzing…`
-                : 'Review in progress…'}
-            </p>
-            <p className="text-xs text-ink-hint mt-1">Checking for results every few seconds.</p>
-          </div>
-        )}
-        {completionState === 'completed_with_feedback' && (
-          feedback.map((fb) => (
-            <FeedbackCard
-              key={fb.id}
-              feedback={fb}
-              sessionId={sessionId}
-              selections={session.selections}
-              evaluation={evalDispositions}
-              onRefresh={() => void refetch()}
-              documentId={documentId}
-              lockedSuggestionIds={lockedSuggestionIds}
-            />
-          ))
-        )}
-        {completionState === 'completed_without_feedback' && (
-          <CompletedWithoutFeedbackView
-            reviewerTitle={feedback[0]?.reviewerTitle ?? session.selectedReviewers[0] ?? 'Reviewer'}
-            sessionId={sessionId}
-            onAbandon={() => abandonMutation.mutate({ sessionId })}
-            abandonPending={abandonMutation.isPending}
-          />
-        )}
-        {completionState === 'failed' && (
-          <FailedReviewView
-            reviewerTitle={
-              jobs.find((j) => j.jobType === 'reviewer_feedback')?.modelId ??
-              session.selectedReviewers[0] ??
-              'Reviewer'
-            }
-            sessionId={sessionId}
-            errorMessage={
-              jobs.find((j) => j.jobType === 'reviewer_feedback')?.errorMessage ?? null
-            }
-            onAbandon={() => abandonMutation.mutate({ sessionId })}
-            abandonPending={abandonMutation.isPending}
-          />
-        )}
-      </div>
-
-      {/* FOLD-ORCH-1 Inc3c: multi-model orchestration consolidation (only meaningful with >1
-          reviewer). Mounted UNCONDITIONALLY and gated inside via `visible` (stable hook order),
-          and wrapped in an error boundary so a panel bug can never blank the review view. */}
-      <PanelErrorBoundary label="Multi-model orchestration">
-        <OrchestrationConsolidationPanel
-          reviewSessionId={sessionId}
-          visible={session.selectedReviewers.length > 1 && completionState === 'completed_with_feedback'}
-        />
-      </PanelErrorBoundary>
-
-      {/* MR-CAL-6B: locked decisions for this document */}
-      <LockedDecisionsSection documentId={documentId} />
-
-      {/* MR-CAL-7B: cumulative adopt ledger for this document */}
-      <AdoptLedgerSection documentId={documentId} />
-
-      {/* MR-CAL-8B: advisory sendability checkpoint */}
-      <SendabilitySection documentId={documentId} />
-
-      {/* FOLD-DRAFT-1: provision provenance (record + surface where each section came from) */}
-      <PanelErrorBoundary label="Provision provenance">
-        <ProvisionProvenancePanel documentId={documentId} />
-      </PanelErrorBoundary>
-
-      {/* FOLD-DRAFT-1 / LDD: LOI-vs-draft key-term check (flag value drift; never edits the draft) */}
-      <PanelErrorBoundary label="LOI-vs-draft check">
-        <LddDiffPanel documentId={documentId} />
-      </PanelErrorBoundary>
-
-      {/* FOLD-SEND-1: export-safety / outbound-readiness gate (advisory/shadow in v1; recorded override) */}
-      <PanelErrorBoundary label="Export safety">
-        <ExportSafetyPanel documentId={documentId} />
-      </PanelErrorBoundary>
-
-      {/* History section — MR-2 §S2c */}
-      <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
-
-      {/* Footer actions */}
-      {session.state === 'active' && (
-        <div className="px-4 py-3 border-t border-gray-200 flex flex-col gap-2">
-          {/* MR-4 P2: regenError inline display — same pattern as CreateSessionView */}
-          {regenError && <p className="text-red-600 text-sm">{regenError}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={() => abandonMutation.mutate({ sessionId })}
-              disabled={abandonMutation.isPending}
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50"
-            >
-              Abandon
-            </button>
-            <button
-              onClick={() => {
-                setRegenError(null);
-                regenerateMutation.mutate({ sessionId });
-              }}
-              disabled={regenerateMutation.isPending || totalSelected === 0}
-              className="flex-1 px-3 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
-            >
-              {regenerateMutation.isPending ? 'Regenerating…' : `Regenerate (${totalSelected} selected)`}
-            </button>
-          </div>
         </div>
+      )}
+
+      {/* On-demand reference-tool overlays — float over the pane, zero docked width (disposition §G). */}
+      {activeOverlay === 'instructions' && (
+        <ReviewToolOverlay title="Reviewer instructions" onClose={closeOverlay}>
+          <div className="p-4 space-y-2">
+            <p className="text-xs text-ink-secondary">Instructions shared with every reviewer on this session.</p>
+            <textarea
+              ref={instructionsRef}
+              defaultValue={session.globalInstructions || ''}
+              rows={6}
+              maxLength={4000}
+              placeholder="Global instructions for all reviewers…"
+              aria-label="Reviewer instructions"
+              className="w-full border border-line rounded-lg px-2 py-1.5 text-xs bg-paper focus:outline-none focus:ring-1 focus:ring-accent resize-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={closeOverlay} className="px-2 py-1 text-xs text-ink-secondary">Cancel</button>
+              <button
+                onClick={() => updateInstructionsMutation.mutate({ sessionId, globalInstructions: instructionsRef.current?.value ?? '' })}
+                disabled={updateInstructionsMutation.isPending}
+                className="px-3 py-1.5 text-xs rounded-lg border border-line text-ink hover:bg-surface disabled:opacity-50"
+              >
+                {updateInstructionsMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'provenance' && (
+        <ReviewToolOverlay title="Provision provenance" onClose={closeOverlay}>
+          <PanelErrorBoundary label="Provision provenance"><ProvisionProvenancePanel documentId={documentId} /></PanelErrorBoundary>
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'ldd' && (
+        <ReviewToolOverlay title="LOI vs draft" onClose={closeOverlay}>
+          <PanelErrorBoundary label="LOI-vs-draft check"><LddDiffPanel documentId={documentId} /></PanelErrorBoundary>
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'adopt' && (
+        <ReviewToolOverlay title="Adopted changes" onClose={closeOverlay}>
+          <AdoptLedgerSection documentId={documentId} />
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'history' && (
+        <ReviewToolOverlay title="Prior feedback" onClose={closeOverlay}>
+          <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'convergence' && (
+        <ReviewToolOverlay title="Reviewer convergence" onClose={closeOverlay}>
+          <PanelErrorBoundary label="Multi-model orchestration"><OrchestrationConsolidationPanel reviewSessionId={sessionId} visible={true} /></PanelErrorBoundary>
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'locked' && (
+        <ReviewToolOverlay title="Locked decisions" onClose={closeOverlay}>
+          <LockedDecisionsSection documentId={documentId} />
+        </ReviewToolOverlay>
       )}
     </div>
   );
+}
+
+// ============================================================
+// REVIEW-UX-REDESIGN-1: resizable + two-level-collapsible document pane (disposition §G).
+// State is workspace-local and persisted to localStorage; seeded via lazy useState initializers
+// (NOT a setState-in-effect) so there is no first-paint flash and no react-hooks lint hit.
+// ============================================================
+type DocCollapse = 'expanded' | 'rail' | 'hidden';
+const DOC_COLLAPSE_KEY = 'lln.review.docCollapse';
+const DOC_WIDTH_KEY = 'lln.review.docWidthPct';
+const DOC_MIN_PX = 520; // readable minimum (~50-60 char line) — the narrow read-only strip is rejected.
+const DOC_WIDTH_DEFAULT = 40; // ~40% document / 60% review (disposition §G default split).
+
+function clampPct(pct: number): number {
+  if (Number.isNaN(pct)) return DOC_WIDTH_DEFAULT;
+  return Math.min(60, Math.max(25, Math.round(pct)));
+}
+function readDocCollapse(): DocCollapse {
+  if (typeof window === 'undefined') return 'expanded';
+  try {
+    const v = window.localStorage.getItem(DOC_COLLAPSE_KEY);
+    return v === 'rail' || v === 'hidden' ? v : 'expanded';
+  } catch {
+    return 'expanded';
+  }
+}
+function readDocWidthPct(): number {
+  if (typeof window === 'undefined') return DOC_WIDTH_DEFAULT;
+  try {
+    const v = window.localStorage.getItem(DOC_WIDTH_KEY);
+    return v === null ? DOC_WIDTH_DEFAULT : clampPct(Number(v));
+  } catch {
+    return DOC_WIDTH_DEFAULT;
+  }
 }
 
 // ============================================================
@@ -1642,6 +1760,37 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
   const [anchorQuote, setAnchorQuote] = useState<string | null>(null);
   // Full-page "view in document" overlay (session-preserving: the review tree stays mounted beneath).
   const [showDocOverlay, setShowDocOverlay] = useState(false);
+
+  // REVIEW-UX-REDESIGN-1: resizable + two-level-collapsible document pane (wide mode only). These
+  // change ONLY the left doc column's width/existence — the keyed review slot below NEVER remounts
+  // (G6). Seeded lazily from localStorage (no setState-in-effect); persisted in the handlers below.
+  const [docCollapse, setDocCollapse] = useState<DocCollapse>(() => readDocCollapse());
+  const [docWidthPct, setDocWidthPct] = useState<number>(() => readDocWidthPct());
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const docWidthPctRef = React.useRef<number>(docWidthPct);
+
+  const setCollapse = (n: DocCollapse): void => {
+    setDocCollapse(n);
+    try { window.localStorage.setItem(DOC_COLLAPSE_KEY, n); } catch { /* ignore */ }
+  };
+  // Drag-to-resize via pointer capture on the handle itself — no window listener, no new effect, so
+  // nothing perturbs the review slot's identity. The move updates state for live reflow; the up
+  // persists the final width.
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const r = containerRef.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return;
+    const pct = clampPct(((e.clientX - r.left) / r.width) * 100);
+    docWidthPctRef.current = pct;
+    setDocWidthPct(pct);
+  };
+  const onHandleUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    try { window.localStorage.setItem(DOC_WIDTH_KEY, String(docWidthPctRef.current)); } catch { /* ignore */ }
+  };
 
   // Reads for the read-only document-reference pane (the workspace owns them; presentational pane).
   const { data: workspaceDoc } = trpc.document.get.useQuery({ documentId });
@@ -1700,6 +1849,7 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
 
   return (
     <div
+      ref={containerRef}
       className={clsx(
         'fixed z-40 bg-paper flex',
         isWide ? 'inset-y-0 right-0 left-14' : 'inset-0 flex-col',
@@ -1707,10 +1857,16 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
       data-testid="review-workspace"
       data-mode={isWide ? 'split' : 'fullpage'}
     >
-      {/* WIDE ONLY — the read-only document reference + its hairline divider. This is the ONLY part
-          that mounts/unmounts across the breakpoint (G6); the review slot below never does. */}
-      {isWide && (
-        <div key="doc-ref" className="w-[600px] xl:w-[620px] flex-shrink-0 h-full border-r border-line" data-testid="review-doc-pane-wrap">
+      {/* WIDE + expanded — the resizable read-only document reference. The doc column is the ONLY part
+          that mounts/unmounts (G6); the review slot below never does. Width is a dynamic % (inline
+          style, NOT a Tailwind class) with a readable px floor. */}
+      {isWide && docCollapse === 'expanded' && (
+        <div
+          key="doc-ref"
+          className="flex-shrink-0 h-full border-r border-line"
+          style={{ width: `${docWidthPct}%`, minWidth: DOC_MIN_PX }}
+          data-testid="review-doc-pane-wrap"
+        >
           <DocumentReferencePane
             documentId={documentId}
             anchorQuote={anchorQuote}
@@ -1720,6 +1876,34 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
           />
         </div>
       )}
+      {/* Drag handle — a SEPARATE sibling; mounting/unmounting it never touches the review slot node. */}
+      {isWide && docCollapse === 'expanded' && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize document pane"
+          data-testid="review-doc-resize"
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onLostPointerCapture={onHandleUp}
+          className="w-1.5 flex-shrink-0 h-full cursor-col-resize bg-line hover:bg-surface-2"
+        />
+      )}
+      {/* WIDE + rail — level-1 peek/restore: a thin, always-mounted button; the doc pane is unmounted. */}
+      {isWide && docCollapse === 'rail' && (
+        <button
+          type="button"
+          data-testid="review-doc-rail"
+          onClick={() => setCollapse('expanded')}
+          aria-label="Show document"
+          title="Show document"
+          className="w-10 flex-shrink-0 h-full border-r border-line bg-surface-2 text-ink-secondary hover:text-ink flex items-start justify-center pt-3"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )}
+      {/* docCollapse === 'hidden' (or !isWide): nothing on the left — the same legal unmount as full-page. */}
 
       {/* REVIEW SLOT — STABLE keyed slot. Identical mounted subtree in both modes; only className
           changes (reflow). ActiveSessionView never remounts/re-inits/re-fetches across the breakpoint. */}
@@ -1729,7 +1913,10 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         onFocusCapture={handleReviewFocus}
         className={clsx(
           'h-full flex flex-col bg-surface min-w-0',
-          isWide ? 'flex-1 max-w-[760px]' : 'w-full items-center',
+          isWide ? 'flex-1' : 'w-full items-center',
+          // Keep a readable cap while the doc shares the row; when the doc is hidden the review
+          // reclaims the full width (no empty gap). Reflow only — never a remount.
+          isWide && docCollapse !== 'hidden' && 'max-w-[760px]',
         )}
       >
         <div className={clsx('flex flex-col h-full w-full', !isWide && 'max-w-[960px]')}>
@@ -1742,6 +1929,37 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
                 : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
             </h2>
             <div className="flex items-center gap-3 flex-shrink-0">
+              {/* REVIEW-UX-REDESIGN-1: document-pane controls (wide only). Collapse to a rail, hide
+                  entirely, or restore — a persistent "Show document" is always present when collapsed. */}
+              {isWide && docCollapse === 'expanded' && (
+                <button
+                  onClick={() => setCollapse('rail')}
+                  aria-label="Collapse document to a rail"
+                  title="Collapse document"
+                  className="text-ink-secondary hover:text-ink"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+              )}
+              {isWide && docCollapse === 'rail' && (
+                <button
+                  onClick={() => setCollapse('hidden')}
+                  aria-label="Hide document"
+                  title="Hide document"
+                  className="text-ink-secondary hover:text-ink"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
+              )}
+              {isWide && docCollapse !== 'expanded' && (
+                <button
+                  onClick={() => setCollapse('expanded')}
+                  data-testid="review-show-document"
+                  className="text-ink-secondary hover:text-ink text-xs underline-offset-2 hover:underline"
+                >
+                  Show document
+                </button>
+              )}
               {!isWide && currentVersion && (
                 <button
                   onClick={() => setShowDocOverlay(true)}

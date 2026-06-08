@@ -49,6 +49,7 @@ import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
+import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
@@ -1121,24 +1122,33 @@ export default function DocumentDetail(): React.ReactElement {
         )}
       </div>
 
-      {/* Sendability — demoted to a compact one-line strip; advisory, expands on demand
-          (RELAYOUT-1 §1.4). Does not gate the Finalize/Accept buttons above. */}
+      {/* REVIEW-UX-REDESIGN-1: finalize-gate PRE-FLIGHT. Sendability + Export-safety LEFT the review
+          pane (disposition §G) and now run as an advisory pre-flight check at the export/finalize
+          moment, framing the Download control above. Advisory ONLY — never gates Finalize/Download.
+          Screen-only furniture (data-no-print). Mirrors the mockup v4 dashed "At export / finalize"
+          strip; the operative export control is the existing Download button above (no duplicate). */}
       {doc.currentVersionId &&
         (doc.workflowState === 'drafting' || doc.workflowState === 'substantively_accepted') && (
-          <div data-no-print className="mb-3 border border-line rounded-lg overflow-hidden">
+          <div data-no-print className="mb-3 rounded-lg border border-dashed border-line bg-paper overflow-hidden">
             <button
               onClick={() => setShowSendability(!showSendability)}
-              className="flex items-center justify-between w-full px-4 py-2 bg-white text-xs font-medium text-ink-secondary hover:bg-surface-2"
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface"
             >
-              <span>Sendability — advisory</span>
-              <span className="flex items-center gap-1 text-ink-hint">
-                {showSendability ? 'Hide' : 'Check'}
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-accent">
+                <CheckCircle className="w-3.5 h-3.5" /> At export / finalize
+              </span>
+              <span className="text-xs text-accent">Sendability</span>
+              <span className="text-xs text-accent">Export safety</span>
+              <span className="text-[11px] text-ink-hint">run as a pre-flight check before you Download</span>
+              <span className="ml-auto flex items-center gap-1 text-xs text-ink-hint">
+                {showSendability ? 'Hide' : 'Run checks'}
                 {showSendability ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </span>
             </button>
             {showSendability && (
-              <div className="border-t border-gray-100">
+              <div className="border-t border-line bg-white">
                 <SendabilitySection documentId={documentId} />
+                <ExportSafetyPanel documentId={documentId} />
               </div>
             )}
           </div>

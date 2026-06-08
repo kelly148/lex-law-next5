@@ -44,9 +44,10 @@ describe('§S6b: ReviewPane.tsx renders all four completion states', () => {
     expect(reviewPane).toContain('animate-spin');
   });
 
-  it("renders FeedbackCard list for 'completed_with_feedback' state", () => {
+  it("renders the SuggestionCard list for 'completed_with_feedback' state", () => {
     expect(reviewPane).toContain("completionState === 'completed_with_feedback'");
-    expect(reviewPane).toContain('<FeedbackCard');
+    // REVIEW-UX-REDESIGN-1: per-reviewer FeedbackCard -> per-suggestion SuggestionCard.
+    expect(reviewPane).toContain('<SuggestionCard');
   });
 
   it("renders CompletedWithoutFeedbackView for 'completed_without_feedback' state", () => {
@@ -81,8 +82,9 @@ describe('§S6b: ReviewPane.tsx renders all four completion states', () => {
     expect(reviewPane).toContain('Paths forward');
   });
 
-  it('FailedReviewView shows abandon-and-retry guidance', () => {
-    expect(reviewPane).toContain('Abandon and start a new review session');
+  it('FailedReviewView shows close-and-retry guidance', () => {
+    // REVIEW-UX-REDESIGN-1: "Abandon" wording dropped in favour of "Close".
+    expect(reviewPane).toContain('Close and start a new review session');
   });
 
   it('AlertCircle icon is imported for FailedReviewView', () => {
@@ -425,15 +427,16 @@ describe('MR-UAT-ERR-2: FailedReviewView errorMessage surfacing', () => {
 
   // T-UAT-ERR-2-2 — preserves generic fallback when diagnostic is absent
   it('T-UAT-ERR-2-2: generic fallback text is still present in FailedReviewView', () => {
-    expect(reviewPane).toContain('this may be a temporary LLM provider error or timeout');
+    // REVIEW-UX-REDESIGN-1 reworded the fallback; the "temporary provider error or timeout" intent holds.
+    expect(reviewPane).toContain('temporary provider error or timeout');
   });
   it('T-UAT-ERR-2-2: errorMessage render is conditional (null/empty does not render)', () => {
     expect(reviewPane).toContain("errorMessage.trim() !== ''");
   });
 
   // T-UAT-ERR-2-3 — does not alter abandon action rendering
-  it('T-UAT-ERR-2-3: abandon button is still present in FailedReviewView', () => {
-    expect(reviewPane).toContain('Abandon and start a new review session');
+  it('T-UAT-ERR-2-3: close button is still present in FailedReviewView', () => {
+    expect(reviewPane).toContain('Close and start a new review session');
   });
   it('T-UAT-ERR-2-3: onAbandon prop is still present in FailedReviewViewProps', () => {
     expect(reviewPane).toContain('onAbandon: () => void;');
