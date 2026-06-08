@@ -1248,6 +1248,9 @@ export const AUDIT_EVENT_TYPE_VALUES = [
   'authority_verified',
   'judgment_required',
   'disposition',
+  // FOLD-PM-1 Inc 3 — deadline engine system events (audited DISTINCTLY from attorney disposition).
+  'deadline_fired', // the system surfaced a tickler/deadline (system actor; not an acknowledgment)
+  'deadline_acknowledged', // the attorney acknowledged a fired tickler (distinct from the firing)
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPE_VALUES)[number];
 

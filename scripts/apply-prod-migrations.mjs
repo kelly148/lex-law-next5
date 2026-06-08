@@ -56,6 +56,9 @@ const MIGRATIONS = [
   // FOLD-PM-1 Inc 1 — deadline/tickler engine data core. Five additive CREATE TABLE IF NOT EXISTS +
   // idempotent firm-default seeds (ON DUPLICATE KEY UPDATE). No behavior; flag DEADLINE_ENGINE_ENABLED OFF.
   '0021_fold_pm_1_deadline_engine.sql',
+  // FOLD-PM-1 Inc 3 — append deadline_fired / deadline_acknowledged to audit_events.eventType (additive
+  // ENUM value addition via MODIFY; existing rows untouched; idempotent).
+  '0022_fold_pm_1_deadline_audit_events.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
