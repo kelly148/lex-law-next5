@@ -65,6 +65,9 @@
   "skipped_engagements": [],
   "deferred_engagements": [],
   "queue": [
+    "GEMINI-BUDGET-CAL-1-INC2 (reshaped per the Inc-1 demand curves: write measured per-model ceilings to an additive model-capability registry + log distance-to-truncation. Gemini raise to ~32k (demand ~10.5k, ~58% invisible thinking; truncates on high-output volume); Claude HOLD at 16384 (never truncates; a bigger budget only inflates output +49%); Grok N/A (uses <1.2k); GPT-5 NOT a budget lever -> see GPT5-LATENCY-1. In-spec, no re-triad per caution 6.)",
+    "GPT5-LATENCY-1 (OPERATOR-CRITICAL. Diagnostic in progress on lex-next/gemini-budget-cal-1: GPT-5 does not return within the 300s envelope on real-shaped large docs. FIX is TRANSPORT-ONLY and must PRESERVE FULL REASONING + WHOLE-DOC CONTEXT -- NO effort-cap, NO chunking. Preference: (a) raise the per-lane envelope, tuning undici bodyTimeout/headersTimeout sized from the measured TTFT, +/- streaming; (b) async/background review if true wall-time too long; (c) effort-cap/chunk ONLY if (a)/(b) infeasible, with an explicit quality note. Pairs with GPT5-RETRY-SUPPRESS-1.)",
+    "GPT5-RETRY-SUPPRESS-1 (separable quick win, ship INDEPENDENTLY of the latency fix: a model-latency 'fetch failed' is currently classified api_error and matches isTransientRetryable's /fetch failed/ regex (canonicalMutation.ts:146), so it is retried 2x futilely -- ~3x wasted wall-clock+cost, each rerun doomed. Distinguish a slow-model latency failure from a real transient network blip so it is NOT retried. Small, CI-gated.)",
     "FOLD-PM-2",
     "FOLD-PM-3",
     "FOLD-PM-4",
