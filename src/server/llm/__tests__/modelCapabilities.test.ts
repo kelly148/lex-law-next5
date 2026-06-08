@@ -1,0 +1,57 @@
+/**
+ * GEMINI-BUDGET-CALIBRATION-1 — Increment 2
+ * Model-capability registry: per-model calibrated reviewer ceilings + capability metadata.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  MODEL_CAPABILITIES,
+  DEFAULT_REVIEWER_CEILING,
+  getReviewerCeiling,
+  getModelCapability,
+} from '../modelCapabilities.js';
+import { REVIEWER_MODELS } from '../config.js';
+
+describe('getReviewerCeiling — calibrated per-model budgets', () => {
+  it('raises Gemini 2.5 Pro to 32768 (the measured demand-curve calibration)', () => {
+    expect(getReviewerCeiling('google:gemini-2.5-pro')).toBe(32768);
+  });
+  it('holds Claude / GPT-5 / Grok at the 16384 floor', () => {
+    expect(getReviewerCeiling('anthropic:claude-opus-4-5')).toBe(16384);
+    expect(getReviewerCeiling('openai:gpt-5')).toBe(16384);
+    expect(getReviewerCeiling('xai:grok-4')).toBe(16384);
+  });
+  it('holds the lite models at 16384 (unmeasured)', () => {
+    expect(getReviewerCeiling('anthropic:claude-sonnet-4-5')).toBe(16384);
+    expect(getReviewerCeiling('openai:gpt-4.1-mini')).toBe(16384);
+    expect(getReviewerCeiling('google:gemini-2.5-flash')).toBe(16384);
+    expect(getReviewerCeiling('xai:grok-3-mini')).toBe(16384);
+  });
+  it('falls back to the safe floor for an unregistered model (e.g. an env-overridden lite)', () => {
+    expect(getReviewerCeiling('openai:some-future-model')).toBe(DEFAULT_REVIEWER_CEILING);
+    expect(DEFAULT_REVIEWER_CEILING).toBe(16384);
+  });
+});
+
+describe('registry coverage + capability metadata', () => {
+  it('registers every full reviewer model', () => {
+    for (const modelString of Object.values(REVIEWER_MODELS)) {
+      expect(getModelCapability(modelString), modelString).toBeDefined();
+    }
+  });
+  it('flags GPT-5 as the only extended-latency (async-lane) reviewer; the rest are standard', () => {
+    expect(MODEL_CAPABILITIES['openai:gpt-5']?.timeoutClass).toBe('extended');
+    expect(MODEL_CAPABILITIES['google:gemini-2.5-pro']?.timeoutClass).toBe('standard');
+    expect(MODEL_CAPABILITIES['anthropic:claude-opus-4-5']?.timeoutClass).toBe('standard');
+    expect(MODEL_CAPABILITIES['xai:grok-4']?.timeoutClass).toBe('standard');
+  });
+  it('records thinking-control support where the provider exposes it', () => {
+    expect(MODEL_CAPABILITIES['openai:gpt-5']?.supportsThinkingControl).toBe(true); // reasoning_effort
+    expect(MODEL_CAPABILITIES['google:gemini-2.5-pro']?.supportsThinkingControl).toBe(true); // thinkingBudget
+  });
+  it('keeps every reviewerCeiling within the model provider max (sanity invariant)', () => {
+    for (const [modelString, cap] of Object.entries(MODEL_CAPABILITIES)) {
+      expect(cap.reviewerCeiling, modelString).toBeLessThanOrEqual(cap.providerMaxOutputTokens);
+      expect(cap.reviewerCeiling, modelString).toBeGreaterThanOrEqual(DEFAULT_REVIEWER_CEILING);
+    }
+  });
+});
