@@ -123,28 +123,35 @@ beforeEach(() => {
   mockState.consolidation = { data: undefined };
 });
 
-describe('ActiveSessionView — R2-2 Inc A denominator + review basis', () => {
-  it('all reviewers returned: shows "2 of 2" with no "no return"', () => {
+describe('ActiveSessionView — R2-2 Inc A denominator + review basis (now in the status tooltip)', () => {
+  // REVIEW-UX-REDESIGN-1: the status line is humanized to "N reviewer(s) responded"; the honest
+  // N-of-M denominator, the non-returning reviewers, the convergence-floor note, and the review-basis
+  // line all move into the (i) tooltip (title + aria-label). Those live in attribute values, so these
+  // assertions read container.innerHTML (which includes attributes), not textContent. The humanized
+  // line itself is asserted via textContent. The safety content is preserved — only its surface moved.
+  it('all reviewers returned: tooltip shows "2 of 2", no "No return" / floor note; line says "2 reviewers responded"', () => {
     mockState.consolidation = { data: consolidation(2, 2, [], true) };
     const { container } = render(<ActiveSessionView {...PROPS} />);
-    expect(container.textContent).toMatch(/2 of 2/);
-    expect(container.textContent).toContain('returned substantive feedback');
-    expect(container.textContent).not.toContain('no return:');
-    expect(container.textContent).not.toContain('fewer than two returned');
+    expect(container.innerHTML).toMatch(/2 of 2/);
+    expect(container.innerHTML).toContain('returned substantive feedback');
+    expect(container.innerHTML).not.toContain('No return:');
+    expect(container.innerHTML).not.toContain('Fewer than two');
+    expect(container.textContent).toContain('2 reviewers responded');
   });
 
-  it('partial return: "1 of 2", names the non-returning reviewer, flags the convergence floor', () => {
+  it('partial return: "1 of 2", names the non-returning reviewer, flags the floor; line says "treat as preliminary"', () => {
     mockState.consolidation = { data: consolidation(1, 2, ['gpt'], false) };
     const { container } = render(<ActiveSessionView {...PROPS} />);
-    expect(container.textContent).toMatch(/1 of 2/);
-    expect(container.textContent).toContain('no return: GPT');
-    expect(container.textContent).toContain('fewer than two returned');
+    expect(container.innerHTML).toMatch(/1 of 2/);
+    expect(container.innerHTML).toContain('No return: GPT');
+    expect(container.innerHTML).toContain('Fewer than two');
+    expect(container.textContent).toContain('treat as preliminary');
   });
 
   it('review basis line names the reviewed iteration (anti-stale safeguard)', () => {
     mockState.consolidation = { data: consolidation(2, 2, [], true) };
     const { container } = render(<ActiveSessionView {...PROPS} />);
-    expect(container.textContent).toContain('Review basis:');
-    expect(container.textContent).toMatch(/iteration 2/);
+    expect(container.innerHTML).toContain('Review basis:');
+    expect(container.innerHTML).toMatch(/iteration 2/);
   });
 });
