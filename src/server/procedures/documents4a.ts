@@ -50,6 +50,9 @@ import {
   getVariableSchemaForVersion,
 } from '../db/queries/templates.js';
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
+import { isConflictGateEnabled } from '../config/featureFlags.js';
+import { resolveDraftingGate, recordDraftUnderOverride } from '../db/queries/gateOverride.js';
+import type { GateOverrideRow } from '../../shared/schemas/gateOverride.js';
 import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
 import { validateTargetingForFinalize } from '../documents/targetingValidation.js';
 import {
@@ -492,6 +495,22 @@ export const document4aRouter = router({
         });
       }
 
+      // CONFLICT-GATE-OVERRIDE-1 Inc 3/4: re-evaluate the override-aware drafting gate so a RE-ARMED
+      // override (a material change since attestation — a new party, an identity-record change) re-blocks
+      // the next draft until re-attested. FLAG-ON only; the default fail-closed path is unchanged. The
+      // active overrides are captured for the per-draft provenance record (Inc 4).
+      let activeGateOverrides: GateOverrideRow[] = [];
+      if (isConflictGateEnabled()) {
+        const gate = await resolveDraftingGate(doc.matterId, userId);
+        if (!gate.allowed) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${gate.blockingReasons.join(', ')}). The intake gate re-armed (a party or identity record changed since the override) — disposition the precondition or record a fresh attested override before generating.`,
+          });
+        }
+        activeGateOverrides = gate.activeOverrides;
+      }
+
       const matter = await getMatterById(doc.matterId, userId);
       if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
 
@@ -582,6 +601,15 @@ export const document4aRouter = router({
             iterationNumber: 1,
           });
           await updateDocumentCurrentVersion(input.documentId, userId, newVersion.id);
+          // CONFLICT-GATE-OVERRIDE-1 Inc 4: record (best-effort) that this draft was produced under active
+          // gate override(s). No-ops when there are none (the normal cleared path).
+          await recordDraftUnderOverride({
+            userId,
+            matterId: doc.matterId,
+            documentId: input.documentId,
+            versionId: newVersion.id,
+            overrides: activeGateOverrides,
+          });
           void emitTelemetry(
             'generation_completed',
             { jobId, operation: 'initial_draft', newVersionNumber: versionNumber },
@@ -641,6 +669,21 @@ export const document4aRouter = router({
           code: 'PRECONDITION_FAILED',
           message: 'NO_CURRENT_VERSION: document has no current version — call generateDraft first',
         });
+      }
+
+      // CONFLICT-GATE-OVERRIDE-1 Inc 3/4: re-evaluate the override-aware gate so a RE-ARMED override
+      // re-blocks regeneration (the next draft) until re-attested. FLAG-ON only; default unchanged. The
+      // active overrides feed the per-draft provenance record.
+      let activeGateOverrides: GateOverrideRow[] = [];
+      if (isConflictGateEnabled()) {
+        const gate = await resolveDraftingGate(doc.matterId, userId);
+        if (!gate.allowed) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${gate.blockingReasons.join(', ')}). The intake gate re-armed (a party or identity record changed since the override) — disposition the precondition or record a fresh attested override before regenerating.`,
+          });
+        }
+        activeGateOverrides = gate.activeOverrides;
       }
 
       const currentVersion = await getVersionById(doc.currentVersionId, userId);
@@ -726,6 +769,15 @@ export const document4aRouter = router({
             iterationNumber: nextIterationNumber,
           });
           await updateDocumentCurrentVersion(input.documentId, userId, newVersion.id);
+          // CONFLICT-GATE-OVERRIDE-1 Inc 4: record (best-effort) that this regeneration was produced under
+          // active gate override(s). No-ops when there are none.
+          await recordDraftUnderOverride({
+            userId,
+            matterId: doc.matterId,
+            documentId: input.documentId,
+            versionId: newVersion.id,
+            overrides: activeGateOverrides,
+          });
           void emitTelemetry(
             'generation_completed',
             { jobId, operation: 'regeneration', newVersionNumber: versionNumber },

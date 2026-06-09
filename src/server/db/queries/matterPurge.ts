@@ -19,7 +19,7 @@
  *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
  *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
- *     documents — then the `matters` row itself.
+ *     gateOverride (CONFLICT-GATE-OVERRIDE-1), documents — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -62,6 +62,7 @@ import {
   matterDeadline,
   tickler,
   documentParty,
+  gateOverride,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -175,6 +176,7 @@ export async function purgeMatter(
     await step('closurePackageItem', closurePackageItem, byMatter(closurePackageItem));
     await step('sendabilityOverride', sendabilityOverride, byMatter(sendabilityOverride));
     await step('sendabilityEvaluation', sendabilityEvaluation, byMatter(sendabilityEvaluation));
+    await step('gateOverride', gateOverride, byMatter(gateOverride)); // CONFLICT-GATE-OVERRIDE-1
     await step('kbAdoptions', kbAdoptions, byMatter(kbAdoptions));
     await step('matterDeadline', matterDeadline, byMatter(matterDeadline)); // after its tickler children above
     await step('jobs', jobs, byMatter(jobs));

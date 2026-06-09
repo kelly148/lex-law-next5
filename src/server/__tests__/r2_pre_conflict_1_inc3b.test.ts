@@ -40,8 +40,11 @@ vi.mock('../db/queries/documents.js', async (importOriginal) => {
 });
 vi.mock('../db/queries/conflicts.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../db/queries/conflicts.js')>();
-  // Inc 3b: the ON path calls evaluateConflictClearance; the OFF path calls hasUndispositionedBlocker.
-  return { ...actual, hasUndispositionedBlocker: vi.fn(), evaluateConflictClearance: vi.fn() };
+  // Inc 3b: the ON path advances via resolveDraftingGate, which calls evaluateAllClearanceReasons; the OFF
+  // path calls hasUndispositionedBlocker. (CONFLICT-GATE-OVERRIDE-1 moved the ON-path predicate to the
+  // non-short-circuiting evaluateAllClearanceReasons so an attested override of one precondition cannot
+  // mask another; evaluateConflictClearance stays mocked for any other transitive caller.)
+  return { ...actual, hasUndispositionedBlocker: vi.fn(), evaluateConflictClearance: vi.fn(), evaluateAllClearanceReasons: vi.fn() };
 });
 
 import { appRouter } from '../router.js';
@@ -119,18 +122,18 @@ describe('R2-PRE-CONFLICT-1 Inc3b — document.create enforcement (CONFLICT_GATE
 
   it('FLAG ON: allows create when the affirmative predicate returns CLEARED', async () => {
     process.env['CONFLICT_GATE_ENABLED'] = 'true';
-    vi.mocked(conflictQueries.evaluateConflictClearance).mockResolvedValue({ state: 'CLEARED', reasons: [] });
+    vi.mocked(conflictQueries.evaluateAllClearanceReasons).mockResolvedValue({ state: 'CLEARED', reasons: [] });
     const doc = await createCaller(USER_ID).document.create(CREATE_INPUT);
     expect(doc.id).toBe(DOC_ID);
     // The shared affirmative predicate gates — NOT the legacy boolean.
-    expect(vi.mocked(conflictQueries.evaluateConflictClearance)).toHaveBeenCalledWith(MATTER_ID, USER_ID);
+    expect(vi.mocked(conflictQueries.evaluateAllClearanceReasons)).toHaveBeenCalledWith(MATTER_ID, USER_ID);
     expect(vi.mocked(conflictQueries.hasUndispositionedBlocker)).not.toHaveBeenCalled();
     expect(vi.mocked(documentQueries.insertDocument)).toHaveBeenCalledTimes(1);
   });
 
   it('FLAG ON: blocks create (PRECONDITION_FAILED) on an unconfirmed client party — never "not blocked"', async () => {
     process.env['CONFLICT_GATE_ENABLED'] = 'true';
-    vi.mocked(conflictQueries.evaluateConflictClearance).mockResolvedValue({
+    vi.mocked(conflictQueries.evaluateAllClearanceReasons).mockResolvedValue({
       state: 'NOT_ESTABLISHED',
       reasons: ['unconfirmed_client_party'],
     });
@@ -140,7 +143,7 @@ describe('R2-PRE-CONFLICT-1 Inc3b — document.create enforcement (CONFLICT_GATE
 
   it('FLAG ON: the block carries CONFLICTS_NOT_CLEARED + the distinct reason', async () => {
     process.env['CONFLICT_GATE_ENABLED'] = 'true';
-    vi.mocked(conflictQueries.evaluateConflictClearance).mockResolvedValue({
+    vi.mocked(conflictQueries.evaluateAllClearanceReasons).mockResolvedValue({
       state: 'NOT_ESTABLISHED',
       reasons: ['no_conflict_check'],
     });
@@ -159,7 +162,7 @@ describe('R2-PRE-CONFLICT-1 Inc3b — document.create enforcement (CONFLICT_GATE
     const doc = await createCaller(USER_ID).document.create(CREATE_INPUT);
     expect(doc.id).toBe(DOC_ID);
     expect(vi.mocked(conflictQueries.hasUndispositionedBlocker)).toHaveBeenCalledWith(MATTER_ID, USER_ID);
-    expect(vi.mocked(conflictQueries.evaluateConflictClearance)).not.toHaveBeenCalled();
+    expect(vi.mocked(conflictQueries.evaluateAllClearanceReasons)).not.toHaveBeenCalled();
   });
 });
 
@@ -174,6 +177,9 @@ describe('R2-PRE-CONFLICT-1 Inc3b — enforcement-wiring source audit (no bypass
   const analysis = read('src/server/db/queries/matterAnalysis.ts');
   const index = read('src/server/index.ts');
   const documents4a = read('src/server/procedures/documents4a.ts');
+  // CONFLICT-GATE-OVERRIDE-1: the ON-path predicate + fail-closed-on-error try/catch moved into the
+  // override-aware resolver; the create/export blocks now call resolveDraftingGate.
+  const gateOverrideQueries = read('src/server/db/queries/gateOverride.ts');
 
   it('the flag is env-gated and DEFAULT OFF (absence preserves legacy behavior)', () => {
     expect(flags).toContain('export function isConflictGateEnabled()');
@@ -183,10 +189,12 @@ describe('R2-PRE-CONFLICT-1 Inc3b — enforcement-wiring source audit (no bypass
   it('advance-to-drafting gates on the shared predicate behind the flag', () => {
     const block = documents.slice(documents.indexOf('Advance-to-drafting conflicts gate'), documents.indexOf('const doc = await insertDocument'));
     expect(block).toContain('isConflictGateEnabled()');
-    expect(block).toContain('evaluateConflictClearance(input.matterId, ctx.userId)');
-    expect(block).toContain("clearance.state !== 'CLEARED'");
+    // CONFLICT-GATE-OVERRIDE-1: the ON branch consults the override-aware resolver (default fail-closed
+    // unchanged; an active attested override of every blocking precondition lets a non-cleared matter draft).
+    expect(block).toContain('resolveDraftingGate(input.matterId, ctx.userId)');
+    expect(block).toContain('!gate.allowed');
     expect(block).toContain('CONFLICTS_NOT_CLEARED');
-    // legacy path still present for the OFF branch
+    // legacy path still present + UNCHANGED for the OFF branch
     expect(block).toContain('hasUndispositionedBlocker(input.matterId, ctx.userId)');
   });
 
@@ -203,12 +211,14 @@ describe('R2-PRE-CONFLICT-1 Inc3b — enforcement-wiring source audit (no bypass
     expect(start).toBeGreaterThan(-1);
     const block = index.slice(start, index.indexOf('FOLD-SEND-1 export-safety gate'));
     expect(block).toContain('isConflictGateEnabled()');
-    expect(block).toContain('evaluateConflictClearance(doc.matterId, userId)');
-    expect(block).toContain("clearanceState !== 'CLEARED'");
+    // CONFLICT-GATE-OVERRIDE-1: export consults the same override-aware resolver as advance-to-drafting.
+    expect(block).toContain('resolveDraftingGate(doc.matterId, userId)');
+    expect(block).toContain('!gate.allowed');
     expect(block).toContain('CONFLICTS_NOT_CLEARED');
-    expect(block).toContain('reasons: clearanceReasons');
-    // FAIL-CLOSED: an evaluation error blocks (it does not fall through to export).
-    expect(block).toContain("clearanceReasons = ['clearance_evaluation_failed']");
+    expect(block).toContain('reasons: gate.blockingReasons');
+    // FAIL-CLOSED: an evaluation error blocks. The fail-closed try/catch moved INTO resolveDraftingGate
+    // (it must never fall through to export), so assert it at its new home.
+    expect(gateOverrideQueries).toContain("reasons: ['clearance_evaluation_failed']");
     // independent of the sendability flag — the conflict gate must not reference it
     expect(block).not.toContain('isSendabilityGateEnabled');
   });

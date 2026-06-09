@@ -273,3 +273,41 @@ export async function allHitsDispositionedForLatest(matterId: string, userId: st
   const hits = await listHitsForCheck(latest.id, userId);
   return { checkId: latest.id, ok: hits.every((h) => h.disposition !== 'pending') };
 }
+
+/**
+ * CONFLICT-GATE-OVERRIDE-1: the NON-short-circuiting clearance evaluation. evaluateConflictClearance (above)
+ * SHORT-CIRCUITS and reports only the FIRST failing precondition — correct for the bare gate, but it would
+ * let an attested override of an EARLIER precondition mask a LATER one (override conflicts => identity never
+ * surfaces). This sibling evaluates BOTH preconditions INDEPENDENTLY and returns the COMPLETE set of
+ * currently-failing reasons, so the override-aware gate (resolveDraftingGate) can require every blocking
+ * precondition to be cleared OR overridden. evaluateConflictClearance is left byte-for-byte UNCHANGED for
+ * all other callers (lockPlan, export display, the boolean gate). Reason codes are identical to
+ * evaluateConflictClearance so the reason->precondition mapping is shared.
+ */
+export async function evaluateAllClearanceReasons(matterId: string, userId: string): Promise<ConflictClearance> {
+  const parties = await listPartiesForMatter(matterId, userId);
+  const clientParties = parties.filter((p) => p.role === 'client');
+  const hasConfirmedClient = clientParties.some((p) => p.confirmed === true);
+
+  const reasons: string[] = [];
+  // Conflicts precondition — independent of identity.
+  const check = await getLatestCheckForMatter(matterId, userId);
+  if (!check) {
+    reasons.push('no_conflict_check');
+  } else if (!partyIdSetUnchanged(check.checkedPartyIds, parties.map((p) => p.id))) {
+    reasons.push('check_stale_parties_changed');
+  } else {
+    const hits = await listHitsForCheck(check.id, userId);
+    if (hasBlocker(hits.filter((h) => h.disposition === 'pending'))) {
+      reasons.push('undispositioned_blocker');
+    }
+  }
+  // Identity precondition — independent of the conflicts-check state.
+  if (!hasConfirmedClient) {
+    reasons.push(clientParties.length > 0 ? 'unconfirmed_client_party' : 'no_client_party');
+  }
+
+  const state: ConflictClearanceState =
+    reasons.length === 0 ? 'CLEARED' : reasons.includes('undispositioned_blocker') ? 'BLOCKED' : 'NOT_ESTABLISHED';
+  return { state, reasons };
+}
