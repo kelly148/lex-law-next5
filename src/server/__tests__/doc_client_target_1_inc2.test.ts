@@ -137,8 +137,17 @@ describe('DOC-CLIENT-TARGET-1 Inc 2: config keys reconciled to the app', () => {
     expect(getDocTypeConfig('deed')?.targetStructure).toBe('role_sided');
   });
 
+  it('last_will_testament is configured individual_subject (operator: add last_will only)', () => {
+    const c = getDocTypeConfig('last_will_testament');
+    expect(c?.targetStructure).toBe('individual_subject');
+    expect(c?.subjectMustBeClient).toBe(true);
+    // trust_amendment + trust_opinion_letter stay UNTARGETED until ADD-DOC-TYPE-1 (operator decision)
+    expect(getDocTypeConfig('trust_amendment')).toBeUndefined();
+    expect(getDocTypeConfig('trust_opinion_letter')).toBeUndefined();
+  });
+
   it('the config version was bumped for the reconciliation', () => {
-    expect(DOC_TYPE_CONFIG_VERSION).toBe('2026-06-09.2');
+    expect(DOC_TYPE_CONFIG_VERSION).toBe('2026-06-09.3');
   });
 
   it('APP-VOCABULARY GUARD: every config key is a real New-Document dropdown value', () => {

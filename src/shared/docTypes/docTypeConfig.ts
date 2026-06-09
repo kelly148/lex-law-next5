@@ -79,7 +79,7 @@ export interface DocTypeConfig {
  * immutable retention; the snapshot makes the exact config-at-finalize reconstructable. Date-stamped
  * + sequence so a second change on the same day is distinguishable.
  */
-export const DOC_TYPE_CONFIG_VERSION = '2026-06-09.2';
+export const DOC_TYPE_CONFIG_VERSION = '2026-06-09.3';
 
 /**
  * Per-document-type targeting config, keyed by documentType. KEYS ARE THE APP'S REAL documentType
@@ -113,6 +113,14 @@ export const DOC_TYPE_CONFIGS: Readonly<Record<string, DocTypeConfig>> = {
   },
   pour_over_will: {
     documentType: 'pour_over_will',
+    targetStructure: 'individual_subject',
+    subjectMustBeClient: true,
+    pairable: true,
+    requiredRoles: [{ roleKey: 'subject', min: 1, max: 1, renderLabel: 'Testator' }],
+    designationRoles: [],
+  },
+  last_will_testament: {
+    documentType: 'last_will_testament',
     targetStructure: 'individual_subject',
     subjectMustBeClient: true,
     pairable: true,
