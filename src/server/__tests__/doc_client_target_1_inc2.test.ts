@@ -212,3 +212,24 @@ describe('DOC-CLIENT-TARGET-1 Inc 2: single-accessor discipline (ADD-DOC-TYPE-1 
     expect(scope).not.toContain('DOC_TYPE_CONFIGS');
   });
 });
+
+describe('DOC-CLIENT-TARGET-1 Inc 2: pair affordance + sticky-header wiring', () => {
+  it('document.instancesForType powers the duplicate guard / open-other-version reads', () => {
+    const docs = read('src/server/procedures/documents.ts');
+    expect(docs).toContain('instancesForType: protectedProcedure');
+    expect(docs).toContain('getInstancesForType(');
+  });
+
+  it('the sticky principal banner is mounted on the document page', () => {
+    const dd = read('src/client/pages/DocumentDetail.tsx');
+    expect(dd).toContain('DraftingTargetHeader');
+  });
+
+  it('the create form offers a duplicate-guarded pair and creates matching instances in one mutation', () => {
+    const md = read('src/client/pages/MatterDetail.tsx');
+    expect(md).toContain('data-testid="pair-offer"');
+    expect(md).toContain('pairTargetPartyIds');
+    // the matching instances are created via the SAME useGuardedMutation (Ch 35.13), not a raw call path
+    expect(md).toMatch(/useGuardedMutation\([\s\S]*pairTargetPartyIds/);
+  });
+});

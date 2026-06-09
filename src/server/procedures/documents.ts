@@ -51,6 +51,7 @@ import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
 import { listPartiesForMatter } from '../db/queries/matterParties.js';
 import { bindDocumentParty, listDocumentParties } from '../db/queries/documentParty.js';
 import { resolveIndividualSubject } from '../documents/subjectBinding.js';
+import { getInstancesForType } from '../documents/instances.js';
 
 // ============================================================
 // R12 guard helper
@@ -301,6 +302,18 @@ export const documentRouter = router({
     .input(z.object({ documentId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return listDocumentParties(input.documentId, ctx.userId);
+    }),
+
+  // ============================================================
+  // document.instancesForType — DOC-CLIENT-TARGET-1
+  // Per-client instances of a document type in a matter: each client + their existing same-type
+  // document (or null). Powers the pair affordance (offer-to-create vs duplicate-guard) and the
+  // sticky header's "open the other client's version" link. Owner-scoped, read-only.
+  // ============================================================
+  instancesForType: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), documentType: z.string().min(1).max(64) }))
+    .query(async ({ ctx, input }) => {
+      return getInstancesForType(input.matterId, input.documentType, ctx.userId);
     }),
 
   // ============================================================
