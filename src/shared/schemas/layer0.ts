@@ -29,6 +29,10 @@ export const MatterPartyRowSchema = z.object({
   confirmedByUserId: z.string().uuid().nullable().optional(),
   aliasOfPartyId: z.string().uuid().nullable(),
   externalIdentityKey: z.string().nullable(),
+  // DOC-CLIENT-TARGET-1: soft-delete timestamp. ADDITIVE (.nullable().optional()) so pre-migration
+  // reads / legacy fixtures parse; null = active. A soft-deleted party is excluded from list reads +
+  // conflicts screening.
+  deletedAt: z.date().nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
