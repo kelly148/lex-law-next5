@@ -398,6 +398,10 @@ export const documents = mysqlTable(
     // adopted into this document; SURVIVES drafting/versioning (lives on the document, not a
     // version). FOLD-SEND-1 reads this to gate outbound. Additive, defaulted false.
     drewOnUnverifiedKb: boolean('drewOnUnverifiedKb').notNull().default(false),
+    // DOC-CLIENT-TARGET-1: RESERVED for `derived` document types (cert-of-trust / funding letter
+    // inherit their party binding from a source document). Nullable; populated by the derived flow
+    // (fast-follow). Present now so the bucket + provenance are complete.
+    sourceDocumentId: char('sourceDocumentId', { length: 36 }),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()
@@ -465,6 +469,52 @@ export const versions = mysqlTable(
     ),
   }),
 );
+
+// ============================================================
+// DOC-CLIENT-TARGET-1 — document_party (join table)
+// ============================================================
+// Binds a document instance to a matter party in a declared ROLE. A document's relationship to a
+// matter's parties is a role binding, NOT a scalar: an individual instrument (POA/will/directive)
+// binds exactly one `subject`; a joint instrument (trust) binds an explicit settlor set; a role-sided
+// instrument (deed) binds grantor + grantee groups. roleKey is a string validated at WRITE against the
+// document type's declared roles (src/shared/docTypes/docTypeConfig.ts) — no DB enum, so a new role
+// needs no migration. NO role_label_snapshot: the label derives from the type's config; provenance is
+// the config-version snapshot at finalize. The disposition's logical key (documentId, partyId, roleKey)
+// is the UNIQUE index; the table keeps the repo's `id` PK. A bound party is soft-/block-deleted, never
+// hard-deleted out from under a finalized document.
+//
+// Indexes:
+//   uq_document_party_doc_party_role (documentId, partyId, roleKey)  — the logical key
+//   idx_document_party_doc   (userId, documentId)  — "this document's bound parties"
+//   idx_document_party_party (userId, partyId)     — "documents bound to this party" (block-delete guard)
+// ============================================================
+
+export const documentParty = mysqlTable(
+  'document_party',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    partyId: char('partyId', { length: 36 }).notNull(),
+    // roleKey: validated at write against the document type's declared requiredRoles/designationRoles.
+    roleKey: varchar('roleKey', { length: 64 }).notNull(),
+    sortOrder: int('sortOrder').notNull().default(0),
+    createdBy: char('createdBy', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    uniqDocumentPartyRole: uniqueIndex('uq_document_party_doc_party_role').on(
+      table.documentId,
+      table.partyId,
+      table.roleKey,
+    ),
+    idxDocumentPartyDoc: index('idx_document_party_doc').on(table.userId, table.documentId),
+    idxDocumentPartyParty: index('idx_document_party_party').on(table.userId, table.partyId),
+  }),
+);
+export type DocumentParty = typeof documentParty.$inferSelect;
+export type NewDocumentParty = typeof documentParty.$inferInsert;
 
 // ============================================================
 // Ch 4.9 — matter_materials
@@ -1911,6 +1961,11 @@ export const matterParties = mysqlTable(
     // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity — unused in L0-1.
     aliasOfPartyId: char('aliasOfPartyId', { length: 36 }),
     externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
+    // DOC-CLIENT-TARGET-1: soft-delete (mirrors matter_materials Ch 21.6). A party bound to a
+    // finalized document is BLOCK-deleted (refused) at the app layer; an unbound party removal sets
+    // deletedAt instead of hard-deleting, so a party_id correction never vanishes under a finalized
+    // instrument. List reads + conflicts screening exclude soft-deleted rows.
+    deletedAt: timestamp('deletedAt'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()

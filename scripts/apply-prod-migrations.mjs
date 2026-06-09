@@ -59,8 +59,11 @@ const MIGRATIONS = [
   // FOLD-PM-1 Inc 3 — append deadline_fired / deadline_acknowledged to audit_events.eventType (additive
   // ENUM value addition via MODIFY; existing rows untouched; idempotent).
   '0022_fold_pm_1_deadline_audit_events.sql',
+  // DOC-CLIENT-TARGET-1 Inc 1 — document_party join table + documents.sourceDocumentId +
+  // matter_parties.deletedAt (additive CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS).
+  '0023_doc_client_target_1_document_party.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping

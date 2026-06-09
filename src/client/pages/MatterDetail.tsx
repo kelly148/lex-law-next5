@@ -22,6 +22,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
+import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
@@ -87,17 +88,65 @@ interface CreateDocumentFormProps {
   onCreated: (docId: string) => void;
 }
 
-function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentFormProps): React.ReactElement {
+// Exported for the DOC-CLIENT-TARGET-1 render test (the principal selector / mandatory-pick logic).
+export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentFormProps): React.ReactElement {
   const [title, setTitle] = useState('');
   const [documentType, setDocumentType] = useState('');
   const [customTypeLabel, setCustomTypeLabel] = useState('');
   const [draftingMode, setDraftingMode] = useState<'template' | 'iterative'>('iterative');
+  // DOC-CLIENT-TARGET-1: the chosen principal for an individual document in a multi-client matter.
+  const [subjectPartyId, setSubjectPartyId] = useState('');
+  // DOC-CLIENT-TARGET-1: pair affordance — also create the matching instance for the other client(s).
+  const [createPair, setCreatePair] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
+  // DOC-CLIENT-TARGET-1: the matter's parties drive the principal selector. The targeting STRUCTURE +
+  // role label are read from the shared doc-type config (the single accessor — never hardcoded here).
+  const { data: parties } = trpc.matterIntake.listParties.useQuery({ matterId });
+  const clientParties = (parties ?? []).filter((p) => p.role === 'client');
+  const docTypeConfig = getDocTypeConfig(documentType);
+  const isIndividualSubject = docTypeConfig?.targetStructure === 'individual_subject';
+  // DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) types -> no selector; the whole client set is bound.
+  const isPartySet = docTypeConfig?.targetStructure === 'party_set';
+  const principalLabel =
+    docTypeConfig?.requiredRoles.find((r) => r.roleKey === 'subject')?.renderLabel ?? 'Principal';
+  // Multi-client + individual type -> a mandatory affirmative pick (no pre-selection). Single client ->
+  // shown read-only (auto-bound server-side). Non-individual types -> no selector.
+  const needsPrincipalPick = isIndividualSubject && clientParties.length >= 2;
+  const soleClient = isIndividualSubject && clientParties.length === 1 ? clientParties[0]! : null;
+
+  // DOC-CLIENT-TARGET-1: pair affordance + duplicate guard. instancesForType tells us which clients
+  // already have their own instance of this type. A pairable individual type in a multi-client matter,
+  // once a principal is picked, offers to ALSO create the matching instance for each OTHER client who
+  // does not have one; clients who DO have one are linked instead (duplicate guard). Pair trigger is
+  // the config `pairable` flag (enumeration-gated pre-check from the assessment is a fast-follow).
+  const { data: typeInstances } = trpc.document.instancesForType.useQuery(
+    { matterId, documentType },
+    { enabled: isIndividualSubject && documentType !== '' },
+  );
+  const typeLabel = DOCUMENT_TYPES.find((t) => t.value === documentType)?.label ?? 'document';
+  const otherClients = clientParties.filter((c) => c.id !== subjectPartyId);
+  const instanceIdFor = (partyId: string): string | null =>
+    (typeInstances ?? []).find((i) => i.partyId === partyId)?.documentId ?? null;
+  const pairableType = isIndividualSubject && (docTypeConfig?.pairable ?? false);
+  const pairTargets = otherClients.filter((c) => instanceIdFor(c.id) === null);
+  const existingOtherInstances = otherClients.filter((c) => instanceIdFor(c.id) !== null);
+  const showPairOffer = pairableType && clientParties.length >= 2 && subjectPartyId !== '' && pairTargets.length > 0;
+
   const createMutation = useGuardedMutation(
-    (input: { matterId: string; title: string; documentType: string; customTypeLabel?: string | null; draftingMode: 'template' | 'iterative' }) =>
-      utils.client.document.create.mutate(input),
+    async (input: {
+      primary: { matterId: string; title: string; documentType: string; customTypeLabel?: string | null; draftingMode: 'template' | 'iterative'; subjectPartyId?: string };
+      pairTargetPartyIds: string[];
+    }) => {
+      const primaryDoc = await utils.client.document.create.mutate(input.primary);
+      // The matching instances reuse type/structure/shared matter data (a fresh empty doc bound to the
+      // other client) — NOT principal-specific fiduciary choices (there is no draft yet to copy).
+      for (const partyId of input.pairTargetPartyIds) {
+        await utils.client.document.create.mutate({ ...input.primary, subjectPartyId: partyId });
+      }
+      return primaryDoc;
+    },
     {
       onSuccess: (doc) => {
         void utils.document.list.invalidate({ matterId });
@@ -114,13 +163,18 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
     if (!title.trim()) { setError('Title is required.'); return; }
     if (!documentType) { setError('Document type is required.'); return; }
     if (documentType === 'custom' && !customTypeLabel.trim()) { setError('Custom document type label is required.'); return; }
+    if (needsPrincipalPick && !subjectPartyId) { setError(`Choose the ${principalLabel.toLowerCase()} for this document.`); return; }
     setError(null);
     createMutation.mutate({
-      matterId,
-      title: title.trim(),
-      documentType,
-      customTypeLabel: documentType === 'custom' ? customTypeLabel.trim() : null,
-      draftingMode,
+      primary: {
+        matterId,
+        title: title.trim(),
+        documentType,
+        customTypeLabel: documentType === 'custom' ? customTypeLabel.trim() : null,
+        draftingMode,
+        ...(subjectPartyId ? { subjectPartyId } : {}),
+      },
+      pairTargetPartyIds: showPairOffer && createPair ? pairTargets.map((c) => c.id) : [],
     });
   };
 
@@ -148,7 +202,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             </label>
             <select
               value={documentType}
-              onChange={(e) => setDocumentType(e.target.value)}
+              onChange={(e) => { setDocumentType(e.target.value); setSubjectPartyId(''); }}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
             >
               <option value="">— Select —</option>
@@ -169,6 +223,62 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
                 placeholder="e.g., Certificate of Trust, Deed of Correction, Stock Purchase Agreement"
               />
+            </div>
+          )}
+          {/* DOC-CLIENT-TARGET-1: multi-client + individual type -> mandatory principal pick, NO default
+              (a pre-selected first client is how the wrong name reaches a POA). */}
+          {needsPrincipalPick && (
+            <div data-testid="principal-selector">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {principalLabel} <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={subjectPartyId}
+                onChange={(e) => setSubjectPartyId(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+              >
+                <option value="">— Select the {principalLabel.toLowerCase()} —</option>
+                {clientParties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.displayName}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                This is an individual document in a multi-client matter — choose which client it is for. No default is assumed.
+              </p>
+            </div>
+          )}
+          {soleClient && (
+            <div data-testid="principal-sole" className="text-sm text-gray-700">
+              <span className="font-medium">{principalLabel}:</span> {soleClient.displayName}
+              <span className="text-xs text-gray-500"> (sole client — bound automatically)</span>
+            </div>
+          )}
+          {/* DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) -> no principal selector; the whole client set
+              is bound at creation. "Change parties" is a noted fast-follow. */}
+          {isPartySet && clientParties.length > 0 && (
+            <div data-testid="party-set-applies" className="text-sm text-gray-700 rounded border border-line bg-surface px-3 py-2">
+              <span className="font-medium">Applies to:</span> {clientParties.map((c) => c.displayName).join(' and ')}
+              <span className="text-xs text-gray-500"> (joint document — all clients bound)</span>
+            </div>
+          )}
+          {/* DOC-CLIENT-TARGET-1: pair affordance — also create the matching instance for the other
+              client(s). One confirmation, not a second full flow. Duplicate-guarded below. */}
+          {showPairOffer && (
+            <label data-testid="pair-offer" className="flex items-start gap-2 text-sm cursor-pointer rounded border border-line bg-surface px-3 py-2">
+              <input type="checkbox" checked={createPair} onChange={(e) => setCreatePair(e.target.checked)} className="mt-0.5" />
+              <span>Also create a matching {typeLabel} for {pairTargets.map((c) => c.displayName).join(', ')}.</span>
+            </label>
+          )}
+          {existingOtherInstances.length > 0 && (
+            <div data-testid="pair-existing" className="text-xs text-gray-600 flex flex-wrap gap-x-3">
+              {existingOtherInstances.map((c) => {
+                const id = instanceIdFor(c.id);
+                return id ? (
+                  <Link key={c.id} to={`/matters/${matterId}/documents/${id}`} className="text-accent underline-offset-2 hover:underline">
+                    Open {c.displayName}&apos;s existing {typeLabel}
+                  </Link>
+                ) : null;
+              })}
             </div>
           )}
           <div>
@@ -195,7 +305,7 @@ function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocumentForm
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending || (documentType === 'custom' && !customTypeLabel.trim())}
+              disabled={createMutation.isPending || (documentType === 'custom' && !customTypeLabel.trim()) || (needsPrincipalPick && !subjectPartyId)}
               className="px-4 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating…' : 'Create Document'}

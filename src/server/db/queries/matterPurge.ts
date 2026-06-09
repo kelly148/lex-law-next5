@@ -18,7 +18,8 @@
  *   - direct matterId rows: jobs, matterMaterials, informationRequests, lockedDecisions, adoptLedger,
  *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
- *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documents — then the `matters` row itself.
+ *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
+ *     documents — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -60,6 +61,7 @@ import {
   kbAdoptions,
   matterDeadline,
   tickler,
+  documentParty,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -177,6 +179,9 @@ export async function purgeMatter(
     await step('matterDeadline', matterDeadline, byMatter(matterDeadline)); // after its tickler children above
     await step('jobs', jobs, byMatter(jobs));
     await step('auditEvents', auditEvents, byMatter(auditEvents));
+    // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
+    // before documents so no binding row is orphaned by the purge.
+    await step('documentParty', documentParty, byMatter(documentParty));
     await step('documents', documents, byMatter(documents)); // after its children above
 
     const total = Object.values(counts).reduce((a, b) => a + b, 0);

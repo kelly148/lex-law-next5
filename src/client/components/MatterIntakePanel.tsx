@@ -16,6 +16,7 @@ import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { CONFLICT_FALSE_NEGATIVE_DISCLOSURE } from '../../shared/schemas/layer0.js';
+import { RecommendedInstances } from './RecommendedInstances.js';
 
 interface MatterIntakePanelProps {
   matterId: string;
@@ -268,11 +269,12 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
                 {Array.isArray(a.recommendedDocuments) && a.recommendedDocuments.length > 0 && (
                   <div>
                     <div className="font-medium text-gray-600">Recommended documents (attorney decides)</div>
-                    <ul className="space-y-1">
-                      {(a.recommendedDocuments as Array<{ documentType?: string; title?: string; rationale?: string }>).map((d, i) => (
-                        <li key={i} className="text-gray-700"><span className="font-medium">{d.title}</span>{d.documentType ? <span className="text-gray-400"> ({d.documentType})</span> : null}{d.rationale ? <> — {d.rationale}</> : null}</li>
-                      ))}
-                    </ul>
+                    {/* DOC-CLIENT-TARGET-1 Inc 4: enumerate per-client INSTANCES, not bare types
+                        (two POAs / two wills for a multi-client matter; one joint trust). */}
+                    <RecommendedInstances
+                      matterId={matterId}
+                      recommendedDocuments={a.recommendedDocuments as Array<{ documentType?: string; title?: string; rationale?: string }>}
+                    />
                   </div>
                 )}
                 {a.status === 'draft' && (

@@ -47,6 +47,12 @@ import {
 import { hasUndispositionedBlocker, evaluateConflictClearance } from '../db/queries/conflicts.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
+import { listPartiesForMatter } from '../db/queries/matterParties.js';
+import { bindDocumentParty, listDocumentParties } from '../db/queries/documentParty.js';
+import { resolveIndividualSubject, resolvePartySetBinding } from '../documents/subjectBinding.js';
+import { getInstancesForType } from '../documents/instances.js';
+import { migrateDocumentTargetingForOwner } from '../documents/targetingMigration.js';
 
 // ============================================================
 // R12 guard helper
@@ -155,6 +161,10 @@ export const documentRouter = router({
         documentType: z.string().min(1).max(64),
         customTypeLabel: z.string().max(256).nullable().optional(),
         draftingMode: z.enum(['template', 'iterative']),
+        // DOC-CLIENT-TARGET-1: the bound subject (principal) for an individual_subject document. Server-
+        // required for an individual type in a multi-client matter; auto-bound for a single-client matter;
+        // ignored for non-individual types.
+        subjectPartyId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -200,6 +210,37 @@ export const documentRouter = router({
         }
       }
 
+      // DOC-CLIENT-TARGET-1: resolve the subject binding for an individual_subject document BEFORE
+      // insert, so we never create a document we cannot legally target. Multi-client + individual type
+      // REQUIRES an affirmative principal pick (no default); single-client auto-binds the sole client.
+      const docTypeConfig = getDocTypeConfig(input.documentType);
+      const structure = docTypeConfig?.targetStructure;
+      const needsClientParties = structure === 'individual_subject' || structure === 'party_set';
+      const clientPartyIds = needsClientParties
+        ? (await listPartiesForMatter(input.matterId, ctx.userId))
+            .filter((p) => p.role === 'client')
+            .map((p) => p.id)
+        : [];
+      const subjectResolution = resolveIndividualSubject({
+        targetStructure: structure,
+        clientPartyIds,
+        ...(input.subjectPartyId !== undefined ? { providedSubjectPartyId: input.subjectPartyId } : {}),
+      });
+      if (subjectResolution.kind === 'error') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `${subjectResolution.code}: ${subjectResolution.message}`,
+        });
+      }
+      // DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) types bind the WHOLE client set into explicit rows
+      // (role e.g. settlor) as a CREATION-TIME SNAPSHOT — never a live query, so adding a client later
+      // does not silently retarget an executed joint instrument.
+      const partySetBinding = resolvePartySetBinding({
+        targetStructure: structure,
+        requiredRoleKey: docTypeConfig?.requiredRoles[0]?.roleKey,
+        clientPartyIds,
+      });
+
       const doc = await insertDocument({
         userId: ctx.userId,
         matterId: input.matterId,
@@ -219,6 +260,33 @@ export const documentRouter = router({
         archivedAt: null,
         notes: null,
       });
+
+      // DOC-CLIENT-TARGET-1: bind the resolved subject (individual_subject docs). bindDocumentParty
+      // re-validates the role against the type config (roleKey 'subject' is declared for these types).
+      if (subjectResolution.kind === 'bind') {
+        await bindDocumentParty({
+          userId: ctx.userId,
+          matterId: input.matterId,
+          documentId: doc.id,
+          partyId: subjectResolution.partyId,
+          roleKey: 'subject',
+          createdBy: ctx.userId,
+        });
+      }
+      if (partySetBinding) {
+        let partySetSortOrder = 0;
+        for (const partyId of partySetBinding.partyIds) {
+          await bindDocumentParty({
+            userId: ctx.userId,
+            matterId: input.matterId,
+            documentId: doc.id,
+            partyId,
+            roleKey: partySetBinding.roleKey,
+            sortOrder: partySetSortOrder++,
+            createdBy: ctx.userId,
+          });
+        }
+      }
 
       const docPayload: {
         matterId: string;
@@ -247,6 +315,41 @@ export const documentRouter = router({
 
       return doc;
     }),
+
+  // ============================================================
+  // document.listParties — DOC-CLIENT-TARGET-1
+  // The party bindings (subject + reserved roles) for a document. Owner-scoped; the client joins
+  // partyId -> displayName from the matter's parties and reads role labels from the shared doc-type
+  // config. Powers the sticky drafting header (Principal: <name>) + the principal selector's state.
+  // ============================================================
+  listParties: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return listDocumentParties(input.documentId, ctx.userId);
+    }),
+
+  // ============================================================
+  // document.instancesForType — DOC-CLIENT-TARGET-1
+  // Per-client instances of a document type in a matter: each client + their existing same-type
+  // document (or null). Powers the pair affordance (offer-to-create vs duplicate-guard) and the
+  // sticky header's "open the other client's version" link. Owner-scoped, read-only.
+  // ============================================================
+  instancesForType: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), documentType: z.string().min(1).max(64) }))
+    .query(async ({ ctx, input }) => {
+      return getInstancesForType(input.matterId, input.documentType, ctx.userId);
+    }),
+
+  // ============================================================
+  // document.migrateTargeting — DOC-CLIENT-TARGET-1 Inc 5 (OPERATOR-GATED / STAGED)
+  // Retroactive backfill of document_party bindings for documents created before this feature. dryRun=true
+  // previews (counts + candidates, NO writes) for review; dryRun=false APPLIES (single-client subjects +
+  // party_set sets; a multi-client individual doc is FLAGGED, never auto-assigned). Idempotent. Inert until
+  // invoked with dryRun=false.
+  // ============================================================
+  migrateTargeting: protectedProcedure
+    .input(z.object({ dryRun: z.boolean() }))
+    .mutation(async ({ ctx, input }) => migrateDocumentTargetingForOwner(ctx.userId, { dryRun: input.dryRun })),
 
   // ============================================================
   // document.get

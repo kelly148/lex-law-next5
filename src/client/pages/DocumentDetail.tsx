@@ -54,6 +54,7 @@ import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
 import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
+import { DraftingTargetHeader } from '../components/DraftingTargetHeader.js';
 import { deriveVersionStatus } from '../utils/versionStatus.js';
 
 // ============================================================
@@ -802,6 +803,17 @@ export default function DocumentDetail(): React.ReactElement {
         </Link>
         <span>/</span>
         <span className="text-firm-navy font-medium">{doc.title}</span>
+      </div>
+
+      {/* DOC-CLIENT-TARGET-1: sticky principal banner (individual_subject docs — shows WHO this draft
+          is for + links to the other client's matching instance). Renders null for non-individual types. */}
+      <div data-no-print>
+        <DraftingTargetHeader
+          documentId={documentId}
+          matterId={matterId}
+          documentType={doc.documentType}
+          documentTitle={doc.title}
+        />
       </div>
 
       {/* Job banner */}

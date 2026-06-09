@@ -47,6 +47,7 @@ import { listMaterialsForMatter } from '../db/queries/materials.js';
 import { buildAnalysisMaterialsBlock } from '../intake/analysisContext.js';
 import { UNCONFIRMED_PARTY_PROMPT_MARKER } from '../../shared/schemas/layer0.js';
 import { migrateClientPartiesForOwner, listConflictsComplianceQueue } from '../db/queries/conflictsMigration.js';
+import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 
 const ROLE = z.enum(['client', 'adverse', 'related', 'other']);
 const PARTY_TYPE = z.enum(['person', 'entity', 'unknown']);
@@ -71,7 +72,7 @@ export const matterIntakeRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertMatterOwned(input.matterId, ctx.userId);
-      return insertMatterParty({
+      const party = await insertMatterParty({
         userId: ctx.userId,
         matterId: input.matterId,
         role: input.role,
@@ -79,6 +80,29 @@ export const matterIntakeRouter = router({
         ...(input.partyType !== undefined ? { partyType: input.partyType } : {}),
         ...(input.source !== undefined ? { source: input.source } : {}),
       });
+      // SHARED HOOK (MULTI-CLIENT-MATTER) — re-run conflicts screening when a party is added to a
+      // matter. Built ONCE here; both features consume it: DOC-CLIENT-TARGET-1 needs the new party
+      // (e.g. the second client of a joint matter) screened for multi-client correctness, and
+      // CONFLICT-GATE-OVERRIDE-1 needs it to RE-ARM a conflicts override (a new party => fresh
+      // screening => the prior attestation's gate-state no longer matches). Best-effort: the party is
+      // already inserted; a screening failure must NOT roll that back (re-inserting on retry would
+      // duplicate the party). The clearance predicate fail-closes on staleness (partyIdSetUnchanged)
+      // regardless, so even if this throws the gate stays safe and the attorney can re-run screening
+      // manually (existing UX). Ch 25.10: the swallow emits.
+      try {
+        await runConflictCheck(input.matterId, ctx.userId);
+      } catch (err) {
+        void emitTelemetry(
+          'procedure_error',
+          {
+            procedureName: 'matterIntake.addParty.rescreenConflicts',
+            errorCode: 'CONFLICT_RESCREEN_ON_PARTY_ADD_FAILED',
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
+        );
+      }
+      return party;
     }),
 
   // R2-PRE-CONFLICT-1 §3 — confirm a party (the explicit, logged attorney judgment that an

@@ -7,10 +7,12 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { and, eq, ne, desc } from 'drizzle-orm';
+import { and, eq, ne, desc, isNull } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { db } from '../connection.js';
 import { matterParties } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
+import { partyHasFinalizedBinding } from './documentParty.js';
 import {
   MatterPartyRowSchema,
   type MatterPartyRow,
@@ -137,7 +139,8 @@ export async function listPartiesForMatter(matterId: string, userId: string): Pr
   const rows = await db
     .select()
     .from(matterParties)
-    .where(and(ownerScope(matterParties.userId, userId), eq(matterParties.matterId, matterId)))
+    // DOC-CLIENT-TARGET-1: exclude soft-deleted parties (a removed party leaves the list + screening).
+    .where(and(ownerScope(matterParties.userId, userId), eq(matterParties.matterId, matterId), isNull(matterParties.deletedAt)))
     .orderBy(desc(matterParties.createdAt));
   return rows.map((r) => parseRow(r, { userId }));
 }
@@ -154,7 +157,8 @@ export async function listOtherPartiesForOwner(
   const rows = await db
     .select()
     .from(matterParties)
-    .where(and(ownerScope(matterParties.userId, userId), ne(matterParties.matterId, excludeMatterId)))
+    // DOC-CLIENT-TARGET-1: a soft-deleted party is excluded from the cross-matter conflicts read too.
+    .where(and(ownerScope(matterParties.userId, userId), ne(matterParties.matterId, excludeMatterId), isNull(matterParties.deletedAt)))
     .orderBy(desc(matterParties.createdAt));
   return rows.map((r) => parseRow(r, { userId }));
 }
@@ -162,5 +166,28 @@ export async function listOtherPartiesForOwner(
 export async function deleteMatterParty(id: string, userId: string): Promise<void> {
   await db
     .delete(matterParties)
+    .where(and(eq(matterParties.id, id), ownerScope(matterParties.userId, userId)));
+}
+
+/**
+ * DOC-CLIENT-TARGET-1 §10c — the SANCTIONED party removal: SOFT-delete (sets deletedAt), gated by the
+ * BLOCK-delete guard. A party bound to a FINALIZED document must never be removed out from under it —
+ * partyHasFinalizedBinding refuses the removal, so a party_id correction stays a correction and never
+ * an orphaning delete. Soft-deleted parties drop out of list reads + conflicts screening. This is the
+ * removal primitive the spine provides; v1 ships no removal UI (none exists today), but the guarantee
+ * is real the moment one is added. (The legacy hard `deleteMatterParty` above remains unused; the
+ * whole-matter purge cascade deletes documents too, so it cannot orphan a finalized instrument.)
+ */
+export async function softDeleteMatterParty(id: string, userId: string): Promise<void> {
+  if (await partyHasFinalizedBinding(id, userId)) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        'PARTY_BOUND_TO_FINALIZED_DOCUMENT: this party is bound to a finalized document and cannot be removed. Correct the party instead.',
+    });
+  }
+  await db
+    .update(matterParties)
+    .set({ deletedAt: new Date() })
     .where(and(eq(matterParties.id, id), ownerScope(matterParties.userId, userId)));
 }

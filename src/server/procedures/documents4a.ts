@@ -49,6 +49,9 @@ import {
   getTemplateVersionById,
   getVariableSchemaForVersion,
 } from '../db/queries/templates.js';
+import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
+import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
+import { validateTargetingForFinalize } from '../documents/targetingValidation.js';
 import {
   listReferencesForDocument,
   detectStaleReferences,
@@ -492,6 +495,16 @@ export const document4aRouter = router({
       const matter = await getMatterById(doc.matterId, userId);
       if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
 
+      // DOC-CLIENT-TARGET-1: scope the drafting identity to the bound subject (individual_subject docs).
+      // An individual document that HAS matter clients but NO bound subject must pick a principal first.
+      const subjectScope = await resolveDraftingSubjectScope(doc, userId);
+      if (subjectScope.mustBindFirst) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'SUBJECT_NOT_BOUND: choose the principal for this individual document before generating its draft.',
+        });
+      }
+
       // Assemble context
       const assembledCtx = await assembleContext({
         operation: 'draft_generation',
@@ -510,12 +523,19 @@ export const document4aRouter = router({
         .map((s) => `[Sibling Document: ${s.documentTitle}]\n${s.content}`)
         .join('\n\n---\n\n');
 
+      // DOC-CLIENT-TARGET-1: identity-layer scoping — draft FOR the bound subject by name (not the
+      // matter's generic clientName), and instruct the model that this document is for that subject
+      // ONLY. Shared joint-matter materials stay matter-wide (correct for joint representation); the
+      // deterministic backstop is the pre-finalize target-consistency check (document.finalize).
+      const draftingForName = subjectScope.subjectName ?? matter.clientName ?? 'a client';
+      const subjectScopeInstruction = buildScopeInstruction(subjectScope, 'draft');
       const systemPrompt = [
-        `You are an expert legal document drafter for ${matter.clientName ?? 'a client'}.`,
+        `You are an expert legal document drafter for ${draftingForName}.`,
         `Draft a ${doc.documentType} document titled "${doc.title}".`,
+        subjectScopeInstruction,
         'Write in a professional legal style. Be thorough and complete.',
         'Return only the document text, no commentary.',
-      ].join('\n');
+      ].filter(Boolean).join('\n');
 
       const userPromptParts = [
         `Document type: ${doc.documentType}`,
@@ -631,6 +651,11 @@ export const document4aRouter = router({
       const matter = await getMatterById(doc.matterId, userId);
       if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
 
+      // DOC-CLIENT-TARGET-1: keep the drafting identity scoped to the bound subject across regeneration
+      // (no bind-first block here — a regeneration implies a draft already exists; an unbound legacy doc
+      // falls back to the matter clientName).
+      const subjectScope = await resolveDraftingSubjectScope(doc, userId);
+
       // Assemble context
       const assembledCtx = await assembleContext({
         operation: 'regeneration',
@@ -645,12 +670,16 @@ export const document4aRouter = router({
         .map((m) => `[Material: ${m.filename ?? 'Untitled'}]\n${m.textContent}`)
         .join('\n\n---\n\n');
 
+      // DOC-CLIENT-TARGET-1: identity-layer scoping (see generateDraft) — revise FOR the bound subject.
+      const draftingForName = subjectScope.subjectName ?? matter.clientName ?? 'a client';
+      const subjectScopeInstruction = buildScopeInstruction(subjectScope, 'revise');
       const systemPrompt = [
-        `You are an expert legal document drafter for ${matter.clientName ?? 'a client'}.`,
+        `You are an expert legal document drafter for ${draftingForName}.`,
         `You are revising a ${doc.documentType} document titled "${doc.title}".`,
+        subjectScopeInstruction,
         'Apply the attorney instructions below to produce an improved version.',
         'Return only the complete revised document text, no commentary.',
-      ].join('\n');
+      ].filter(Boolean).join('\n');
 
       const userPromptParts = [
         `## Current Draft\n${currentVersion.content}`,
@@ -1041,6 +1070,37 @@ export const document4aRouter = router({
       const currentVersion = await getVersionById(currentVersionId, userId);
       if (!currentVersion) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
+      }
+
+      // DOC-CLIENT-TARGET-1 §6 (Inc 5): STRUCTURAL targeting validation — exactly one ACTIVE-client
+      // subject for an individual doc; a bound required-role group for a joint doc. Hard-blocks finalize
+      // (a removed/inactive/missing subject, a >1-subject doc, or a settlor-less trust cannot finalize).
+      const targetingValidation = await validateTargetingForFinalize(doc, userId);
+      if (!targetingValidation.ok) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `TARGETING_INVALID: ${targetingValidation.message} Do not finalize until resolved.`,
+        });
+      }
+
+      // DOC-CLIENT-TARGET-1 §6: mandatory pre-finalize TARGET-CONSISTENCY check — the DETERMINISTIC
+      // backstop to the soft identity-layer generation scoping (operator decision, this engagement).
+      // For an individual_subject document with a bound subject, the draft text MUST name the bound
+      // subject; a mismatch HARD-STOPS finalize until the attorney resolves it. This is the v1 stand-in
+      // for the structural cross-wire guard (the designation-binding fast-follow makes it structural).
+      const finalizeSubjectScope = await resolveDraftingSubjectScope(doc, userId);
+      if (finalizeSubjectScope.kind === 'individual_subject' && finalizeSubjectScope.subjectName) {
+        const consistency = evaluateTargetConsistency({
+          draftText: currentVersion.content,
+          subjectName: finalizeSubjectScope.subjectName,
+          otherClientNames: finalizeSubjectScope.otherClientNames,
+        });
+        if (consistency.result === 'mismatch') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `TARGET_CONSISTENCY_MISMATCH: ${consistency.reason} Do not finalize until resolved.`,
+          });
+        }
       }
 
       const systemPrompt = [
