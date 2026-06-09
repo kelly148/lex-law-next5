@@ -25,7 +25,7 @@
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, RefreshCw, CheckCircle, ChevronDown, ChevronUp, ChevronRight, ChevronsLeft, AlertCircle, AlertTriangle, Lock, Unlock, Check, Info, Gavel, CircleDashed, History, GitCompare, ListChecks, Users, Settings, Clock, PanelLeftClose } from 'lucide-react';
+import { X, RefreshCw, CheckCircle, ChevronDown, ChevronUp, ChevronRight, AlertCircle, AlertTriangle, Lock, Unlock, Check, Info, Gavel, CircleDashed, History, GitCompare, ListChecks, Users, Settings, Clock, PanelLeftClose } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -1685,11 +1685,14 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
 // State is workspace-local and persisted to localStorage; seeded via lazy useState initializers
 // (NOT a setState-in-effect) so there is no first-paint flash and no react-hooks lint hit.
 // ============================================================
-type DocCollapse = 'expanded' | 'rail' | 'hidden';
+// REVIEW-UX-REDESIGN-1-FIX: two states only (show ↔ hide). The intermediate "rail" read as redundant
+// with "hide" to users, so it was removed in favor of a single, obvious toggle.
+type DocCollapse = 'expanded' | 'hidden';
 const DOC_COLLAPSE_KEY = 'lln.review.docCollapse';
 const DOC_WIDTH_KEY = 'lln.review.docWidthPct';
 const DOC_MIN_PX = 520; // readable minimum (~50-60 char line) — the narrow read-only strip is rejected.
-const DOC_WIDTH_DEFAULT = 40; // ~40% document / 60% review (disposition §G default split).
+const DOC_WIDTH_DEFAULT = 48; // REVIEW-UX-REDESIGN-1-FIX: document more prominent (was 40). New state only —
+//                               an already-dragged width persists in localStorage and is not overridden.
 
 function clampPct(pct: number): number {
   if (Number.isNaN(pct)) return DOC_WIDTH_DEFAULT;
@@ -1698,8 +1701,8 @@ function clampPct(pct: number): number {
 function readDocCollapse(): DocCollapse {
   if (typeof window === 'undefined') return 'expanded';
   try {
-    const v = window.localStorage.getItem(DOC_COLLAPSE_KEY);
-    return v === 'rail' || v === 'hidden' ? v : 'expanded';
+    // Any stored value other than 'hidden' (incl. the retired 'rail') resolves to 'expanded'.
+    return window.localStorage.getItem(DOC_COLLAPSE_KEY) === 'hidden' ? 'hidden' : 'expanded';
   } catch {
     return 'expanded';
   }
@@ -1863,10 +1866,23 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
       {isWide && docCollapse === 'expanded' && (
         <div
           key="doc-ref"
-          className="flex-shrink-0 h-full border-r border-line"
+          className="relative flex-shrink-0 h-full border-r border-line"
           style={{ width: `${docWidthPct}%`, minWidth: DOC_MIN_PX }}
           data-testid="review-doc-pane-wrap"
         >
+          {/* REVIEW-UX-REDESIGN-1-FIX: a SINGLE, labeled hide control on the document, top-right —
+              restoring is the "Show document" button at the review header's top-left. */}
+          <div className="absolute top-2 right-2 z-10">
+            <button
+              onClick={() => setCollapse('hidden')}
+              title="Hide the document (the review goes full-width)"
+              aria-label="Hide document"
+              data-testid="review-doc-hide"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-line bg-paper/95 text-ink hover:border-accent shadow-sm text-[11px] font-medium"
+            >
+              <PanelLeftClose className="w-4 h-4" /> Hide document
+            </button>
+          </div>
           <DocumentReferencePane
             documentId={documentId}
             anchorQuote={anchorQuote}
@@ -1887,23 +1903,14 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
           onPointerMove={onHandleMove}
           onPointerUp={onHandleUp}
           onLostPointerCapture={onHandleUp}
-          className="w-1.5 flex-shrink-0 h-full cursor-col-resize bg-line hover:bg-surface-2"
-        />
-      )}
-      {/* WIDE + rail — level-1 peek/restore: a thin, always-mounted button; the doc pane is unmounted. */}
-      {isWide && docCollapse === 'rail' && (
-        <button
-          type="button"
-          data-testid="review-doc-rail"
-          onClick={() => setCollapse('expanded')}
-          aria-label="Show document"
-          title="Show document"
-          className="w-10 flex-shrink-0 h-full border-r border-line bg-surface-2 text-ink-secondary hover:text-ink flex items-start justify-center pt-3"
+          title="Drag to resize the document"
+          className="group w-3 flex-shrink-0 h-full cursor-col-resize bg-surface-2 hover:bg-accent-tint flex items-center justify-center"
         >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+          <div className="w-1 h-12 rounded-full bg-line-strong group-hover:bg-accent transition-colors" />
+        </div>
       )}
-      {/* docCollapse === 'hidden' (or !isWide): nothing on the left — the same legal unmount as full-page. */}
+      {/* docCollapse === 'hidden': nothing on the left — restore is the "Show document" button at the
+          review header's top-left (REVIEW-UX-REDESIGN-1-FIX: relocated from a left-edge tab). */}
 
       {/* REVIEW SLOT — STABLE keyed slot. Identical mounted subtree in both modes; only className
           changes (reflow). ActiveSessionView never remounts/re-inits/re-fetches across the breakpoint. */}
@@ -1913,53 +1920,38 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
         onFocusCapture={handleReviewFocus}
         className={clsx(
           'h-full flex flex-col bg-surface min-w-0',
+          // REVIEW-UX-REDESIGN-1-FIX: the review fills its column (flex-1) in split mode — no more empty
+          // right gap from a 760px cap. Card readability is held by centering the body content below.
           isWide ? 'flex-1' : 'w-full items-center',
-          // Keep a readable cap while the doc shares the row; when the doc is hidden the review
-          // reclaims the full width (no empty gap). Reflow only — never a remount.
-          isWide && docCollapse !== 'hidden' && 'max-w-[760px]',
         )}
       >
         <div className={clsx('flex flex-col h-full w-full', !isWide && 'max-w-[960px]')}>
           {/* Header — REVIEW-SKIN-1 reskins the tokens in commit 2. Full-page carries the session
               context line ("Reviewing: title · Iteration N") + the session-preserving doc jump. */}
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line bg-surface-2 flex-shrink-0">
-            <h2 className="text-ink font-semibold text-sm truncate">
-              {isWide
-                ? 'Review session'
-                : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
-            </h2>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              {/* REVIEW-UX-REDESIGN-1: document-pane controls (wide only). Collapse to a rail, hide
-                  entirely, or restore — a persistent "Show document" is always present when collapsed. */}
-              {isWide && docCollapse === 'expanded' && (
-                <button
-                  onClick={() => setCollapse('rail')}
-                  aria-label="Collapse document to a rail"
-                  title="Collapse document"
-                  className="text-ink-secondary hover:text-ink"
-                >
-                  <PanelLeftClose className="w-4 h-4" />
-                </button>
-              )}
-              {isWide && docCollapse === 'rail' && (
-                <button
-                  onClick={() => setCollapse('hidden')}
-                  aria-label="Hide document"
-                  title="Hide document"
-                  className="text-ink-secondary hover:text-ink"
-                >
-                  <ChevronsLeft className="w-4 h-4" />
-                </button>
-              )}
-              {isWide && docCollapse !== 'expanded' && (
+            <div className="flex items-center gap-2 min-w-0">
+              {/* REVIEW-UX-REDESIGN-1-FIX: restore lives at the TOP-LEFT (was a left-edge tab / far-right
+                  header button). When the document is hidden, "Show document" sits here; the title moves right. */}
+              {isWide && docCollapse === 'hidden' && (
                 <button
                   onClick={() => setCollapse('expanded')}
                   data-testid="review-show-document"
-                  className="text-ink-secondary hover:text-ink text-xs underline-offset-2 hover:underline"
+                  title="Show the document again"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-line text-ink hover:border-accent text-[11px] font-medium flex-shrink-0"
                 >
-                  Show document
+                  <ChevronRight className="w-3.5 h-3.5" /> Show document
                 </button>
               )}
+              <h2 className="text-ink font-semibold text-sm truncate">
+                {isWide
+                  ? 'Review session'
+                  : `Reviewing${docTitle ? `: ${docTitle}` : ''} · Iteration ${iterationNumber}`}
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {/* REVIEW-UX-REDESIGN-1-FIX: ALL document controls live on the LEFT now — Collapse/Hide on the
+                  document pane, and restore via the always-present left-edge "Show document" tab. The review
+                  header no longer carries a far-right "Show document" (it read as disconnected from the doc). */}
               {!isWide && currentVersion && (
                 <button
                   onClick={() => setShowDocOverlay(true)}
@@ -1976,9 +1968,13 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
           </div>
 
           {/* Content — pane-level error boundary (R2-1 survivability): a render throw degrades to a
-              designed full-pane notice instead of white-screening the review (the #310 failure mode). */}
-          <div className="flex-1 overflow-hidden flex flex-col">
-            {reviewBody}
+              designed full-pane notice instead of white-screening the review (the #310 failure mode).
+              REVIEW-UX-REDESIGN-1-FIX: the body is centered + capped so cards stay readable now that the
+              section fills the column; the flex-1/min-h-0/overflow chain (the scroll fix) is preserved. */}
+          <div className="flex-1 overflow-hidden flex flex-col items-center">
+            <div className="w-full max-w-[860px] flex-1 min-h-0 flex flex-col">
+              {reviewBody}
+            </div>
           </div>
         </div>
       </section>
