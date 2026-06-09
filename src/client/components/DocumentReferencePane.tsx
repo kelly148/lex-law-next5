@@ -69,7 +69,9 @@ export default function DocumentReferencePane({
       data-testid="review-doc-pane"
       aria-label="Document under review (read-only reference)"
     >
-      <div className="mx-auto w-full max-w-[620px]">
+      {/* REVIEW-UX-REDESIGN-1-FIX: the document FILLS its pane (no centered max-width column) — use all the
+          space we gave it; the body is already the darkest ink (text-ink). */}
+      <div className="w-full">
         <DocumentCanvas
           version={version}
           hasAnyVersion={hasAnyVersion}

@@ -179,7 +179,7 @@ describe('REVIEW-UX-REDESIGN-1 — on-demand reference-tool overlay', () => {
   });
 });
 
-describe('REVIEW-UX-REDESIGN-1 — resizable + two-level-collapsible document pane', () => {
+describe('REVIEW-UX-REDESIGN-1 — resizable + collapsible document pane (two-state: show ↔ hide)', () => {
   function wideMatchMedia() {
     (window as unknown as { matchMedia: unknown }).matchMedia = () => ({
       matches: true, media: '', onchange: null,
@@ -187,33 +187,30 @@ describe('REVIEW-UX-REDESIGN-1 — resizable + two-level-collapsible document pa
     });
   }
 
-  it('expanded by default: doc pane + drag handle present; collapse -> rail -> hidden -> show works', () => {
+  it('expanded by default: doc pane + drag handle; Hide document -> hidden -> Show document restores (slot never remounts)', () => {
     wideMatchMedia();
     const { getByTestId, queryByTestId, getByLabelText } = render(
       <ReviewPane documentId={DOCUMENT_ID} iterationNumber={1} onClose={() => {}} />,
     );
-    // expanded: the resizable doc pane + a drag handle, and the stable review slot.
+    // expanded: the resizable doc pane + a drag handle, the stable review slot, no restore button.
     const slot = getByTestId('review-slot');
     expect(queryByTestId('review-doc-pane-wrap')).toBeTruthy();
     expect(queryByTestId('review-doc-resize')).toBeTruthy();
+    expect(queryByTestId('review-show-document')).toBeNull();
 
-    // collapse to a rail (level 1): doc pane unmounts, a thin rail + a "Show document" affordance appear.
-    fireEvent.click(getByLabelText('Collapse document to a rail'));
-    expect(queryByTestId('review-doc-pane-wrap')).toBeNull();
-    expect(queryByTestId('review-doc-rail')).toBeTruthy();
-    expect(queryByTestId('review-show-document')).toBeTruthy();
-    // the review slot was never remounted by the collapse.
-    expect(getByTestId('review-slot')).toBe(slot);
-
-    // hide entirely (level 2): the rail goes too; only "Show document" remains.
+    // REVIEW-UX-REDESIGN-1-FIX: a SINGLE "Hide document" control (the redundant rail level was removed) —
+    // the doc pane + handle unmount and the top-left "Show document" restore appears.
     fireEvent.click(getByLabelText('Hide document'));
-    expect(queryByTestId('review-doc-rail')).toBeNull();
+    expect(queryByTestId('review-doc-pane-wrap')).toBeNull();
+    expect(queryByTestId('review-doc-resize')).toBeNull();
     expect(queryByTestId('review-show-document')).toBeTruthy();
+    // the review slot was never remounted by the collapse (G6).
     expect(getByTestId('review-slot')).toBe(slot);
 
-    // restore via the persistent "Show document".
+    // restore via the top-left "Show document".
     fireEvent.click(getByTestId('review-show-document'));
     expect(queryByTestId('review-doc-pane-wrap')).toBeTruthy();
+    expect(queryByTestId('review-show-document')).toBeNull();
     expect(getByTestId('review-slot')).toBe(slot);
   });
 });
