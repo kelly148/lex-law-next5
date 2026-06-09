@@ -79,18 +79,27 @@ export interface DocTypeConfig {
  * immutable retention; the snapshot makes the exact config-at-finalize reconstructable. Date-stamped
  * + sequence so a second change on the same day is distinguishable.
  */
-export const DOC_TYPE_CONFIG_VERSION = '2026-06-09.1';
+export const DOC_TYPE_CONFIG_VERSION = '2026-06-09.2';
 
 /**
- * Per-document-type targeting config, keyed by documentType. Seeded from disposition §3.2. v1 ships
- * flows for individual_subject + party_set; role_sided (deed) + derived (cert/funding) are present so
- * the schema + validation are complete, but their UI is fast-follow. Designation roles are reserved
- * (present, no binding UI). An unregistered documentType resolves to undefined — callers decide
- * (v1 treats an unknown/custom type as requiring classification before generate/finalize/export).
+ * Per-document-type targeting config, keyed by documentType. KEYS ARE THE APP'S REAL documentType
+ * VALUES (the New-Document dropdown in MatterDetail.tsx), not idealized names — a key that does not
+ * match a real documentType silently never targets. v1 ships flows for individual_subject + party_set;
+ * role_sided (deed) is present so the schema + validation are complete, but its UI is fast-follow.
+ * Designation roles are reserved (present, no binding UI). An unregistered documentType resolves to
+ * undefined — callers decide (v1 treats an unknown/custom type as requiring classification before
+ * generate/finalize/export; the mandatory-subject-pick only applies to individual_subject types).
+ *
+ * SINGLE SOURCE / SINGLE SEAM: every consumer reads through the accessor functions below
+ * (getDocTypeConfig / getTargetStructure / isRoleKeyDeclared / ...), NEVER by importing DOC_TYPE_CONFIGS
+ * directly or hardcoding the type list as a fixed enum. This in-code Readonly record is the v1 source;
+ * a later follow-on (ADD-DOC-TYPE-1) swaps it for a data-backed registry + a guarded add-type form
+ * (a user-added type must declare a valid targetStructure + roles; individual_subject types keep the
+ * mandatory subject pick) WITHOUT touching any call site.
  */
 export const DOC_TYPE_CONFIGS: Readonly<Record<string, DocTypeConfig>> = {
-  durable_financial_poa: {
-    documentType: 'durable_financial_poa',
+  durable_poa: {
+    documentType: 'durable_poa',
     targetStructure: 'individual_subject',
     subjectMustBeClient: true,
     pairable: true,
@@ -128,15 +137,6 @@ export const DOC_TYPE_CONFIGS: Readonly<Record<string, DocTypeConfig>> = {
   },
   certificate_of_trust: {
     documentType: 'certificate_of_trust',
-    targetStructure: 'derived',
-    subjectMustBeClient: false,
-    pairable: false,
-    requiredRoles: [],
-    designationRoles: [],
-    sourceDocumentType: 'revocable_living_trust',
-  },
-  funding_instruction_letter: {
-    documentType: 'funding_instruction_letter',
     targetStructure: 'derived',
     subjectMustBeClient: false,
     pairable: false,

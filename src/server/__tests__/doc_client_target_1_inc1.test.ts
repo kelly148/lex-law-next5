@@ -43,12 +43,11 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: taxonomy + config version', () => {
   });
 
   it('seeds the disposition §3.2 document types with the locked structures', () => {
-    expect(getTargetStructure('durable_financial_poa')).toBe('individual_subject');
+    expect(getTargetStructure('durable_poa')).toBe('individual_subject');
     expect(getTargetStructure('pour_over_will')).toBe('individual_subject');
     expect(getTargetStructure('advance_medical_directive')).toBe('individual_subject');
     expect(getTargetStructure('revocable_living_trust')).toBe('party_set');
     expect(getTargetStructure('certificate_of_trust')).toBe('derived');
-    expect(getTargetStructure('funding_instruction_letter')).toBe('derived');
     expect(getTargetStructure('deed')).toBe('role_sided');
   });
 });
@@ -58,7 +57,7 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: taxonomy + config version', () => {
 // ---------------------------------------------------------------------------
 describe('DOC-CLIENT-TARGET-1 Inc 1: per-type role structure', () => {
   it('individual_subject EP types require exactly one client subject + are pairable', () => {
-    for (const t of ['durable_financial_poa', 'pour_over_will', 'advance_medical_directive']) {
+    for (const t of ['durable_poa', 'pour_over_will', 'advance_medical_directive']) {
       const c = getDocTypeConfig(t)!;
       expect(c.subjectMustBeClient).toBe(true);
       expect(c.pairable).toBe(true);
@@ -71,7 +70,7 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: per-type role structure', () => {
   });
 
   it('the durable POA reserves agent + successor_agent designation roles (no binding UI in v1)', () => {
-    const poa = getDocTypeConfig('durable_financial_poa')!;
+    const poa = getDocTypeConfig('durable_poa')!;
     const designations = poa.designationRoles.map((r) => r.roleKey);
     expect(designations).toContain('agent');
     expect(designations).toContain('successor_agent');
@@ -88,9 +87,8 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: per-type role structure', () => {
     expect(settlor!.max).toBeNull();
   });
 
-  it('derived types point at their source document type (cert/funding <- trust)', () => {
+  it('the derived type points at its source document type (cert <- trust)', () => {
     expect(getDocTypeConfig('certificate_of_trust')!.sourceDocumentType).toBe('revocable_living_trust');
-    expect(getDocTypeConfig('funding_instruction_letter')!.sourceDocumentType).toBe('revocable_living_trust');
   });
 
   it('the deed is role_sided with grantor + grantee role groups', () => {
@@ -106,13 +104,13 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: per-type role structure', () => {
 // ---------------------------------------------------------------------------
 describe('DOC-CLIENT-TARGET-1 Inc 1: role-key validation', () => {
   it('accepts a declared required role and a reserved designation role', () => {
-    expect(isRoleKeyDeclared('durable_financial_poa', 'subject')).toBe(true);
-    expect(isRoleKeyDeclared('durable_financial_poa', 'agent')).toBe(true);
+    expect(isRoleKeyDeclared('durable_poa', 'subject')).toBe(true);
+    expect(isRoleKeyDeclared('durable_poa', 'agent')).toBe(true);
   });
 
   it('REJECTS a role the type does not declare (typo + nonsense protection)', () => {
-    expect(isRoleKeyDeclared('durable_financial_poa', 'grantor')).toBe(false);
-    expect(isRoleKeyDeclared('durable_financial_poa', 'bogus_role')).toBe(false);
+    expect(isRoleKeyDeclared('durable_poa', 'grantor')).toBe(false);
+    expect(isRoleKeyDeclared('durable_poa', 'bogus_role')).toBe(false);
   });
 
   it('REJECTS every role on an unregistered/custom document type (declares nothing)', () => {
@@ -121,7 +119,7 @@ describe('DOC-CLIENT-TARGET-1 Inc 1: role-key validation', () => {
   });
 
   it('getDeclaredRoleKeys unions required + designation roles', () => {
-    const poa = getDocTypeConfig('durable_financial_poa')!;
+    const poa = getDocTypeConfig('durable_poa')!;
     expect(getDeclaredRoleKeys(poa)).toEqual(expect.arrayContaining(['subject', 'agent', 'successor_agent']));
   });
 

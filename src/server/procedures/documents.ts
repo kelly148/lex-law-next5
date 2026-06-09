@@ -47,6 +47,10 @@ import {
 import { hasUndispositionedBlocker, evaluateConflictClearance } from '../db/queries/conflicts.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
+import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
+import { listPartiesForMatter } from '../db/queries/matterParties.js';
+import { bindDocumentParty, listDocumentParties } from '../db/queries/documentParty.js';
+import { resolveIndividualSubject } from '../documents/subjectBinding.js';
 
 // ============================================================
 // R12 guard helper
@@ -155,6 +159,10 @@ export const documentRouter = router({
         documentType: z.string().min(1).max(64),
         customTypeLabel: z.string().max(256).nullable().optional(),
         draftingMode: z.enum(['template', 'iterative']),
+        // DOC-CLIENT-TARGET-1: the bound subject (principal) for an individual_subject document. Server-
+        // required for an individual type in a multi-client matter; auto-bound for a single-client matter;
+        // ignored for non-individual types.
+        subjectPartyId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -200,6 +208,28 @@ export const documentRouter = router({
         }
       }
 
+      // DOC-CLIENT-TARGET-1: resolve the subject binding for an individual_subject document BEFORE
+      // insert, so we never create a document we cannot legally target. Multi-client + individual type
+      // REQUIRES an affirmative principal pick (no default); single-client auto-binds the sole client.
+      const docTypeConfig = getDocTypeConfig(input.documentType);
+      const clientPartyIds =
+        docTypeConfig?.targetStructure === 'individual_subject'
+          ? (await listPartiesForMatter(input.matterId, ctx.userId))
+              .filter((p) => p.role === 'client')
+              .map((p) => p.id)
+          : [];
+      const subjectResolution = resolveIndividualSubject({
+        targetStructure: docTypeConfig?.targetStructure,
+        clientPartyIds,
+        ...(input.subjectPartyId !== undefined ? { providedSubjectPartyId: input.subjectPartyId } : {}),
+      });
+      if (subjectResolution.kind === 'error') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `${subjectResolution.code}: ${subjectResolution.message}`,
+        });
+      }
+
       const doc = await insertDocument({
         userId: ctx.userId,
         matterId: input.matterId,
@@ -219,6 +249,19 @@ export const documentRouter = router({
         archivedAt: null,
         notes: null,
       });
+
+      // DOC-CLIENT-TARGET-1: bind the resolved subject (individual_subject docs). bindDocumentParty
+      // re-validates the role against the type config (roleKey 'subject' is declared for these types).
+      if (subjectResolution.kind === 'bind') {
+        await bindDocumentParty({
+          userId: ctx.userId,
+          matterId: input.matterId,
+          documentId: doc.id,
+          partyId: subjectResolution.partyId,
+          roleKey: 'subject',
+          createdBy: ctx.userId,
+        });
+      }
 
       const docPayload: {
         matterId: string;
@@ -246,6 +289,18 @@ export const documentRouter = router({
       void maybySyncMatterPhase(input.matterId, ctx.userId);
 
       return doc;
+    }),
+
+  // ============================================================
+  // document.listParties — DOC-CLIENT-TARGET-1
+  // The party bindings (subject + reserved roles) for a document. Owner-scoped; the client joins
+  // partyId -> displayName from the matter's parties and reads role labels from the shared doc-type
+  // config. Powers the sticky drafting header (Principal: <name>) + the principal selector's state.
+  // ============================================================
+  listParties: protectedProcedure
+    .input(z.object({ documentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return listDocumentParties(input.documentId, ctx.userId);
     }),
 
   // ============================================================
