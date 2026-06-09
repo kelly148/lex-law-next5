@@ -51,6 +51,7 @@ import {
 } from '../db/queries/templates.js';
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
 import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
+import { validateTargetingForFinalize } from '../documents/targetingValidation.js';
 import {
   listReferencesForDocument,
   detectStaleReferences,
@@ -1069,6 +1070,17 @@ export const document4aRouter = router({
       const currentVersion = await getVersionById(currentVersionId, userId);
       if (!currentVersion) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
+      }
+
+      // DOC-CLIENT-TARGET-1 §6 (Inc 5): STRUCTURAL targeting validation — exactly one ACTIVE-client
+      // subject for an individual doc; a bound required-role group for a joint doc. Hard-blocks finalize
+      // (a removed/inactive/missing subject, a >1-subject doc, or a settlor-less trust cannot finalize).
+      const targetingValidation = await validateTargetingForFinalize(doc, userId);
+      if (!targetingValidation.ok) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `TARGETING_INVALID: ${targetingValidation.message} Do not finalize until resolved.`,
+        });
       }
 
       // DOC-CLIENT-TARGET-1 §6: mandatory pre-finalize TARGET-CONSISTENCY check — the DETERMINISTIC

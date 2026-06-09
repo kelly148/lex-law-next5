@@ -52,6 +52,7 @@ import { listPartiesForMatter } from '../db/queries/matterParties.js';
 import { bindDocumentParty, listDocumentParties } from '../db/queries/documentParty.js';
 import { resolveIndividualSubject, resolvePartySetBinding } from '../documents/subjectBinding.js';
 import { getInstancesForType } from '../documents/instances.js';
+import { migrateDocumentTargetingForOwner } from '../documents/targetingMigration.js';
 
 // ============================================================
 // R12 guard helper
@@ -338,6 +339,17 @@ export const documentRouter = router({
     .query(async ({ ctx, input }) => {
       return getInstancesForType(input.matterId, input.documentType, ctx.userId);
     }),
+
+  // ============================================================
+  // document.migrateTargeting — DOC-CLIENT-TARGET-1 Inc 5 (OPERATOR-GATED / STAGED)
+  // Retroactive backfill of document_party bindings for documents created before this feature. dryRun=true
+  // previews (counts + candidates, NO writes) for review; dryRun=false APPLIES (single-client subjects +
+  // party_set sets; a multi-client individual doc is FLAGGED, never auto-assigned). Idempotent. Inert until
+  // invoked with dryRun=false.
+  // ============================================================
+  migrateTargeting: protectedProcedure
+    .input(z.object({ dryRun: z.boolean() }))
+    .mutation(async ({ ctx, input }) => migrateDocumentTargetingForOwner(ctx.userId, { dryRun: input.dryRun })),
 
   // ============================================================
   // document.get
