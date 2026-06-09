@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-09 (REVIEW-UX-REDESIGN-1 fixes MERGED — operator desktop-UAT polish on the review layout; awaiting the batched deploy)
+
+**Disposition.** Operator ran live desktop UAT on the merged review redesign (#236, REVIEW-UX-REDESIGN-1) via a local dev build off `main` (Vite 5173 + tsx server 3001, pointed at the shared TiDB; `REVIEWER_ASYNC_ENABLED` OFF — sync path). Findings folded onto the same lineage and **squash-merged PR #245 → `main` `c23b478`** (CI green: Lint + Type Check + Tests). **Code only — 3 files** (`ReviewPane.tsx`, `DocumentReferencePane.tsx`, the render test); **no tracker/CLAUDE.md edits in the PR** (this STATE entry is the separate append-only registration, per the cross-session tracker discipline, so it never collides with the parallel dropzone/gate-override branches).
+
+**What changed.** Split handle: 6px hairline → 12px with a visible grip pill (oxblood on hover). Document now FILLS its pane (removed the centered max-width text column → `w-full`). Collapse/Hide consolidated: the three-state model (expanded/rail/hidden) read as redundant → a single two-state toggle — one "Hide document" button ON the document; restore via "Show document" at the review header TOP-LEFT (the far-right header button + the left-edge tab are gone). Document default split 40% → 48% (new state only; a dragged width persists). Review fills its column (no 760px right-gap); body centered for card readability; the scroll chain (the previously-broken behavior) preserved untouched. `reviewUxRedesign1` render test updated to the two-state model (G6 slot-never-remounts preserved); tsc + eslint clean; the 4 review render suites green (19/19). Verified live in the local build.
+
+**Build state.** `main` = `c23b478` (includes #245); **NOT deployed** — rides the next operator-gated batch (alongside DOC-CLIENT-TARGET-1 #237 [migration 0023], MATERIALS-DROPZONE-1 A #238 + B OCR #242 [migration 0024 + tesseract.js/pdfium]). Open parallel PRs at this moment: #244 (dropzone tracker docs), #243 (gate-override — was CONFLICTING, its session rebases). Deploy-watch for the batch: migrations 0023+0024 (auto-apply) + the OCR-deps esbuild bundle.
+
+---
+
 ## 2026-06-09 (MATERIALS-DROPZONE-1 Increment A COMPLETE + MERGED + DEPLOYED — real drag-and-drop materials drop zone; live; Pattern-16 live-verify owed)
 
 **Disposition.** UAT-finding engagement (`_progress/UAT_FINDING_materials-dropzone_2026-06-09.md`). **Increment A only** (drag-and-drop UX, frontend); **Increment B (image OCR) DEFERRED** on the operator's OCR-engine pick. Built on `lex-next/materials-dropzone-1` off `main` `8964ebf`. **Squash-merged PR #238 → `main` `abd8434`** (CI green on `main`: Lint + Type Check + Tests); feature branch deleted (the `gh` local cleanup hit the shared worktree holding `main`; the remote branch was deleted directly). Operator then **deployed `main` `abd8434` to prod** (MODE B).
