@@ -54,7 +54,8 @@
     "RELAYOUT-3",
     "MODEL-RELIABILITY-UAT-1",
     "MATERIALS-DROPZONE-1 (Increment A)",
-    "CONFLICT-GATE-OVERRIDE-1"
+    "CONFLICT-GATE-OVERRIDE-1",
+    "LANDING-1"
   ],
   "in_progress_engagement": null,
   "awaiting_operator_acceptance": [],
