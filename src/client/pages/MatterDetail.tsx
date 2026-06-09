@@ -107,6 +107,8 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
   const clientParties = (parties ?? []).filter((p) => p.role === 'client');
   const docTypeConfig = getDocTypeConfig(documentType);
   const isIndividualSubject = docTypeConfig?.targetStructure === 'individual_subject';
+  // DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) types -> no selector; the whole client set is bound.
+  const isPartySet = docTypeConfig?.targetStructure === 'party_set';
   const principalLabel =
     docTypeConfig?.requiredRoles.find((r) => r.roleKey === 'subject')?.renderLabel ?? 'Principal';
   // Multi-client + individual type -> a mandatory affirmative pick (no pre-selection). Single client ->
@@ -249,6 +251,14 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
             <div data-testid="principal-sole" className="text-sm text-gray-700">
               <span className="font-medium">{principalLabel}:</span> {soleClient.displayName}
               <span className="text-xs text-gray-500"> (sole client — bound automatically)</span>
+            </div>
+          )}
+          {/* DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) -> no principal selector; the whole client set
+              is bound at creation. "Change parties" is a noted fast-follow. */}
+          {isPartySet && clientParties.length > 0 && (
+            <div data-testid="party-set-applies" className="text-sm text-gray-700 rounded border border-line bg-surface px-3 py-2">
+              <span className="font-medium">Applies to:</span> {clientParties.map((c) => c.displayName).join(' and ')}
+              <span className="text-xs text-gray-500"> (joint document — all clients bound)</span>
             </div>
           )}
           {/* DOC-CLIENT-TARGET-1: pair affordance — also create the matching instance for the other

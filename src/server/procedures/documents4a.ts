@@ -49,7 +49,7 @@ import {
   getTemplateVersionById,
   getVariableSchemaForVersion,
 } from '../db/queries/templates.js';
-import { resolveDraftingSubjectScope } from '../documents/draftingSubject.js';
+import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
 import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
 import {
   listReferencesForDocument,
@@ -527,13 +527,7 @@ export const document4aRouter = router({
       // ONLY. Shared joint-matter materials stay matter-wide (correct for joint representation); the
       // deterministic backstop is the pre-finalize target-consistency check (document.finalize).
       const draftingForName = subjectScope.subjectName ?? matter.clientName ?? 'a client';
-      const subjectScopeInstruction =
-        subjectScope.scoped && subjectScope.subjectName
-          ? `This document is FOR ${subjectScope.subjectName} as the ${subjectScope.subjectRoleLabel}; draft it for ${subjectScope.subjectName} only.` +
-            (subjectScope.otherClientNames.length > 0
-              ? ` Do NOT draft it for, or import the individual choices of, any other client (${subjectScope.otherClientNames.join(', ')}).`
-              : '')
-          : null;
+      const subjectScopeInstruction = buildScopeInstruction(subjectScope, 'draft');
       const systemPrompt = [
         `You are an expert legal document drafter for ${draftingForName}.`,
         `Draft a ${doc.documentType} document titled "${doc.title}".`,
@@ -677,13 +671,7 @@ export const document4aRouter = router({
 
       // DOC-CLIENT-TARGET-1: identity-layer scoping (see generateDraft) — revise FOR the bound subject.
       const draftingForName = subjectScope.subjectName ?? matter.clientName ?? 'a client';
-      const subjectScopeInstruction =
-        subjectScope.scoped && subjectScope.subjectName
-          ? `This document is FOR ${subjectScope.subjectName} as the ${subjectScope.subjectRoleLabel}; revise it for ${subjectScope.subjectName} only.` +
-            (subjectScope.otherClientNames.length > 0
-              ? ` Do NOT revise it to be for, or to import the individual choices of, any other client (${subjectScope.otherClientNames.join(', ')}).`
-              : '')
-          : null;
+      const subjectScopeInstruction = buildScopeInstruction(subjectScope, 'revise');
       const systemPrompt = [
         `You are an expert legal document drafter for ${draftingForName}.`,
         `You are revising a ${doc.documentType} document titled "${doc.title}".`,
@@ -1089,7 +1077,7 @@ export const document4aRouter = router({
       // subject; a mismatch HARD-STOPS finalize until the attorney resolves it. This is the v1 stand-in
       // for the structural cross-wire guard (the designation-binding fast-follow makes it structural).
       const finalizeSubjectScope = await resolveDraftingSubjectScope(doc, userId);
-      if (finalizeSubjectScope.scoped && finalizeSubjectScope.subjectName) {
+      if (finalizeSubjectScope.kind === 'individual_subject' && finalizeSubjectScope.subjectName) {
         const consistency = evaluateTargetConsistency({
           draftText: currentVersion.content,
           subjectName: finalizeSubjectScope.subjectName,

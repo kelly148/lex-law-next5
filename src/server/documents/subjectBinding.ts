@@ -56,3 +56,21 @@ export function resolveIndividualSubject(opts: {
   }
   return { kind: 'none' };
 }
+
+/**
+ * party_set resolution (DOC-CLIENT-TARGET-1 Inc 3): bind EVERY client to the type's required role-set
+ * (e.g. settlor) as a CREATION-TIME SNAPSHOT — explicit rows, never a live query, so adding a client
+ * later does not silently retarget an executed joint instrument (the disposition's "all clients always
+ * resolves to explicit rows at creation"). Returns the role key + the party ids to bind, or null when
+ * not a party_set type / no required role declared / no clients yet.
+ */
+export function resolvePartySetBinding(opts: {
+  targetStructure: TargetStructure | undefined;
+  requiredRoleKey: string | undefined;
+  clientPartyIds: readonly string[];
+}): { roleKey: string; partyIds: string[] } | null {
+  if (opts.targetStructure !== 'party_set') return null;
+  if (!opts.requiredRoleKey) return null;
+  if (opts.clientPartyIds.length === 0) return null;
+  return { roleKey: opts.requiredRoleKey, partyIds: [...opts.clientPartyIds] };
+}

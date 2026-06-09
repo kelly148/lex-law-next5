@@ -116,12 +116,16 @@ describe('DOC-CLIENT-TARGET-1 CreateDocumentForm — principal selector', () => 
     expect(sole!.textContent).toContain('Sarah Brianne Brown');
   });
 
-  it('party_set (joint) type -> NO principal selector even with two clients', () => {
+  it('party_set (joint) type -> NO principal selector; shows the joint "Applies to" label', () => {
     mockState.parties = [SARAH, GREG];
     const c = renderForm();
     selectType(c, 'revocable_living_trust');
     expect(c.querySelector('[data-testid="principal-selector"]')).toBeFalsy();
     expect(c.querySelector('[data-testid="principal-sole"]')).toBeFalsy();
+    const applies = c.querySelector('[data-testid="party-set-applies"]');
+    expect(applies).toBeTruthy();
+    expect(applies!.textContent).toContain('Sarah Brianne Brown');
+    expect(applies!.textContent).toContain('Gregory Edwin Brown');
   });
 
   it('label tracks the type (Declarant for an advance medical directive)', () => {

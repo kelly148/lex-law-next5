@@ -73,9 +73,25 @@ describe('DOC-CLIENT-TARGET-1 DraftingTargetHeader', () => {
     expect(c.querySelector('[data-testid="drafting-target-unbound"]')).toBeTruthy();
   });
 
-  it('non-individual type (joint trust) -> renders nothing', () => {
-    const c = renderHeader('revocable_living_trust');
+  it('non-targeted type (derived certificate) -> renders nothing', () => {
+    const c = renderHeader('certificate_of_trust');
     expect(c.querySelector('[data-testid="drafting-target-header"]')).toBeFalsy();
+  });
+
+  it('party_set (joint trust) -> shows "Applies to" the bound client set', () => {
+    mockState.bindings = [
+      { documentId: DOC, partyId: SARAH_ID, roleKey: 'settlor' },
+      { documentId: DOC, partyId: GREG_ID, roleKey: 'settlor' },
+    ];
+    mockState.parties = [
+      { id: SARAH_ID, role: 'client', displayName: 'Sarah Brianne Brown' },
+      { id: GREG_ID, role: 'client', displayName: 'Gregory Edwin Brown' },
+    ];
+    const c = renderHeader('revocable_living_trust');
+    const header = c.querySelector('[data-testid="drafting-target-header"]')!;
+    expect(header.textContent).toContain('Applies to:');
+    expect(header.textContent).toContain('Sarah Brianne Brown');
+    expect(header.textContent).toContain('Gregory Edwin Brown');
   });
 
   it("links to the other client's existing instance", () => {

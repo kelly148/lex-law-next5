@@ -50,7 +50,7 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
 import { listPartiesForMatter } from '../db/queries/matterParties.js';
 import { bindDocumentParty, listDocumentParties } from '../db/queries/documentParty.js';
-import { resolveIndividualSubject } from '../documents/subjectBinding.js';
+import { resolveIndividualSubject, resolvePartySetBinding } from '../documents/subjectBinding.js';
 import { getInstancesForType } from '../documents/instances.js';
 
 // ============================================================
@@ -213,14 +213,15 @@ export const documentRouter = router({
       // insert, so we never create a document we cannot legally target. Multi-client + individual type
       // REQUIRES an affirmative principal pick (no default); single-client auto-binds the sole client.
       const docTypeConfig = getDocTypeConfig(input.documentType);
-      const clientPartyIds =
-        docTypeConfig?.targetStructure === 'individual_subject'
-          ? (await listPartiesForMatter(input.matterId, ctx.userId))
-              .filter((p) => p.role === 'client')
-              .map((p) => p.id)
-          : [];
+      const structure = docTypeConfig?.targetStructure;
+      const needsClientParties = structure === 'individual_subject' || structure === 'party_set';
+      const clientPartyIds = needsClientParties
+        ? (await listPartiesForMatter(input.matterId, ctx.userId))
+            .filter((p) => p.role === 'client')
+            .map((p) => p.id)
+        : [];
       const subjectResolution = resolveIndividualSubject({
-        targetStructure: docTypeConfig?.targetStructure,
+        targetStructure: structure,
         clientPartyIds,
         ...(input.subjectPartyId !== undefined ? { providedSubjectPartyId: input.subjectPartyId } : {}),
       });
@@ -230,6 +231,14 @@ export const documentRouter = router({
           message: `${subjectResolution.code}: ${subjectResolution.message}`,
         });
       }
+      // DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) types bind the WHOLE client set into explicit rows
+      // (role e.g. settlor) as a CREATION-TIME SNAPSHOT — never a live query, so adding a client later
+      // does not silently retarget an executed joint instrument.
+      const partySetBinding = resolvePartySetBinding({
+        targetStructure: structure,
+        requiredRoleKey: docTypeConfig?.requiredRoles[0]?.roleKey,
+        clientPartyIds,
+      });
 
       const doc = await insertDocument({
         userId: ctx.userId,
@@ -262,6 +271,20 @@ export const documentRouter = router({
           roleKey: 'subject',
           createdBy: ctx.userId,
         });
+      }
+      if (partySetBinding) {
+        let partySetSortOrder = 0;
+        for (const partyId of partySetBinding.partyIds) {
+          await bindDocumentParty({
+            userId: ctx.userId,
+            matterId: input.matterId,
+            documentId: doc.id,
+            partyId,
+            roleKey: partySetBinding.roleKey,
+            sortOrder: partySetSortOrder++,
+            createdBy: ctx.userId,
+          });
+        }
       }
 
       const docPayload: {
