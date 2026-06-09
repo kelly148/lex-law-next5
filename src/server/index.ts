@@ -31,6 +31,7 @@ import { getSession, extractUserId } from './middleware/session.js';
 import { insertMaterial } from './db/queries/materials.js';
 import { getMatterById } from './db/queries/matters.js';
 import { getDocumentById } from './db/queries/documents.js';
+import { resolveDraftingSubjectScope } from './documents/draftingSubject.js';
 import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer } from 'docx';
@@ -471,7 +472,14 @@ app.get(
     );
 
     // ── Stream response ───────────────────────────────────────────────────────
-    const safeTitle = doc.title.replace(/[^a-zA-Z0-9_\-. ]/g, '_').slice(0, 80);
+    // DOC-CLIENT-TARGET-1 Inc 4: the export filename ALWAYS carries the target identity for a targeted
+    // document (individual subject OR the joint party set) — "Durable POA - Sarah Brianne Brown.docx",
+    // "Revocable Living Trust - Sarah Brianne Brown and Gregory Edwin Brown.docx" — never a bare
+    // "POA.docx" / "POA (1).docx" that is malpractice-adjacent in a paired workflow.
+    const targetScope = await resolveDraftingSubjectScope(doc, userId);
+    const titleWithTarget =
+      targetScope.scoped && targetScope.subjectName ? `${doc.title} - ${targetScope.subjectName}` : doc.title;
+    const safeTitle = titleWithTarget.replace(/[^a-zA-Z0-9_\-. ]/g, '_').slice(0, 120);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.docx"`);
     res.setHeader('Content-Length', buffer.length);

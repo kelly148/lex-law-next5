@@ -17,6 +17,8 @@ export interface TypeInstance {
   displayName: string;
   /** The client's existing (non-archived) document of this type, or null. */
   documentId: string | null;
+  /** The existing document's workflowState (per-instance status; reuses the state engine), or null. */
+  workflowState: string | null;
 }
 
 export async function getInstancesForType(
@@ -29,16 +31,20 @@ export async function getInstancesForType(
     (d) => d.documentType === documentType,
   );
 
-  // Map partyId -> the document of this type bound to that party as `subject`.
-  const docByParty = new Map<string, string>();
+  // Map partyId -> the document of this type bound to that party as `subject` (id + status).
+  const docByParty = new Map<string, { id: string; workflowState: string }>();
   for (const d of docs) {
     const subject = (await listDocumentParties(d.id, userId)).find((b) => b.roleKey === 'subject');
-    if (subject) docByParty.set(subject.partyId, d.id);
+    if (subject) docByParty.set(subject.partyId, { id: d.id, workflowState: d.workflowState });
   }
 
-  return clients.map((c) => ({
-    partyId: c.id,
-    displayName: c.displayName,
-    documentId: docByParty.get(c.id) ?? null,
-  }));
+  return clients.map((c) => {
+    const existing = docByParty.get(c.id);
+    return {
+      partyId: c.id,
+      displayName: c.displayName,
+      documentId: existing?.id ?? null,
+      workflowState: existing?.workflowState ?? null,
+    };
+  });
 }
