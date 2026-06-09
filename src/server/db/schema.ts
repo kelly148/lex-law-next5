@@ -533,6 +533,12 @@ export const EXTRACTION_STATUS_VALUES = [
   'partial',
   'failed',
   'not_supported',
+  // MATERIALS-DROPZONE-1 Inc B (image + scanned-PDF OCR): async-OCR lifecycle states.
+  // 'processing' — OCR queued/running (set at upload, cleared when OCR finishes).
+  // 'low_confidence' — OCR ran but fell below the confidence floor; text is shown to the
+  //   user but EXCLUDED from the assessment context (honesty floor; see analysisContext).
+  'processing',
+  'low_confidence',
 ] as const;
 export type ExtractionStatus = (typeof EXTRACTION_STATUS_VALUES)[number];
 

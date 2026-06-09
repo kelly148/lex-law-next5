@@ -153,6 +153,11 @@ export const EXTRACTION_STATUS_VALUES = [
   'partial',
   'failed',
   'not_supported',
+  // MATERIALS-DROPZONE-1 Inc B — async OCR states (kept in lockstep with the server enum
+  // in src/server/db/schema.ts and migration 0024). 'processing' = OCR in flight;
+  // 'low_confidence' = OCR below the floor (shown to the user, excluded from the assessment).
+  'processing',
+  'low_confidence',
 ] as const;
 
 export const UPLOAD_SOURCE_VALUES = ['upload', 'paste'] as const;

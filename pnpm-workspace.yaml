@@ -4,3 +4,6 @@ packages:
 allowBuilds:
   es5-ext: true
   esbuild: true
+  # tesseract.js's only install script is an opencollective donation banner — skip it (no third-party
+  # postinstall; the WASM core is a normal dependency and needs no build step).
+  tesseract.js: false
