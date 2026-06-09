@@ -39,6 +39,7 @@ import { lddKeyTermRouter } from './procedures/lddKeyTerm.js';
 import { closurePackageRouter } from './procedures/closurePackage.js';
 import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
 import { deadlineRouter } from './procedures/deadlines.js';
+import { gateOverrideRouter } from './procedures/gateOverride.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -82,6 +83,10 @@ export const appRouter = router({
   // FOLD-PM-1 — deadline / tickler engine (Phase 4). Read + lifecycle surface; gated behind
   // DEADLINE_ENGINE_ENABLED (default OFF, fully dormant); surfaces + records only, never acts.
   deadline: deadlineRouter,
+  // CONFLICT-GATE-OVERRIDE-1 — attested per-matter, per-precondition override of the fail-closed intake
+  // gate (conflicts clearance / identity verification). Additive; records an explicit attorney act the
+  // gate consults; never a global toggle; re-arms on a material change.
+  gateOverride: gateOverrideRouter,
 });
 
 export type AppRouter = typeof appRouter;

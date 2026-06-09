@@ -42,7 +42,7 @@ import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
-import { evaluateConflictClearance } from './db/queries/conflicts.js';
+import { resolveDraftingGate } from './db/queries/gateOverride.js';
 import { isSendabilityGateEnabled, isConflictGateEnabled } from './config/featureFlags.js';
 
 // ============================================================
@@ -426,23 +426,17 @@ app.get(
     // evidence: a "no check" state OR an evaluation error must BLOCK, never silently pass. Do not
     // "fix" this asymmetry to match the sendability gate. FLAG OFF (default): no conflict gating.
     if (isConflictGateEnabled()) {
-      let clearanceState: string;
-      let clearanceReasons: string[];
-      try {
-        const clearance = await evaluateConflictClearance(doc.matterId, userId);
-        clearanceState = clearance.state;
-        clearanceReasons = clearance.reasons;
-      } catch {
-        // Fail-closed: if clearance cannot be established, do not export.
-        clearanceState = 'NOT_ESTABLISHED';
-        clearanceReasons = ['clearance_evaluation_failed'];
-      }
-      if (clearanceState !== 'CLEARED') {
+      // CONFLICT-GATE-OVERRIDE-1: the override-aware gate. resolveDraftingGate fail-closes on any
+      // evaluation error (an error NEVER opens the gate) and lets a non-CLEARED matter through ONLY when
+      // every blocking precondition has an active attested override. Default (no override rows) is the
+      // unchanged fail-closed export gate — the deliberate asymmetry vs. the sendability gate is preserved.
+      const gate = await resolveDraftingGate(doc.matterId, userId);
+      if (!gate.allowed) {
         res.status(409).json({
           error: 'CONFLICTS_NOT_CLEARED',
           message:
-            'Export blocked: this matter is not conflict-cleared. Run the conflicts check, add and confirm the client party, and disposition any blocker before exporting.',
-          reasons: clearanceReasons,
+            'Export blocked: this matter is not conflict-cleared. Run the conflicts check, add and confirm the client party, and disposition any blocker — or record an attested gate override — before exporting.',
+          reasons: gate.blockingReasons,
         });
         return;
       }

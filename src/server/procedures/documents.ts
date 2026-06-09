@@ -44,7 +44,8 @@ import {
   getMatterById,
   updateMatterPhase,
 } from '../db/queries/matters.js';
-import { hasUndispositionedBlocker, evaluateConflictClearance } from '../db/queries/conflicts.js';
+import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
+import { resolveDraftingGate } from '../db/queries/gateOverride.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -191,12 +192,18 @@ export const documentRouter = router({
       //
       // FLAG OFF (default): legacy FOLD-L0-1 (Fork A) behavior EXACTLY — only an undispositioned
       // BLOCKER on the latest check blocks; "no check yet" is allowed. Inert until the flag flip.
+      //
+      // CONFLICT-GATE-OVERRIDE-1: the FLAG-ON branch consults the attested-override layer additively via
+      // resolveDraftingGate. With NO override rows the behavior is IDENTICAL to before — the gate stays
+      // fail-closed by default. An ACTIVE attested override (per precondition) lets a non-cleared matter
+      // proceed; it re-arms automatically on a material change. The legacy FLAG-OFF branch is UNCHANGED
+      // (the override applies only in the enforced regime, where the preconditions are actually gated).
       if (isConflictGateEnabled()) {
-        const clearance = await evaluateConflictClearance(input.matterId, ctx.userId);
-        if (clearance.state !== 'CLEARED') {
+        const gate = await resolveDraftingGate(input.matterId, ctx.userId);
+        if (!gate.allowed) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${clearance.reasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker before advancing.`,
+            message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${gate.blockingReasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker — or record an attested gate override — before advancing.`,
           });
         }
       } else {

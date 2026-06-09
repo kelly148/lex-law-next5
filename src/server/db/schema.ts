@@ -1867,6 +1867,51 @@ export type SendabilityOverride = typeof sendabilityOverride.$inferSelect;
 export type SendabilityEvaluation = typeof sendabilityEvaluation.$inferSelect;
 
 // ============================================================
+// CONFLICT-GATE-OVERRIDE-1 — gate_override (attested per-matter, per-precondition gate override)
+// ============================================================
+// APPEND-ONLY record of an attorney attesting an override of ONE fail-closed drafting precondition
+// (conflicts clearance OR party identity verification) for ONE matter. The gate DEFAULT is UNCHANGED —
+// this records an explicit attorney act the gate CONSULTS, never a global toggle. snapshot/snapshotHash
+// bind the override to the precondition STATE at attestation; a material change re-arms it (the current
+// state's hash no longer matches the stored hash), the same "supersedes on change" pattern as
+// sendability_override.contentHash. Immutable (no updatedAt); a re-attestation appends a new row.
+// Enum literals are kept in sync (by hand) with src/shared/schemas/gateOverride.ts (a guard test pins it).
+export const GATE_OVERRIDE_PRECONDITION_VALUES = ['conflicts', 'identity'] as const;
+export const GATE_OVERRIDE_REASON_CODE_VALUES = [
+  'cleared_out_of_band',
+  'verified_out_of_band',
+  'waived_professional_judgment',
+  'testing',
+  'other',
+] as const;
+
+export const gateOverride = mysqlTable(
+  'gate_override',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    precondition: mysqlEnum('precondition', GATE_OVERRIDE_PRECONDITION_VALUES).notNull(),
+    snapshot: json('snapshot').notNull(),
+    snapshotHash: varchar('snapshotHash', { length: 128 }).notNull(),
+    reasonCode: mysqlEnum('reasonCode', GATE_OVERRIDE_REASON_CODE_VALUES).notNull(),
+    reasonText: text('reasonText'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxGateOverrideMatter: index('idx_gate_override_matter').on(
+      table.userId,
+      table.matterId,
+      table.precondition,
+      table.createdAt,
+    ),
+    idxGateOverrideMatterCreated: index('idx_gate_override_matter_created').on(table.matterId, table.createdAt),
+  }),
+);
+export type GateOverride = typeof gateOverride.$inferSelect;
+export type NewGateOverride = typeof gateOverride.$inferInsert;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked

@@ -65,8 +65,12 @@ const MIGRATIONS = [
   // MATERIALS-DROPZONE-1 Inc B — append 'processing' + 'low_confidence' to
   // matter_materials.extractionStatus ENUM (additive MODIFY; existing rows untouched; idempotent).
   '0024_materials_dropzone_1_ocr_status.sql',
+  // CONFLICT-GATE-OVERRIDE-1 — gate_override table (attested per-matter, per-precondition override of the
+  // fail-closed intake gate). Single additive CREATE TABLE IF NOT EXISTS; no existing table altered.
+  // Renumbered 0024 -> 0025 at rebase: 0024 was taken by MATERIALS-DROPZONE-1 Inc B on main.
+  '0025_conflict_gate_override_1_gate_override.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping

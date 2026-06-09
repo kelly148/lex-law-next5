@@ -28,6 +28,7 @@ import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterRecitalBand from '../components/MatterRecitalBand.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
+import GateOverridePanel from '../components/GateOverridePanel.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import DeadlinePanel from '../components/DeadlinePanel.js';
 import MatterRecordLedger from '../components/MatterRecordLedger.js';
@@ -506,6 +507,10 @@ export default function MatterDetail(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* CONFLICT-GATE-OVERRIDE-1 — persistent "gate overridden" banner + block-point override action.
+          Renders nothing in the happy path (gate cleared, no override active). */}
+      <GateOverridePanel matterId={matterId} />
 
       {/* RELAYOUT-2 — matter recital band v2 (the established record, read in one glance) */}
       <MatterRecitalBand matterId={matterId} />
