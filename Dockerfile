@@ -77,6 +77,14 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/scripts/apply-prod-migrations.mjs ./scripts/apply-prod-migrations.mjs
 COPY --from=builder /app/src/server/db/migrations ./src/server/db/migrations
 
+# MATERIALS-DROPZONE-1 Inc B: bundle the local OCR language model (tesseract.js langPath ->
+# assets/tessdata/eng.traineddata) into the runtime image so image/scanned-PDF OCR runs with NO
+# runtime CDN fetch (no-egress). Pure data asset; no system package, no native addon.
+COPY --from=builder /app/assets ./assets
+# Fail the build LOUDLY if the OCR model is missing (e.g. asset not committed) rather than silently
+# shipping a dead no-egress OCR feature that would only error at first use.
+RUN test -f ./assets/tessdata/eng.traineddata || (echo "ERROR: OCR model assets/tessdata/eng.traineddata is missing from the image" && exit 1)
+
 # OPS-DEPLOY-PIPELINE-1: bake a version stamp into the image so /api/version can
 # report exactly which commit and build is running (stale-deploy detection).
 # Referencing the commit SHA keeps this layer fresh per commit.

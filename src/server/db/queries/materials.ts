@@ -8,10 +8,12 @@
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
+import { ownerScope } from '../ownerScope.js';
 import {
   matterMaterials,
   type MatterMaterial,
   type NewMatterMaterial,
+  type ExtractionStatus,
 } from '../schema.js';
 import {
   MatterMaterialRowSchema,
@@ -208,6 +210,37 @@ export async function updateMaterialTextContent(
       and(
         eq(matterMaterials.id, materialId),
         eq(matterMaterials.userId, userId),
+      ),
+    );
+  return getMaterialById(materialId, userId);
+}
+
+/**
+ * MATERIALS-DROPZONE-1 Inc B — write the result of an async OCR run back onto a material.
+ * Owner-scoped (ownerScope, not an inlined eq, per the auth ratchet). `textContent` may be
+ * null (e.g. an OCR run that produced nothing). The full ExtractionStatus union is accepted so
+ * the OCR path can set 'processing' / 'low_confidence' in addition to the legacy outcomes.
+ */
+export async function updateMaterialExtraction(
+  materialId: string,
+  userId: string,
+  data: {
+    textContent: string | null;
+    extractionStatus: ExtractionStatus;
+    extractionError: string | null;
+  },
+): Promise<MatterMaterialRow | null> {
+  await db
+    .update(matterMaterials)
+    .set({
+      textContent: data.textContent,
+      extractionStatus: data.extractionStatus,
+      extractionError: data.extractionError,
+    })
+    .where(
+      and(
+        eq(matterMaterials.id, materialId),
+        ownerScope(matterMaterials.userId, userId),
       ),
     );
   return getMaterialById(materialId, userId);

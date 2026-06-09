@@ -29,6 +29,7 @@
     "build:railway": "node_modules/.bin/tsc --noEmit && node_modules/.bin/vite build && node_modules/.bin/esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server/index.js --packages=external"
   },
   "dependencies": {
+    "@hyzyla/pdfium": "^2.1.13",
     "@tanstack/react-query": "^5.0.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
@@ -45,9 +46,11 @@
     "mammoth": "^1.12.0",
     "multer": "^2.1.1",
     "mysql2": "^3.9.0",
+    "pngjs": "^7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^6.22.0",
+    "tesseract.js": "^7.0.0",
     "undici": "^6.26.0",
     "unpdf": "^1.6.2",
     "uuid": "^9.0.0",
@@ -61,6 +64,7 @@
     "@types/handlebars": "^4.1.0",
     "@types/multer": "^2.1.0",
     "@types/node": "^20.0.0",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^9.0.0",

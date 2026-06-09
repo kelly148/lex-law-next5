@@ -477,8 +477,13 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
               material.extractionStatus === 'partial' && 'bg-amber-100 text-amber-700',
               material.extractionStatus === 'failed' && 'bg-red-100 text-red-700',
               material.extractionStatus === 'not_supported' && 'bg-gray-100 text-gray-600',
+              // MATERIALS-DROPZONE-1 Inc B — async OCR states
+              material.extractionStatus === 'processing' && 'bg-firm-navy/10 text-firm-navy',
+              material.extractionStatus === 'low_confidence' && 'bg-amber-100 text-amber-700',
             )}>
-              {material.extractionStatus.replace(/_/g, ' ')}
+              {material.extractionStatus === 'processing'
+                ? 'OCR…'
+                : material.extractionStatus.replace(/_/g, ' ')}
             </span>
           </div>
         </div>
@@ -642,7 +647,12 @@ export default function MaterialsDrawer({ matterId, matterTitle, clientName, onC
 
   const { data, isLoading } = trpc.materials.list.useQuery(
     { matterId, includeDeleted },
-    { refetchInterval: false }
+    {
+      // MATERIALS-DROPZONE-1 Inc B — poll while any material is mid-OCR so the result lands visibly,
+      // then stop (no background polling once everything has settled).
+      refetchInterval: (query) =>
+        (query.state.data ?? []).some((m) => m.extractionStatus === 'processing') ? 4000 : false,
+    }
   );
 
   const materials = data ?? [];

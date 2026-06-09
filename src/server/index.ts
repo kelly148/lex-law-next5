@@ -20,6 +20,8 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { extractPdfText } from './intake/pdfExtract.js';
+import { startMaterialOcrInBackground, pdfNeedsOcr, type OcrKind } from './intake/ocrPipeline.js';
+import { terminateOcrWorker } from './intake/ocrExtract.js';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
 import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.js';
@@ -220,8 +222,10 @@ app.post(
     const storageKey = `materials/${userId}/${pathId}${ext ? '.' + ext : ''}`;
 
     let textContent: string | null = null;
-    let extractionStatus: 'extracted' | 'partial' | 'failed' | 'not_supported' = 'not_supported';
+    let extractionStatus: 'extracted' | 'partial' | 'failed' | 'not_supported' | 'processing' = 'not_supported';
     let extractionError: string | null = null;
+    // MATERIALS-DROPZONE-1 Inc B: when set, OCR runs in the background after insert.
+    let ocrKind: OcrKind | null = null;
 
     if (
       mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -246,11 +250,30 @@ app.post(
         extractionError = err instanceof Error ? err.message : String(err);
       }
     } else if (mimeType === 'application/pdf' || ext === 'pdf') {
-      // MATERIALS-EXTRACTION-1 (Bug B): digital PDF text-layer extraction via unpdf (pdf.js). OCR deferred.
+      // MATERIALS-EXTRACTION-1 (Bug B): digital PDF text-layer extraction via unpdf (pdf.js).
       const r = await extractPdfText(file.buffer);
-      textContent = r.textContent;
-      extractionStatus = r.extractionStatus;
-      extractionError = r.extractionError;
+      if (pdfNeedsOcr(r.extractionStatus)) {
+        // MATERIALS-DROPZONE-1 Inc B: no text layer (scanned PDF) -> rasterize + OCR in the background.
+        extractionStatus = 'processing';
+        textContent = null;
+        extractionError = null;
+        ocrKind = 'scanned_pdf';
+      } else {
+        textContent = r.textContent;
+        extractionStatus = r.extractionStatus;
+        extractionError = r.extractionError;
+      }
+    } else if (
+      mimeType === 'image/png' ||
+      mimeType === 'image/jpeg' ||
+      ext === 'png' ||
+      ext === 'jpg' ||
+      ext === 'jpeg'
+    ) {
+      // MATERIALS-DROPZONE-1 Inc B: images -> OCR in the background; stored 'processing' until done.
+      extractionStatus = 'processing';
+      textContent = null;
+      ocrKind = 'image';
     }
     // else: other types — extractionStatus remains 'not_supported'
 
@@ -271,6 +294,18 @@ app.post(
       uploadSource: 'upload',
       deletedAt: null,
     });
+
+    // ── MATERIALS-DROPZONE-1 Inc B: kick async OCR (captures the in-memory buffer) ────────────
+    // The request returns immediately while OCR runs in the background and updates the row from
+    // 'processing' to 'extracted' / 'low_confidence' / 'failed'.
+    if (ocrKind !== null) {
+      startMaterialOcrInBackground({
+        materialId: material.id,
+        userId,
+        kind: ocrKind,
+        buffer: file.buffer,
+      });
+    }
 
     // ── Telemetry ─────────────────────────────────────────────────────────────
     void emitTelemetry(
@@ -746,6 +781,7 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 function gracefulShutdown(signal: string): void {
   console.log(`[server] ${signal} received — shutting down gracefully`);
   stopDispatcher();
+  void terminateOcrWorker(); // tear down the shared tesseract worker, if any
   server.close(() => {
     console.log('[server] HTTP server closed');
     process.exit(0);

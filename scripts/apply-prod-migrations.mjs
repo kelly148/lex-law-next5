@@ -62,6 +62,9 @@ const MIGRATIONS = [
   // DOC-CLIENT-TARGET-1 Inc 1 — document_party join table + documents.sourceDocumentId +
   // matter_parties.deletedAt (additive CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS).
   '0023_doc_client_target_1_document_party.sql',
+  // MATERIALS-DROPZONE-1 Inc B — append 'processing' + 'low_confidence' to
+  // matter_materials.extractionStatus ENUM (additive MODIFY; existing rows untouched; idempotent).
+  '0024_materials_dropzone_1_ocr_status.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
