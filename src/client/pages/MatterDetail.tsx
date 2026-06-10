@@ -531,7 +531,7 @@ export default function MatterDetail(): React.ReactElement {
           {!matter.archivedAt && (
             <button
               onClick={() => setShowCreateDoc(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover"
             >
               <Plus className="w-4 h-4" />
               New Document
