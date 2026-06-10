@@ -125,6 +125,24 @@ export function isDeadlineEngineEnabled(): boolean {
 }
 
 /**
+ * Blob-first master-prompt composition (INSTR-1A0 / INSTRUCTIONS-LEG-1). DEFAULT OFF.
+ *
+ * When OFF (the default), every prompt path is byte-for-byte the established behavior —
+ * the hardcoded procedure prompts plus the chokepoint's matter-state and per-PA-profile
+ * injections. Zero behavior change anywhere, and the composition resolver performs ZERO
+ * extra DB reads.
+ *
+ * When exactly "true", ONE narrow path changes: a draft_generation job, dispatched to the
+ * Anthropic PRIMARY_DRAFTER_MODEL, on a matter whose practice area exact-matches T&E /
+ * estate-planning, sends the verbatim `master/claude/te` asset (hash-pinned, see
+ * promptAssets.ts) as the ENTIRE system block. Everything else stays legacy. Both paths
+ * are snapshotted per draft job (prompt_snapshots) so the experiment is fully measured.
+ */
+export function isPromptCompositionEnabled(): boolean {
+  return process.env['PROMPT_COMPOSITION_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

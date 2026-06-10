@@ -85,6 +85,13 @@ COPY --from=builder /app/assets ./assets
 # shipping a dead no-egress OCR feature that would only error at first use.
 RUN test -f ./assets/tessdata/eng.traineddata || (echo "ERROR: OCR model assets/tessdata/eng.traineddata is missing from the image" && exit 1)
 
+# INSTR-1A0: bundle the hash-pinned prompt assets + manifest into the runtime image — the server
+# loads and SHA-256-validates them at boot (fail-fast), so a missing prompts/ dir would refuse to
+# start. Pure data assets, committed verbatim and LF-pinned via .gitattributes.
+COPY --from=builder /app/prompts ./prompts
+# Fail the build LOUDLY if the manifest or the wired master asset is missing from the image.
+RUN test -f ./prompts/manifest.json && test -f ./prompts/assets/TE_Master_Instructions_v1.md || (echo "ERROR: prompt manifest/assets missing from the image" && exit 1)
+
 # OPS-DEPLOY-PIPELINE-1: bake a version stamp into the image so /api/version can
 # report exactly which commit and build is running (stale-deploy detection).
 # Referencing the commit SHA keeps this layer fresh per commit.

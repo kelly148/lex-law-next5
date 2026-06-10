@@ -55,7 +55,10 @@ import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
 import { buildMatterStateContextBlock } from '../matterState/injection.js';
 import { buildActivePaProfileForMatter, type LoadedPaProfile } from '../practiceKb/profileInjection.js';
 import { recordKbEvent } from './queries/kbEvents.js';
-import type { NewJob, JobType } from './schema.js';
+import { resolvePromptComposition } from '../llm/assemblePrompt.js';
+import { sha256Hex } from '../llm/promptAssets.js';
+import { insertPromptSnapshot } from './queries/promptSnapshots.js';
+import type { NewJob, JobType, NewPromptSnapshot } from './schema.js';
 
 // ============================================================
 // FOLD-L1-2 — matter-state injection provider (test-injectable)
@@ -102,6 +105,28 @@ export function setPaProfileProvider(fn: PaProfileProvider | null): void {
 
 function getPaProfileProvider(): PaProfileProvider {
   return _paProfileProvider ?? buildActivePaProfileForMatter;
+}
+
+// ============================================================
+// INSTR-1A0 — prompt-snapshot writer (test-injectable)
+// ============================================================
+// Every DRAFT job (draft_generation + regeneration; both paths, flag on or off) persists
+// the full composed system text actually sent. BEST-EFFORT like the chokepoint's other
+// provenance writes: a snapshot failure is logged loudly but never breaks a model call.
+
+const DRAFT_SNAPSHOT_JOB_TYPES: ReadonlySet<string> = new Set(['draft_generation', 'regeneration']);
+
+type PromptSnapshotWriter = (row: NewPromptSnapshot) => Promise<void>;
+
+let _promptSnapshotWriter: PromptSnapshotWriter | null = null;
+
+/** Override the prompt-snapshot writer for tests. Pass null to restore the real DB insert. */
+export function setPromptSnapshotWriter(fn: PromptSnapshotWriter | null): void {
+  _promptSnapshotWriter = fn;
+}
+
+function getPromptSnapshotWriter(): PromptSnapshotWriter {
+  return _promptSnapshotWriter ?? insertPromptSnapshot;
 }
 
 // ============================================================
@@ -420,62 +445,123 @@ export async function executeCanonicalMutation(
 
   let llmParams = buildLlmParams(jobId);
 
-  // FOLD-L1-2: inject the current matter state into the systemPrompt so no model call
-  // dispatches "cold". Best-effort: a failed read degrades to no-injection (byte-identical
-  // prompt) rather than failing the call. Only matter-scoped jobs (matterId present) inject.
-  if (matterId) {
-    let matterStateBlock = '';
+  // INSTR-1A0: the single prompt-composition chokepoint. Decides ONCE per dispatch whether
+  // the system block is a verbatim hash-pinned master asset (flag-gated; draft + Anthropic
+  // drafter + exact-match T&E only) or the legacy path. Flag OFF (the default) returns
+  // 'legacy' with ZERO DB reads, and the else-branch below is the pre-INSTR-1A0 code
+  // byte-for-byte — zero behavior change anywhere.
+  const composition = await resolvePromptComposition({
+    jobType,
+    modelString,
+    matterId: matterId ?? null,
+    documentId: documentId ?? null,
+    userId,
+  });
+
+  if (composition.systemText !== null) {
+    // Composed path: the master IS the ENTIRE system block. The matter-state and PA-profile
+    // prepends are intentionally NOT applied here — no per-job data may enter the system
+    // block (cache hygiene); matter materials/context continue to ride the user turn.
+    llmParams = { ...llmParams, systemPrompt: composition.systemText };
+  } else {
+    // FOLD-L1-2: inject the current matter state into the systemPrompt so no model call
+    // dispatches "cold". Best-effort: a failed read degrades to no-injection (byte-identical
+    // prompt) rather than failing the call. Only matter-scoped jobs (matterId present) inject.
+    if (matterId) {
+      let matterStateBlock = '';
+      try {
+        matterStateBlock = await getMatterStateProvider()({
+          matterId,
+          userId,
+          ...(documentId !== undefined ? { documentId } : {}),
+        });
+      } catch (err) {
+        void emitTelemetry(
+          'procedure_error',
+          {
+            procedureName: 'matterStateInjection',
+            errorCode: 'MATTER_STATE_INJECT_FAILED',
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          { ...telemetryCtx, jobId },
+        );
+      }
+      if (matterStateBlock) {
+        llmParams = { ...llmParams, systemPrompt: `${matterStateBlock}\n\n${llmParams.systemPrompt}` };
+      }
+    }
+
+    // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended
+    // OUTERMOST (it is the attorney's own top-level instruction). Best-effort: a failed/absent load
+    // degrades to the base prompt (byte-identical) — never a mismatched PA. Captures the loaded
+    // profile id+version for THIS job in the append-only kb_events trail (R11 immutability) — no
+    // jobs-table change required.
+    if (matterId) {
+      try {
+        const profile = await getPaProfileProvider()({ matterId, userId });
+        if (profile && profile.body) {
+          llmParams = { ...llmParams, systemPrompt: `${profile.body}\n\n${llmParams.systemPrompt}` };
+          void recordKbEvent({
+            userId,
+            action: 'pa_profile_loaded_for_job',
+            targetType: 'pa_instruction_profile',
+            targetId: profile.profileId,
+            summary: `Loaded PA profile (paKey=${profile.paKey}, v${profile.version}) for job`,
+            payload: { jobId, profileId: profile.profileId, version: profile.version, paKey: profile.paKey },
+          });
+        }
+      } catch (err) {
+        void emitTelemetry(
+          'procedure_error',
+          {
+            procedureName: 'paProfileInjection',
+            errorCode: 'PA_PROFILE_INJECT_FAILED',
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          { ...telemetryCtx, jobId },
+        );
+      }
+    }
+  }
+
+  // INSTR-1A0: snapshot the FULL system block actually sent for every draft job — both
+  // paths, flag on or off. Runs AFTER all assembly so the row is byte-faithful to the
+  // request. Best-effort: a snapshot failure is logged loudly but never breaks the call.
+  if (DRAFT_SNAPSHOT_JOB_TYPES.has(jobType)) {
     try {
-      matterStateBlock = await getMatterStateProvider()({
-        matterId,
+      await getPromptSnapshotWriter()({
+        id: uuidv4(),
         userId,
-        ...(documentId !== undefined ? { documentId } : {}),
+        jobId,
+        matterId: matterId ?? null,
+        documentId: documentId ?? null,
+        jobType,
+        callRole: composition.callRole,
+        source: composition.source,
+        assetId: composition.source === 'legacy' ? null : composition.source,
+        assetSha256: composition.assetSha256,
+        systemText: llmParams.systemPrompt,
+        systemSha256: sha256Hex(llmParams.systemPrompt),
+        flagEnabled: composition.flagEnabled,
+        modelString,
+        providerId,
+        modelId,
+        // The registry maps provider -> adapter 1:1 (resolveAdapter); recorded separately
+        // so a future multi-adapter provider stays distinguishable in old rows.
+        adapterId: providerId,
       });
     } catch (err) {
       void emitTelemetry(
         'procedure_error',
         {
-          procedureName: 'matterStateInjection',
-          errorCode: 'MATTER_STATE_INJECT_FAILED',
+          procedureName: 'promptSnapshot',
+          errorCode: 'PROMPT_SNAPSHOT_WRITE_FAILED',
           errorMessage: err instanceof Error ? err.message : String(err),
         },
         { ...telemetryCtx, jobId },
       );
-    }
-    if (matterStateBlock) {
-      llmParams = { ...llmParams, systemPrompt: `${matterStateBlock}\n\n${llmParams.systemPrompt}` };
-    }
-  }
-
-  // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended
-  // OUTERMOST (it is the attorney's own top-level instruction). Best-effort: a failed/absent load
-  // degrades to the base prompt (byte-identical) — never a mismatched PA. Captures the loaded
-  // profile id+version for THIS job in the append-only kb_events trail (R11 immutability) — no
-  // jobs-table change required.
-  if (matterId) {
-    try {
-      const profile = await getPaProfileProvider()({ matterId, userId });
-      if (profile && profile.body) {
-        llmParams = { ...llmParams, systemPrompt: `${profile.body}\n\n${llmParams.systemPrompt}` };
-        void recordKbEvent({
-          userId,
-          action: 'pa_profile_loaded_for_job',
-          targetType: 'pa_instruction_profile',
-          targetId: profile.profileId,
-          summary: `Loaded PA profile (paKey=${profile.paKey}, v${profile.version}) for job`,
-          payload: { jobId, profileId: profile.profileId, version: profile.version, paKey: profile.paKey },
-        });
-      }
-    } catch (err) {
-      void emitTelemetry(
-        'procedure_error',
-        {
-          procedureName: 'paProfileInjection',
-          errorCode: 'PA_PROFILE_INJECT_FAILED',
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-        { ...telemetryCtx, jobId },
-      );
+      // eslint-disable-next-line no-console
+      console.warn(`[canonicalMutation] prompt snapshot write failed for job ${jobId} (${jobType})`);
     }
   }
 

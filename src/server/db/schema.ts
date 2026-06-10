@@ -2466,3 +2466,48 @@ export type Tickler = typeof tickler.$inferSelect;
 export type NewTickler = typeof tickler.$inferInsert;
 export type HolidayCalendar = typeof holidayCalendar.$inferSelect;
 export type NewHolidayCalendar = typeof holidayCalendar.$inferInsert;
+
+// ============================================================
+// INSTR-1A0 (INSTRUCTIONS-LEG-1) — prompt_snapshots (migration 0026)
+// ============================================================
+// APPEND-ONLY per-draft-job record of the FULL composed system text actually sent to the
+// provider (both paths, flag on or off), with its SHA-256, the composed asset's logical
+// ID + manifest hash (or 'legacy'), the flag state at dispatch, and model/provider/adapter.
+// Written best-effort at the LLM-dispatch chokepoint AFTER all assembly (master swap or the
+// legacy matter-state/PA-profile injections) so the row is byte-faithful to the request.
+// IMMUTABLE (no updatedAt); insert-only in 1A0 (read path + Zod wall arrive with a consumer).
+
+export const promptSnapshots = mysqlTable(
+  'prompt_snapshots',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    jobId: char('jobId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }),
+    documentId: char('documentId', { length: 36 }),
+    jobType: varchar('jobType', { length: 64 }).notNull(),
+    callRole: varchar('callRole', { length: 32 }).notNull(),
+    // 'master/claude/te' when composed; 'legacy' otherwise.
+    source: varchar('source', { length: 64 }).notNull(),
+    // Composed-path provenance; both NULL on the legacy path.
+    assetId: varchar('assetId', { length: 64 }),
+    assetSha256: char('assetSha256', { length: 64 }),
+    // The full system block actually sent + its hash (the audit core of the experiment).
+    systemText: mediumtext('systemText').notNull(),
+    systemSha256: char('systemSha256', { length: 64 }).notNull(),
+    flagEnabled: boolean('flagEnabled').notNull(),
+    modelString: varchar('modelString', { length: 128 }).notNull(),
+    providerId: varchar('providerId', { length: 32 }).notNull(),
+    modelId: varchar('modelId', { length: 96 }).notNull(),
+    // The registry maps provider -> adapter 1:1 today; recorded separately so a future
+    // multi-adapter provider stays distinguishable in old rows.
+    adapterId: varchar('adapterId', { length: 32 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxPromptSnapshotsJob: index('idx_prompt_snapshots_job').on(table.jobId),
+    idxPromptSnapshotsUserCreated: index('idx_prompt_snapshots_user_created').on(table.userId, table.createdAt),
+  }),
+);
+export type PromptSnapshot = typeof promptSnapshots.$inferSelect;
+export type NewPromptSnapshot = typeof promptSnapshots.$inferInsert;
