@@ -22,7 +22,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
-import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
+import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, resolveReviewerLatencyTuning, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
@@ -331,6 +331,11 @@ export const reviewSessionRouter = router({
             // model-capability registry (single source of truth). Gemini-2.5-pro -> 32768
             // (measured); Claude/GPT-5/Grok/lites -> 16384 floor. Supersedes the global 16384.
             maxTokens: getReviewerCeiling(modelString),
+            // REVIEWER-LATENCY-1 Step 2a: flag-gated reviewer-lane speed knobs. The resolver returns
+            // null (and this spread adds NOTHING) unless REVIEWER_LATENCY_TUNING_ENABLED is on AND
+            // this is the openai:gpt-5 reviewer lane — so flag-OFF and every non-gpt-5 reviewer stay
+            // byte-identical. The drafter/evaluator never reach this reviewer buildLlmParams.
+            ...(resolveReviewerLatencyTuning('reviewer_feedback', modelString) ?? {}),
           }),
           // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
           // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default

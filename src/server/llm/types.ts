@@ -23,6 +23,16 @@ export interface LlmGenerateParams {
   structuredOutputSchema?: ZodSchema;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * REVIEWER-LATENCY-1 Step 2a: optional, flag-gated reviewer-lane speed knobs. Populated ONLY by
+   * the reviewer dispatch when REVIEWER_LATENCY_TUNING_ENABLED is on and config provides them (see
+   * resolveReviewerLatencyTuning). Only the OpenAI adapter reads them; all other adapters ignore
+   * them, so when absent (the default) every request is byte-identical to today.
+   *   reasoningEffort → OpenAI Chat Completions top-level `reasoning_effort` (gpt-5/o-series only).
+   *   serviceTier     → OpenAI Chat Completions top-level `service_tier`.
+   */
+  reasoningEffort?: string;
+  serviceTier?: string;
   /** AbortSignal for timeout handling (Ch 22.4) */
   signal: AbortSignal;
 }
