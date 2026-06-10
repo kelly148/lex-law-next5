@@ -5,3 +5,7 @@
 tools/calibration/fixtures/synthetic_large_provision.txt text eol=lf
 tools/calibration/fixtures/*.mjs text eol=lf
 tools/calibration/*.mjs text eol=lf
+
+# INSTR-1A0: prompt assets are hash-pinned (manifest SHA-256 validated at boot) — their
+# bytes must be identical on every platform, so pin LF and never let autocrlf rewrite them.
+prompts/** text eol=lf
