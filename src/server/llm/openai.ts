@@ -53,12 +53,19 @@ interface OpenAiRequest {
   max_completion_tokens?: number;
   temperature?: number;
   response_format?: { type: 'json_object' | 'text' };
+  // REVIEWER-LATENCY-1 Step 2a: Chat Completions top-level latency knobs. Set ONLY when the caller
+  // supplies them (the flag-gated reviewer lane) — absent on every other request.
+  reasoning_effort?: string;
+  service_tier?: string;
 }
 
 interface OpenAiResponse {
   id: string;
   object: string;
   model: string;
+  // REVIEWER-LATENCY-1 Step 2a: OpenAI echoes the granted service tier here (e.g. 'priority',
+  // 'default'). Captured so we can verify priority actually applied vs. silently downgraded.
+  service_tier?: string;
   choices: Array<{
     index: number;
     message: { role: string; content: string | null };
@@ -248,6 +255,8 @@ export class OpenAiAdapter implements LlmClient {
       structuredOutputSchema,
       maxTokens = 4096,
       temperature = 0.3,
+      reasoningEffort,
+      serviceTier,
       signal,
     } = params;
 
@@ -268,6 +277,18 @@ export class OpenAiAdapter implements LlmClient {
 
     if (structuredOutputSchema) {
       requestBody.response_format = { type: 'json_object' };
+    }
+
+    // REVIEWER-LATENCY-1 Step 2a: flag-gated reviewer-lane speed knobs. These are set on the
+    // request ONLY when the caller supplied them — the reviewer dispatch passes them solely when
+    // REVIEWER_LATENCY_TUNING_ENABLED is on and config resolves a value (gpt-5 reviewer lane). When
+    // absent (the default, and every drafter/other-lane call), the body is byte-identical to before.
+    // reasoning_effort is valid only for reasoning models (gpt-5/o-series); guarded accordingly.
+    if (reasoningEffort && usesCompletionTokens) {
+      requestBody.reasoning_effort = reasoningEffort;
+    }
+    if (serviceTier) {
+      requestBody.service_tier = serviceTier;
     }
 
     let response: Response;
@@ -303,6 +324,17 @@ export class OpenAiAdapter implements LlmClient {
       data = (await response.json()) as OpenAiResponse;
     } catch (err) {
       throw new LlmProviderError('api_error', `Failed to parse OpenAI response JSON: ${String(err)}`, err);
+    }
+
+    // REVIEWER-LATENCY-1 Step 2a: when we requested a non-default service tier, log the GRANTED tier
+    // OpenAI echoes back, so we can verify 'priority' actually applied (vs. a silent downgrade).
+    // Observability only — never affects the job outcome; no telemetry-contract change.
+    if (serviceTier) {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[reviewer-latency] openai model=${data.model} requested_service_tier=${serviceTier} ` +
+          `granted_service_tier=${data.service_tier ?? 'none'} reasoning_effort=${reasoningEffort ?? 'unset'}`,
+      );
     }
 
     const rawText = data.choices[0]?.message.content ?? '';
@@ -380,6 +412,8 @@ export class OpenAiAdapter implements LlmClient {
           model: data.model,
           finishReason: data.choices[0]?.finish_reason,
           completionId: data.id,
+          // REVIEWER-LATENCY-1 Step 2a: granted service tier echo (undefined when not requested).
+          serviceTier: data.service_tier,
         },
       };
     }
@@ -394,6 +428,8 @@ export class OpenAiAdapter implements LlmClient {
         model: data.model,
         finishReason: data.choices[0]?.finish_reason,
         completionId: data.id,
+        // REVIEWER-LATENCY-1 Step 2a: granted service tier echo (undefined when not requested).
+        serviceTier: data.service_tier,
       },
     };
   }

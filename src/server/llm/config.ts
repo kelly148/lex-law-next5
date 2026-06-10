@@ -187,6 +187,59 @@ export function validateLlmConfig(): void {
 }
 
 // ============================================================
+// Reviewer-lane latency tuning (REVIEWER-LATENCY-1 Step 2a)
+// ============================================================
+// Per-role, per-provider request-side speed knobs for the reviewer lane ONLY. Flag-gated
+// (REVIEWER_LATENCY_TUNING_ENABLED, default OFF) — when the flag is OFF this resolver returns
+// null and the adapters add nothing, so every request stays byte-identical to today.
+//
+// Scope (Step 2a): jobType 'reviewer_feedback' on openai:gpt-5 only. The drafter, the evaluator,
+// the lite/other reviewer models, and every non-OpenAI provider resolve to null → unchanged.
+//
+// API surface: the OpenAI adapter uses the Chat Completions API (/v1/chat/completions). There,
+// reasoning_effort and service_tier are BOTH top-level request fields (NOT the Responses-API
+// `reasoning: { effort }` nesting). Values are env-overridable without a code change (a Railway
+// env edit + restart) so the effort/tier can be retuned from measurement without a redeploy.
+
+import { isReviewerLatencyTuningEnabled } from '../config/featureFlags.js';
+
+export interface ReviewerLatencyTuning {
+  /** OpenAI Chat Completions top-level `reasoning_effort` (gpt-5/o-series): minimal|low|medium|high. */
+  reasoningEffort?: string;
+  /** OpenAI Chat Completions top-level `service_tier`: auto|default|flex|priority. */
+  serviceTier?: string;
+}
+
+/** The gpt-5 reviewer model string this tuning targets in Step 2a. */
+const TUNED_REVIEWER_MODEL = 'openai:gpt-5';
+
+function envOr(envVar: string, fallback: string): string {
+  const v = process.env[envVar];
+  if (v && v.trim().length > 0) return v.trim();
+  return fallback;
+}
+
+/**
+ * Resolve the reviewer-lane latency tuning for a dispatch, or null when nothing should change.
+ * Returns non-null ONLY when: the flag is ON, the job is a reviewer_feedback job, and the model is
+ * openai:gpt-5. Any other (jobType, model) — including the drafter, the evaluator, and every other
+ * provider/model — resolves to null, so the caller adds no request params and the request is
+ * byte-identical to today. Env overrides: REVIEWER_GPT5_REASONING_EFFORT, REVIEWER_GPT5_SERVICE_TIER.
+ */
+export function resolveReviewerLatencyTuning(
+  jobType: string,
+  modelString: string,
+): ReviewerLatencyTuning | null {
+  if (!isReviewerLatencyTuningEnabled()) return null;
+  if (jobType !== 'reviewer_feedback') return null;
+  if (modelString !== TUNED_REVIEWER_MODEL) return null;
+  return {
+    reasoningEffort: envOr('REVIEWER_GPT5_REASONING_EFFORT', 'low'),
+    serviceTier: envOr('REVIEWER_GPT5_SERVICE_TIER', 'priority'),
+  };
+}
+
+// ============================================================
 // Model string parsing helpers
 // ============================================================
 

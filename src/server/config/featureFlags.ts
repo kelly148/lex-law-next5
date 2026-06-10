@@ -143,6 +143,22 @@ export function isPromptCompositionEnabled(): boolean {
 }
 
 /**
+ * Reviewer-lane request-side speed tuning (REVIEWER-LATENCY-1 Step 2a). DEFAULT OFF.
+ *
+ * When OFF (the default), every provider request is byte-for-byte identical to today — no
+ * reasoning_effort, no service_tier, nothing added to any adapter request. This is the
+ * "cannot confound the drafter A/B baseline" guarantee, guard-tested per adapter.
+ *
+ * When exactly "true", the OpenAI reviewer lane (reviewer_feedback jobs on openai:gpt-5) sends
+ * the two latency knobs resolved by resolveReviewerLatencyTuning() (config.ts): reasoning_effort
+ * (default "low") and service_tier (default "priority"). DRAFTER and every non-OpenAI / non-
+ * reviewer lane are untouched — the resolver returns null for them, so their requests never change.
+ */
+export function isReviewerLatencyTuningEnabled(): boolean {
+  return process.env['REVIEWER_LATENCY_TUNING_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
