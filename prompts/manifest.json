@@ -2,8 +2,8 @@
   "version": 1,
   "assets": {
     "master/claude/te": {
-      "file": "prompts/assets/TE_Master_Instructions_v1.md",
-      "sha256": "127e18eba82c0d1633e446b74989513ee3abc4b3c97d67b333b2772359f40f00"
+      "file": "prompts/assets/TE_Master_Instructions_v1.1.md",
+      "sha256": "ed4a4ce574bd5b189b1c060d3d7c9d891a9cd2bd0eafad7cb2b0fee6906d0c62"
     }
   }
 }
