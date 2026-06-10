@@ -1,4 +1,5 @@
 import type { AnyReviewerKey } from '../config.js';
+import { isReviewerLeanContractEnabled } from '../../config/featureFlags.js';
 
 export type ReviewerTrack = 'GPT' | 'Claude' | 'Grok' | 'Gemini';
 
@@ -60,6 +61,30 @@ export const FEEDBACK_CARD_FIELD_NAMES = [
   'evaluator_disposition',
   'evaluator_rationale',
   'regeneration_instructions',
+] as const;
+
+// REVIEWER-LATENCY-1 Step 2b: the lean single-render field set emitted when
+// REVIEWER_LEAN_CONTRACT_ENABLED is on. Drops the runtime/evaluator-owned fields
+// (feedback_id, review_cycle_id, reviewer_track, target_document, evaluator_disposition,
+// evaluator_rationale, future_memory_instruction, persistence_count, persistence_chain,
+// regeneration_instructions, severity_subtype) and the inert flags
+// (suppress_by_default, routine_blank_flag — Step-0 consumer check: emitted-only, never
+// read by any runtime path). ADDS governing_law so the jurisdiction treatment that used
+// to live in the prose memo has a structured home (lossless derived display).
+export const FEEDBACK_CARD_FIELD_NAMES_LEAN = [
+  'severity',
+  'critique_type',
+  'target_section',
+  'issue',
+  'source_basis',
+  'governing_law',
+  'source_of_truth_tier',
+  'recommendation',
+  'suggested_revision',
+  'requires_attorney_decision',
+  'audience_affected',
+  'confidence',
+  'disposition_options',
 ] as const;
 
 export const FEEDBACK_CARD_CRITIQUE_TYPES = [
@@ -143,6 +168,57 @@ const outputContract = [
   'Return [] if there is no feedback.',
 ].join('\n');
 
+// ============================================================
+// REVIEWER-LATENCY-1 Step 2b — LEAN single-render variants (flag ON only)
+// Each block preserves the SAME calibration behavior as its legacy counterpart but
+// drops references to fields that are no longer emitted. Behaviors kept verbatim in
+// intent: five-tier severity, execution-blank suppression, drafting-vs-business
+// separation, matter-memory awareness, persistence, cross-model complementarity,
+// cumulative carry-forward, and the business-decision guardrail.
+// ============================================================
+
+const severityTaxonomyLean = [
+  'Use this five-tier severity taxonomy exactly: BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH.',
+  'BLOCKER = sendability fail or issue that prevents responsible attorney release.',
+  'SUBSTANTIVE = legal, risk-allocation, or deal-position issue. In the issue and recommendation text, state whether it is a DRAFTING matter (how to express a settled legal or business position; you may recommend drafting language) or a BUSINESS matter (what position, risk allocation, or deal term to choose; surface options and do not choose the business path for the attorney).',
+  'STRUCTURAL = organization, cross-reference, sequencing, or internal-consistency problem.',
+  'PRECISION = wording, ambiguity, defined-term, citation, or source-basis precision problem.',
+  'POLISH = style, readability, grammar, or aesthetics with no substantive effect.',
+].join('\n');
+
+const sevenMissingRulesLean = [
+  'Execution-blanks suppression: do not flag ordinary signature, date, witness, or notary blanks on pre-execution drafts; simply omit routine execution blanks from your feedback rather than raising them. Missing legal description, principal amount, tax deadline, property identity, or other non-routine blanks remain flaggable.',
+  'Substance-vs-tone classification: do not soften substantively correct legal positions unless audience or relationship-risk justifies it; label any softening recommendation as substance or tone in the issue and recommendation text.',
+  'Drafting-vs-business separation: drafting means how to express a settled position; business means what position, risk allocation, or deal term to choose; never make business decisions for the attorney.',
+  'Matter-memory awareness: check provided matter context for locked decisions and do not re-raise previously resolved or locked decisions absent material change.',
+  'Reviewer-persistence treatment: if re-raising a previously disposed issue because it remains important, say so explicitly in the recommendation rather than silently suppressing it.',
+  'Cross-model defect complementarity: when reviewing another reviewer output or acting in second-opinion mode, identify overlap, disagreement, and complementary catches across GPT, Claude, Grok, and Gemini without limiting any model to a single role.',
+  'Cumulative state carry-forward: when reviewing regenerated drafts, treat prior adopted changes as part of the current intended state and do not flag adopted changes as new defects.',
+].join('\n');
+
+const businessDecisionCalibrationLean = [
+  'Business-decision calibration anchor: if the draft reflects one possible business structure but matter context says the attorney has not selected the structure, treat the unselected structure as a BUSINESS decision (not a drafting fix) and set requires_attorney_decision true.',
+  'For seller-financing recourse decisions, including Path-A recourse with senior-debt cap versus Path-B non-recourse seller financing, identify the risk-allocation decision and set requires_attorney_decision true.',
+  'Surface both available paths for attorney selection: Path A = recourse with senior-debt cap, with any cap language framed only as an option; Path B = non-recourse, preserving the current draft structure if the attorney selects it.',
+  'Do not choose recourse or non-recourse for the attorney, do not recommend one path as the answer, and do not regenerate or rewrite the note to change the business structure unless the attorney has already selected that structure.',
+  'For business-decision items, use recommendation and suggested_revision to describe options, attorney decision points, and drafting that would follow each option; never present an unselected business path as the required revision.',
+].join('\n');
+
+const outputContractLean = [
+  'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
+  'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "the body string described below", "severity": "critical"|"major"|"minor" }.',
+  'Inside each body string, return ONLY a section labeled STRUCTURED_FEEDBACK_CARDS followed by a JSON array containing EXACTLY ONE feedback-card object. Do NOT write any prose, narrative, or memo section, and do NOT put any text outside that JSON array.',
+  'The single feedback-card object must use EXACTLY these field names and no others: ' +
+    FEEDBACK_CARD_FIELD_NAMES_LEAN.join(', ') +
+    '.',
+  'Field meanings: issue states the problem; source_basis ties it to document text, matter context, or governing law; governing_law states the jurisdiction / governing-law treatment (the controlling state and any Virginia vs. Maryland distinction, or "n/a" when not jurisdiction-dependent); recommendation states the recommended action; suggested_revision gives concrete drafting language or null; requires_attorney_decision is true when the attorney must choose; audience_affected lists who is affected.',
+  'Feedback-card severity values: BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH.',
+  `Feedback-card critique_type values: ${FEEDBACK_CARD_CRITIQUE_TYPES.join(', ')}.`,
+  `Feedback-card disposition_options values: ${FEEDBACK_CARD_DISPOSITIONS.join(', ')}.`,
+  'Do not invent unsupported field names such as priority_level, business_owner, evaluator_notes, or final_decision, and do not emit any field not listed above.',
+  'Return [] if there is no feedback.',
+].join('\n');
+
 const constructionStyles: Record<ReviewerTrack, string> = {
   GPT: 'bullet-and-header construction',
   Claude: 'XML-style structured sections',
@@ -167,18 +243,48 @@ function styleInstruction(track: ReviewerTrack): string {
   }
 }
 
-export function getReviewerPromptProfile(reviewerKey: AnyReviewerKey): ReviewerPromptProfile {
+// REVIEWER-LATENCY-1 Step 2b: lean style guidance — there is no body memo under the
+// lean contract (the body is a single JSON card), so style guidance applies to the
+// issue/recommendation text instead. No reference to a memo.
+function styleInstructionLean(track: ReviewerTrack): string {
+  switch (track) {
+    case 'GPT':
+      return 'Write the issue and recommendation text concisely with clear structure.';
+    case 'Claude':
+      return 'Write clear, well-structured issue and recommendation text while preserving valid JSON string escaping.';
+    case 'Grok':
+      return 'Write the issue and recommendation text as clean, direct do/don\'t guidance.';
+    case 'Gemini':
+      return 'Write the issue and recommendation text with explicit, structured behavioral constraints.';
+  }
+}
+
+export function getReviewerPromptProfile(
+  reviewerKey: AnyReviewerKey,
+  leanContract: boolean = isReviewerLeanContractEnabled(),
+): ReviewerPromptProfile {
   const track = trackForReviewer(reviewerKey);
-  const systemPrompt = [
-    `You are the ${track} legal document reviewer (${reviewerKey}).`,
-    jurisdictionDiscipline,
-    severityTaxonomy,
-    sevenMissingRules,
-    businessDecisionCalibration,
-    sourceAndModeDiscipline,
-    styleInstruction(track),
-    outputContract,
-  ].join('\n\n');
+  const systemPrompt = leanContract
+    ? [
+        `You are the ${track} legal document reviewer (${reviewerKey}).`,
+        jurisdictionDiscipline,
+        severityTaxonomyLean,
+        sevenMissingRulesLean,
+        businessDecisionCalibrationLean,
+        sourceAndModeDiscipline,
+        styleInstructionLean(track),
+        outputContractLean,
+      ].join('\n\n')
+    : [
+        `You are the ${track} legal document reviewer (${reviewerKey}).`,
+        jurisdictionDiscipline,
+        severityTaxonomy,
+        sevenMissingRules,
+        businessDecisionCalibration,
+        sourceAndModeDiscipline,
+        styleInstruction(track),
+        outputContract,
+      ].join('\n\n');
 
   return {
     track,
@@ -188,6 +294,9 @@ export function getReviewerPromptProfile(reviewerKey: AnyReviewerKey): ReviewerP
   };
 }
 
-export function buildReviewerSystemPrompt(reviewerKey: AnyReviewerKey): string {
-  return getReviewerPromptProfile(reviewerKey).systemPrompt;
+export function buildReviewerSystemPrompt(
+  reviewerKey: AnyReviewerKey,
+  leanContract: boolean = isReviewerLeanContractEnabled(),
+): string {
+  return getReviewerPromptProfile(reviewerKey, leanContract).systemPrompt;
 }

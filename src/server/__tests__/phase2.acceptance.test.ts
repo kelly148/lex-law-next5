@@ -764,6 +764,7 @@ describe('AC5: R1–R15 automated code checks', () => {
       errorMessage: null,
       tokensPrompt: null,
       tokensCompletion: null,
+      tokensReasoning: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -792,6 +793,7 @@ describe('AC5: R1–R15 automated code checks', () => {
       errorMessage: null,
       tokensPrompt: null,
       tokensCompletion: null,
+      tokensReasoning: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -818,6 +820,7 @@ describe('AC5: R1–R15 automated code checks', () => {
       errorMessage: null,
       tokensPrompt: 100,
       tokensCompletion: 50,
+      tokensReasoning: 25,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

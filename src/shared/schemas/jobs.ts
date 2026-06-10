@@ -134,6 +134,10 @@ export const JobRowSchema = z.object({
   errorMessage: z.string().nullable(),
   tokensPrompt: z.number().int().nonnegative().nullable(),
   tokensCompletion: z.number().int().nonnegative().nullable(),
+  // REVIEWER-LATENCY-1 Step 2b: surface the provider-reported reasoning/thinking
+  // tokens (0027 column) to the client. NULL = not reported for this provider/model.
+  // Lets reasoning_fraction (tokensReasoning / tokensCompletion) be computed downstream.
+  tokensReasoning: z.number().int().nonnegative().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -163,6 +167,10 @@ export const PublicJobSchema = z.object({
   errorMessage: z.string().nullable(),
   tokensPrompt: z.number().int().nonnegative().nullable(),
   tokensCompletion: z.number().int().nonnegative().nullable(),
+  // REVIEWER-LATENCY-1 Step 2b: surface the provider-reported reasoning/thinking
+  // tokens (0027 column) to the client. NULL = not reported for this provider/model.
+  // Lets reasoning_fraction (tokensReasoning / tokensCompletion) be computed downstream.
+  tokensReasoning: z.number().int().nonnegative().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
