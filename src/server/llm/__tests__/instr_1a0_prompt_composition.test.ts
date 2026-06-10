@@ -41,8 +41,8 @@ import {
 } from '../../db/canonicalMutation.js';
 import type { NewPromptSnapshot, JobType } from '../../db/schema.js';
 
-/** The pinned golden hash of TE_Master_Instructions_v1.md (must equal prompts/manifest.json). */
-const TE_SHA256 = '127e18eba82c0d1633e446b74989513ee3abc4b3c97d67b333b2772359f40f00';
+/** The pinned golden hash of TE_Master_Instructions_v1.1.md (must equal prompts/manifest.json). */
+const TE_SHA256 = 'ed4a4ce574bd5b189b1c060d3d7c9d891a9cd2bd0eafad7cb2b0fee6906d0c62';
 
 const FLAG = 'PROMPT_COMPOSITION_ENABLED';
 const USER = '11111111-1111-1111-1111-111111111111';
@@ -136,6 +136,12 @@ describe('INSTR-1A0 — assemblePrompt decision matrix', () => {
     expect(out.assetSha256).toBe(TE_SHA256);
     expect(out.systemText).not.toBeNull();
     expect(sha256Hex(Buffer.from(out.systemText!, 'utf8'))).toBe(TE_SHA256);
+    // INSTR-1A0 v1.1 delivery-adapter (§8 API-delivery): the composed system block carries NO
+    // tool-bound web-container pipeline markers — the flag-(e) §8 bleed that made the API draft
+    // emit a Node/docx generation script instead of the instrument (Baseline Run 1 defect D1).
+    for (const marker of ['/home/claude', '/mnt/', "require('docx')", 'Node']) {
+      expect(out.systemText!).not.toContain(marker);
+    }
   });
 
   it('matches the matter freeform practiceArea against the exact literal set', () => {
