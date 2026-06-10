@@ -28,6 +28,7 @@ import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.j
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
 import { validateLlmConfig } from './llm/config.js';
+import { loadPromptAssets } from './llm/promptAssets.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
 import { getSession, extractUserId } from './middleware/session.js';
 import { insertMaterial } from './db/queries/materials.js';
@@ -51,6 +52,12 @@ import { isSendabilityGateEnabled, isConflictGateEnabled } from './config/featur
 // with a misconfigured model whitelist.
 // ============================================================
 validateLlmConfig();
+
+// INSTR-1A0: load + hash-validate the committed prompt assets (prompts/manifest.json).
+// Fail fast and LOUDLY on a missing file or SHA-256 mismatch — a silently-drifted master
+// prompt must never serve. Runs flag-on or flag-off (the manifest is tiny and committed;
+// an image missing prompts/ should fail at deploy healthcheck, not at first flag-flip).
+loadPromptAssets();
 
 const app = express();
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);

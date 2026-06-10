@@ -69,8 +69,11 @@ const MIGRATIONS = [
   // fail-closed intake gate). Single additive CREATE TABLE IF NOT EXISTS; no existing table altered.
   // Renumbered 0024 -> 0025 at rebase: 0024 was taken by MATERIALS-DROPZONE-1 Inc B on main.
   '0025_conflict_gate_override_1_gate_override.sql',
+  // INSTR-1A0 — prompt_snapshots (per-draft-job composed-system-text audit record). Single additive
+  // CREATE TABLE IF NOT EXISTS; no existing table altered. Flag PROMPT_COMPOSITION_ENABLED OFF.
+  '0026_instr_1a0_prompt_snapshots.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
