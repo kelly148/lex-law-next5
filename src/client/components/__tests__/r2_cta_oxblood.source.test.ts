@@ -42,6 +42,7 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
     'DocumentDetail': `${PAGES}/DocumentDetail.tsx`,       // Generate / Extract / Render / Accept (iterative)
     'InformationRequestPage': `${PAGES}/InformationRequestPage.tsx`, // Generate / Add to Client Materials
     'UploadFormatPage': `${PAGES}/UploadFormatPage.tsx`,   // Format Document (already oxblood, #184)
+    'MatterDetail': `${PAGES}/MatterDetail.tsx`,           // New Document — operator-directed oxblood primary (2026-06-10), grammar exception
   };
   for (const [name, rel] of Object.entries(onePrimary)) {
     it(`${name}: oxblood primary present, no loud ink/blue button fill`, () => {
@@ -52,14 +53,15 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
     });
   }
 
-  // 2. MatterDetail composite + matter panels + Review surfaces promote NONE — zero oxblood fill.
+  // 2. Matter panels + Review surfaces promote NONE — zero oxblood fill.
   //    (`bg-accent-tint` pills are unaffected: this checks the solid-fill signature only.)
   //    RELAYOUT-3 / REVIEW-SKIN-1 (operator-signed) carved ReviewPane.tsx OUT of this list: the
   //    reviewer-selection state now carries ONE oxblood primary ("Start review (N)"), and the
   //    active state's one oxblood is Regenerate — one-oxblood-PER-VIEW-STATE, not zero. ReviewPane
   //    still appears in the GHOST-containing assertion below (it keeps its ghost controls).
+  //    MatterDetail (operator-directed, 2026-06-10): carved OUT to the one-primary list above — its
+  //    New Document button is now the view's single oxblood primary (grammar exception).
   const ghostEverywhere = [
-    `${PAGES}/MatterDetail.tsx`,
     `${COMP}/MatterIntakePanel.tsx`, `${COMP}/MatterStateDashboard.tsx`,
     `${COMP}/ClosurePackagePanel.tsx`, `${COMP}/KnowledgeBasePanel.tsx`,
     `${COMP}/ProvisionProvenancePanel.tsx`, `${COMP}/LddDiffPanel.tsx`,
