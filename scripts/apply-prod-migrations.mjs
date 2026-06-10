@@ -72,6 +72,9 @@ const MIGRATIONS = [
   // INSTR-1A0 — prompt_snapshots (per-draft-job composed-system-text audit record). Single additive
   // CREATE TABLE IF NOT EXISTS; no existing table altered. Flag PROMPT_COMPOSITION_ENABLED OFF.
   '0026_instr_1a0_prompt_snapshots.sql',
+  // REVIEWER-LATENCY-1 Step 0 — jobs.tokensReasoning (additive ADD COLUMN IF NOT EXISTS on the
+  // existing jobs table). Persistence-only; no provider request changes. Idempotent.
+  '0027_reviewer_latency_0_tokens_reasoning.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];

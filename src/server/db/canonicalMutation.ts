@@ -744,12 +744,18 @@ export async function executeCanonicalMutation(
     return { jobId, status: 'failed' };
   }
 
+  // REVIEWER-LATENCY-1 Step 0: persist the reasoning-token count that already rides on the adapter
+  // result (dropped at the DB boundary until now). Per-provider semantics are AS-REPORTED — see
+  // markJobCompleted / schema.ts. null when the provider does not report it (Anthropic always).
+  const tokensReasoning = llmResult.tokensReasoning ?? null;
+
   await jw.markJobCompleted(
     jobId,
     userId,
     llmResult.content,
     llmResult.tokensPrompt,
     llmResult.tokensCompletion,
+    tokensReasoning,
   );
 
   void emitTelemetry(
@@ -758,6 +764,8 @@ export async function executeCanonicalMutation(
       jobType,
       tokensPrompt: llmResult.tokensPrompt,
       tokensCompletion: llmResult.tokensCompletion,
+      // REVIEWER-LATENCY-1 Step 0: durable telemetry now agrees with the [token-accounting] log.
+      tokensReasoning,
       durationMs: elapsedMs,
     },
     { ...telemetryCtx, jobId },
