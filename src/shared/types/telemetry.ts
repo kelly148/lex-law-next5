@@ -230,7 +230,7 @@ export interface TelemetryPayload {
   // E.3 Job lifecycle
   job_queued: { jobType: string; promptVersion: string };
   job_started: { jobType: string; providerId: string; modelId: string; promptVersion: string };
-  job_completed: { jobType: string; tokensPrompt: number; tokensCompletion: number; durationMs: number };
+  job_completed: { jobType: string; tokensPrompt: number; tokensCompletion: number; tokensReasoning: number | null; durationMs: number };
   job_failed: { jobType: string; errorClass: string; errorMessage: string };
   job_timed_out: { jobType: string; timeoutMs: number; elapsedMs: number };
   job_cancelled: { jobType: string; elapsedMs: number; cancelOrigin: 'attorney' };

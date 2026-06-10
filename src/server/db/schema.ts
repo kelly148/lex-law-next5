@@ -200,6 +200,11 @@ export const jobs = mysqlTable(
     // Token counts — populated on completion by the provider adapter
     tokensPrompt: int('tokensPrompt'),
     tokensCompletion: int('tokensCompletion'),
+    // REVIEWER-LATENCY-1 Step 0: provider-reported reasoning/thinking tokens, stored AS-REPORTED
+    // (no normalization). Per-provider semantics differ — OpenAI reasoning_tokens is a SUBSET of
+    // tokensCompletion; Gemini thoughtsTokenCount is SEPARATE from it; xAI best-effort; Anthropic
+    // not captured -> NULL. NULL means "not reported for this provider/model", distinct from 0.
+    tokensReasoning: int('tokensReasoning'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt')
       .notNull()

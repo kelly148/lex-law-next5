@@ -248,6 +248,15 @@ export async function markJobCompleted(
   output: unknown,
   tokensPrompt: number,
   tokensCompletion: number,
+  // REVIEWER-LATENCY-1 Step 0: provider-reported reasoning/thinking tokens, written AS-REPORTED.
+  // null when the provider/model does not report it (Anthropic always; others when absent). The
+  // value already exists in LlmGenerateResult.tokensReasoning — this persists it; it is NOT
+  // obtained by any new request to the provider (persistence-only increment).
+  //   OpenAI  : reasoning_tokens — a SUBSET of tokensCompletion.
+  //   Gemini  : thoughtsTokenCount — SEPARATE from tokensCompletion.
+  //   xAI     : best-effort reasoning_tokens as captured.
+  //   Anthropic: not captured -> null.
+  tokensReasoning: number | null = null,
 ): Promise<number> {
   const now = new Date();
   await db
@@ -259,6 +268,7 @@ export async function markJobCompleted(
       output: output as Record<string, unknown>,
       tokensPrompt,
       tokensCompletion,
+      tokensReasoning,
       updatedAt: now,
     })
     .where(
