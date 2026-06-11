@@ -91,7 +91,7 @@ describe('REVIEWER-LATENCY-1 Step 2b — flag ON emits the lean single-render co
     }
   });
 
-  it('emits exactly the lean field set plus governing_law and a single card', () => {
+  it('emits the lean field set plus governing_law and the STRUCTURED_FEEDBACK_CARDS marker', () => {
     for (const key of REVIEWER_TRACK_KEYS) {
       const on = buildReviewerSystemPrompt(key, true);
       for (const field of FEEDBACK_CARD_FIELD_NAMES_LEAN) {
@@ -99,7 +99,20 @@ describe('REVIEWER-LATENCY-1 Step 2b — flag ON emits the lean single-render co
       }
       expect(on).toContain('governing_law');
       expect(on).toContain('STRUCTURED_FEEDBACK_CARDS');
-      expect(on).toContain('EXACTLY ONE feedback-card object');
+    }
+  });
+
+  // 2b.1 multiplicity fix: the A/B showed gpt-5 read "EXACTLY ONE feedback-card object" as
+  // "emit one finding total" (10 findings -> 1). The lean contract must instruct one item PER
+  // FINDING and to surface ALL material issues, with no one-card-total phrasing.
+  it('2b.1: instructs one item per finding / surface all material issues, no one-card-total phrasing', () => {
+    for (const key of REVIEWER_TRACK_KEYS) {
+      const on = buildReviewerSystemPrompt(key, true);
+      expect(on).toContain('ONE array item PER FINDING');
+      expect(on).toContain('Surface ALL material issues');
+      expect(on).toContain('source_of_truth_tier is a NUMBER from 1 to 9');
+      expect(on).not.toContain('EXACTLY ONE feedback-card object');
+      expect(on).not.toContain('single feedback-card object');
     }
   });
 
