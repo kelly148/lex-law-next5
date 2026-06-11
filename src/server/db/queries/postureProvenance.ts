@@ -212,6 +212,25 @@ export async function verifyPostureProvenanceChainForMatter(
   return verifyChain(rows.map((row) => ({ content: rowToContent(row), prevHash: row.prevHash, entryHash: row.entryHash })));
 }
 
+export interface ProvenanceExportBundle {
+  matterId: string;
+  count: number;
+  chain: ChainVerification;
+  entries: PostureProvenanceRow[];
+}
+
+/** The portable export bundle: the chronological ledger + the tamper-evident chain verdict (one read). */
+export async function exportPostureProvenanceForMatter(
+  matterId: string,
+  userId: string,
+): Promise<ProvenanceExportBundle> {
+  const entries = await listPostureProvenanceForMatter(matterId, userId);
+  const chain = verifyChain(
+    entries.map((row) => ({ content: rowToContent(row), prevHash: row.prevHash, entryHash: row.entryHash })),
+  );
+  return { matterId, count: entries.length, chain, entries };
+}
+
 /**
  * BEST-EFFORT append — never throws. Use from governing flows so the audit write can NEVER break the
  * operation it records (e.g. when posture_provenance is not yet migrated on this environment, the

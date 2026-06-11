@@ -19,6 +19,19 @@ const RECIPIENT = z.enum([
 
 const ISSUER_CAPACITY = z.enum(['counsel', 'principal']);
 
+const ACT = z.enum([
+  'lock',
+  'tier_source',
+  'disposition',
+  'send',
+  'matter_identity',
+  'issuer',
+  'privilege',
+  'recipient',
+]);
+
+const EVENT_CLASS = z.enum(['meaningful_accept', 'dirty_confirmed']);
+
 /** The triple as stored in the priorTriple JSON column (mirrors the shared Posture type). */
 export const PostureTripleSchema = z.object({
   issuer: z.object({
@@ -43,17 +56,8 @@ export const PostureProvenanceRowSchema = z.object({
   matterId: z.string().uuid(),
   documentId: z.string().uuid().nullable(),
   seq: z.number().int().nonnegative(),
-  eventClass: z.enum(['meaningful_accept', 'dirty_confirmed']),
-  act: z.enum([
-    'lock',
-    'tier_source',
-    'disposition',
-    'send',
-    'matter_identity',
-    'issuer',
-    'privilege',
-    'recipient',
-  ]),
+  eventClass: EVENT_CLASS,
+  act: ACT,
   actor: z.string(),
   sliderPosition: z.string(),
   triggerSource: z.string(),
@@ -72,3 +76,23 @@ export const PostureProvenanceRowSchema = z.object({
 });
 
 export type PostureProvenanceRow = z.infer<typeof PostureProvenanceRowSchema>;
+
+/**
+ * Input contract for the recordProvenance mutation — the W1 ProvenanceEntry as it crosses the wire.
+ * The server stamps the authenticated actor (Ch 35.2) and derives the resolved columns from
+ * nextTriple, so a client-supplied actor is not trusted for the stored record.
+ */
+export const ProvenanceEntryInputSchema = z.object({
+  act: ACT,
+  eventClass: EVENT_CLASS,
+  actor: z.string(),
+  sliderPosition: z.string(),
+  triggerSource: z.string(),
+  at: z.string(),
+  priorTriple: PostureTripleSchema.nullable(),
+  nextTriple: PostureTripleSchema.nullable(),
+  resolvedRecipient: RECIPIENT.nullable(),
+  acknowledged: z.array(CoherenceFindingSchema),
+});
+
+export type ProvenanceEntryInput = z.infer<typeof ProvenanceEntryInputSchema>;

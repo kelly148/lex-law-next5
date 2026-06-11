@@ -25,7 +25,30 @@ vi.mock('../../trpc.js', async () => {
             return { data: { enabled: mock.enabled }, isLoading: mock.isLoading };
           },
         },
+        // ChatSurface mounts ProvenanceLedgerPanel (W2) -> usePostureProvenance; stub its calls.
+        listProvenance: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: [], isLoading: false, isError: false };
+          },
+        },
+        recordProvenance: {
+          useMutation: () => {
+            React.useRef(null);
+            return { mutate: () => {}, isPending: false };
+          },
+        },
       },
+      useUtils: () => ({
+        chatUi: { listProvenance: { invalidate: () => {} } },
+        client: {
+          chatUi: {
+            exportProvenance: {
+              query: async () => ({ matterId: 'm-1', count: 0, chain: { valid: true, brokenAtSeq: null, reason: null }, entries: [] }),
+            },
+          },
+        },
+      }),
     },
   };
 });

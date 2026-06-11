@@ -16,6 +16,7 @@ import React from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
 import { trpc } from '../trpc.js';
+import ProvenanceLedgerPanel from '../components/ProvenanceLedgerPanel.js';
 
 export default function ChatSurface(): React.ReactElement {
   const { matterId } = useParams<{ matterId: string }>();
@@ -99,6 +100,8 @@ export default function ChatSurface(): React.ReactElement {
           A focused document opens here — versions and diff, the posture strip, and the sendability
           pre-flight. Empty until a deliverable is open.
         </p>
+        {/* CHAT-UI-1 W2 — the durable posture-provenance audit ledger (read + export) for this matter. */}
+        {matterId && <ProvenanceLedgerPanel matterId={matterId} />}
       </aside>
     </div>
   );
