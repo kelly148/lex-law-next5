@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (STATE RECONCILE — tracker caught up to the live Gate 0 + INSTR-2 tracks; docs/state-only, PR open, NOT merged)
+
+**Disposition.** Operator-approved (Rule 11 `y`) tracker reconcile to current reality per `prompts/HANDOFF_2026-06-11_master-injection-and-gate0.md`. Docs/state-only — **no source, no merge, no deploy, no flag flip.** Done on isolated branch `lex-next/state-reconcile-2026-06-11` (worktree `lln-state-reconcile`), branched fresh from `origin/main` @ `08f4d6a`; the shared clone `lex-law-next5-local` was mid-flight on `lex-next/async-display-disposition` (dirty tree) so it was not touched. The dispatcher build branch `lex-next/dispatcher-complete-1` was not touched.
+
+**Why.** The two operationally-live tracks were absent from the formal tracker (`docs/MR_CAL_engagement_state.json`): on `origin/main` the six IDs were nowhere except a stale `current_phase` narrative; `queue` held only the FOLD remainder; `current_engagement`/`in_progress_engagement` were null.
+
+**What changed (state.json).** Track B (Gate 0 / chat): `in_progress_engagement` = **DISPATCHER-COMPLETE-1** (Component A, building on `lex-next/dispatcher-complete-1`, no PR yet, flag `JOB_DISPATCHER_ENABLED` default OFF); `queue` += **JOB-RECOVERY-1** (Component B, queued) and **REVIEWER-ASYNC-DISPLAY-1** (Component C, SPEC_COMPLETE; §3.1 FIRE **dispositioned 3/3 APPROVE WITH CHANGES**, packet `docs/reviews/REVIEWER-ASYNC-DISPLAY-1_packet.md`, required changes folding into `docs/CHAT-UI-1/GATE0_IMPLEMENTATION_PLAN.md`). Track A (prompt injection): `queue` += **INSTR-2A** (READY); `blocked_engagements` += **INSTR-2B** (blocked on 2A merge + D-2; Title routing additionally §3.1-gated) and **INSTR-2C / CHAT-INJ-1** (blocked on 2B; §3.1 + Gate 0 + the not-yet-existing chat→model dispatch). All three Track-A items inserted ahead of the FOLD remainder and ahead of background `KB-PROVENANCE-1`. `completed_engagements` += **CHAT-UI-1 backend-act wiring (#268, `08f4d6a`)**; INSTR-1A0 already present (no-op). `current_engagement`/`current_phase`/`last_updated`/`last_updater` refreshed.
+
+**Build/deploy state.** `origin/main` = `08f4d6a` (CHAT-UI-1 #268). Nothing deployed by this engagement (docs only). Flags unchanged; `REVIEWER_ASYNC_ENABLED` stays OFF (dual-gated on the display fix + durable dispatch).
+
+**Open / owed.** Operator review of this PR (no merge yet). D-2 (title key) blocks INSTR-2B. §3.1 ethics disposition gates the Title routing in INSTR-2B. `CHAT_UI_1_ENABLED` value + migrations 0028/0029 on prod still to confirm (handoff §5.1). **Overlap:** INSTR-2A/B/C were also recorded on the unpushed local branch `lex-next/instr-2-record-and-queue` (off `63bf3e2`, also holds the prompt-asset preservation + decision docs); THIS reconcile supersedes that branch's tracker change — its prompt-asset files remain to be re-homed separately.
+
+---
+
 ## 2026-06-11 (LANDING-2 — landing page at bare domain for anonymous visitors, flag-gated; MERGED, NOT deployed)
 
 **Disposition.** Reversible build-and-PR, operator-approved merge. PR #264 squash-merged to `main` **79a7242** (CI green: Lint + Type Check + Tests). Flag `LANDING_AT_ROOT_ENABLED` default OFF; **flag-OFF byte-identical to today** (guard-tested). NOT deployed; even once deployed nothing changes until the flag is flipped.
