@@ -159,6 +159,27 @@ export function isReviewerLatencyTuningEnabled(): boolean {
 }
 
 /**
+ * Reviewer output-contract diet — single structured card, no prose memo
+ * (REVIEWER-LATENCY-1 Step 2b). DEFAULT OFF.
+ *
+ * When OFF (the default), the reviewer system prompt and the emitted contract are
+ * byte-for-byte identical to today: a NARRATIVE_REVIEWER_MEMO plus the full 25-field
+ * STRUCTURED_FEEDBACK_CARDS array inside each legacy wrapper body (guard-tested).
+ *
+ * When exactly "true", the reviewer is instructed to emit, inside each wrapper body,
+ * ONLY a STRUCTURED_FEEDBACK_CARDS array holding a SINGLE lean feedback-card object
+ * (no prose memo): a trimmed field set plus the new governing_law field, with the
+ * runtime/evaluator-owned and inert fields dropped. The active wrapper parser
+ * (parseFeedbackOutput) and the card-first display path are UNCHANGED — the lean card
+ * is a strict subset the lenient FeedbackCardDisplaySchema already tolerates. This is a
+ * token-weight reduction to keep the gpt-5 reviewer lane from truncating; activation is
+ * operator-gated and live-tested before any flip.
+ */
+export function isReviewerLeanContractEnabled(): boolean {
+  return process.env['REVIEWER_LEAN_CONTRACT_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

@@ -50,6 +50,9 @@ function validJobRow(): Record<string, unknown> {
     errorMessage: null,
     tokensPrompt: null,
     tokensCompletion: null,
+    // REVIEWER-LATENCY-1 Step 2b: column added to the jobs row (migration 0027); a real
+    // Drizzle select always returns it (null when not reported), matching tokensPrompt/Completion.
+    tokensReasoning: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

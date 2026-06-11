@@ -306,6 +306,8 @@ interface SuggestionForCard {
     suggested_revision?: string | null;
     issue?: string;
     recommendation?: string;
+    // REVIEWER-LATENCY-1 Step 2b: jurisdiction / governing-law treatment (lean card).
+    governing_law?: string | null;
   }>;
 }
 
@@ -495,6 +497,13 @@ function SuggestionCard({
             <p className="text-[13px] text-ink-secondary leading-relaxed whitespace-pre-line">{narrative}</p>
           </div>
         ) : null}
+        {/* REVIEWER-LATENCY-1 Step 2b: surface governing-law treatment when present (lean card). */}
+        {card0?.governing_law && card0.governing_law.trim().toLowerCase() !== 'n/a' && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Governing law</div>
+            <p className="text-[13px] text-ink-secondary leading-relaxed">{card0.governing_law}</p>
+          </div>
+        )}
         {card0?.recommendation && (
           <div>
             <div className="text-[11px] uppercase tracking-wide text-ink-hint mb-0.5">Recommend</div>

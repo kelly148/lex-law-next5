@@ -179,6 +179,11 @@ export const FeedbackCardDisplaySchema = z
     severity_subtype: z.string().nullish(),
     critique_type: z.string().optional(),
     target_section: z.string().optional(),
+    // REVIEWER-LATENCY-1 Step 2b: jurisdiction / governing-law treatment. Under the
+    // lean contract this is a first-class card field (previously it lived only in the
+    // prose memo); tolerated as optional so legacy verbose cards (which omit it) and
+    // lean cards both parse.
+    governing_law: z.string().nullish(),
     recommendation: z.string().optional(),
     suggested_revision: z.string().nullish(),
     requires_attorney_decision: z.boolean().optional(),
