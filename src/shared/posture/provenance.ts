@@ -40,12 +40,22 @@ export function isPostureAct(act: HardStopAct): boolean {
 }
 
 /**
+ * The two §3 provenance event classes, logged distinguishably (brief §2.5 / W2):
+ *  - 'meaningful_accept' — a deliberate, individual confirm of a consequential act / posture change.
+ *  - 'dirty_confirmed'   — a previously-dirty (pending) posture confirm cleared as a transition
+ *                          (e.g. an Auto-Act batch clear), logged non-blocking.
+ */
+export type ProvenanceEventClass = 'meaningful_accept' | 'dirty_confirmed';
+
+/**
  * A meaningful confirm record (brief §2.5): actor, slider position, timestamp, trigger source,
  * prior -> new triple, and the resolved recipient at egress. `acknowledged` captures the coherence
- * findings the attorney saw and accepted at confirm time.
+ * findings the attorney saw and accepted at confirm time. `eventClass` distinguishes the two §3
+ * classes for the durable audit ledger (W2).
  */
 export interface ProvenanceEntry {
   act: HardStopAct;
+  eventClass: ProvenanceEventClass;
   actor: string;
   sliderPosition: string;
   triggerSource: string;
@@ -58,6 +68,8 @@ export interface ProvenanceEntry {
 
 export interface BuildProvenanceInput {
   act: HardStopAct;
+  /** Defaults to 'meaningful_accept' (a deliberate individual confirm). */
+  eventClass?: ProvenanceEventClass;
   actor: string;
   sliderPosition: string;
   triggerSource: string;
@@ -76,6 +88,7 @@ export function buildProvenanceEntry(input: BuildProvenanceInput): ProvenanceEnt
   const nextTriple = input.nextTriple ?? null;
   return {
     act: input.act,
+    eventClass: input.eventClass ?? 'meaningful_accept',
     actor: input.actor,
     sliderPosition: input.sliderPosition,
     triggerSource: input.triggerSource,
