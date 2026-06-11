@@ -82,6 +82,22 @@ export function isJobDispatcherEnabled(): boolean {
 }
 
 /**
+ * Crash recovery for the job system (JOB-RECOVERY-1, Gate 0 Component B). DEFAULT OFF.
+ *
+ * When OFF (the default), behavior is byte-for-byte unchanged: no reaper sweep runs, the
+ * stuck-active-session self-heal never fires, and Component A's in-memory retry counter is used.
+ * (The H3 markJobFailed guards in canonicalMutation are always present but inert on the happy path.)
+ *
+ * When exactly "true", a periodic reaper terminalizes 'running' jobs orphaned by a crash/restart
+ * (stale heartbeat), reviewSession.create self-heals a stuck-active session so it no longer wedges
+ * the next create, and the dispatcher's bounded-retry attempt count is persisted durably in
+ * jobs.input (surviving a restart). No migration; no new env var beyond this flag.
+ */
+export function isJobReaperEnabled(): boolean {
+  return process.env['JOB_REAPER_ENABLED'] === 'true';
+}
+
+/**
  * Export-safety / outbound-readiness deterministic gate (FOLD-SEND-1). DEFAULT OFF.
  *
  * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged

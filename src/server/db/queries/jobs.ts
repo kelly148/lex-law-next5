@@ -20,7 +20,7 @@
  *   using Zod schemas before writing.
  */
 
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, lt, or, isNull } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { jobs, type NewJob } from '../schema.js';
@@ -429,4 +429,62 @@ export async function requeueJob(
     .where(and(eq(jobs.id, jobId), eq(jobs.status, 'queued')))
     .limit(1);
   return check.length;
+}
+
+/**
+ * JOB-RECOVERY-1 (B-2): fetch 'running' jobs whose heartbeat is stale (older than `staleBefore`)
+ * or missing — orphans left in 'running' by a crash/restart mid-job. SYSTEM-WIDE read with NO owner
+ * filter (same shape as getQueuedJobs, which the FOLD-AUTH-1 ratchet exempts); each returned row
+ * carries its own userId so the caller's terminal write stays owner-correct. Returns full JobRow[].
+ */
+export async function getStaleRunningJobs(
+  staleBefore: Date,
+  ctx: TelemetryContext,
+): Promise<JobRow[]> {
+  const rows = await db
+    .select()
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.status, 'running'),
+        // A running job normally has lastHeartbeatAt set by markJobRunning; reap both a stale
+        // heartbeat and the (anomalous) null-heartbeat running job.
+        or(lt(jobs.lastHeartbeatAt, staleBefore), isNull(jobs.lastHeartbeatAt)),
+      ),
+    )
+    .orderBy(jobs.lastHeartbeatAt);
+
+  return rows.map((row) =>
+    parseJobRow(row, { userId: ctx.userId ?? row.userId, jobId: row.id }),
+  );
+}
+
+/**
+ * JOB-RECOVERY-1 (B-4): persist the dispatcher's bounded-retry attempt count durably in the job's
+ * input at `input.roleMetadata.dispatchAttempts` — an OPEN bag that survives the Zod Wall (a
+ * top-level key would be stripped by the non-strict JobInputSchema). Read-modify-write, owner-scoped,
+ * conditional on a non-terminal status so a completed/failed job is never resurrected. Makes
+ * Component A's in-memory retry counter restart-durable (the [A->B seam]).
+ */
+export async function setJobDispatchAttempts(
+  jobId: string,
+  userId: string,
+  attempts: number,
+): Promise<void> {
+  const row = await getJobById(jobId, userId);
+  if (!row) return;
+  const nextInput = {
+    ...row.input,
+    roleMetadata: { ...row.input.roleMetadata, dispatchAttempts: attempts },
+  };
+  await db
+    .update(jobs)
+    .set({ input: nextInput, updatedAt: new Date() })
+    .where(
+      and(
+        eq(jobs.id, jobId),
+        ownerScope(jobs.userId, userId), // FOLD-AUTH-1 owner chokepoint (not an inline filter — ratchet)
+        inArray(jobs.status, ['running', 'queued']),
+      ),
+    );
 }

@@ -44,10 +44,17 @@
  *   failures and do NOT increment the counter.
  */
 
-import { getQueuedJobs, requeueJob, markJobFailed } from '../db/queries/jobs.js';
+import {
+  getQueuedJobs,
+  requeueJob,
+  markJobFailed,
+  markJobTimedOut,
+  getStaleRunningJobs,
+  setJobDispatchAttempts,
+} from '../db/queries/jobs.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { isTransientDbError, isConditionallyRetriedCode } from '../db/transientDbError.js';
-import { isJobDispatcherEnabled } from '../config/featureFlags.js';
+import { isJobDispatcherEnabled, isJobReaperEnabled } from '../config/featureFlags.js';
 import { runDeferredCanonicalJob, hasDeferredContinuation } from '../db/canonicalMutation.js';
 
 // ============================================================
@@ -108,7 +115,12 @@ async function dispatchTracked(job: DispatchableJob, handler: JobHandler): Promi
     await handler(job.id, job.userId);
     _requeueAttempts.delete(job.id);
   } catch (err) {
-    const attempts = (_requeueAttempts.get(job.id) ?? 0) + 1;
+    // JOB-RECOVERY-1 (B-4): when the reaper is ON the attempt count is read from / persisted to the
+    // job's DURABLE input (input.roleMetadata.dispatchAttempts), so retry survives a restart; when OFF
+    // it uses Component A's in-memory Map (byte-for-byte). The threshold + terminalize logic is identical.
+    const reaperOn = isJobReaperEnabled();
+    const prior = reaperOn ? readDurableDispatchAttempts(job) : (_requeueAttempts.get(job.id) ?? 0);
+    const attempts = prior + 1;
     console.error(
       `[Dispatcher] Handler threw for jobType="${job.jobType}" jobId="${job.id}" ` +
         `(attempt ${attempts}/${MAX_HANDLER_ATTEMPTS}):`,
@@ -136,7 +148,16 @@ async function dispatchTracked(job: DispatchableJob, handler: JobHandler): Promi
         console.error(`[Dispatcher] markJobFailed after retry exhaustion failed for jobId="${job.id}":`, failErr);
       }
     } else {
-      _requeueAttempts.set(job.id, attempts);
+      if (reaperOn) {
+        // Persist the attempt count durably so a restart does not reset retry to 0 (the [A->B seam]).
+        try {
+          await setJobDispatchAttempts(job.id, job.userId, attempts);
+        } catch (persistErr) {
+          console.error(`[Dispatcher] setJobDispatchAttempts failed for jobId="${job.id}":`, persistErr);
+        }
+      } else {
+        _requeueAttempts.set(job.id, attempts);
+      }
       try {
         await requeueJob(job.id, job.userId);
       } catch (rqErr) {
@@ -146,6 +167,16 @@ async function dispatchTracked(job: DispatchableJob, handler: JobHandler): Promi
   } finally {
     _inFlight.delete(job.id);
   }
+}
+
+/**
+ * JOB-RECOVERY-1 (B-4): read the durable dispatch-attempt count persisted by the reaper path in the
+ * job's input (input.roleMetadata.dispatchAttempts — an open bag that survives the Zod Wall). Returns
+ * 0 when absent/non-numeric. This is the restart-durable replacement for the in-memory _requeueAttempts.
+ */
+function readDurableDispatchAttempts(job: DispatchableJob): number {
+  const v = job.input.roleMetadata['dispatchAttempts'];
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }
 
 /**
@@ -172,18 +203,68 @@ export function registerDefaultJobHandlers(): void {
 
 const ORPHAN_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes without heartbeat
 
+// ============================================================
+// JOB-RECOVERY-1 (B-2) — orphan reaper
+// ============================================================
+
+/** How often the reaper sweeps for orphaned 'running' jobs. Hardcoded sane default (NO env var) —
+ *  60s recovers a wedge promptly and is cheap at single-user v1 scale. */
+const REAPER_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/** Separate timer handle for the reaper sweep (independent of the poll loop; cleared by stopDispatcher). */
+let _reaperTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
- * Log orphaned jobs (running with stale heartbeat) on startup.
- * v1 does not auto-recover; logs for operator awareness.
+ * JOB-RECOVERY-1 (B-2): the orphan reaper. When JOB_REAPER_ENABLED is OFF this is a no-op (logs the
+ * threshold for operator awareness — as the old stub did — then returns). When ON, it finds 'running'
+ * jobs with a stale/missing heartbeat (orphaned by a crash/restart) and terminalizes each to
+ * 'timed_out'. Fully wrapped so a transient DB error can never reject into the poll-failure counter /
+ * fatal handler (header §4.2/§4.3): reaper failures are isolated.
  */
-async function logOrphanedJobs(): Promise<void> {
-  // Orphan detection requires querying running jobs with stale heartbeats.
-  // This is a Phase 3+ concern (requires the full jobs query surface).
-  // For Phase 2, we log a startup message indicating orphan detection is active.
-  console.log(
-    `[Dispatcher] Orphan detection threshold: ${ORPHAN_THRESHOLD_MS}ms. ` +
-      `Running jobs with no heartbeat for >${ORPHAN_THRESHOLD_MS}ms require operator intervention.`,
-  );
+async function reapStaleJobs(): Promise<void> {
+  if (!isJobReaperEnabled()) {
+    console.log(
+      `[Dispatcher] Orphan reaper disabled (JOB_REAPER_ENABLED off). Stale threshold: ${ORPHAN_THRESHOLD_MS}ms; ` +
+        `orphaned 'running' jobs require operator intervention.`,
+    );
+    return;
+  }
+  const systemCtx = { userId: 'system', matterId: null, documentId: null, jobId: null };
+  try {
+    const staleBefore = new Date(Date.now() - ORPHAN_THRESHOLD_MS);
+    const stale = await getStaleRunningJobs(staleBefore, systemCtx);
+    for (const job of stale) {
+      try {
+        await markJobTimedOut(
+          job.id,
+          job.userId,
+          `Reaped by JOB-RECOVERY-1: no heartbeat for >${ORPHAN_THRESHOLD_MS}ms (orphaned by crash/restart)`,
+        );
+        void emitTelemetry(
+          'job_timed_out',
+          { jobType: job.jobType, timeoutMs: ORPHAN_THRESHOLD_MS, elapsedMs: ORPHAN_THRESHOLD_MS },
+          { userId: job.userId, matterId: job.matterId, documentId: job.documentId, jobId: job.id },
+        );
+      } catch (reapErr) {
+        console.error(`[Reaper] failed to reap orphaned job ${job.id}:`, reapErr);
+      }
+    }
+    if (stale.length > 0) {
+      console.log(`[Reaper] terminalized ${stale.length} orphaned running job(s).`);
+    }
+  } catch (sweepErr) {
+    // Reaper errors are isolated — they must NOT touch the poll-failure counter / fatal handler.
+    console.error('[Reaper] sweep failed:', sweepErr);
+  }
+}
+
+/** Schedule the recurring reaper sweep (separate from the poll loop; cleared by stopDispatcher). */
+function scheduleReaperSweep(): void {
+  if (!_isRunning) return;
+  _reaperTimer = setTimeout(async () => {
+    await reapStaleJobs();
+    scheduleReaperSweep();
+  }, REAPER_SWEEP_INTERVAL_MS);
 }
 
 // ============================================================
@@ -421,7 +502,13 @@ export async function startDispatcher(): Promise<void> {
   // DISPATCHER-COMPLETE-1: flag-gated handler registration. No-op when JOB_DISPATCHER_ENABLED
   // is OFF, so the dispatcher stays a no-op and the inline path is unchanged.
   registerDefaultJobHandlers();
-  await logOrphanedJobs();
+  // JOB-RECOVERY-1 (B-2): startup sweep + schedule the periodic reaper. Both no-op when
+  // JOB_REAPER_ENABLED is OFF (reapStaleJobs returns early; the timer is only armed when ON), so
+  // flag-OFF startup is unchanged.
+  await reapStaleJobs();
+  if (isJobReaperEnabled()) {
+    scheduleReaperSweep();
+  }
   console.log(
     `[Dispatcher] Started. Poll interval: ~${POLL_INTERVAL_MS}ms (±20% jitter).`,
   );
@@ -436,6 +523,11 @@ export function stopDispatcher(): void {
   if (_pollTimer !== null) {
     clearTimeout(_pollTimer);
     _pollTimer = null;
+  }
+  // JOB-RECOVERY-1 (B-2): clear the reaper timer too, or it leaks across tests / graceful shutdown.
+  if (_reaperTimer !== null) {
+    clearTimeout(_reaperTimer);
+    _reaperTimer = null;
   }
 }
 
@@ -453,6 +545,14 @@ export function isDispatcherRunning(): boolean {
  */
 export async function runPollOnceForTest(): Promise<void> {
   return pollOnce();
+}
+
+/**
+ * TEST-ONLY: run one reaper sweep directly (bypasses the REAPER_SWEEP_INTERVAL_MS timer).
+ * JOB-RECOVERY-1 (B-2). Gated internally by JOB_REAPER_ENABLED (no-op when OFF).
+ */
+export async function runReaperOnceForTest(): Promise<void> {
+  return reapStaleJobs();
 }
 
 // ============================================================

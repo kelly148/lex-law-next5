@@ -654,7 +654,12 @@ async function runJob(
       try {
         await txn2Revert(revertParams);
       } catch (revertErr) {
-        await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after cancel failed: ${String(revertErr)}`);
+        // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
+        try {
+          await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after cancel failed: ${String(revertErr)}`);
+        } catch (failErr) {
+          console.error(`[canonicalMutation] H3 guard: markJobFailed threw for job ${jobId}:`, failErr);
+        }
         void emitTelemetry(
           'job_failed',
           { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
@@ -681,7 +686,12 @@ async function runJob(
       try {
         await txn2Revert(revertParams);
       } catch (revertErr) {
-        await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after timeout failed: ${String(revertErr)}`);
+        // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
+        try {
+          await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after timeout failed: ${String(revertErr)}`);
+        } catch (failErr) {
+          console.error(`[canonicalMutation] H3 guard: markJobFailed threw for job ${jobId}:`, failErr);
+        }
         void emitTelemetry(
           'job_failed',
           { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
@@ -705,7 +715,12 @@ async function runJob(
     try {
       await txn2Revert(revertParams);
     } catch (revertErr) {
-      await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after failure failed: ${String(revertErr)}`);
+      // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
+      try {
+        await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after failure failed: ${String(revertErr)}`);
+      } catch (failErr) {
+        console.error(`[canonicalMutation] H3 guard: markJobFailed threw for job ${jobId}:`, failErr);
+      }
       void emitTelemetry(
         'job_failed',
         { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
@@ -750,7 +765,12 @@ async function runJob(
     try {
       await txn2Revert(revertParams);
     } catch (revertErr) {
-      await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after commit failure failed: ${String(revertErr)}`);
+      // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
+      try {
+        await jw.markJobFailed(jobId, userId, 'revert_failed', `Revert after commit failure failed: ${String(revertErr)}`);
+      } catch (failErr) {
+        console.error(`[canonicalMutation] H3 guard: markJobFailed threw for job ${jobId}:`, failErr);
+      }
       void emitTelemetry(
         'job_failed',
         { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
@@ -758,7 +778,12 @@ async function runJob(
       );
       return { jobId, status: 'failed' };
     }
-    await jw.markJobFailed(jobId, userId, 'other', String(commitErr));
+    // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
+    try {
+      await jw.markJobFailed(jobId, userId, 'other', String(commitErr));
+    } catch (failErr) {
+      console.error(`[canonicalMutation] H3 guard: markJobFailed threw for job ${jobId}:`, failErr);
+    }
     void emitTelemetry(
       'job_failed',
       { jobType, errorClass: 'other', errorMessage: String(commitErr) },
