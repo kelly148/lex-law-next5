@@ -21,6 +21,7 @@ import ProvenanceLedgerPanel from '../components/ProvenanceLedgerPanel.js';
 import { ConsequenceProvider } from '../components/ConsequenceProvider.js';
 import AutonomySlider from '../components/AutonomySlider.js';
 import ChatDeliverable from '../components/ChatDeliverable.js';
+import ContextIntegrityPanel from '../components/ContextIntegrityPanel.js';
 
 export default function ChatSurface(): React.ReactElement {
   const { matterId } = useParams<{ matterId: string }>();
@@ -116,6 +117,8 @@ export default function ChatSurface(): React.ReactElement {
         </p>
         {/* CHAT-UI-1 WIRE-2 — the deliverable posture strip + hard-stop acts (live). */}
         <ChatDeliverable />
+        {/* CHAT-UI-1 WIRE-3 — matter-identity ingestion + undo-by-band + stale-preview guard (live). */}
+        <ContextIntegrityPanel />
         {/* CHAT-UI-1 W2 — the durable posture-provenance audit ledger (read + export) for this matter. */}
         <ProvenanceLedgerPanel matterId={matterId} />
       </aside>
