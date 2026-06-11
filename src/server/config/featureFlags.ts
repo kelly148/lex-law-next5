@@ -180,6 +180,23 @@ export function isReviewerLeanContractEnabled(): boolean {
 }
 
 /**
+ * Serve the public landing page at the bare domain for anonymous visitors (LANDING-2).
+ * DEFAULT OFF.
+ *
+ * When OFF (the default), GET / is byte-for-byte identical to today: it falls through
+ * to express.static, which serves dist/index.html (the React SPA) for every visitor.
+ *
+ * When exactly "true", a GET / handler (registered before express.static) checks the
+ * existing iron-session cookie (getSession/extractUserId): an authenticated visitor is
+ * served the SPA exactly as today (no extra clicks); an anonymous visitor is served the
+ * public landing page (dist/landing.html, shipped by LANDING-1). /landing.html and every
+ * other route (the SPA deep-link catch-all) are unchanged.
+ */
+export function isLandingAtRootEnabled(): boolean {
+  return process.env['LANDING_AT_ROOT_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
