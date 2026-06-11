@@ -2516,3 +2516,76 @@ export const promptSnapshots = mysqlTable(
 );
 export type PromptSnapshot = typeof promptSnapshots.$inferSelect;
 export type NewPromptSnapshot = typeof promptSnapshots.$inferInsert;
+
+// ============================================================
+// CHAT-UI-1 W2 — posture_provenance (durable posture audit ledger, PROVENANCE-LEDGER-1)
+// ============================================================
+// Append-only, owner-scoped, per-matter audit ledger for the CHAT-UI-1 posture-confirm discipline.
+// One row per meaningful accept or dirty->confirmed transition (eventClass), carrying the full
+// resolved {issuer, privilege, recipient} triple (typed columns), the incoherence verdict, the
+// hard-stop act, actor, slider position, trigger source, and the attorney confirm timestamp.
+// Tamper-EVIDENT via a per-matter sha256 hash chain (prevHash -> entryHash). Insert + read only (no
+// update/delete). Entirely behind CHAT_UI_1_ENABLED; inert (no rows) when off. ADDITIVE (migration
+// 0028, CREATE TABLE) — no existing table is altered.
+export const POSTURE_PROVENANCE_EVENT_CLASS_VALUES = ['meaningful_accept', 'dirty_confirmed'] as const;
+export const POSTURE_PROVENANCE_ACT_VALUES = [
+  'lock',
+  'tier_source',
+  'disposition',
+  'send',
+  'matter_identity',
+  'issuer',
+  'privilege',
+  'recipient',
+] as const;
+export const POSTURE_PROVENANCE_CAPACITY_VALUES = ['counsel', 'principal'] as const;
+export const POSTURE_PROVENANCE_PRIVILEGE_VALUES = ['privileged', 'not_privileged', 'undetermined'] as const;
+export const POSTURE_PROVENANCE_RECIPIENT_VALUES = [
+  'internal_client',
+  'co_counsel_agent',
+  'neutral_third_party',
+  'regulator_court',
+  'adverse',
+  'public',
+] as const;
+export const POSTURE_PROVENANCE_VERDICT_VALUES = ['hard', 'soft', 'none'] as const;
+
+export const postureProvenance = mysqlTable(
+  'posture_provenance',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }),
+    // Per-matter monotonic sequence — the chain order (TIMESTAMP is second-resolution and can tie).
+    seq: int('seq').notNull(),
+    eventClass: mysqlEnum('eventClass', POSTURE_PROVENANCE_EVENT_CLASS_VALUES).notNull(),
+    act: mysqlEnum('act', POSTURE_PROVENANCE_ACT_VALUES).notNull(),
+    actor: varchar('actor', { length: 128 }).notNull(),
+    sliderPosition: varchar('sliderPosition', { length: 64 }).notNull(),
+    triggerSource: text('triggerSource').notNull(),
+    confirmedAt: varchar('confirmedAt', { length: 32 }).notNull(),
+    // Resolved triple (typed, first-class). NULL for a non-posture act (no triple).
+    issuerEntity: varchar('issuerEntity', { length: 255 }),
+    issuerCapacity: mysqlEnum('issuerCapacity', POSTURE_PROVENANCE_CAPACITY_VALUES),
+    issuerDisplay: text('issuerDisplay'),
+    privilege: mysqlEnum('privilege', POSTURE_PROVENANCE_PRIVILEGE_VALUES),
+    recipient: mysqlEnum('recipient', POSTURE_PROVENANCE_RECIPIENT_VALUES),
+    // Supplementary + the incoherence-table verdict.
+    priorTriple: json('priorTriple'),
+    verdictSeverity: mysqlEnum('verdictSeverity', POSTURE_PROVENANCE_VERDICT_VALUES).notNull(),
+    findings: json('findings').notNull(),
+    // CHAT-UI-1 W3 (migration 0029) — the non-posture act's target (matter identity, undo, ...).
+    subject: json('subject'),
+    // Per-matter tamper-evident hash chain.
+    prevHash: varchar('prevHash', { length: 64 }).notNull(),
+    entryHash: varchar('entryHash', { length: 64 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxPostureProvenanceMatter: index('idx_posture_provenance_matter').on(table.matterId, table.seq),
+    idxPostureProvenanceUserMatter: index('idx_posture_provenance_user_matter').on(table.userId, table.matterId),
+  }),
+);
+export type PostureProvenance = typeof postureProvenance.$inferSelect;
+export type NewPostureProvenance = typeof postureProvenance.$inferInsert;

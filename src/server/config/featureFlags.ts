@@ -197,6 +197,23 @@ export function isLandingAtRootEnabled(): boolean {
 }
 
 /**
+ * Conversation surface — the matter-scoped chat/thread UI (CHAT-UI-1). DEFAULT OFF.
+ *
+ * When OFF (the default), the entire CHAT-UI-1 surface is absent: the client renders no
+ * conversation entry point, the matter-scoped /chat route redirects to the matter page,
+ * and every existing surface (matters, documents, review, settings) is byte-for-byte
+ * unchanged. The flag reaches the client read-only via chatUi.isEnabled.
+ *
+ * When exactly "true", the conversation surface and its entry point render. The W0
+ * scaffold is display-only (a three-zone shell skeleton); the consequence-tier confirm
+ * component + posture model (W1) and the reviewer/disposition surface (Gate-0-blocked,
+ * W4) land behind this same flag in later increments. Activation is operator-gated.
+ */
+export function isChatUi1Enabled(): boolean {
+  return process.env['CHAT_UI_1_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

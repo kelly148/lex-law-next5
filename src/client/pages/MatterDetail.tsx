@@ -19,7 +19,7 @@
  */
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen } from 'lucide-react';
+import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -439,6 +439,11 @@ export default function MatterDetail(): React.ReactElement {
     { enabled: !!matterId }
   );
 
+  // CHAT-UI-1 — the conversation surface is gated behind CHAT_UI_1_ENABLED (default OFF);
+  // the entry link below renders only when the flag reports enabled.
+  const { data: chatUiFlag } = trpc.chatUi.isEnabled.useQuery();
+  const chatEnabled = chatUiFlag?.enabled === true;
+
   if (!matterId) return <div className="p-6 text-red-600">Invalid matter ID.</div>;
 
   if (matterLoading) {
@@ -498,6 +503,16 @@ export default function MatterDetail(): React.ReactElement {
             <BookOpen className="w-4 h-4" />
             Info Request
           </Link>
+          {/* CHAT-UI-1 — flag-gated entry to the matter-scoped conversation surface. Absent when OFF. */}
+          {chatEnabled && (
+            <Link
+              to={`/matters/${matterId}/chat`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+            >
+              <MessageSquare className="w-4 h-4" />
+              Conversation
+            </Link>
+          )}
           <button
             onClick={() => setShowEditMatter(true)}
             className="p-1.5 text-gray-400 hover:text-firm-navy rounded"

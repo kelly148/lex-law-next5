@@ -9,6 +9,7 @@
  *   /matters/:matterId                              — MatterDetail (protected)
  *   /matters/:matterId/documents/:documentId        — DocumentDetail (protected)
  *   /matters/:matterId/information-requests         — InformationRequestPage (protected)
+ *   /matters/:matterId/chat                         — ChatSurface (protected; gated CHAT_UI_1_ENABLED)
  *   /templates                                      — TemplatesPage (protected)
  *   /settings                                       — SettingsPage (protected)
  *
@@ -27,6 +28,7 @@ const TemplatesPage = lazy(() => import("./pages/TemplatesPage.js"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage.js"));
 const InformationRequestPage = lazy(() => import("./pages/InformationRequestPage.js"));
 const UploadFormatPage = lazy(() => import("./pages/UploadFormatPage.js"));
+const ChatSurface = lazy(() => import("./pages/ChatSurface.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -56,6 +58,9 @@ export default function App(): React.ReactElement {
       <Route path="/matters/:matterId" element={<ProtectedLayout><MatterDetail /></ProtectedLayout>} />
       <Route path="/matters/:matterId/documents/:documentId" element={<ProtectedLayout><DocumentDetail /></ProtectedLayout>} />
       <Route path="/matters/:matterId/information-requests" element={<ProtectedLayout><InformationRequestPage /></ProtectedLayout>} />
+      {/* CHAT-UI-1 — matter-scoped conversation surface. Always registered; ChatSurface self-guards on
+          CHAT_UI_1_ENABLED (default OFF) and redirects to the matter page when the flag is off. */}
+      <Route path="/matters/:matterId/chat" element={<ProtectedLayout><ChatSurface /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />
