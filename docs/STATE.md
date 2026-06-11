@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (LANDING-2 — landing page at bare domain for anonymous visitors, flag-gated; MERGED, NOT deployed)
+
+**Disposition.** Reversible build-and-PR, operator-approved merge. PR #264 squash-merged to `main` **79a7242** (CI green: Lint + Type Check + Tests). Flag `LANDING_AT_ROOT_ENABLED` default OFF; **flag-OFF byte-identical to today** (guard-tested). NOT deployed; even once deployed nothing changes until the flag is flipped.
+
+**Step 0 (auth mechanism).** Server-readable: iron-session **HttpOnly cookie `lex_session`** (`middleware/session.ts`), read via `getSession`/`extractUserId` — the same pair `createContext` uses (`trpc.ts:52-53`) → **server-side variant** (no faked/client auth, no bootstrap redirect).
+
+**What changed.** New flag `isLandingAtRootEnabled()` (`featureFlags.ts`, default OFF). Pure `resolveRootServe(enabled,userId)` → `passthrough|spa|landing` (`landingRoot.ts`, unit-tested). `GET /` handler registered **BEFORE** `express.static` (`index.ts`): flag OFF → `next()` (serves SPA `index.html`, byte-identical); flag ON → `getSession`/`extractUserId`: authenticated → SPA (no extra clicks), anonymous → public `dist/landing.html` (LANDING-1). `/landing.html` + the SPA deep-link catch-all unchanged. Tests: `landing_at_root_2.test.ts` (resolveRootServe 3 cases + flag default OFF + source guard that `GET /` precedes `express.static`). No change to auth logic, other routes, the reviewer/latency work, or any other flag.
+
+**Also.** Deleted the stale remote branch `lex-next/landing-1-state` (leftover LANDING-1 bookkeeping, superseded, no code).
+
+**Build/deploy state.** main = `79a7242` (LANDING-2 #264). prod = `4cfd176` (main now AHEAD by #264). `LANDING_AT_ROOT_ENABLED` default OFF.
+
+**Open / owed.** Deploy `main` (operator-gated; **behavior-neutral while the flag is OFF**), then flip `LANDING_AT_ROOT_ENABLED=true` + redeploy to make the bare domain serve the landing page to logged-out visitors (post-flip check: anon `/` → landing; signed-in `/` → app). `landing.html` is already live at `/landing.html` regardless.
+
+---
+
 ## 2026-06-11 (REVIEWER-LATENCY-1 Step 2b RE-RUN — verdict: 2a PROMOTED, 2b lean NOT VIABLE)
 
 **Disposition.** Runtime-only verbose-vs-lean re-run A/B on the 2b.1 build (prod `4cfd176`), POA fixture (doc `1220e379…` / version `bcdc52e3…`), latency-tuning ON both arms. Definitive result for REVIEWER-LATENCY-1.
