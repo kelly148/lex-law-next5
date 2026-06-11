@@ -206,17 +206,18 @@ const businessDecisionCalibrationLean = [
 
 const outputContractLean = [
   'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
+  'Emit ONE array item PER FINDING: the outer array must contain one item for EACH distinct material issue you find. Surface ALL material issues at the same coverage standard you would otherwise apply — do NOT collapse multiple issues into a single item and do NOT under-report. If you find ten issues, return ten items.',
   'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "the body string described below", "severity": "critical"|"major"|"minor" }.',
-  'Inside each body string, return ONLY a section labeled STRUCTURED_FEEDBACK_CARDS followed by a JSON array containing EXACTLY ONE feedback-card object. Do NOT write any prose, narrative, or memo section, and do NOT put any text outside that JSON array.',
-  'The single feedback-card object must use EXACTLY these field names and no others: ' +
+  'Inside EACH item\'s body string, return ONLY a section labeled STRUCTURED_FEEDBACK_CARDS followed by a JSON array containing one lean feedback-card object describing THAT item\'s finding. Do NOT write any prose, narrative, or memo section, and do NOT put any text outside that JSON array.',
+  'Each feedback-card object must use EXACTLY these field names and no others: ' +
     FEEDBACK_CARD_FIELD_NAMES_LEAN.join(', ') +
     '.',
-  'Field meanings: issue states the problem; source_basis ties it to document text, matter context, or governing law; governing_law states the jurisdiction / governing-law treatment (the controlling state and any Virginia vs. Maryland distinction, or "n/a" when not jurisdiction-dependent); recommendation states the recommended action; suggested_revision gives concrete drafting language or null; requires_attorney_decision is true when the attorney must choose; audience_affected lists who is affected.',
+  'Field meanings: issue states the problem; source_basis ties it to document text, matter context, or governing law; governing_law states the jurisdiction / governing-law treatment (the controlling state and any Virginia vs. Maryland distinction, or "n/a" when not jurisdiction-dependent); source_of_truth_tier is a NUMBER from 1 to 9 (the numeric source-of-truth tier), never a text label; recommendation states the recommended action; suggested_revision gives concrete drafting language or null; requires_attorney_decision is true when the attorney must choose; audience_affected lists who is affected.',
   'Feedback-card severity values: BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH.',
   `Feedback-card critique_type values: ${FEEDBACK_CARD_CRITIQUE_TYPES.join(', ')}.`,
   `Feedback-card disposition_options values: ${FEEDBACK_CARD_DISPOSITIONS.join(', ')}.`,
   'Do not invent unsupported field names such as priority_level, business_owner, evaluator_notes, or final_decision, and do not emit any field not listed above.',
-  'Return [] if there is no feedback.',
+  'Return [] only if there is genuinely no feedback.',
 ].join('\n');
 
 const constructionStyles: Record<ReviewerTrack, string> = {
