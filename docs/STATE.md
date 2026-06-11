@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (REVIEWER-ASYNC-DISPLAY-1 — §3.1 triad disposition RECORDED + plan fold; record-only, NO code) [CHAT-UI-1 lane]
+
+**Disposition.** The §3.1 external triad-review for **REVIEWER-ASYNC-DISPLAY-1** (CHAT-UI-1 / Gate 0, Component C) returned **APPROVE WITH CHANGES — 3/3** (GPT + two independent Claude concurred; none found AD-1…AD-4 unsound; all converged on a server-owned completeness contract replacing client `feedback.length` inference). The §3.1 **HARD STOP on Component C implementation LIFTS**, conditional on the required changes being folded into the plan (done). Record + plan-revision engagement only — **no implementation code written; Component C build is NOT started** (it follows Components A/B in build order and is operator-gated).
+
+**Ratified operator decision.** Completion denominator = the **INTENDED reviewer set**, persisted at iteration creation, **immutable**; a dispatch failure surfaces as a terminal `dispatch_failed` lane and is **never dropped** from the denominator; the run proceeds **partial**, not atomic-fail-the-whole-run.
+
+**What changed (docs only).** (1) `docs/reviews/REVIEWER-ASYNC-DISPLAY-1_packet.md` — appended **§10 Disposition** (verdict + operator decision + the 11 blocking conditions + expanded exit criteria + sanctioned `mr3.reviewState.test.ts` assertion change); mirrored to `…\_analytical\phase2\reviews\`. (2) `docs/CHAT-UI-1/GATE0_IMPLEMENTATION_PLAN.md` Component C — folded the disposition + 11 conditions (server-owned per-reviewer lane contract; immutable expected set; distinct idempotent fan-in layer; server-side bounded terminalization w/ per-reviewer deadline; per-reviewer empty-vs-pending + `complete_with_failures`; iteration/doc-revision isolation; additive late-reopen; consolidation incompleteness flag; finalize/send audit snapshot; job-terminal-before-row; unknown-reviewer ignored), **expanded the exit criteria** (adversarial-ordering repro + dispatch-failure + timeout/orphan + staleness + before-row + idempotency + evaluator-disabled + reopen-without-clobber + single-reviewer regression tests), and updated the §3.1 triage line to RETURNED/LIFTED. (3) this STATE entry (+ `_progress\STATE.md` mirror).
+
+**Build/deploy state.** Unchanged — record-only. CHAT-UI-1 lane: `origin/main = 08f4d6a` (#268); branch `lex-next/async-display-disposition` off it carries this record. Plan doc originated on `lex-next/gate0-scoping` (`2711bf6`); the fold now also lives on this branch. Nothing merged, deployed, or flag-flipped. `CHAT_UI_1_ENABLED` + `REVIEWER_ASYNC_ENABLED` remain default OFF.
+
+**Open / sequence.** Component C is unblocked but gated: build order is **DISPATCHER-COMPLETE-1 (A) → JOB-RECOVERY-1 (B) → REVIEWER-ASYNC-DISPLAY-1 (C)**; the A build (branch `lex-next/dispatcher-complete-1`) is in progress/paused (recon done, no commits). The prod `REVIEWER_ASYNC_ENABLED` flip stays **dual-gated** (this display fix AND durable dispatch/recovery) and is a separate operator-gated step.
+
+**Note (cross-lane file).** This file's entries below are the **FOLD lane** (last write said `main` HEAD = `d869f21`); this CHAT-UI-1 entry is prepended newest-first without disturbing that content. The two lanes share one append-only log.
+
+---
+
 ## 2026-06-11 (LANDING-2 — landing page at bare domain for anonymous visitors, flag-gated; MERGED, NOT deployed)
 
 **Disposition.** Reversible build-and-PR, operator-approved merge. PR #264 squash-merged to `main` **79a7242** (CI green: Lint + Type Check + Tests). Flag `LANDING_AT_ROOT_ENABLED` default OFF; **flag-OFF byte-identical to today** (guard-tested). NOT deployed; even once deployed nothing changes until the flag is flipped.
