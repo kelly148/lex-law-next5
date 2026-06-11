@@ -341,22 +341,17 @@ export function unregisterAbortController(jobId: string): void {
 /**
  * Execute the canonical two-transaction mutation pattern.
  *
- * This function:
- *   1. Calls txn1Enqueue to create the job row and advance document state.
- *   2. Emits job_queued telemetry.
- *   3. Transitions job to 'running' (via markJobRunning).
- *   4. Emits job_started telemetry.
- *   5. Calls the LLM adapter with a timeout AbortSignal.
- *   6. On success: calls txn2Commit, marks job completed, emits job_completed.
- *   7. On failure: calls txn2Revert, marks job failed/timed_out, emits appropriate event.
+ * DISPATCHER-COMPLETE-1: this is split into enqueueJob() + runJob(), composed by
+ * executeCanonicalMutation() below as `enqueueJob() then runJob()` — BYTE-FOR-BYTE
+ * behavior-identical to the pre-split function for every existing (inline) caller. The
+ * durable dispatcher reuses the SAME runJob() half to execute a job that was left 'queued'
+ * (the deferred path), so async work survives as a real DB row + an atomic claim rather than
+ * an in-process fire-and-forget promise.
  *
- * The caller's txn1Enqueue and txn2Commit/txn2Revert are responsible for
- * document-level state transitions. This helper manages only the job row
- * and telemetry.
+ * enqueueJob — Transaction 1 ONLY: insert the jobs row 'queued', advance document state via
+ * txn1Enqueue, emit job_queued. Returns the new jobId. No 'running' transition, no LLM call.
  */
-export async function executeCanonicalMutation(
-  params: CanonicalMutationParams,
-): Promise<CanonicalMutationResult> {
+async function enqueueJob(params: CanonicalMutationParams): Promise<string> {
   const {
     userId,
     jobType,
@@ -364,11 +359,7 @@ export async function executeCanonicalMutation(
     matterId,
     documentId,
     txn1Enqueue,
-    buildLlmParams,
-    txn2Commit,
-    txn2Revert,
     telemetryCtx,
-    timeoutMs,
   } = params;
 
   const jobId = uuidv4();
@@ -407,13 +398,45 @@ export async function executeCanonicalMutation(
     { ...telemetryCtx, jobId },
   );
 
+  return jobId;
+}
+
+/**
+ * runJob — the run half: atomically claim the job (queued->running), call the LLM inside the
+ * timeout/cancel envelope, then Transaction 2 (commit on success; revert on failure/timeout/
+ * cancel). Reused VERBATIM by both executeCanonicalMutation (inline) and the dispatcher
+ * (deferred). A 0-row claim means the job was cancelled, or another dispatcher worker already
+ * claimed it (DISPATCHER-COMPLETE-1 D-2) — never run the job twice.
+ */
+async function runJob(
+  jobId: string,
+  params: CanonicalMutationParams,
+): Promise<CanonicalMutationResult> {
+  const {
+    userId,
+    jobType,
+    modelString,
+    matterId,
+    documentId,
+    buildLlmParams,
+    txn2Commit,
+    txn2Revert,
+    telemetryCtx,
+    timeoutMs,
+  } = params;
+
+  const { providerId, modelId } = parseModelString(modelString);
+  const promptVersion = getPromptVersionForJobType(jobType);
+  const jw = getJobWriteFunctions();
+
   // ──────────────────────────────────────────────────────────
-  // Transition to running
+  // Transition to running (DISPATCHER-COMPLETE-1 D-2: the atomic claim)
   // ──────────────────────────────────────────────────────────
   const startTime = Date.now();
   const rowsAffected = await jw.markJobRunning(jobId, userId);
   if (rowsAffected === 0) {
-    // Job was cancelled between enqueue and pickup — this is a valid race
+    // Cancelled between enqueue and pickup, OR another dispatcher worker already claimed it
+    // (D-2) — a valid race; never run the job twice.
     return { jobId, status: 'cancelled' };
   }
 
@@ -796,4 +819,72 @@ export async function executeCanonicalMutation(
   }
 
   return { jobId, status: 'completed' };
+}
+
+/**
+ * The canonical inline path: enqueue (Transaction 1) then run (claim + LLM + Transaction 2).
+ * BYTE-FOR-BYTE behavior-identical to the pre-split executeCanonicalMutation — every existing
+ * caller is unchanged. The enqueue/run split exists only so the dispatcher can reuse runJob().
+ */
+export async function executeCanonicalMutation(
+  params: CanonicalMutationParams,
+): Promise<CanonicalMutationResult> {
+  const jobId = await enqueueJob(params);
+  return runJob(jobId, params);
+}
+
+// ============================================================
+// DISPATCHER-COMPLETE-1 — deferred-dispatch registry (D-1 / D-4)
+// ============================================================
+// The async-reviewer path (reviewSession) enqueues a job 'queued' and registers its
+// continuation here keyed by jobId; the durable dispatcher later claims + runs it via the
+// SAME runJob() half. In-memory + non-durable BY DESIGN: a process restart drops the
+// continuation, but the jobs ROW survives in 'queued'/'running' state (a real, recoverable
+// row). Durable reconstruction-from-job.input across a restart is JOB-RECOVERY-1
+// (Component B) — note job.input is currently a placeholder {}, so B owns that work. [A->B seam]
+
+const _deferredJobParams = new Map<string, CanonicalMutationParams>();
+
+/**
+ * Enqueue a job 'queued' (Transaction 1) and register its continuation for the dispatcher to
+ * run later. Returns the new jobId WITHOUT running the LLM. Used behind JOB_DISPATCHER_ENABLED.
+ */
+export async function enqueueCanonicalJobForDispatcher(
+  params: CanonicalMutationParams,
+): Promise<string> {
+  const jobId = await enqueueJob(params);
+  _deferredJobParams.set(jobId, params);
+  return jobId;
+}
+
+/**
+ * True if an in-memory continuation exists for jobId. The dispatcher checks this so it never
+ * claims a job whose continuation was lost to a restart — that job is left 'queued' for
+ * JOB-RECOVERY-1 (Component B) to reap/reconstruct.
+ */
+export function hasDeferredContinuation(jobId: string): boolean {
+  return _deferredJobParams.has(jobId);
+}
+
+/**
+ * Run a previously-enqueued (deferred) job to terminal via runJob() — which performs the atomic
+ * claim, so a lost race no-ops safely. Returns null when no continuation is registered (e.g.
+ * after a restart): the job ROW is left untouched ('queued') for Component B. The continuation
+ * is cleared once consumed.
+ */
+export async function runDeferredCanonicalJob(
+  jobId: string,
+): Promise<CanonicalMutationResult | null> {
+  const params = _deferredJobParams.get(jobId);
+  if (!params) return null;
+  try {
+    return await runJob(jobId, params);
+  } finally {
+    _deferredJobParams.delete(jobId);
+  }
+}
+
+/** TEST-ONLY: clear the deferred registry between tests (mirrors setJobWriteFunctions(null)). */
+export function clearDeferredJobParamsForTest(): void {
+  _deferredJobParams.clear();
 }

@@ -21,7 +21,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
-import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+import {
+  executeCanonicalMutation,
+  enqueueCanonicalJobForDispatcher,
+  type CanonicalMutationParams,
+} from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, resolveReviewerLatencyTuning, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
@@ -37,6 +41,7 @@ import {
   isReviewerSelectionCountAllowed,
   isEvaluatorEnabled,
   isReviewerAsyncEnabled,
+  isJobDispatcherEnabled,
 } from '../config/featureFlags.js';
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
@@ -313,7 +318,7 @@ export const reviewSessionRouter = router({
           ...(previouslyAdoptedSection ? [previouslyAdoptedSection] : []),
         ].join('\n');
         const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
-        const reviewerResultPromise = executeCanonicalMutation({
+        const reviewerParams: CanonicalMutationParams = {
           userId,
           jobType: 'reviewer_feedback',
           modelString,
@@ -409,18 +414,25 @@ export const reviewSessionRouter = router({
             );
           },
           telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-        });
-        if (reviewerAsync) {
-          // Fire-and-forget: the reviewer runs in the BACKGROUND and persists its feedback on
-          // completion (txn2Commit); the frontend's existing polling surfaces it progressively and
-          // the operator is not blocked. executeCanonicalMutation marks the job failed INTERNALLY on
-          // any LLM error, so a rejection here is only an unexpected error — log it, never surface it.
+        };
+        if (reviewerAsync && isJobDispatcherEnabled()) {
+          // DISPATCHER-COMPLETE-1 D-4: leave the job 'queued' for the durable dispatcher to claim
+          // and run, so the reviewer survives as a real recoverable DB row instead of an in-process
+          // fire-and-forget promise. Still flag-gated (JOB_DISPATCHER_ENABLED) and OFF by default.
+          await enqueueCanonicalJobForDispatcher(reviewerParams);
+        } else if (reviewerAsync) {
+          // Fire-and-forget (JOB_DISPATCHER_ENABLED OFF) — BYTE-IDENTICAL to the established async
+          // path: the reviewer runs in the BACKGROUND and persists its feedback on completion
+          // (txn2Commit); the frontend's existing polling surfaces it progressively and the operator
+          // is not blocked. executeCanonicalMutation marks the job failed INTERNALLY on any LLM
+          // error, so a rejection here is only an unexpected error — log it, never surface it.
+          const reviewerResultPromise = executeCanonicalMutation(reviewerParams);
           void reviewerResultPromise.catch((err) => {
             // eslint-disable-next-line no-console
             console.error(`[reviewer-async] unexpected background reviewer error (session ${sessionId}):`, err);
           });
         } else {
-          const reviewerResult = await reviewerResultPromise;
+          const reviewerResult = await executeCanonicalMutation(reviewerParams);
           reviewerJobIds.push(reviewerResult.jobId);
         }
       }
