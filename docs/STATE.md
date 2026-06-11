@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-10 (REVIEWER-LATENCY-1 Step 2b — reviewer output-contract diet, flag-gated; MERGED to main, NOT deployed)
+
+**Disposition.** Built + operator-approved merge. PR #259 squash-merged to `main` **57acdad** (CI green: Lint + Type Check + Tests). Reversible build-and-PR lane; merge held for operator approval (not auto-merged) because the engagement reworks calibration-sensitive prompt prose under the new flag. **Not deployed** — Railway auto-deploy OFF, so `main` is now AHEAD of prod (`8ca6709`); and even once deployed nothing changes until the flag is flipped.
+
+**What changed.** New flag `REVIEWER_LEAN_CONTRACT_ENABLED` (default OFF). OFF = reviewer system prompt + emitted contract byte-identical to today (guard-tested). ON = the reviewer emits, inside each legacy `{title,body,severity}` wrapper, a SINGLE lean `STRUCTURED_FEEDBACK_CARDS` card (one-element array, NO `NARRATIVE_REVIEWER_MEMO`) using a 13-field lean set + the NEW `governing_law` field, with the runtime/evaluator-owned and Step-0-inert fields dropped (`severity_subtype`, `persistence_count`/`_chain`, `evaluator_disposition`/`_rationale`, `future_memory_instruction`, `regeneration_instructions`, `feedback_id`, `review_cycle_id`, `reviewer_track`, `target_document`, `suppress_by_default`, `routine_blank_flag`). Calibration BEHAVIORS preserved (execution-blank suppression, drafting-vs-business separation, business-decision guardrail, persistence, matter-memory). Active wrapper parser (`parseFeedbackOutput`) + card-first display UNCHANGED; the lean card is a strict subset the lenient `FeedbackCardDisplaySchema` tolerates. ReviewPane gains a Governing law row. **Step-0 consumer check:** `suppress_by_default`/`routine_blank_flag` confirmed inert (emitted-only, read by no runtime path) → dropped.
+
+**Bundled always-on fix.** `tokensReasoning` added to `JobRowSchema` + `PublicJobSchema` (`shared/schemas/jobs.ts`) so the migration-0027 column is no longer Zod-stripped on read → `reasoning_fraction = tokensReasoning / tokensCompletion` is now computable client-side (no query change; no new migration — the column already exists).
+
+**Build state.** main = `57acdad`; prod still `8ca6709` (main AHEAD by #259). No pending migrations. Flags unchanged from the prior entry; `REVIEWER_LEAN_CONTRACT_ENABLED` is NEW and OFF.
+
+**Open items / gate residuals.** (1) Flag-ON has NOT been live-tested — before any prod flip, run a flag-ON live A/B (output-token weight + a P8 calibration spot-check, especially P8-T6/T7/T10) since the discipline prose was reworded under the flag. (2) Deploy of #259 and the separate `REVIEWER_LATENCY_TUNING_ENABLED` (Step 2a) flip decision both remain operator-gated/open. (3) PARKED: PROJECT-REVIEW-FULL-1 DURABILITY-1 queue write (Rule-11) still unwritten. Recon report: `docs/engagements/REVIEWER-LATENCY-1-step2b-investigation.md`.
+
+---
+
 ## 2026-06-10 (STATE RECONCILE — main = prod = 8ca6709; ALL completed work merged + deployed; tracker re-aligned to reality)
 
 **Disposition.** Operator-directed full state-doc reconcile alongside a "just-cause" deploy. prod was `14f5ce07` (#257); operator deployed **main `8ca6709`** — the only delta from `14f5ce07` is the `#253` docs-only Rule-16 commit, so **no code/migration/flag change** (effectively `main == prod`). Net: **everything done is merged AND deployed.**
