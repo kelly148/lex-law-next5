@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (REVIEWER-LATENCY-1 Step 2b A/B live-test + Step 2b.1 multiplicity fix)
+
+**2b A/B (runtime, prod).** Verbose-vs-lean A/B on the POA fixture (doc `1220e379…`, version `bcdc52e3…`), latency-tuning ON both arms. **Arm A (verbose, flag false):** gpt-5 48s / 9450 completion / 2624 reasoning / **10 findings**; claude 95s/7, gemini 46s/5, grok empty. **Arm B (lean, flag true):** gpt-5 20s / 2982 completion / 2432 reasoning / **1 finding**; claude empty (9 tok), gemini 7, grok empty. Lean-shape self-check **PASSED** (exactly the 13 lean fields + `governing_law`="Virginia", no dropped fields, display fields populated). `tokensReasoning` confirmed **non-null on prod** (the #259 read-path fix works live). **VERDICT:** lean is mechanically correct and a big efficiency win (gpt-5 −68% completion tokens, −58% wall) BUT collapsed gpt-5 thoroughness **10→1** (missed a high-severity § 3.1 gifts blocker) — root cause: the lean wording "EXACTLY ONE feedback-card object" read as one-finding-total. Two new synthetic sessions on the doc (Arm A `1d7b9636`, Arm B `b6512d8c`), both abandoned → LLN-PROD-CLEANUP-1.
+
+**2b.1 fix (merged).** PR #261 squash-merged to `main` **5907805** (CI green). Prompt-only, flag-ON branch only (flag-OFF byte-identical, guard-tested): `outputContractLean` now says the outer array is **ONE item PER FINDING** + **surface ALL material issues** (removed the one-finding-total wording); `source_of_truth_tier` clarified as numeric 1–9. No schema/display/dep change.
+
+**Build/deploy state.** main = `5907805` (2b #259 + docs #260 + 2b.1 #261). prod = `709ec47` (operator deployed for the A/B), currently with **`REVIEWER_LEAN_CONTRACT_ENABLED=true` ⇒ prod reviewers run the DEGRADED pre-2b.1 lean contract.** The 2b.1 fix is **not yet on prod**.
+
+**Open / owed.** (1) **URGENT — prod is degraded:** either revert `REVIEWER_LEAN_CONTRACT_ENABLED` → `false` (restore verbose) OR deploy `main` (5907805, carries 2b.1) and keep the flag on. (2) After deploying 2b.1, **re-run the verbose-vs-lean A/B** (definitive proof lean retains ~10 findings while keeping the token/latency win). (3) Step 2a `REVIEWER_LATENCY_TUNING_ENABLED` stays ON (confirmed: gpt-5 48s, not 177s). Deploy + flag = operator calls.
+
+---
+
 ## 2026-06-10 (REVIEWER-LATENCY-1 Step 2b — reviewer output-contract diet, flag-gated; MERGED to main, NOT deployed)
 
 **Disposition.** Built + operator-approved merge. PR #259 squash-merged to `main` **57acdad** (CI green: Lint + Type Check + Tests). Reversible build-and-PR lane; merge held for operator approval (not auto-merged) because the engagement reworks calibration-sensitive prompt prose under the new flag. **Not deployed** — Railway auto-deploy OFF, so `main` is now AHEAD of prod (`8ca6709`); and even once deployed nothing changes until the flag is flipped.
