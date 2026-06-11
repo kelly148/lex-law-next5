@@ -43,15 +43,23 @@ describe('reviewSession.create async dispatch wiring (source audit)', () => {
   it('reads the async flag before the reviewer fan-out loop', () => {
     expect(src).toContain('const reviewerAsync = isReviewerAsyncEnabled();');
   });
-  it('launches the reviewer mutation as an un-awaited promise (decoupled from the request)', () => {
-    expect(src).toContain('const reviewerResultPromise = executeCanonicalMutation({');
+  // DISPATCHER-COMPLETE-1 D-4: the params are extracted once, then dispatched by mode
+  // (durable dispatcher when JOB_DISPATCHER_ENABLED; otherwise the established fire-and-forget /
+  // sequential paths, byte-for-byte). Assertions updated for the new wiring; intent preserved.
+  it('extracts the reviewer mutation params once, then dispatches by mode', () => {
+    expect(src).toContain('const reviewerParams: CanonicalMutationParams = {');
   });
-  it('fires reviewers in the background (fire-and-forget) when async is enabled', () => {
-    expect(src).toContain('if (reviewerAsync) {');
+  it('routes async reviewers through the durable dispatcher when JOB_DISPATCHER_ENABLED', () => {
+    expect(src).toContain('reviewerAsync && isJobDispatcherEnabled()');
+    expect(src).toContain('await enqueueCanonicalJobForDispatcher(reviewerParams);');
+  });
+  it('launches an un-awaited promise (fire-and-forget) when async is ON and the dispatcher is OFF', () => {
+    expect(src).toContain('} else if (reviewerAsync) {');
+    expect(src).toContain('const reviewerResultPromise = executeCanonicalMutation(reviewerParams);');
     expect(src).toContain('void reviewerResultPromise.catch(');
   });
   it('preserves the inline + sequential path when async is OFF', () => {
-    expect(src).toContain('const reviewerResult = await reviewerResultPromise;');
+    expect(src).toContain('const reviewerResult = await executeCanonicalMutation(reviewerParams);');
     expect(src).toContain('reviewerJobIds.push(reviewerResult.jobId);');
   });
   it('skips the advisory evaluator in async mode (it needs all reviewer feedback first)', () => {

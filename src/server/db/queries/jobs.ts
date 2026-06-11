@@ -24,6 +24,7 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { jobs, type NewJob } from '../schema.js';
+import { ownerScope } from '../ownerScope.js';
 import { JobRowSchema, PublicJobSchema, type JobRow, type PublicJob } from '../../../shared/schemas/jobs.js';
 import { emitTelemetry, type TelemetryContext } from '../../telemetry/emitTelemetry.js';
 
@@ -397,4 +398,35 @@ export async function getQueuedJobs(ctx: TelemetryContext): Promise<JobRow[]> {
   return rows.map((row) =>
     parseJobRow(row, { userId: ctx.userId ?? row.userId, jobId: row.id }),
   );
+}
+
+/**
+ * DISPATCHER-COMPLETE-1 (D-3): re-queue a job (running|queued -> queued) so the dispatcher
+ * picks it up again on a later poll, used on a bounded handler retry. Conditional UPDATE so a
+ * job already in a terminal state (completed/failed/timed_out/cancelled) is NOT resurrected.
+ * Reuses the existing status enum value 'queued' — no migration. Returns rows affected
+ * (1 = re-queued; 0 = already terminal / not this user's job).
+ */
+export async function requeueJob(
+  jobId: string,
+  userId: string,
+): Promise<number> {
+  const now = new Date();
+  await db
+    .update(jobs)
+    .set({ status: 'queued', updatedAt: now })
+    .where(
+      and(
+        eq(jobs.id, jobId),
+        ownerScope(jobs.userId, userId), // FOLD-AUTH-1 owner chokepoint (not an inline filter — ratchet)
+        inArray(jobs.status, ['running', 'queued']), // conditional UPDATE (Ch 23.2)
+      ),
+    );
+  // MySQL does not support .returning(); verify the update took effect with a SELECT.
+  const check = await db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'queued')))
+    .limit(1);
+  return check.length;
 }

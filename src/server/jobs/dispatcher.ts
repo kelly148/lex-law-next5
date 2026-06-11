@@ -44,9 +44,11 @@
  *   failures and do NOT increment the counter.
  */
 
-import { getQueuedJobs } from '../db/queries/jobs.js';
+import { getQueuedJobs, requeueJob, markJobFailed } from '../db/queries/jobs.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { isTransientDbError, isConditionallyRetriedCode } from '../db/transientDbError.js';
+import { isJobDispatcherEnabled } from '../config/featureFlags.js';
+import { runDeferredCanonicalJob, hasDeferredContinuation } from '../db/canonicalMutation.js';
 
 // ============================================================
 // Dispatcher state
@@ -65,6 +67,103 @@ const _handlers = new Map<string, JobHandler>();
 
 export function registerJobHandler(jobType: string, handler: JobHandler): void {
   _handlers.set(jobType, handler);
+}
+
+// ============================================================
+// DISPATCHER-COMPLETE-1 — completion tracking + bounded retry (D-2 / D-3)
+// ============================================================
+
+type DispatchableJob = Awaited<ReturnType<typeof getQueuedJobs>>[number];
+
+/**
+ * Max handler attempts before a job is terminalized. On a handler THROW the job is re-queued
+ * (running|queued -> queued) for a later poll; after MAX_HANDLER_ATTEMPTS throws it is marked
+ * failed so it can never loop. Durable retry ACROSS a restart is Component B (JOB-RECOVERY-1) —
+ * this counter is in-memory and resets on restart. [A->B seam]
+ */
+const MAX_HANDLER_ATTEMPTS = 3;
+
+/** Jobs currently being run by a handler — prevents a later poll from double-dispatching the
+ *  same job (a belt to the markJobRunning claim, which is the authoritative D-2 guard). */
+const _inFlight = new Set<string>();
+
+/** Per-job throw count for the bounded D-3 retry. */
+const _requeueAttempts = new Map<string, number>();
+
+/** Deferred jobs whose in-memory continuation was lost (e.g. after a restart): left 'queued'
+ *  for JOB-RECOVERY-1 (Component B) and skipped here so they do not busy-poll. */
+const _skipNoContinuation = new Set<string>();
+
+/** In-flight dispatch promises, tracked so tests can await settlement. */
+const _inFlightPromises = new Set<Promise<void>>();
+
+/**
+ * Run one handler with completion tracking + bounded re-queue (D-3). NOT awaited by the poll
+ * loop, so multiple jobs run concurrently. A handler THROW is an infra/dispatch failure (a
+ * normal job terminal is resolved INSIDE runJob without throwing): re-queue up to
+ * MAX_HANDLER_ATTEMPTS, then terminalize. Handler failures never touch the poll-failure counter.
+ */
+async function dispatchTracked(job: DispatchableJob, handler: JobHandler): Promise<void> {
+  try {
+    await handler(job.id, job.userId);
+    _requeueAttempts.delete(job.id);
+  } catch (err) {
+    const attempts = (_requeueAttempts.get(job.id) ?? 0) + 1;
+    console.error(
+      `[Dispatcher] Handler threw for jobType="${job.jobType}" jobId="${job.id}" ` +
+        `(attempt ${attempts}/${MAX_HANDLER_ATTEMPTS}):`,
+      err,
+    );
+    void emitTelemetry(
+      'procedure_error',
+      {
+        procedureName: `dispatcher.${job.jobType}`,
+        errorCode: 'INTERNAL_SERVER_ERROR',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      },
+      { userId: job.userId, matterId: job.matterId, documentId: job.documentId, jobId: job.id },
+    );
+    if (attempts >= MAX_HANDLER_ATTEMPTS) {
+      _requeueAttempts.delete(job.id);
+      try {
+        await markJobFailed(
+          job.id,
+          job.userId,
+          'dispatcher_retry_exhausted',
+          `Handler failed after ${attempts} attempts: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } catch (failErr) {
+        console.error(`[Dispatcher] markJobFailed after retry exhaustion failed for jobId="${job.id}":`, failErr);
+      }
+    } else {
+      _requeueAttempts.set(job.id, attempts);
+      try {
+        await requeueJob(job.id, job.userId);
+      } catch (rqErr) {
+        console.error(`[Dispatcher] requeueJob failed for jobId="${job.id}":`, rqErr);
+      }
+    }
+  } finally {
+    _inFlight.delete(job.id);
+  }
+}
+
+/**
+ * Register the default job handlers, gated on JOB_DISPATCHER_ENABLED. Idempotent (re-registering
+ * a jobType overwrites). Called from startDispatcher(); exported for tests. When the flag is OFF
+ * this registers NOTHING — the dispatcher stays a no-op and the inline path is byte-for-byte
+ * unchanged. The reviewer_feedback handler runs the deferred continuation the async-reviewer path
+ * registered (D-1/D-4); a job with no continuation (post-restart) is left 'queued' for Component B.
+ */
+export function registerDefaultJobHandlers(): void {
+  if (!isJobDispatcherEnabled()) return;
+  registerJobHandler('reviewer_feedback', async (jobId, _userId) => {
+    if (!hasDeferredContinuation(jobId)) {
+      _skipNoContinuation.add(jobId);
+      return;
+    }
+    await runDeferredCanonicalJob(jobId);
+  });
 }
 
 // ============================================================
@@ -277,6 +376,10 @@ async function pollOnce(): Promise<void> {
   _consecutiveTransientPollFailures = 0;
 
   for (const job of queuedJobs) {
+    // DISPATCHER-COMPLETE-1: skip jobs already in flight (D-2 belt to the markJobRunning claim)
+    // or left for recovery (no in-memory continuation after a restart — Component B reaps them).
+    if (_skipNoContinuation.has(job.id)) continue;
+    if (_inFlight.has(job.id)) continue;
     const handler = _handlers.get(job.jobType);
     if (!handler) {
       // Unknown job type — log and skip (Ch 8.3: context_summary_generation is reserved)
@@ -286,24 +389,13 @@ async function pollOnce(): Promise<void> {
       continue;
     }
 
-    // Dispatch asynchronously — do not await, so the poll loop continues.
-    // Handler-level failures do NOT count as poll failures and do NOT increment
-    // the consecutive-failure counter (§4.2, §4.3).
-    void handler(job.id, job.userId).catch((err) => {
-      console.error(
-        `[Dispatcher] Unhandled error in handler for jobType="${job.jobType}" jobId="${job.id}":`,
-        err,
-      );
-      void emitTelemetry(
-        'procedure_error',
-        {
-          procedureName: `dispatcher.${job.jobType}`,
-          errorCode: 'INTERNAL_SERVER_ERROR',
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-        { userId: job.userId, matterId: job.matterId, documentId: job.documentId, jobId: job.id },
-      );
-    });
+    // Dispatch with completion tracking + bounded retry (D-3) — NOT awaited, so the poll loop
+    // continues and multiple jobs run concurrently. Handler-level failures do NOT count as poll
+    // failures and do NOT increment the consecutive-failure counter (§4.2, §4.3).
+    _inFlight.add(job.id);
+    const dispatch = dispatchTracked(job, handler);
+    _inFlightPromises.add(dispatch);
+    void dispatch.finally(() => _inFlightPromises.delete(dispatch));
   }
 }
 
@@ -326,6 +418,9 @@ function schedulePoll(): void {
 export async function startDispatcher(): Promise<void> {
   if (_isRunning) return;
   _isRunning = true;
+  // DISPATCHER-COMPLETE-1: flag-gated handler registration. No-op when JOB_DISPATCHER_ENABLED
+  // is OFF, so the dispatcher stays a no-op and the inline path is unchanged.
+  registerDefaultJobHandlers();
   await logOrphanedJobs();
   console.log(
     `[Dispatcher] Started. Poll interval: ~${POLL_INTERVAL_MS}ms (±20% jitter).`,
@@ -358,4 +453,30 @@ export function isDispatcherRunning(): boolean {
  */
 export async function runPollOnceForTest(): Promise<void> {
   return pollOnce();
+}
+
+// ============================================================
+// DISPATCHER-COMPLETE-1 — test seams
+// ============================================================
+
+/** TEST-ONLY: is a handler registered for this jobType? */
+export function hasHandlerForTest(jobType: string): boolean {
+  return _handlers.has(jobType);
+}
+
+/** TEST-ONLY: clear all registered handlers (prevents cross-test pollution). */
+export function clearHandlersForTest(): void {
+  _handlers.clear();
+}
+
+/** TEST-ONLY: reset the in-flight / retry / skip state. Call in afterEach. */
+export function resetDispatcherJobStateForTest(): void {
+  _inFlight.clear();
+  _requeueAttempts.clear();
+  _skipNoContinuation.clear();
+}
+
+/** TEST-ONLY: await all in-flight dispatches (pollOnce does not await them). */
+export async function settleDispatchesForTest(): Promise<void> {
+  await Promise.allSettled([..._inFlightPromises]);
 }

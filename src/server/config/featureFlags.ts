@@ -66,6 +66,22 @@ export function isReviewerAsyncEnabled(): boolean {
 }
 
 /**
+ * Durable job dispatcher (DISPATCHER-COMPLETE-1, Gate 0 Component A). DEFAULT OFF.
+ *
+ * When OFF (the default), every LLM job runs INLINE in the request via executeCanonicalMutation
+ * exactly as today (byte-for-byte): no handler is registered, the in-process dispatcher stays a
+ * no-op, and the async-reviewer path keeps its in-process fire-and-forget behavior.
+ *
+ * When exactly "true", the dispatcher registers a reviewer_feedback handler and the async-reviewer
+ * path leaves its job 'queued' for the dispatcher to atomically claim and run to completion (with
+ * bounded retry/re-queue), so async work survives as a real, recoverable DB row instead of an
+ * in-process promise. Durable retry/recovery ACROSS a restart is Component B (JOB-RECOVERY-1).
+ */
+export function isJobDispatcherEnabled(): boolean {
+  return process.env['JOB_DISPATCHER_ENABLED'] === 'true';
+}
+
+/**
  * Export-safety / outbound-readiness deterministic gate (FOLD-SEND-1). DEFAULT OFF.
  *
  * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged
