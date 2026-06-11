@@ -44,7 +44,8 @@ import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolveDraftingGate } from './db/queries/gateOverride.js';
-import { isSendabilityGateEnabled, isConflictGateEnabled } from './config/featureFlags.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled } from './config/featureFlags.js';
+import { resolveRootServe } from './landingRoot.js';
 
 // ============================================================
 // Startup validation (Ch 22.3)
@@ -755,6 +756,32 @@ app.use(
 // The path-to-regexp wildcard issue only affects Express 5.
 // ============================================================
 const distPath = path.resolve(process.cwd(), 'dist');
+// ============================================================
+// LANDING-2: bare-domain routing (flag LANDING_AT_ROOT_ENABLED, default OFF).
+// Registered BEFORE express.static so it intercepts GET / before the static
+// index.html is served. Flag OFF -> next() -> express.static serves index.html
+// (the SPA) exactly as today (byte-identical). Flag ON -> the existing iron-session
+// path (getSession/extractUserId, reused unchanged) decides: anonymous visitors get
+// the public landing page (dist/landing.html, from LANDING-1); authenticated visitors
+// get the app with no extra clicks. /landing.html and every other route (the SPA
+// deep-link catch-all below) are untouched.
+// ============================================================
+app.get('/', async (req: Request, res: Response, next: NextFunction) => {
+  // Flag OFF: fall through to express.static — byte-identical to today, no session read.
+  if (!isLandingAtRootEnabled()) {
+    return next();
+  }
+  let userId: string | null = null;
+  try {
+    const session = await getSession(req, res);
+    userId = extractUserId(session);
+  } catch {
+    // Session read failed -> safe default: today's behavior (serve the SPA).
+    return next();
+  }
+  const serve = resolveRootServe(true, userId); // 'spa' (authenticated) | 'landing' (anonymous)
+  return res.sendFile(path.join(distPath, serve === 'landing' ? 'landing.html' : 'index.html'));
+});
 app.use(express.static(distPath));
 // SPA catch-all: any route not matched above returns index.html so that
 // React Router can handle client-side navigation (e.g. /matters/:id).
