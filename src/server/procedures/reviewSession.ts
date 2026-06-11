@@ -42,7 +42,9 @@ import {
   isEvaluatorEnabled,
   isReviewerAsyncEnabled,
   isJobDispatcherEnabled,
+  isJobReaperEnabled,
 } from '../config/featureFlags.js';
+import { pollJobs } from '../db/queries/jobs.js';
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -184,11 +186,36 @@ export const reviewSessionRouter = router({
       // Check for existing active session (R10 — also enforced at DB level)
       const existingSession = await getActiveReviewSessionForDocument(input.documentId, userId);
       if (existingSession) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          // Include sessionId so the frontend can resume the existing session instead of showing a dead-end error.
-          message: `SESSION_ALREADY_EXISTS:${existingSession.id}: an active review session already exists for this document at iteration ${existingSession.iterationNumber}`,
-        });
+        // JOB-RECOVERY-1 (B-3): a failed/empty/orphaned reviewer can leave the session 'active'
+        // forever, wedging every future create with SESSION_ALREADY_EXISTS. When the reaper is ON,
+        // self-heal: if NO reviewer job for this document is still in flight (queued/running), the
+        // existing session is stuck — recover it (abandon; migration-free, releases the active-session
+        // unique index) and proceed instead of throwing. Owner-scoped (pollJobs + updateReviewSessionState
+        // both filter by userId), so cross-owner sessions/jobs are never touched. Flag OFF = throws as today.
+        let recovered = false;
+        if (isJobReaperEnabled()) {
+          const liveJobs = await pollJobs(userId, {
+            documentId: input.documentId,
+            statuses: ['queued', 'running'],
+          });
+          const liveReviewers = liveJobs.filter((j) => j.jobType === 'reviewer_feedback');
+          if (liveReviewers.length === 0) {
+            await updateReviewSessionState(existingSession.id, userId, 'abandoned');
+            console.log(
+              `[JOB-RECOVERY-1] Recovered stuck-active review session ${existingSession.id} ` +
+                `(document ${input.documentId}, iteration ${existingSession.iterationNumber}): ` +
+                `no in-flight reviewer — abandoned to unblock create.`,
+            );
+            recovered = true;
+          }
+        }
+        if (!recovered) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            // Include sessionId so the frontend can resume the existing session instead of showing a dead-end error.
+            message: `SESSION_ALREADY_EXISTS:${existingSession.id}: an active review session already exists for this document at iteration ${existingSession.iterationNumber}`,
+          });
+        }
       }
 
       // MR-CAL-3E: compute the review iteration server-side from prior review
