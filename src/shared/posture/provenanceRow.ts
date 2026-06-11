@@ -8,7 +8,7 @@
  * bundle. Honors the W1 ProvenanceEntry (commit 9cf7dac) — it MAPS the contract, never redefines it.
  */
 import { type Posture, type CoherenceFinding, hasHardBlock } from './postureCoherence.js';
-import type { HardStopAct, ProvenanceEventClass, ProvenanceEntry } from './provenance.js';
+import type { HardStopAct, ProvenanceEventClass, ProvenanceEntry, ProvenanceSubject } from './provenance.js';
 
 export type PrivilegeColumn = 'privileged' | 'not_privileged' | 'undetermined';
 export type VerdictSeverity = 'hard' | 'soft' | 'none';
@@ -57,6 +57,8 @@ export interface PostureProvenanceContent {
   priorTriple: Posture | null;
   verdictSeverity: VerdictSeverity;
   findings: CoherenceFinding[];
+  // The non-posture act's target (W3); null for posture acts.
+  subject: ProvenanceSubject | null;
 }
 
 /** Map a W1 ProvenanceEntry to durable content, given its matter context + per-matter sequence. */
@@ -83,6 +85,7 @@ export function entryToContent(
     priorTriple: entry.priorTriple,
     verdictSeverity: verdictSeverityOf(entry.acknowledged),
     findings: entry.acknowledged,
+    subject: entry.subject,
   };
 }
 

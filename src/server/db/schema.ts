@@ -2575,6 +2575,8 @@ export const postureProvenance = mysqlTable(
     priorTriple: json('priorTriple'),
     verdictSeverity: mysqlEnum('verdictSeverity', POSTURE_PROVENANCE_VERDICT_VALUES).notNull(),
     findings: json('findings').notNull(),
+    // CHAT-UI-1 W3 (migration 0029) — the non-posture act's target (matter identity, undo, ...).
+    subject: json('subject'),
     // Per-matter tamper-evident hash chain.
     prevHash: varchar('prevHash', { length: 64 }).notNull(),
     entryHash: varchar('entryHash', { length: 64 }).notNull(),

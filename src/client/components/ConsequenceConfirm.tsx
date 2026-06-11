@@ -23,6 +23,7 @@ import {
 import {
   type HardStopAct,
   type ProvenanceEntry,
+  type ProvenanceSubject,
   isPostureAct,
   buildProvenanceEntry,
 } from '../../shared/posture/provenance.js';
@@ -48,6 +49,8 @@ export interface ConsequenceConfirmProps {
   description?: string;
   /** Present for posture acts (and the send/lock egress check). `atEgress` enables the egress-only rows. */
   posture?: { prior?: Posture; next: Posture; atEgress?: boolean };
+  /** The target of a non-posture hard-stop act (W3): the bound matter, the undo target, etc. */
+  subject?: ProvenanceSubject;
   actor: string;
   sliderPosition: string;
   triggerSource: string;
@@ -56,7 +59,7 @@ export interface ConsequenceConfirmProps {
 }
 
 export default function ConsequenceConfirm(props: ConsequenceConfirmProps): React.ReactElement {
-  const { act, title, description, posture, actor, sliderPosition, triggerSource, onConfirm, onCancel } = props;
+  const { act, title, description, posture, subject, actor, sliderPosition, triggerSource, onConfirm, onCancel } = props;
   const [softAck, setSoftAck] = useState(false);
 
   const next = posture?.next;
@@ -81,6 +84,7 @@ export default function ConsequenceConfirm(props: ConsequenceConfirmProps): Reac
         sliderPosition,
         triggerSource,
         at: new Date().toISOString(),
+        subject: subject ?? null,
         priorTriple: posture?.prior ?? null,
         nextTriple: next ?? null,
         acknowledged: findings,
@@ -102,6 +106,14 @@ export default function ConsequenceConfirm(props: ConsequenceConfirmProps): Reac
         <span className="ml-auto text-[10px] uppercase tracking-wide text-ink-hint">Recorded confirm</span>
       </div>
       {description && <p className="mt-2 text-sm text-ink-secondary">{description}</p>}
+
+      {subject && (
+        <div data-testid="confirm-subject" className="mt-3 rounded border border-line bg-surface-2 p-3 text-sm">
+          <div className="text-[10px] uppercase tracking-wide text-ink-hint">{subject.type}</div>
+          <div className="mt-1 text-ink">{subject.label ?? subject.id ?? '—'}</div>
+          {subject.detail && <div className="mt-0.5 text-xs text-ink-hint">{subject.detail}</div>}
+        </div>
+      )}
 
       {showsTriple && next && (
         <div data-testid="confirm-triple" className="mt-4 rounded border border-line bg-surface-2 p-3 text-sm">

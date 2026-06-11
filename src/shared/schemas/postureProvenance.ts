@@ -50,6 +50,14 @@ export const CoherenceFindingSchema = z.object({
   rationale: z.string(),
 });
 
+/** The non-posture act's target (W3) — matter identity, undo target, etc. (mirrors the shared type). */
+export const ProvenanceSubjectSchema = z.object({
+  type: z.string(),
+  id: z.string().nullable(),
+  label: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+
 export const PostureProvenanceRowSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -70,6 +78,7 @@ export const PostureProvenanceRowSchema = z.object({
   priorTriple: PostureTripleSchema.nullable(),
   verdictSeverity: z.enum(['hard', 'soft', 'none']),
   findings: z.array(CoherenceFindingSchema),
+  subject: ProvenanceSubjectSchema.nullable(),
   prevHash: z.string(),
   entryHash: z.string(),
   createdAt: z.date(),
@@ -93,6 +102,7 @@ export const ProvenanceEntryInputSchema = z.object({
   nextTriple: PostureTripleSchema.nullable(),
   resolvedRecipient: RECIPIENT.nullable(),
   acknowledged: z.array(CoherenceFindingSchema),
+  subject: ProvenanceSubjectSchema.nullable(),
 });
 
 export type ProvenanceEntryInput = z.infer<typeof ProvenanceEntryInputSchema>;

@@ -52,6 +52,7 @@ export const chatUiRouter = router({
         {
           act: e.act,
           eventClass: e.eventClass,
+          subject: e.subject,
           actor: ctx.userId,
           sliderPosition: e.sliderPosition,
           triggerSource: e.triggerSource,

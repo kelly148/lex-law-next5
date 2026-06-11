@@ -139,6 +139,29 @@ describe('ConsequenceConfirm — the issuer scenario, through the component', ()
   });
 });
 
+describe('ConsequenceConfirm — non-posture act with a subject (matter identity, W3)', () => {
+  it('renders the subject and emits it on the entry', () => {
+    const onConfirm = vi.fn();
+    const { getByTestId } = render(
+      <ConsequenceConfirm
+        {...base}
+        act="matter_identity"
+        title="Confirm matter"
+        subject={{ type: 'matter', id: 'B', label: 'Brown EP', detail: 'rebind from A' }}
+        onConfirm={onConfirm}
+        onCancel={() => {}}
+      />,
+    );
+    expect(getByTestId('confirm-subject').textContent).toContain('Brown EP');
+    expect(btn(getByTestId('confirm-accept')).disabled).toBe(false);
+    fireEvent.click(getByTestId('confirm-accept'));
+    const entry = onConfirm.mock.calls[0][0];
+    expect(entry.act).toBe('matter_identity');
+    expect(entry.subject.id).toBe('B');
+    expect(entry.nextTriple).toBeNull();
+  });
+});
+
 describe('ConsequenceConfirm — generic non-posture act', () => {
   it('a lock confirm shows no triple and emits an entry with a null triple', () => {
     const onConfirm = vi.fn();

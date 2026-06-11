@@ -48,14 +48,30 @@ export function isPostureAct(act: HardStopAct): boolean {
 export type ProvenanceEventClass = 'meaningful_accept' | 'dirty_confirmed';
 
 /**
+ * The TARGET a non-posture hard-stop act acted on (W3): the bound matter for a matter-identity
+ * confirm, the reversed entry for an undo, etc. Posture acts carry their detail in the triple; this
+ * generic descriptor lets the other hard-stop acts record what they confirmed. Mirrors the
+ * audit_events targetType/targetId idiom. All fields non-optional (id/label/detail nullable) so the
+ * shape round-trips losslessly through the JSON column under exactOptionalPropertyTypes.
+ */
+export interface ProvenanceSubject {
+  type: string; // 'matter' | 'undo' | 'source' | 'document' | ...
+  id: string | null;
+  label: string | null;
+  detail: string | null;
+}
+
+/**
  * A meaningful confirm record (brief §2.5): actor, slider position, timestamp, trigger source,
  * prior -> new triple, and the resolved recipient at egress. `acknowledged` captures the coherence
  * findings the attorney saw and accepted at confirm time. `eventClass` distinguishes the two §3
- * classes for the durable audit ledger (W2).
+ * classes for the durable audit ledger (W2). `subject` records the target of a non-posture
+ * hard-stop act (W3); null for posture acts (whose target is the triple).
  */
 export interface ProvenanceEntry {
   act: HardStopAct;
   eventClass: ProvenanceEventClass;
+  subject: ProvenanceSubject | null;
   actor: string;
   sliderPosition: string;
   triggerSource: string;
@@ -70,6 +86,8 @@ export interface BuildProvenanceInput {
   act: HardStopAct;
   /** Defaults to 'meaningful_accept' (a deliberate individual confirm). */
   eventClass?: ProvenanceEventClass;
+  /** The non-posture act's target (W3); defaults to null. */
+  subject?: ProvenanceSubject | null;
   actor: string;
   sliderPosition: string;
   triggerSource: string;
@@ -89,6 +107,7 @@ export function buildProvenanceEntry(input: BuildProvenanceInput): ProvenanceEnt
   return {
     act: input.act,
     eventClass: input.eventClass ?? 'meaningful_accept',
+    subject: input.subject ?? null,
     actor: input.actor,
     sliderPosition: input.sliderPosition,
     triggerSource: input.triggerSource,

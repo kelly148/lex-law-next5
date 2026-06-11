@@ -74,6 +74,7 @@ export function buildProvenanceRow(
     priorTriple: content.priorTriple,
     verdictSeverity: content.verdictSeverity,
     findings: content.findings,
+    subject: content.subject,
     prevHash,
     entryHash: computeEntryHash(prevHash, content),
   };
@@ -117,6 +118,7 @@ export function rowToContent(row: PostureProvenanceRow): PostureProvenanceConten
     priorTriple: normalizeTriple(row.priorTriple),
     verdictSeverity: row.verdictSeverity,
     findings: row.findings,
+    subject: row.subject,
   };
 }
 
