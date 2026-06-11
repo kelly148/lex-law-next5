@@ -38,14 +38,22 @@ vi.mock('../../trpc.js', async () => {
             return { mutate: () => {}, isPending: false };
           },
         },
+        // BA — ChatDeliverable reads the matter's sources.
+        listSources: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: [], isLoading: false, isError: false };
+          },
+        },
       },
       useUtils: () => ({
-        chatUi: { listProvenance: { invalidate: () => {} } },
+        chatUi: { listProvenance: { invalidate: () => {} }, listSources: { invalidate: () => {} } },
         client: {
           chatUi: {
             exportProvenance: {
               query: async () => ({ matterId: 'm-1', count: 0, chain: { valid: true, brokenAtSeq: null, reason: null }, entries: [] }),
             },
+            setSourceTier: { mutate: async () => ({}) },
           },
         },
       }),

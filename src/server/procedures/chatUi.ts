@@ -21,11 +21,21 @@ import {
   listPostureProvenanceForMatter,
   exportPostureProvenanceForMatter,
 } from '../db/queries/postureProvenance.js';
+import { getMatterById } from '../db/queries/matters.js';
+import { listSourceAuthorityForMatter, setSourceAuthorityTier } from '../db/queries/sourceAuthority.js';
+
+const AUTHORITY_ORIGIN = z.enum(['operative', 'counterparty', 'firm', 'client', 'model_derived', 'reference']);
+const LIFECYCLE = z.enum(['current_draft', 'operative', 'superseded']);
 
 function assertEnabled(): void {
   if (!isChatUi1Enabled()) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CHAT_UI_1_DISABLED' });
   }
+}
+
+async function assertMatterOwned(matterId: string, userId: string): Promise<void> {
+  const matter = await getMatterById(matterId, userId);
+  if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
 }
 
 export const chatUiRouter = router({
@@ -79,5 +89,44 @@ export const chatUiRouter = router({
     .query(async ({ ctx, input }) => {
       assertEnabled();
       return exportPostureProvenanceForMatter(input.matterId, ctx.userId);
+    }),
+
+  // ── Backend-act wiring (BA) — the gated hard-stop acts execute their real backend mutation ──
+  // BA-0: read the matter's source-authority rows so the surface can bind a real source subject.
+  listSources: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      assertEnabled();
+      await assertMatterOwned(input.matterId, ctx.userId);
+      return listSourceAuthorityForMatter(input.matterId, ctx.userId);
+    }),
+
+  // BA-1: the 'tier_source' hard-stop act -> the AUDITED re-tier. Operator decision (2026-06-11):
+  // setSourceAuthorityTier UPDATEs the existing row in place AND writes a transactional audit_events
+  // 'set_tier' disposition in ONE transaction (fail-visibly). The caller (ChatDeliverable) invokes
+  // this ONLY inside `if (outcome.confirmed)` — the hard-stop floor has already cleared.
+  setSourceTier: protectedProcedure
+    .input(
+      z.object({
+        sourceId: z.string().uuid(),
+        matterId: z.string().uuid(),
+        documentId: z.string().uuid().nullable().optional(),
+        authorityOrigin: AUTHORITY_ORIGIN,
+        lifecycle: LIFECYCLE,
+        rationale: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertEnabled();
+      await assertMatterOwned(input.matterId, ctx.userId);
+      return setSourceAuthorityTier({
+        id: input.sourceId,
+        userId: ctx.userId,
+        matterId: input.matterId,
+        documentId: input.documentId ?? null,
+        authorityOrigin: input.authorityOrigin,
+        lifecycle: input.lifecycle,
+        rationale: input.rationale ?? null,
+      });
     }),
 });
