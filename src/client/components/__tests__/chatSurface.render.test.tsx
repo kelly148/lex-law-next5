@@ -53,6 +53,14 @@ vi.mock('../../trpc.js', async () => {
   };
 });
 
+vi.mock('../../hooks/useAuth.js', () => ({
+  useAuth: () => ({
+    user: { userId: 'u1', displayName: 'Test Attorney', username: 'kelly' },
+    isLoading: false,
+    isAuthenticated: true,
+  }),
+}));
+
 import ChatSurface from '../../pages/ChatSurface.js';
 
 const renderAt = () =>

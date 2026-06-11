@@ -16,10 +16,15 @@ import React from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
 import { trpc } from '../trpc.js';
+import { useAuth } from '../hooks/useAuth.js';
 import ProvenanceLedgerPanel from '../components/ProvenanceLedgerPanel.js';
+import { ConsequenceProvider } from '../components/ConsequenceProvider.js';
+import AutonomySlider from '../components/AutonomySlider.js';
+import ChatDeliverable from '../components/ChatDeliverable.js';
 
 export default function ChatSurface(): React.ReactElement {
   const { matterId } = useParams<{ matterId: string }>();
+  const { user } = useAuth();
   const { data: flag, isLoading } = trpc.chatUi.isEnabled.useQuery();
 
   // The flag resolves async; treat unknown as OFF. While pending, show a neutral loader
@@ -37,8 +42,14 @@ export default function ChatSurface(): React.ReactElement {
   if (flag?.enabled !== true) {
     return <Navigate to={matterId ? `/matters/${matterId}` : '/matters'} replace />;
   }
+  if (!matterId) {
+    return <Navigate to="/matters" replace />;
+  }
 
+  // The conversation surface routes every consequential act through the ConsequenceProvider
+  // orchestrator (slider + queue + overlay), recording durable W2/W3 provenance.
   return (
+    <ConsequenceProvider matterId={matterId} actor={user?.userId ?? 'unknown'}>
     <div data-testid="chat-surface" className="flex h-full min-h-[70vh]">
       {/* LEFT — matter spine: glanceable, read-only system-of-record (brief §4). Skeleton. */}
       <aside
@@ -63,6 +74,9 @@ export default function ChatSurface(): React.ReactElement {
           <MessageSquare className="w-4 h-4 text-accent" />
           <h1 className="text-sm font-medium text-ink">Conversation</h1>
           <span className="ml-2 text-xs text-ink-hint">CHAT-UI-1 · preview</span>
+          <div className="ml-auto">
+            <AutonomySlider />
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto px-5 py-6">
@@ -100,9 +114,12 @@ export default function ChatSurface(): React.ReactElement {
           A focused document opens here — versions and diff, the posture strip, and the sendability
           pre-flight. Empty until a deliverable is open.
         </p>
+        {/* CHAT-UI-1 WIRE-2 — the deliverable posture strip + hard-stop acts (live). */}
+        <ChatDeliverable />
         {/* CHAT-UI-1 W2 — the durable posture-provenance audit ledger (read + export) for this matter. */}
-        {matterId && <ProvenanceLedgerPanel matterId={matterId} />}
+        <ProvenanceLedgerPanel matterId={matterId} />
       </aside>
     </div>
+    </ConsequenceProvider>
   );
 }
