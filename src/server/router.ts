@@ -40,6 +40,7 @@ import { closurePackageRouter } from './procedures/closurePackage.js';
 import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
 import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
+import { chatUiRouter } from './procedures/chatUi.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -87,6 +88,9 @@ export const appRouter = router({
   // gate (conflicts clearance / identity verification). Additive; records an explicit attorney act the
   // gate consults; never a global toggle; re-arms on a material change.
   gateOverride: gateOverrideRouter,
+  // CHAT-UI-1 — conversation-surface flag exposure (isEnabled), gated behind CHAT_UI_1_ENABLED
+  // (default OFF). W0 scaffold is display-only; the surface is absent when the flag is off.
+  chatUi: chatUiRouter,
 });
 
 export type AppRouter = typeof appRouter;
