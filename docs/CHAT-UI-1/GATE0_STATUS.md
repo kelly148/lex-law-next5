@@ -32,9 +32,13 @@ Gate 0 unmet → **scaffold only the non-reviewer surfaces and flag the dependen
 
 ## Operator dispositions (2026-06-11)
 
-- **D1 carve-out — RATIFIED.** Any set/transition to recipient = adverse / third-party interrupts
-  INDIVIDUALLY and can never be batch-cleared or "confirm-all'd" in Auto-Act, even though other
-  posture confirms queue (brief §2.6). Lands in W1.
+- **D1 carve-out — RATIFIED (2026-06-11), BROAD scope.** Any set/transition to recipient = neutral
+  third party, regulator/court, adverse, or public interrupts INDIVIDUALLY and can never be
+  batch-cleared or "confirm-all'd" in Auto-Act, even though other posture confirms queue (brief §2.6).
+  External set = {neutral third party, regulator/court, adverse, public}; privileged × adverse stays a
+  HARD block. Rationale: privilege waiver triggers on disclosure to any non-privileged third party
+  (selective/limited waiver largely rejected). Shipped in W1 (`NON_BATCHABLE_RECIPIENTS`, commit
+  81328ef). Final — do not narrow without an explicit new instruction.
 - **D2 — SHIP.** The full ~8-row incoherence table ships in v1 as enumerated HARD/SOFT data (brief
   §2.6). Lands in W1.
 - **Proceed — build the non-reviewer scaffold now** (PR1–PR4), flag-OFF and reversible; W4 deferred.

@@ -22,7 +22,7 @@ Three posture properties carry a confirmed state per deliverable: issuer, privil
 2.6 OPERATOR DECISIONS:
  - D1 = QUEUED. In Auto-Act, posture confirms stack ("N posture confirms waiting") for batch clearing.
  - D2 = SHIP IN v1. Build the full ~8-row incoherence table as enumerated data (auditable, unit-testable - not a classifier), each row HARD (block) or SOFT (warn); run it at every confirm and at the send/lock egress check, in addition to the forced full-triple display.
- - D1 CARVE-OUT (pending operator ratification - ask before finalizing): any set/transition to recipient = adverse/third-party interrupts INDIVIDUALLY and cannot be batch-cleared or "confirm-all'd," even though other posture confirms queue. Incoherent combos (e.g. privileged x adverse) are already HARD-blocked by the table.
+ - D1 CARVE-OUT (RATIFIED 2026-06-11, BROAD scope): any set/transition to recipient = neutral third party, regulator/court, adverse, or public interrupts INDIVIDUALLY and can never be batch-cleared or "confirm-all'd" in Auto-Act, even though other posture confirms queue. The external recipient set = {neutral third party, regulator/court, adverse, public}. Rationale: privilege waiver triggers on disclosure to any non-privileged third party (selective/limited waiver largely rejected), so the broad set is the protective, legally-correct reading. privileged x adverse remains a HARD block in the incoherence table. Final — do not narrow without an explicit new instruction.
 2.7 Slider invariance: the floor holds at every slider position; egress checks bind to send/lock, which already hard-stop at full Auto-Act.
 
 ## 3. Design laws
@@ -46,13 +46,13 @@ W5: missing-states + consolidation fidelity - attachment failure first-class AND
 W6: fluidity & scale - doc-open thread dominance + resizable split; per-deliverable ledger rollup + advisory-package view; slider scope legible at the control (fixed "hard-stop acts always confirmed" end-stop; rename "Auto-Act" so it doesn't imply auto-send); accessibility + full-document focus mode with persistent chat dock.
 
 ## 6. Closed decisions (do NOT relitigate)
-Thread-centric; one thread per matter; documents squeeze from the right. Autonomy slider ships (both behaviors); default Propose-and-Confirm for new matters. Deliverables ledger stays in the left rail (removal was rejected - affordance fix only). The hard-stop floor is uncrossable by slider, inference, or chat phrasing. D1 = queued; D2 = full incoherence table ships in v1 (HARD/SOFT rows); D3 = "hard-stop acts" rename. One D1 carve-out for adverse-recipient pending operator ratification.
+Thread-centric; one thread per matter; documents squeeze from the right. Autonomy slider ships (both behaviors); default Propose-and-Confirm for new matters. Deliverables ledger stays in the left rail (removal was rejected - affordance fix only). The hard-stop floor is uncrossable by slider, inference, or chat phrasing. D1 = queued; D2 = full incoherence table ships in v1 (HARD/SOFT rows); D3 = "hard-stop acts" rename. The D1 adverse/third-party carve-out is RATIFIED at BROAD scope (external set = {neutral third party, regulator/court, adverse, public}); final.
 
 ## 7. Scope fence
 Gated behind Gate 0 (confirmed real/landed) and operator ratification of the 2.6 D1 carve-out. Cowork does not commit; you are the sole committer; merges/deploys/flag-flips are operator-gated. Fresh branch off origin/main; never touch local main, review-report, or .claude/settings.json. Flag CHAT_UI_1_ENABLED, default OFF.
 
 ## 8. Open items
 1. Gate 0 reality check - confirm JOB-RECOVERY-1 / REVIEWER-ASYNC-DISPLAY-1 / DISPATCHER-COMPLETE-1 status.
-2. D1 carve-out (adverse-recipient individual interrupt) - ratify or strike.
+2. D1 carve-out (adverse/third-party individual interrupt) - RATIFIED 2026-06-11 at broad scope (external set = {neutral third party, regulator/court, adverse, public}); final.
 3. D2 = SHIP (resolved).
 4. Flag name CHAT_UI_1_ENABLED, default OFF.
