@@ -19,8 +19,8 @@
  *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
  *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
- *     gateOverride (CONFLICT-GATE-OVERRIDE-1), promptSnapshots (INSTR-1A0), documents — then the
- *     `matters` row itself.
+ *     gateOverride (CONFLICT-GATE-OVERRIDE-1), promptSnapshots (INSTR-1A0), postureProvenance
+ *     (CHAT-UI-1 W2), documents — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -65,6 +65,7 @@ import {
   documentParty,
   gateOverride,
   promptSnapshots,
+  postureProvenance,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -187,6 +188,10 @@ export async function purgeMatter(
     await step('matterDeadline', matterDeadline, byMatter(matterDeadline)); // after its tickler children above
     await step('jobs', jobs, byMatter(jobs));
     await step('auditEvents', auditEvents, byMatter(auditEvents));
+    // CHAT-UI-1 W2: the matter's posture-provenance audit ledger. Purged WITH the matter, exactly as
+    // auditEvents is — "permanent retention" governs in-operation immutability (no row update/delete),
+    // not survival of an operator-gated full-matter purge. Owner-scoped like every other step.
+    await step('postureProvenance', postureProvenance, byMatter(postureProvenance));
     // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
     // before documents so no binding row is orphaned by the purge.
     await step('documentParty', documentParty, byMatter(documentParty));
