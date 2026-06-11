@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (REVIEWER-LATENCY-1 Step 2b RE-RUN — verdict: 2a PROMOTED, 2b lean NOT VIABLE)
+
+**Disposition.** Runtime-only verbose-vs-lean re-run A/B on the 2b.1 build (prod `4cfd176`), POA fixture (doc `1220e379…` / version `bcdc52e3…`), latency-tuning ON both arms. Definitive result for REVIEWER-LATENCY-1.
+
+**2a (`REVIEWER_LATENCY_TUNING_ENABLED`) — PROMOTED, staying ON in prod.** This is the REVIEWER-LATENCY-1 win: the gpt-5 reviewer lane went from a **177s truncation-FAILURE** (knobs off) to **44–48s success carrying the FULL 9–10 findings** incl. the §3.1 sendability/gifts blocker — latency target met, **no quality loss**.
+
+**2b lean output contract (incl. the 2b.1 multiplicity fix) — NOT VIABLE; `REVIEWER_LEAN_CONTRACT_ENABLED` reverted to false / staying OFF (verbose restored).** Evidence across the re-run: gpt-5 collapses to **1 finding** under lean (verbose baseline **9**; lean 18s/3046 tok vs verbose 44s/8993 tok), and the lean-shape self-check **PASSES** (13 fields, no dropped, governing_law="Virginia") — so the 2b.1 wording is live but had **no effect on the count**; this matches the pre-2b.1 run (also 1) → **2 lean runs, both 1**. **claude FAILS under lean** (empty, then parse_error) while completing under verbose. Only **gemini handled lean** (6 cards). Root-cause hypothesis: **low reasoning_effort + the removed prose-memo enumeration scaffold; gpt-5-specific** (gemini — which gets neither the low-reasoning knob nor depends on the memo — emits multiple lean cards fine). NOTE: 2b's intended primary beneficiary was **claude**, which lean also breaks.
+
+**Build/deploy state.** main = prod = `4cfd176` (2b #259 + 2b.1 #261 + docs #260/#262). `REVIEWER_LATENCY_TUNING_ENABLED` ON (kept); `REVIEWER_LEAN_CONTRACT_ENABLED` reverted to false (operator). No code/migration change this entry (docs-only).
+
+**Open / future (NOT scheduled).** Optional **2b.2** — restore a lightweight enumeration scaffold and/or apply lean only to lanes that handle it (gemini). **2c** (cache reorder) remains the modest optional all-lane lever. Synthetic A/B sessions on doc `1220e379` (several, all abandoned) → LLN-PROD-CLEANUP-1.
+
+---
+
 ## 2026-06-11 (REVIEWER-LATENCY-1 Step 2b A/B live-test + Step 2b.1 multiplicity fix)
 
 **2b A/B (runtime, prod).** Verbose-vs-lean A/B on the POA fixture (doc `1220e379…`, version `bcdc52e3…`), latency-tuning ON both arms. **Arm A (verbose, flag false):** gpt-5 48s / 9450 completion / 2624 reasoning / **10 findings**; claude 95s/7, gemini 46s/5, grok empty. **Arm B (lean, flag true):** gpt-5 20s / 2982 completion / 2432 reasoning / **1 finding**; claude empty (9 tok), gemini 7, grok empty. Lean-shape self-check **PASSED** (exactly the 13 lean fields + `governing_law`="Virginia", no dropped fields, display fields populated). `tokensReasoning` confirmed **non-null on prod** (the #259 read-path fix works live). **VERDICT:** lean is mechanically correct and a big efficiency win (gpt-5 −68% completion tokens, −58% wall) BUT collapsed gpt-5 thoroughness **10→1** (missed a high-severity § 3.1 gifts blocker) — root cause: the lean wording "EXACTLY ONE feedback-card object" read as one-finding-total. Two new synthetic sessions on the doc (Arm A `1d7b9636`, Arm B `b6512d8c`), both abandoned → LLN-PROD-CLEANUP-1.
