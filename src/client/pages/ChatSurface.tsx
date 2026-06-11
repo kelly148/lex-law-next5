@@ -115,8 +115,8 @@ export default function ChatSurface(): React.ReactElement {
           A focused document opens here — versions and diff, the posture strip, and the sendability
           pre-flight. Empty until a deliverable is open.
         </p>
-        {/* CHAT-UI-1 WIRE-2 — the deliverable posture strip + hard-stop acts (live). */}
-        <ChatDeliverable />
+        {/* CHAT-UI-1 WIRE-2 + BA — the deliverable posture strip + hard-stop acts (live, backend-wired). */}
+        <ChatDeliverable matterId={matterId} />
         {/* CHAT-UI-1 WIRE-3 — matter-identity ingestion + undo-by-band + stale-preview guard (live). */}
         <ContextIntegrityPanel />
         {/* CHAT-UI-1 W2 — the durable posture-provenance audit ledger (read + export) for this matter. */}

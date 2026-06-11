@@ -19,10 +19,12 @@ vi.mock('../../trpc.js', async () => {
       chatUi: {
         listProvenance: { useQuery: () => { React2.useRef(null); return { data: [], isLoading: false, isError: false }; } },
         recordProvenance: { useMutation: () => { React2.useRef(null); return { mutate: calls.record, isPending: false }; } },
+        listSources: { useQuery: () => { React2.useRef(null); return { data: [], isLoading: false, isError: false }; } },
       },
+      document: { list: { useQuery: () => { React2.useRef(null); return { data: [], isLoading: false, isError: false }; } } },
       useUtils: () => ({
-        chatUi: { listProvenance: { invalidate: calls.invalidate } },
-        client: { chatUi: { exportProvenance: { query: calls.exportQuery } } },
+        chatUi: { listProvenance: { invalidate: calls.invalidate }, listSources: { invalidate: calls.invalidate } },
+        client: { chatUi: { exportProvenance: { query: calls.exportQuery }, setSourceTier: { mutate: async () => ({}) } } },
       }),
     },
   };
@@ -34,7 +36,7 @@ import ChatDeliverable from '../ChatDeliverable.js';
 const renderDeliverable = () =>
   render(
     <ConsequenceProvider matterId="m-1" actor="u1">
-      <ChatDeliverable />
+      <ChatDeliverable matterId="m-1" />
     </ConsequenceProvider>,
   );
 
