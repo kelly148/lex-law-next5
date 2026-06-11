@@ -23,6 +23,8 @@ import {
 } from '../db/queries/postureProvenance.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { listSourceAuthorityForMatter, setSourceAuthorityTier } from '../db/queries/sourceAuthority.js';
+import { insertLockedDecision, unlockLockedDecision } from '../db/queries/phase4b.js';
+import { insertAuditEvent } from '../db/queries/auditEvents.js';
 
 const AUTHORITY_ORIGIN = z.enum(['operative', 'counterparty', 'firm', 'client', 'model_derived', 'reference']);
 const LIFECYCLE = z.enum(['current_draft', 'operative', 'superseded']);
@@ -128,5 +130,75 @@ export const chatUiRouter = router({
         lifecycle: input.lifecycle,
         rationale: input.rationale ?? null,
       });
+    }),
+
+  // BA-2: the 'lock' hard-stop act -> a no-suggestion deliverable lock. INSERT a locked_decisions row
+  // (sourceSuggestionId NULL — schema + unique index allow it) on the bound document. origin reuses
+  // 'adopted' (locking = adopting the current state) per the operator decision (no enum migration).
+  // Returns the row id so a W3 hard-stop undo can unlock it. Inside if(outcome.confirmed) only.
+  lockDeliverable: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        documentId: z.string().uuid(),
+        summary: z.string().min(1),
+        rationale: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertEnabled();
+      await assertMatterOwned(input.matterId, ctx.userId);
+      const lockedDecisionId = await insertLockedDecision({
+        userId: ctx.userId,
+        documentId: input.documentId,
+        matterId: input.matterId,
+        origin: 'adopted',
+        summary: input.summary,
+        rationale: input.rationale ?? null,
+        sourceSuggestionId: null,
+      });
+      return { lockedDecisionId };
+    }),
+
+  // BA-2 reversal: undo a deliverable lock (soft status -> 'unlocked'; row preserved for audit).
+  unlockDeliverable: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), lockedDecisionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertEnabled();
+      await assertMatterOwned(input.matterId, ctx.userId);
+      await unlockLockedDecision(input.lockedDecisionId, ctx.userId);
+      return { ok: true };
+    }),
+
+  // BA-3: the 'send' hard-stop act -> an INTERNAL sendability disposition (sent | withheld), audited.
+  // This writes ONE append-only audit_events disposition row — NO export, NO .docx, NO transmission,
+  // NO outbound. Mirrors matterState.recordSend; the product is not client-facing until FOLD-L0-1.
+  recordSend: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        documentId: z.string().uuid().nullable().optional(),
+        versionId: z.string().uuid().nullable().optional(),
+        decision: z.enum(['sent', 'withheld']),
+        summary: z.string().min(1),
+        rationale: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertEnabled();
+      await assertMatterOwned(input.matterId, ctx.userId);
+      const eventId = await insertAuditEvent({
+        userId: ctx.userId,
+        matterId: input.matterId,
+        documentId: input.documentId ?? null,
+        eventType: input.decision,
+        actor: 'attorney',
+        summary: input.summary,
+        action: input.decision,
+        rationale: input.rationale ?? null,
+        versionId: input.versionId ?? null,
+        scope: input.documentId ? 'document' : 'matter',
+      });
+      return { eventId, decision: input.decision };
     }),
 });

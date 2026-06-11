@@ -27,6 +27,7 @@ vi.mock('../../trpc.js', async () => {
         recordProvenance: { useMutation: () => { React2.useRef(null); return { mutate: calls.record, isPending: false }; } },
         listSources: { useQuery: () => { React2.useRef(null); return { data: [SOURCE], isLoading: false, isError: false }; } },
       },
+      document: { list: { useQuery: () => { React2.useRef(null); return { data: [], isLoading: false, isError: false }; } } },
       useUtils: () => ({
         chatUi: { listProvenance: { invalidate: calls.invalidate }, listSources: { invalidate: calls.invalidate } },
         client: { chatUi: { setSourceTier: { mutate: calls.tier }, exportProvenance: { query: async () => ({ matterId: 'm-1', count: 0, chain: { valid: true, brokenAtSeq: null, reason: null }, entries: [] }) } } },

@@ -39,7 +39,11 @@ export default function ChatDeliverable({ matterId }: { matterId: string }): Rea
   const utils = trpc.useUtils();
   const sourcesQuery = trpc.chatUi.listSources.useQuery({ matterId });
   const sources: Source[] = sourcesQuery.data ?? [];
+  const documentsQuery = trpc.document.list.useQuery({ matterId, includeArchived: false });
+  const documents = documentsQuery.data ?? [];
 
+  const [documentId, setDocumentId] = useState('');
+  const [lastLockId, setLastLockId] = useState<string | null>(null);
   const [posture, setPosture] = useState<Posture>(DEFAULT_POSTURE);
   const [cosmetic, setCosmetic] = useState({ firmStyle: false, branding: true });
   const [actLog, setActLog] = useState<string[]>([]);
@@ -68,16 +72,45 @@ export default function ChatDeliverable({ matterId }: { matterId: string }): Rea
   const setPrivilege = (privilege: Privilege): Promise<void> => proposePosture('privilege', { ...posture, privilege });
   const setCapacity = (capacity: Issuer['capacity']): void => proposeIssuer({ ...posture.issuer, capacity });
 
-  // ── send / lock (surface-level for now; egress coherence check on the resolved triple) ──
+  // ── BA-2 lock / BA-3 send — real backend mutation on a PASSED confirm (egress check on the triple) ──
   const doAct = async (act: 'send' | 'lock', label: string): Promise<void> => {
     const outcome = await requestConfirm({
       act,
       title: `Confirm ${label}`,
-      subject: { type: act, id: null, label, detail: null },
+      subject: { type: act, id: documentId || null, label, detail: null },
       posture: { next: posture, atEgress: true },
       triggerSource: `act:${act}`,
     });
-    if (outcome.confirmed) setActLog((l) => [...l, label]); // BA-2/BA-3 will insert the real backend call here
+    if (!outcome.confirmed) return; // HARD-block / cancel -> NO mutation
+    const summary = `${label} (${posture.issuer.capacity} / ${privilegeLabel(posture.privilege)} / ${posture.recipient})`;
+    if (act === 'lock' && documentId) {
+      // BA-2: no-suggestion deliverable lock; capture the id so a hard-stop undo can unlock it.
+      const res = await utils.client.chatUi.lockDeliverable.mutate({ matterId, documentId, summary });
+      setLastLockId(res.lockedDecisionId);
+      setActLog((l) => [...l, `Locked ${documentId.slice(0, 8)}`]);
+    } else if (act === 'send' && documentId) {
+      // BA-3: internal sendability disposition (audited 'sent') — NO export, NO transmission.
+      await utils.client.chatUi.recordSend.mutate({ matterId, documentId, decision: 'sent', summary });
+      setActLog((l) => [...l, `Send disposition ${documentId.slice(0, 8)}`]);
+    } else {
+      setActLog((l) => [...l, label]); // no document bound -> surface-only
+    }
+  };
+
+  const doLockUndo = async (): Promise<void> => {
+    if (!lastLockId) return;
+    const plan = planUndo({ band: 'hard_stop', act: 'lock', entryId: lastLockId });
+    const outcome = await requestConfirm({
+      act: 'lock',
+      title: 'Undo lock (reversal)',
+      ...(plan.subject ? { subject: plan.subject } : {}),
+      triggerSource: 'undo:lock',
+    });
+    if (outcome.confirmed) {
+      await utils.client.chatUi.unlockDeliverable.mutate({ matterId, lockedDecisionId: lastLockId });
+      setActLog((l) => [...l, 'Lock reversed']);
+      setLastLockId(null);
+    }
   };
 
   // ── BA-1: tier a bound source via the audited re-tier (real backend mutation on a passed confirm) ──
@@ -167,9 +200,20 @@ export default function ChatDeliverable({ matterId }: { matterId: string }): Rea
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1 border-t border-line pt-2">
-        <button data-testid="act-send" className="rounded bg-accent px-2 py-1 text-xs text-on-accent" onClick={() => void doAct('send', 'Send')}>Send</button>
-        <button data-testid="act-lock" className="rounded border border-line px-2 py-1 text-xs" onClick={() => void doAct('lock', 'Lock')}>Lock</button>
+      {/* BA-2/BA-3 — bind a real document, then lock / send (real backend mutations). */}
+      <div className="mt-3 border-t border-line pt-2">
+        <div className="text-[10px] uppercase tracking-wide text-ink-hint">Document acts (lock / send)</div>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          <select data-testid="doc-select" value={documentId} onChange={(e) => setDocumentId(e.target.value)} className="rounded border border-line px-1 py-1 text-xs">
+            <option value="">{documents.length ? 'select a document…' : 'no documents'}</option>
+            {documents.map((d) => (
+              <option key={d.id} value={d.id}>{(d.title ?? d.id).slice(0, 24)}</option>
+            ))}
+          </select>
+          <button data-testid="act-send" className="rounded bg-accent px-2 py-1 text-xs text-on-accent" onClick={() => void doAct('send', 'Send')}>Send</button>
+          <button data-testid="act-lock" className="rounded border border-line px-2 py-1 text-xs" onClick={() => void doAct('lock', 'Lock')}>Lock</button>
+          <button data-testid="act-lock-undo" disabled={!lastLockId} className="rounded border border-line px-2 py-1 text-xs disabled:opacity-40" onClick={() => void doLockUndo()}>Undo lock</button>
+        </div>
       </div>
     </div>
   );

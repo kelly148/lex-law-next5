@@ -46,6 +46,14 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      document: {
+        list: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: [], isLoading: false, isError: false };
+          },
+        },
+      },
       useUtils: () => ({
         chatUi: { listProvenance: { invalidate: () => {} }, listSources: { invalidate: () => {} } },
         client: {
