@@ -236,6 +236,18 @@ export interface CanonicalMutationParams {
   matterId?: string;
   documentId?: string;
   /**
+   * CHAT-INJ-1 (INSTR Phase D): an already-composed firm master block (master + non-suppressible
+   * addendum) to LAYER on top of the system prompt for an interactive chat turn — the chat analogue
+   * of the INSTR-2B-core drafting `layeredMasterText`, decided upstream by the chat-dispatch path
+   * (chatMasterComposition.resolveChatMaster) where the principal and matter are in scope.
+   *
+   * Applied like the drafting layered master (on top of the matter-state block, with the per-PA
+   * profile SUPPRESSED — D-5 parity), and ONLY in the legacy/non-composition branch (a chat turn
+   * never composes a drafting master). UNDEFINED for every non-chat job AND for chat with
+   * MASTER_CHAT_ENABLED OFF -> the layered branch is skipped -> byte-for-byte unchanged (R9).
+   */
+  chatMasterText?: string;
+  /**
    * Transaction 1: validate preconditions, write in-flight state, return job context.
    * Called inside a DB transaction. Must throw on precondition failure.
    * Returns the job ID to use (caller can supply a pre-generated UUID or let
@@ -423,6 +435,7 @@ async function runJob(
     txn2Revert,
     telemetryCtx,
     timeoutMs,
+    chatMasterText,
   } = params;
 
   const { providerId, modelId } = parseModelString(modelString);
@@ -522,6 +535,16 @@ async function runJob(
       llmParams = {
         ...llmParams,
         systemPrompt: `${composition.layeredMasterText}\n\n${llmParams.systemPrompt}`,
+      };
+    } else if (chatMasterText !== undefined) {
+      // CHAT-INJ-1 (INSTR Phase D): the chat firm master (master + non-suppressible addendum),
+      // decided upstream by the chat-dispatch path. Layered exactly like the drafting master above —
+      // ON TOP of the matter-state block, with the per-PA profile SUPPRESSED (D-5 parity; the master
+      // governs). Reached ONLY for a chat turn with MASTER_CHAT_ENABLED on and every gate cleared;
+      // undefined otherwise -> this branch is skipped and the path is byte-for-byte unchanged (R9).
+      llmParams = {
+        ...llmParams,
+        systemPrompt: `${chatMasterText}\n\n${llmParams.systemPrompt}`,
       };
     } else {
       // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended

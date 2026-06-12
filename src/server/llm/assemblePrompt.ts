@@ -134,8 +134,12 @@ export interface AssembledPrompt {
   flagEnabled: boolean;
 }
 
-/** Exact-match T&E test against the attorney-confirmed paKey or the freeform practiceArea. */
-function matchesTE(matter: AssemblePromptMatter): boolean {
+/**
+ * Exact-match T&E test against the attorney-confirmed paKey or the freeform practiceArea.
+ * Exported so CHAT-INJ-1 reuses the SAME representational lawfirm-vs-te selection (never title)
+ * for chat injection, rather than re-deriving it.
+ */
+export function matchesTE(matter: AssemblePromptMatter): boolean {
   return (
     (matter.paKey !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.paKey)) ||
     (matter.practiceArea !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.practiceArea))

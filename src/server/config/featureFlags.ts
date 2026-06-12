@@ -282,6 +282,26 @@ export function isMasterLawfirmEnabled(): boolean {
 }
 
 /**
+ * Master-into-CHAT injection (CHAT-INJ-1, INSTR Phase D). DEFAULT OFF, fail-closed.
+ *
+ * INDEPENDENT of MASTER_LAWFIRM_ENABLED (drafting) — flipping the drafting master on never
+ * affects chat, and vice-versa. When OFF (the default), an interactive chat turn is byte-for-byte
+ * the CHAT-DISPATCH-1 substrate: the neutral chat system prompt + matter-state, NO firm master,
+ * and ZERO extra reads (the conflicts/identity gate is never consulted for composition).
+ *
+ * When exactly "true", a chat turn receives a representational master (master/claude/lawfirm or
+ * master/claude/te) ONLY when ALL hold: the principal is the supervising attorney (R6); a valid,
+ * owner-authorized matter exists (R1); the matter's engagement capacity is the representational
+ * law_firm seat — NEVER the title/settlement seat (R3); there is no unresolved title signal in the
+ * practice area (R2); and the existing conflicts/identity gate is CLEARED for the matter (R10).
+ * Chat is STRICTER than drafting: it NEVER defaults to Law Firm and NEVER injects the Title master.
+ * Activation is operator-gated; not client-facing until FOLD-L0-1 is live-verified.
+ */
+export function isMasterChatEnabled(): boolean {
+  return process.env['MASTER_CHAT_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
