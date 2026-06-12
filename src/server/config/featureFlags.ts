@@ -262,6 +262,26 @@ export function isChatDispatchEnabled(): boolean {
 }
 
 /**
+ * Drafting-time master-prompt selection (INSTR-2B-core). DEFAULT OFF.
+ *
+ * When OFF (the default), prompt composition is byte-for-byte unchanged from today: the
+ * INSTR-1A0 TE-blob path (gated by PROMPT_COMPOSITION_ENABLED, draft + Anthropic + exact T&E
+ * only, master = the entire system block) and the legacy matter-state + per-PA-profile path
+ * everywhere else. No `master/claude/lawfirm` is ever composed.
+ *
+ * When exactly "true", drafting (draft_generation + regeneration) on the Anthropic drafter
+ * selects a master LAYERED on top of matter-state + subject-scope (D-4) and SUPPRESSES the
+ * per-PA instruction-profile injection (D-5): exact-match T&E keys -> master/claude/te (now
+ * layered), ANY OTHER paKey including unconfirmed/NULL (and, for now, title_settlement) ->
+ * master/claude/lawfirm (the operator-ratified safe default). Title routing (master/claude/title,
+ * the title_settlement key) is INSTR-2B-TITLE, deferred. Non-Anthropic provider -> legacy;
+ * reviewers/evaluator/extraction/formatting -> none. Activation is operator-gated.
+ */
+export function isMasterLawfirmEnabled(): boolean {
+  return process.env['MASTER_LAWFIRM_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
