@@ -4,6 +4,25 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-11 (Rule-16 — Gate 0 substrate COMPLETE: A+B+C all merged, flag-OFF/inert; activation pending operator)
+
+**Disposition.** Rule-16 ungated bookkeeping (docs-only PR, held for review). The three Gate-0 components are now all merged to `main`:
+- **DISPATCHER-COMPLETE-1** (Component A) — #271 squash **8b9da00** — durable job dispatcher (D-1..D-4) behind `JOB_DISPATCHER_ENABLED` (default OFF).
+- **JOB-RECOVERY-1** (Component B) — #272 squash **5816ef3** — crash recovery (H3 guards + orphan reaper + stuck-session self-heal + durable retry) behind `JOB_REAPER_ENABLED` (default OFF).
+- **REVIEWER-ASYNC-DISPLAY-1** (Component C) — #273 squash **1adc312** — server-owned per-reviewer lane display (§3.1 FIRE dispositioned 3/3 APPROVE WITH CHANGES) behind `REVIEWER_ASYNC_ENABLED` (stays OFF).
+
+**Build state.** `origin/main` = **1adc312**. All three are flag-gated OFF → **inert on main, no prod behavior change from the merges.** Component C added one additive migration **0030** (`reviewer_lanes`), allowlisted in `apply-prod-migrations.mjs` (auto-applies on deploy). `canonicalMutation.ts` is shared with INSTR-2 (still unmerged) — whichever merges 2nd rebases.
+
+**Prod / activation (PENDING operator — NOT done).** Verified read-only that prod `lex_law_next` has **0028 / 0029 / 0030 all ABSENT**. Activation = apply **0028 → 0029 → 0030** (0028/0030 are idempotent `CREATE TABLE IF NOT EXISTS`; **0029 `ADD COLUMN` is NOT idempotent → manual one-time, never allowlist**) then flip flags in two stages (Stage 1 `JOB_DISPATCHER_ENABLED`+`JOB_REAPER_ENABLED`, Stage 2 `REVIEWER_ASYNC_ENABLED`). The **`REVIEWER_ASYNC` dual-gate (display fix + durable dispatch + recovery) is now satisfiable.** Deploy operator-gated; Railway auto-deploy OFF (merge ≠ deploy). Runbook delivered to chat (Part 1). **Nothing has been deployed or flipped that this entry does not state.**
+
+**CHAT_UI_1 exposure.** `CHAT_UI_1_ENABLED` set **false** on prod (operator) — closes the exposure (the chat surface had been live while 0028/0029 were absent); the chat surface stays off until chat→model dispatch is built (applying 0028/0029 at activation makes it safe to re-enable later).
+
+**Open / next.** Next **build** is the **chat→model dispatch** (a `chat_turn` job type through `executeCanonicalMutation`), which Gate 0 unblocks. The spent branch `lex-next/state-reconcile-2026-06-11` (local + remote) is superseded by this bookkeeping — **surfaced for deletion (operator-gated; not deleted here).** PR #269 (Gate-0 docs) still open.
+
+**Note (cross-lane).** The entries below are the FOLD / CHAT-UI lanes; this Gate-0 Rule-16 entry is prepended newest-first without disturbing them.
+
+---
+
 ## 2026-06-11 (STATE RECONCILE — tracker caught up to the live Gate 0 + INSTR-2 tracks; docs/state-only, PR open, NOT merged)
 
 **Disposition.** Operator-approved (Rule 11 `y`) tracker reconcile to current reality per `prompts/HANDOFF_2026-06-11_master-injection-and-gate0.md`. Docs/state-only — **no source, no merge, no deploy, no flag flip.** Done on isolated branch `lex-next/state-reconcile-2026-06-11` (worktree `lln-state-reconcile`), branched fresh from `origin/main` @ `08f4d6a`; the shared clone `lex-law-next5-local` was mid-flight on `lex-next/async-display-disposition` (dirty tree) so it was not touched. The dispatcher build branch `lex-next/dispatcher-complete-1` was not touched.
