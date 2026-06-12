@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12c (Rule-16 — INSTR-2B-title merged: title-posture routing via capacity election; the FULL INSTR-2B is now done)
+
+**Disposition.** Operator `accept:INSTR-2B-TITLE`; PR #282 CI-green, squash-merged to `main` as **cf4533b**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-title`). This **completes the full INSTR-2B** (core #280 + title #282).
+
+**What shipped.** Title-posture drafting routing on top of 2B-core, reachable **only** through an affirmative matter **capacity election**: `matters.engagementCapacity === 'title_settlement_agent'` → `master/claude/title` (it takes **precedence over paKey**); the default stays Law Firm general; title is **structurally unreachable** without the explicit election (and never from paKey alone). New **additive migration 0031** (`matters.engagementCapacity ENUM('law_firm','title_settlement_agent') NOT NULL DEFAULT 'law_firm'`, `ADD COLUMN IF NOT EXISTS`) on the pre-deploy additive allowlist — **pending operator apply-to-prod at deploy**. Capacity election = optional on `matter.create` (default law_firm) + an owner-scoped **audited** `matter.setEngagementCapacity` + a non-blocking New-Matter intake selector (+ jsdom render test); **no paKey auto-inference**. **Title master reframed v1.0 → v1.1** (settlement-agent / title-decision-maker; floor/VA-MD/source-hierarchy/escalation kept as-is); manifest re-pinned `b00e7611…`; the INSTR-2A golden hash + framing markers updated. **§3.1 title routing reclassified FIRE → normal automation** (operator-confirmed 2026-06-12 — the non-representational settlement-agent role removes the ethics/confidentiality prong).
+
+**Build state.** `origin/main` = **cf4533b**. Same `MASTER_LAWFIRM_ENABLED` flag (default OFF); **no new env var**. Flag OFF = byte-for-byte unchanged; **nothing deployed** (Railway auto-deploy OFF). Also merged earlier today: INSTR-2A (#275), CHAT-DISPATCH-1 (#276), MATTERSTATE-BADGE-1 (#279).
+
+**Open / next.** Track A: INSTR-2A + INSTR-2B (core + title) **all done** → the only remaining INSTR work is **INSTR-2C / CHAT-INJ-1** (Phase C judgment-bearing non-draft roles + Phase D chat always-on master injection), still blocked on §3.1 + Gate 0 + the (now-built) chat dispatch. The **master-injection feature activation** sequence: apply migration 0031 → deploy → set per-matter capacity → flip `MASTER_LAWFIRM_ENABLED`. Gate-0 activation (0028→0029→0030 + flag flips) still pending. **Housekeeping:** `INSTR-2B` is recorded COMPLETE in `blocked_detail` but still sits in the `blocked_engagements` array — removing it is an operator-gated Rule-11 step (`state-transition:INSTR-2B`).
+
+---
+
 ## 2026-06-12b (Rule-16 — INSTR-2B-core merged: drafting master selection behind MASTER_LAWFIRM_ENABLED, title routing deferred)
 
 **Disposition.** Operator `accept:INSTR-2B-CORE`; PR #280 CI-green, squash-merged to `main` as **64aa7f8**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-core`).
