@@ -2,8 +2,16 @@
   "version": 1,
   "assets": {
     "master/claude/te": {
-      "file": "prompts/assets/TE_Master_Instructions_v1.1.md",
-      "sha256": "ed4a4ce574bd5b189b1c060d3d7c9d891a9cd2bd0eafad7cb2b0fee6906d0c62"
+      "file": "prompts/assets/TE_Master_Instructions_v1.2.md",
+      "sha256": "0e137d1013a277f8b96cb9fa7cca2a12f9be619256fee55888a5e01420603f63"
+    },
+    "master/claude/lawfirm": {
+      "file": "prompts/assets/Master_Instructions_v2.2.md",
+      "sha256": "7e801dde0c59101e364c5963a342305fbc66ece5a5fffc9c8a472b7b32bd3547"
+    },
+    "master/claude/title": {
+      "file": "prompts/assets/Title_Master_Instructions_v1.0.md",
+      "sha256": "54cf3b2d78ef14c9bf3c34fb837f3a3ef6934c8fe242eac96e5f4e054c574ccb"
     }
   }
 }
