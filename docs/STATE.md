@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12d (Rule-16 — CHAT-COMPOSER-1 merged: the chat composer is wired to chatDispatch.submitTurn)
+
+**Disposition.** Operator `accept:CHAT-COMPOSER-1`; PR #284 CI-green, squash-merged to `main` as **0ab8d99**; branch **KEPT** (not deleted, per the engagement instruction). This Rule-16 entry **consolidates onto the still-open INSTR-2B-title tracker PR #283** (both records ride one PR) — avoids a `state.json` conflict between two cf4533b-based tracker branches.
+
+**What shipped.** Client-only: the inert CHAT-UI-1 W0 placeholder composer is replaced by a functional **`ChatComposer`** that submits a turn via `chatDispatch.submitTurn` (CHAT-DISPATCH-1, `92beec6`) and renders the model reply inline. **Gated** by `CHAT_UI_1_ENABLED` (the whole `ChatSurface` — redirects when OFF, so the composer never mounts → byte-for-byte unchanged) + `CHAT_DISPATCH_ENABLED` (`submitTurn` refuses `PRECONDITION_FAILED 'CHAT_DISPATCH_DISABLED'` when OFF → a visible, non-blocking error). **NO master injection** — `chat_turn` → `callRole 'other'` → legacy; `assemblePrompt`/roles/masters untouched (independent adversarial review **PASS**). Imperative `utils.client.chatDispatch.submitTurn.mutate` pattern (like `ChatDeliverable`) + a synchronous in-flight double-submit guard. **NO backend/schema/migration/env change** (both flags pre-existing). Tests: `chatComposer.render` (8) + `chatSurface.render` extended; full suite green except the known-6.
+
+**Build state.** `origin/main` = **0ab8d99**. New surface flag-gated OFF + inert; **nothing deployed**. Built in an isolated git worktree off `origin/main` — the shared clone + other sessions' branches were untouched.
+
+**Open / next.** **Activation** of the chat composer needs **both** `CHAT_UI_1_ENABLED` + `CHAT_DISPATCH_ENABLED` ON (operator-gated). Remaining INSTR work: only **INSTR-2C / CHAT-INJ-1** (Phase C/D master-into-chat), blocked on §3.1 + Gate 0. Still pending from before: the **`state-transition:INSTR-2B`** array-removal (Rule-11) and Gate-0 activation. Tracker PR **#283** now carries the INSTR-2B-title **and** CHAT-COMPOSER-1 records.
+
+---
+
 ## 2026-06-12c (Rule-16 — INSTR-2B-title merged: title-posture routing via capacity election; the FULL INSTR-2B is now done)
 
 **Disposition.** Operator `accept:INSTR-2B-TITLE`; PR #282 CI-green, squash-merged to `main` as **cf4533b**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-title`). This **completes the full INSTR-2B** (core #280 + title #282).
