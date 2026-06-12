@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12b (Rule-16 — INSTR-2B-core merged: drafting master selection behind MASTER_LAWFIRM_ENABLED, title routing deferred)
+
+**Disposition.** Operator `accept:INSTR-2B-CORE`; PR #280 CI-green, squash-merged to `main` as **64aa7f8**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-core`).
+
+**What shipped.** Drafting-time master **selection** wired behind **`MASTER_LAWFIRM_ENABLED` (default OFF)**. Flag ON, for `draft_generation` + `regeneration` on the Anthropic drafter: T&E keys → `master/claude/te` (now **layered**, no longer blob); ANY OTHER paKey incl. unconfirmed/NULL **and `title_settlement`** → `master/claude/lawfirm` (operator safe default, D-3); non-Anthropic → legacy; reviewers/evaluator/extraction/formatting → none. **D-4** layered (`master → matter-state → role`); **D-5** suppresses the per-PA instruction profile when a master is selected; `prompt_snapshots` records the selected asset + hash + flag. **Flag OFF = byte-for-byte unchanged** (INSTR-1A0 TE-blob + legacy); `master/claude/lawfirm` never composed. **SCOPE FENCE:** Title routing **excluded** — `master/claude/title` is never selected (title_settlement → lawfirm safe default). Operator-approved test-assertion change: the INSTR-2A source-audit string-scan was retired → a behavioral title-deferral guard (intent not spelling, ci-gotchas #8).
+
+**Build state.** `origin/main` = **64aa7f8**. New feature flag-gated OFF + inert; **nothing deployed** (Railway auto-deploy OFF; merge ≠ deploy). New env var `MASTER_LAWFIRM_ENABLED` is an operator **activation** item — not flipped. Also merged today (context, not a CLI-loop engagement): **MATTERSTATE-BADGE-1** #279 (244cedc), a catalog pick.
+
+**Open / next.** Track A: INSTR-2A + INSTR-2B-core DONE → the **remaining INSTR-2B work is INSTR-2B-TITLE only** (route `title_settlement` → the Title master). Recorded for 2B-TITLE: **D-2** title key confirmed = `title_settlement`; the title posture comes from an **intake CAPACITY election** (Law-firm vs Title/settlement-agent; default Law-firm); operator title-role = **settlement agent / title decision-maker** (not party/company counsel) → **likely downgrades title routing from §3.1 FIRE to normal automation** (to formalize at 2B-TITLE) and the Title master self-framing should be revised to "settlement agent / title decision-maker". INSTR-2C / CHAT-INJ-1 still blocked on the full INSTR-2B + §3.1 (Phases C/D). Gate-0 activation + any deploy remain operator-gated.
+
+---
+
 ## 2026-06-12 (Rule-16 — INSTR-2A + CHAT-DISPATCH-1 merged on operator accept; Gate-0 reconcile #274 landed first)
 
 **Disposition.** Operator `accept:INSTR-2A` covering **both** PR #275 and #276; both squash-merged to `main` (CI-green), branches deleted. On operator instruction, the open Gate-0 reconcile **PR #274** (squash **c1053a0**) was merged FIRST so the tracker was current before recording these completions. This is the Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2a-chatdispatch`).
