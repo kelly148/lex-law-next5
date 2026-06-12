@@ -17,7 +17,9 @@
  *    the master + its non-suppressible addendum (R4) is layered by the chokepoint; provenance (R8)
  *    is appended to the existing audit_events ledger. There is NO send/share/export path.
  *  - userId is ALWAYS ctx.userId (Ch 35.2); the turn is matter-owner-scoped (getOwnedMatterOrThrow),
- *    so it inherits the same access-control as every other model-calling job.
+ *    so it inherits the same access-control as every other model-calling job. R7 hardening: an
+ *    optional documentId is additionally bound to the matter (assertDocumentInMatter) — a same-owner
+ *    document from a DIFFERENT matter is rejected, so layered context stays strictly current-matter.
  *  - No new table: the turn rides the existing jobs row (jobType is varchar(64) → no migration).
  *  - Runs INLINE (request→response, the matter_analysis template). The async/deferred-via-
  *    dispatcher variant and conversation-history persistence are deferred follow-ups.
@@ -27,6 +29,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
 import { isChatDispatchEnabled, isMasterChatEnabled } from '../config/featureFlags.js';
 import { getMatterById } from '../db/queries/matters.js';
+import { getDocumentById } from '../db/queries/documents.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
@@ -63,6 +66,25 @@ async function getOwnedMatterOrThrow(matterId: string, userId: string) {
   return matter;
 }
 
+/**
+ * R7 (CHAT-INJ-1 hardening) — current-matter scope-read invariant for the optional documentId.
+ *
+ * Owner-scoping ALONE is insufficient: a document the caller owns but that belongs to a DIFFERENT
+ * matter would, once any document context is layered into the chat turn (matter-state injection and
+ * any Phase-D context assembly both receive this documentId), pull a SECOND matter's content into
+ * this turn — an owner-internal cross-matter leak. So the document must belong to the BOUND matter,
+ * not merely be owned. A miss (not found, or a different matter) is REJECTED so chat context stays
+ * strictly current-matter. NOT_FOUND (rather than a distinct code) avoids confirming the document
+ * exists under another matter. Independent of MASTER_CHAT_ENABLED: a no-document or same-matter turn
+ * is byte-for-byte unchanged; only a cross-matter documentId — previously accepted — is now refused.
+ */
+async function assertDocumentInMatter(documentId: string, matterId: string, userId: string): Promise<void> {
+  const doc = await getDocumentById(documentId, userId);
+  if (!doc || doc.matterId !== matterId) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found in this matter' });
+  }
+}
+
 export const chatDispatchRouter = router({
   // Ungated read of the flag so a future composer can decide whether to enable itself.
   isEnabled: protectedProcedure.query(() => ({ enabled: isChatDispatchEnabled() })),
@@ -79,6 +101,11 @@ export const chatDispatchRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertChatDispatchEnabled();
       const matter = await getOwnedMatterOrThrow(input.matterId, ctx.userId);
+      // R7 hardening: an optional documentId must belong to the bound matter, not merely be owned —
+      // otherwise a same-owner cross-matter document would pull another matter's context into the turn.
+      if (input.documentId) {
+        await assertDocumentInMatter(input.documentId, input.matterId, ctx.userId);
+      }
 
       // CHAT-INJ-1: decide whether this turn receives a firm master. Flag OFF (default) => NEUTRAL
       // with ZERO extra reads (the conflicts gate is never consulted) => byte-for-byte the substrate.

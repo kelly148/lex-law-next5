@@ -284,17 +284,36 @@ describe('CHAT-INJ-1 R5 — wrong-role fixtures hold posture / refuse party advi
     expect(a.representational).toBe(b.representational);
   });
 
-  it('a non-representational (title/settlement) seat is never coerced representational by a wrong-role prompt', async () => {
-    process.env[FLAG] = 'true';
-    setChatGateReader(gateSpy(true).reader);
-    // Each fixture would be the attorney's turn; it never reaches the decision, so a settlement-seat
-    // matter stays neutral (no "you are counsel" posture) regardless of the phrasing.
-    for (const _fixture of WRONG_ROLE_FIXTURES) {
+  // Each wrong-role ask is the attorney's turn text; the decision takes NO turn text, so a
+  // non-representational (title/settlement) seat is NEVER coerced into a representational posture by
+  // any of these phrasings — exercised as a DISTINCT case per fixture (it.each, not a re-run loop).
+  it.each(WRONG_ROLE_FIXTURES)(
+    'wrong-role ask %p on a title/settlement seat -> posture held (neutral, no representational master)',
+    async (fixture) => {
+      process.env[FLAG] = 'true';
+      setChatGateReader(gateSpy(true).reader);
+      expect(fixture.length).toBeGreaterThan(0); // a real wrong-role ask
       const d = await resolveChatMaster({ matterId: MATTER, userId: USER, matter: titleElectedMatter, principal: ATTORNEY });
       expect(d.inject).toBe(false);
       expect(d.representational).toBe(false);
-    }
-  });
+      expect(d.source).toBe('neutral');
+    },
+  );
+
+  // On a representational seat, the same wrong-role asks cannot FLIP the posture: the decision is
+  // identical regardless of the ask (the firm-counsel posture is held; the addendum orders refusal).
+  it.each(WRONG_ROLE_FIXTURES)(
+    'wrong-role ask %p on a representational seat -> posture kept (the ask cannot flip it)',
+    async (fixture) => {
+      process.env[FLAG] = 'true';
+      setChatGateReader(gateSpy(true).reader);
+      expect(fixture.length).toBeGreaterThan(0);
+      const d = await resolveChatMaster({ matterId: MATTER, userId: USER, matter: lawFirmMatter, principal: ATTORNEY });
+      expect(d.source).toBe(MASTER_CLAUDE_LAWFIRM); // unchanged by the wrong-role ask
+      expect(d.representational).toBe(true);
+      expect(d.layeredMasterText).toContain('hold the posture and decline');
+    },
+  );
 
   it('a representational turn carries the addendum that orders the model to hold posture / refuse party advice', () => {
     const injected = finalizeChatMasterInjection(MASTER_CLAUDE_LAWFIRM);
