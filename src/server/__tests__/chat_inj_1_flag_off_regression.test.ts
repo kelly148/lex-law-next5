@@ -22,6 +22,7 @@ import {
   setPromptSnapshotWriter,
 } from '../db/canonicalMutation.js';
 import { setTestLlmAdapter } from '../llm/registry.js';
+import { resolveChatMaster, setChatGateReader, type ChatGateReader } from '../llm/chatMasterComposition.js';
 import type { LlmClient, LlmGenerateParams, LlmGenerateResult } from '../llm/types.js';
 
 const USER = '11111111-1111-1111-1111-111111111111';
@@ -146,5 +147,59 @@ describe('CHAT-INJ-1 — chokepoint layering (chatMasterText present)', () => {
     expect(paSpy).not.toHaveBeenCalled(); // master governs; no double identity layer
     expect(systemPrompt).toBe(`${MASTER_BLOCK}\n\n${CHAT_TURN_SYSTEM_PROMPT}`);
     expect(systemPrompt).not.toContain('PA-BODY');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R9 — flag-OFF neutral + ZERO reads across representative matter types (resolver level).
+// The chokepoint tests above prove byte-for-byte legacy when no chatMasterText is supplied; these
+// prove the DECISION supplies no chatMasterText (layeredMasterText === null) AND never reads the
+// gate when MASTER_CHAT_ENABLED is OFF — for a title-elected matter and a matter-less turn, not just
+// the representational happy path. True-by-construction (the flag check precedes all matter logic),
+// now asserted explicitly per the review.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('CHAT-INJ-1 R9 — flag-OFF neutral + zero reads (representative matter types)', () => {
+  const CHAT_FLAG = 'MASTER_CHAT_ENABLED';
+  let savedChat: string | undefined;
+  beforeEach(() => {
+    savedChat = process.env[CHAT_FLAG];
+    delete process.env[CHAT_FLAG]; // OFF
+  });
+  afterEach(() => {
+    if (savedChat === undefined) delete process.env[CHAT_FLAG];
+    else process.env[CHAT_FLAG] = savedChat;
+    setChatGateReader(null);
+  });
+
+  /** A gate reader that counts its calls, so we can assert ZERO reads when the flag is OFF. */
+  function countingGate(): { reader: ChatGateReader; calls: () => number } {
+    let n = 0;
+    const reader: ChatGateReader = () => {
+      n += 1;
+      return Promise.resolve({ allowed: true });
+    };
+    return { reader, calls: () => n };
+  }
+
+  const titleElected = { engagementCapacity: 'title_settlement_agent', paKey: 'trusts_estates', practiceArea: null };
+
+  it('flag OFF + title-elected matter -> neutral (legacy bytes), ZERO gate reads', async () => {
+    const gate = countingGate();
+    setChatGateReader(gate.reader);
+    const d = await resolveChatMaster({ matterId: MATTER, userId: USER, matter: titleElected, principal: { userId: USER } });
+    expect(d.inject).toBe(false);
+    expect(d.layeredMasterText).toBeNull(); // no master -> chatMasterText absent -> byte-for-byte legacy
+    expect(d.reason).toBe('flag_off');
+    expect(gate.calls()).toBe(0); // ZERO extra reads
+  });
+
+  it('flag OFF + matter-less turn -> neutral (legacy bytes), ZERO gate reads', async () => {
+    const gate = countingGate();
+    setChatGateReader(gate.reader);
+    const d = await resolveChatMaster({ matterId: MATTER, userId: USER, matter: null, principal: { userId: USER } });
+    expect(d.inject).toBe(false);
+    expect(d.layeredMasterText).toBeNull();
+    expect(d.reason).toBe('flag_off');
+    expect(gate.calls()).toBe(0);
   });
 });
