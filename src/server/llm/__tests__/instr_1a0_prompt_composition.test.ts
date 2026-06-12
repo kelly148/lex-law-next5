@@ -41,8 +41,14 @@ import {
 } from '../../db/canonicalMutation.js';
 import type { NewPromptSnapshot, JobType } from '../../db/schema.js';
 
-/** The pinned golden hash of TE_Master_Instructions_v1.1.md (must equal prompts/manifest.json). */
-const TE_SHA256 = 'ed4a4ce574bd5b189b1c060d3d7c9d891a9cd2bd0eafad7cb2b0fee6906d0c62';
+/**
+ * The pinned golden hash of the master/claude/te asset (must equal prompts/manifest.json).
+ * INSTR-2A reved the TE master v1.1 -> v1.2 (added the §16 consequential-action floor clause)
+ * and re-pointed master/claude/te at TE_Master_Instructions_v1.2.md, so this golden is the v1.2
+ * hash. The §8 delivery-adapter fix and the no-container-path guarantee guarded below are
+ * unchanged from v1.1 (the rev only appended the floor paragraph).
+ */
+const TE_SHA256 = '0e137d1013a277f8b96cb9fa7cca2a12f9be619256fee55888a5e01420603f63';
 
 const FLAG = 'PROMPT_COMPOSITION_ENABLED';
 const USER = '11111111-1111-1111-1111-111111111111';
