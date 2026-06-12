@@ -45,6 +45,24 @@ import {
   isJobReaperEnabled,
 } from '../config/featureFlags.js';
 import { pollJobs } from '../db/queries/jobs.js';
+import {
+  insertReviewerLanes,
+  markReviewerLaneTerminal,
+  markReviewerLaneDispatchFailed,
+  listReviewerLanesForSession,
+} from '../db/queries/reviewerLaneState.js';
+import {
+  buildReviewerLanesContract,
+  isTerminalLaneStatus,
+  type ReviewerLaneView,
+  type ReviewerLanesContract,
+} from '../../shared/schemas/reviewerLaneState.js';
+
+// REVIEWER-ASYNC-DISPLAY-1 (Component C): Component-C-owned per-reviewer terminal-deadline (condition 4,
+// defense-in-depth). Must exceed the async reviewer LLM budget (720_000 ms) so a legitimately-slow
+// reviewer is never reaped before it can finish; the lane sweep terminalizes anything still pending
+// past this as orphaned_reaped.
+const REVIEWER_LANE_TERMINAL_DEADLINE_MS = 15 * 60 * 1000; // 15 minutes
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -317,6 +335,27 @@ export const reviewSessionRouter = router({
       // never blocked; otherwise keep the established inline + sequential path.
       const reviewerAsync = isReviewerAsyncEnabled();
       const reviewerJobIds: string[] = [];
+      // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-1): persist the IMMUTABLE EXPECTED lane set (condition 2)
+      // BEFORE dispatch — one 'pending' lane per selected reviewer, keyed by (session, reviewerRole), each
+      // stamped with Component C's own terminal-deadline (condition 4). Async path ONLY, so the SYNC path
+      // is byte-for-byte unchanged (no lane rows written). The async pane reads this set the instant
+      // create returns, before any reviewer has finished.
+      if (reviewerAsync) {
+        const laneDeadlineAt = new Date(Date.now() + REVIEWER_LANE_TERMINAL_DEADLINE_MS);
+        await insertReviewerLanes(
+          input.selectedReviewers.map((role) => ({
+            userId,
+            matterId: doc.matterId,
+            documentId: input.documentId,
+            versionId: doc.currentVersionId!,
+            reviewSessionId: sessionId,
+            iterationNumber,
+            reviewerRole: role,
+            reviewerTitle: REVIEWER_TITLES[role as ReviewerKey | LiteReviewerKey] ?? role,
+            terminalDeadlineAt: laneDeadlineAt,
+          })),
+        );
+      }
       for (const reviewerRole of input.selectedReviewers) {
         const modelString = resolveReviewerModel(reviewerRole);
         if (!modelString) {
@@ -415,7 +454,7 @@ export const reviewSessionRouter = router({
             // parsedSuggestions is non-null here: it is only null when parseError
             // was set, and that path threw above.
             const suggestions = parsedSuggestions!;
-            await insertFeedback({
+            const feedbackRowId = await insertFeedback({
               userId,
               documentId: input.documentId,
               versionId: doc.currentVersionId!,
@@ -427,6 +466,17 @@ export const reviewSessionRouter = router({
               reviewerTitle,
               suggestions,
             });
+            // REVIEWER-ASYNC-DISPLAY-1 (C-1): terminalize this reviewer's lane from job completion
+            // (condition 3) — AFTER insertFeedback succeeds (condition 10: never display-terminal with
+            // no row). Affirmative zero-result -> completed_without_feedback (condition 5). Best-effort:
+            // a lane-write failure must not break feedback persistence; the deadline sweep backstops.
+            if (reviewerAsync) {
+              void markReviewerLaneTerminal(sessionId, reviewerRole, userId, {
+                status: suggestions.length > 0 ? 'completed_with_feedback' : 'completed_without_feedback',
+                suggestionCount: suggestions.length,
+                feedbackRowId,
+              }).catch((e) => console.error(`[reviewer-async] lane commit-update failed (${reviewerRole}):`, e));
+            }
             void emitTelemetry(
               'generation_completed',
               { jobId, operation: 'reviewer_feedback', newVersionNumber: iterationNumber },
@@ -439,6 +489,14 @@ export const reviewSessionRouter = router({
               { jobId, operation: 'reviewer_feedback', reason: errorClass === 'timeout' ? 'timeout' : 'failure' },
               { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
             );
+            // REVIEWER-ASYNC-DISPLAY-1 (C-1): terminalize the lane as failed/timed_out from the failure
+            // path (condition 4). Best-effort (H3: a throw here must not wedge the revert). Async only.
+            if (reviewerAsync) {
+              void markReviewerLaneTerminal(sessionId, reviewerRole, userId, {
+                status: errorClass === 'timeout' ? 'timed_out' : 'failed',
+                failureReason: errorClass,
+              }).catch((e) => console.error(`[reviewer-async] lane revert-update failed (${reviewerRole}):`, e));
+            }
           },
           telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
         };
@@ -446,7 +504,15 @@ export const reviewSessionRouter = router({
           // DISPATCHER-COMPLETE-1 D-4: leave the job 'queued' for the durable dispatcher to claim
           // and run, so the reviewer survives as a real recoverable DB row instead of an in-process
           // fire-and-forget promise. Still flag-gated (JOB_DISPATCHER_ENABLED) and OFF by default.
-          await enqueueCanonicalJobForDispatcher(reviewerParams);
+          // REVIEWER-ASYNC-DISPLAY-1 (C-1): if the ENQUEUE itself fails, terminalize the lane as
+          // dispatch_failed (condition 4 — never dropped from the denominator) and continue the run
+          // PARTIAL (operator decision: never atomic-fail the whole run).
+          try {
+            await enqueueCanonicalJobForDispatcher(reviewerParams);
+          } catch (enqueueErr) {
+            console.error(`[reviewer-async] enqueue failed for ${reviewerRole} (session ${sessionId}):`, enqueueErr);
+            void markReviewerLaneDispatchFailed(sessionId, reviewerRole, userId, String(enqueueErr)).catch(() => {});
+          }
         } else if (reviewerAsync) {
           // Fire-and-forget (JOB_DISPATCHER_ENABLED OFF) — BYTE-IDENTICAL to the established async
           // path: the reviewer runs in the BACKGROUND and persists its feedback on completion
@@ -699,7 +765,64 @@ export const reviewSessionRouter = router({
         userId,
       );
 
-      return { session, feedback, evaluation };
+      // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-2): the server-owned per-reviewer lane contract.
+      // The denominator is the IMMUTABLE EXPECTED set (session.selectedReviewers) — condition 2 — so a
+      // late/unexpected lane never shrinks or inflates it (condition 11: an unexpected reviewer's lane is
+      // excluded + logged). Present ONLY on the async path (lanes are written only when
+      // REVIEWER_ASYNC_ENABLED): when there are no lanes, `lanes` is null and the client keeps the
+      // byte-for-byte SYNC display (GUARD). The client renders + gates polling off this and STOPS using
+      // deriveCompletionState for async (condition 1).
+      const laneRows = await listReviewerLanesForSession(input.sessionId, userId);
+      let lanes: ReviewerLanesContract | null = null;
+      if (laneRows.length > 0) {
+        const expectedRoles = new Set(session.selectedReviewers);
+        const laneByRole = new Map<string, (typeof laneRows)[number]>();
+        for (const row of laneRows) {
+          if (expectedRoles.has(row.reviewerRole)) {
+            laneByRole.set(row.reviewerRole, row);
+          } else {
+            // condition 11 — never counted in the denominator
+            console.warn(
+              `[reviewer-async] lane for unexpected reviewer '${row.reviewerRole}' (session ${session.id}) excluded from the denominator`,
+            );
+          }
+        }
+        const views: ReviewerLaneView[] = session.selectedReviewers.map((role) => {
+          const row = laneByRole.get(role);
+          if (!row) {
+            // expected reviewer with no lane row yet (should not happen post-create) — synthetic pending
+            return {
+              reviewerRole: role,
+              reviewerTitle: role,
+              status: 'pending',
+              terminal: false,
+              suggestionCount: null,
+              feedbackRowId: null,
+              jobStatus: null,
+              failureReason: null,
+              dispatchedAt: null,
+              terminalizedAt: null,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return {
+            reviewerRole: row.reviewerRole,
+            reviewerTitle: row.reviewerTitle,
+            status: row.status,
+            terminal: isTerminalLaneStatus(row.status),
+            suggestionCount: row.suggestionCount,
+            feedbackRowId: row.feedbackRowId,
+            jobStatus: null, // display-only; the lane status (above) is authoritative
+            failureReason: row.failureReason,
+            dispatchedAt: null,
+            terminalizedAt: row.terminalizedAt ? row.terminalizedAt.toISOString() : null,
+            updatedAt: row.updatedAt.toISOString(),
+          };
+        });
+        lanes = buildReviewerLanesContract(views);
+      }
+
+      return { session, feedback, evaluation, lanes };
     }),
 
   // ============================================================

@@ -23,8 +23,10 @@ import {
 } from '../db/queries/postureProvenance.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { listSourceAuthorityForMatter, setSourceAuthorityTier } from '../db/queries/sourceAuthority.js';
-import { insertLockedDecision, unlockLockedDecision } from '../db/queries/phase4b.js';
+import { insertLockedDecision, unlockLockedDecision, listReviewSessionsForDocument } from '../db/queries/phase4b.js';
 import { insertAuditEvent } from '../db/queries/auditEvents.js';
+import { listReviewerLanesForSession } from '../db/queries/reviewerLaneState.js';
+import { isTerminalLaneStatus } from '../../shared/schemas/reviewerLaneState.js';
 
 const AUTHORITY_ORIGIN = z.enum(['operative', 'counterparty', 'firm', 'client', 'model_derived', 'reference']);
 const LIFECYCLE = z.enum(['current_draft', 'operative', 'superseded']);
@@ -187,6 +189,38 @@ export const chatUiRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertEnabled();
       await assertMatterOwned(input.matterId, ctx.userId);
+
+      // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-4, condition 9): capture the reviewer-completion
+      // snapshot AT THE MOMENT OF SEND (the malpractice-defense artifact) into the append-only audit
+      // payload — which reviewers had returned, their suggestion counts, and which were pending/failed.
+      // Best-effort: a snapshot read must NEVER block the send disposition. Document-scoped only.
+      let reviewerSnapshot: unknown = null;
+      if (input.documentId) {
+        try {
+          const sessions = await listReviewSessionsForDocument(input.documentId, ctx.userId);
+          const latest = sessions[0]; // newest-first (desc iterationNumber)
+          if (latest) {
+            const lanes = await listReviewerLanesForSession(latest.id, ctx.userId);
+            if (lanes.length > 0) {
+              reviewerSnapshot = {
+                kind: 'reviewer_completion_snapshot',
+                reviewSessionId: latest.id,
+                iterationNumber: latest.iterationNumber,
+                capturedAt: new Date().toISOString(),
+                lanes: lanes.map((l) => ({
+                  reviewerRole: l.reviewerRole,
+                  status: l.status,
+                  terminal: isTerminalLaneStatus(l.status),
+                  suggestionCount: l.suggestionCount,
+                })),
+              };
+            }
+          }
+        } catch (snapErr) {
+          console.error('[recordSend] reviewer-completion snapshot capture failed (non-fatal):', snapErr);
+        }
+      }
+
       const eventId = await insertAuditEvent({
         userId: ctx.userId,
         matterId: input.matterId,
@@ -198,6 +232,7 @@ export const chatUiRouter = router({
         rationale: input.rationale ?? null,
         versionId: input.versionId ?? null,
         scope: input.documentId ? 'document' : 'matter',
+        ...(reviewerSnapshot !== null ? { payload: reviewerSnapshot } : {}),
       });
       return { eventId, decision: input.decision };
     }),

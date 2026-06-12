@@ -37,6 +37,8 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
+// REVIEWER-ASYNC-DISPLAY-1 (Component C): single source of the reviewer-lane status vocabulary.
+import { REVIEWER_LANE_STATUS_VALUES } from '../../shared/schemas/reviewerLaneState.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -2589,3 +2591,51 @@ export const postureProvenance = mysqlTable(
 );
 export type PostureProvenance = typeof postureProvenance.$inferSelect;
 export type NewPostureProvenance = typeof postureProvenance.$inferInsert;
+
+// ============================================================
+// REVIEWER-ASYNC-DISPLAY-1 (Gate 0, Component C) — reviewer_lanes
+// ============================================================
+// One row per EXPECTED reviewer of an async multi-reviewer review iteration (the immutable expected
+// set, persisted at create BEFORE dispatch — condition 2). Server-owned per-reviewer terminal status
+// (a DIFFERENT vocabulary than job status) + a C-owned terminalDeadlineAt (condition 4, defense-in-
+// depth). Additive table (migration 0030_*); matter-scoped (purged with the matter). Written ONLY on
+// the async path (REVIEWER_ASYNC_ENABLED). Status values are sourced from the shared lane module.
+export const reviewerLanes = mysqlTable(
+  'reviewer_lanes',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    // versionId: the document revision under review at dispatch (== feedback.versionId) — condition 6
+    versionId: char('versionId', { length: 36 }).notNull(),
+    reviewSessionId: char('reviewSessionId', { length: 36 }).notNull(),
+    iterationNumber: int('iterationNumber').notNull(),
+    // reviewerRole: free VARCHAR like feedback.reviewerRole (no DB enum — claude/gpt/gemini/grok + *_lite)
+    reviewerRole: varchar('reviewerRole', { length: 64 }).notNull(),
+    reviewerTitle: varchar('reviewerTitle', { length: 128 }).notNull(),
+    // jobId: the dispatched reviewer job (null until dispatched / if dispatch_failed)
+    jobId: char('jobId', { length: 36 }),
+    status: mysqlEnum('status', REVIEWER_LANE_STATUS_VALUES).notNull().default('pending'),
+    suggestionCount: int('suggestionCount'),
+    feedbackRowId: char('feedbackRowId', { length: 36 }),
+    failureReason: text('failureReason'),
+    terminalDeadlineAt: timestamp('terminalDeadlineAt').notNull(),
+    terminalizedAt: timestamp('terminalizedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxReviewerLanesSession: index('idx_reviewer_lanes_session').on(table.reviewSessionId),
+    idxReviewerLanesMatter: index('idx_reviewer_lanes_matter').on(table.matterId, table.userId),
+    // for C's per-lane deadline sweep: non-terminal lanes past terminalDeadlineAt
+    idxReviewerLanesDeadline: index('idx_reviewer_lanes_deadline').on(table.status, table.terminalDeadlineAt),
+    // one lane per reviewer per session (latest-terminal-per-reviewer dedupe — condition 1)
+    uniqReviewerLaneSessionReviewer: uniqueIndex('uniq_reviewer_lane_session_reviewer').on(
+      table.reviewSessionId,
+      table.reviewerRole,
+    ),
+  }),
+);
+export type ReviewerLane = typeof reviewerLanes.$inferSelect;
+export type NewReviewerLane = typeof reviewerLanes.$inferInsert;

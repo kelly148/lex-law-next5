@@ -54,8 +54,9 @@ import {
 } from '../db/queries/jobs.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { isTransientDbError, isConditionallyRetriedCode } from '../db/transientDbError.js';
-import { isJobDispatcherEnabled, isJobReaperEnabled } from '../config/featureFlags.js';
+import { isJobDispatcherEnabled, isJobReaperEnabled, isReviewerAsyncEnabled } from '../config/featureFlags.js';
 import { runDeferredCanonicalJob, hasDeferredContinuation } from '../db/canonicalMutation.js';
+import { reapStaleLanes } from '../db/queries/reviewerLaneState.js';
 
 // ============================================================
 // Dispatcher state
@@ -265,6 +266,39 @@ function scheduleReaperSweep(): void {
     await reapStaleJobs();
     scheduleReaperSweep();
   }, REAPER_SWEEP_INTERVAL_MS);
+}
+
+// ============================================================
+// REVIEWER-ASYNC-DISPLAY-1 (Component C, C-2) — lane deadline sweep
+// ============================================================
+// Component C OWNS a per-reviewer terminal-deadline (condition 4, defense-in-depth) — it does NOT
+// delegate lane liveness to JOB-RECOVERY-1's job reaper. This sweep terminalizes any reviewer lane
+// left non-terminal past its terminalDeadlineAt as 'orphaned_reaped'. Gated on REVIEWER_ASYNC_ENABLED
+// (independent of JOB_REAPER_ENABLED); a no-op when the async display is OFF (sync stays byte-for-byte).
+const LANE_REAPER_SWEEP_INTERVAL_MS = 60 * 1000;
+let _laneReaperTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function reapStaleLanesSweep(): Promise<void> {
+  if (!isReviewerAsyncEnabled()) return;
+  const systemCtx = { userId: 'system', matterId: null, documentId: null, jobId: null };
+  try {
+    const reaped = await reapStaleLanes(new Date(), systemCtx);
+    if (reaped > 0) {
+      console.log(`[LaneReaper] terminalized ${reaped} lane(s) past their deadline (orphaned_reaped).`);
+    }
+  } catch (sweepErr) {
+    // Isolated — a lane-sweep error must never touch the poll-failure counter / fatal handler.
+    console.error('[LaneReaper] sweep failed:', sweepErr);
+  }
+}
+
+/** Schedule the recurring lane deadline sweep (separate timer; cleared by stopDispatcher). */
+function scheduleLaneReaperSweep(): void {
+  if (!_isRunning) return;
+  _laneReaperTimer = setTimeout(async () => {
+    await reapStaleLanesSweep();
+    scheduleLaneReaperSweep();
+  }, LANE_REAPER_SWEEP_INTERVAL_MS);
 }
 
 // ============================================================
@@ -509,6 +543,12 @@ export async function startDispatcher(): Promise<void> {
   if (isJobReaperEnabled()) {
     scheduleReaperSweep();
   }
+  // REVIEWER-ASYNC-DISPLAY-1 (C-2): Component C's own lane deadline sweep — startup pass + periodic
+  // timer, gated on REVIEWER_ASYNC_ENABLED (no-op when OFF, so sync startup is unchanged).
+  await reapStaleLanesSweep();
+  if (isReviewerAsyncEnabled()) {
+    scheduleLaneReaperSweep();
+  }
   console.log(
     `[Dispatcher] Started. Poll interval: ~${POLL_INTERVAL_MS}ms (±20% jitter).`,
   );
@@ -528,6 +568,11 @@ export function stopDispatcher(): void {
   if (_reaperTimer !== null) {
     clearTimeout(_reaperTimer);
     _reaperTimer = null;
+  }
+  // REVIEWER-ASYNC-DISPLAY-1 (C-2): clear the lane deadline sweep timer too.
+  if (_laneReaperTimer !== null) {
+    clearTimeout(_laneReaperTimer);
+    _laneReaperTimer = null;
   }
 }
 
@@ -553,6 +598,14 @@ export async function runPollOnceForTest(): Promise<void> {
  */
 export async function runReaperOnceForTest(): Promise<void> {
   return reapStaleJobs();
+}
+
+/**
+ * TEST-ONLY: run one lane deadline sweep directly (bypasses the LANE_REAPER_SWEEP_INTERVAL_MS timer).
+ * REVIEWER-ASYNC-DISPLAY-1 (C-2). Gated internally by REVIEWER_ASYNC_ENABLED (no-op when OFF).
+ */
+export async function runLaneReaperOnceForTest(): Promise<void> {
+  return reapStaleLanesSweep();
 }
 
 // ============================================================
