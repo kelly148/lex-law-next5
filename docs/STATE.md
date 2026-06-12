@@ -4,6 +4,70 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12g (CHAT-INJ-1-R7 merged #286; INSTR-2B removed from blocked; tracker landing via #283)
+
+**Disposition.** Operator `accept push 286` → PR #286 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **9bba637**; branch deleted. Plus operator `accept:state-upkeep` (merge tracker #283) and `state-transition:INSTR-2B`.
+
+**What landed (#286).** (1) **R7 hardening** — `chatDispatch.submitTurn` binds the optional `documentId` to the bound matter (`assertDocumentInMatter`): a same-owner document from **another matter** is **rejected** (NOT_FOUND) before any model call, closing an owner-internal cross-matter context path. Reject chosen (operator-authorized). Independent of `MASTER_CHAT_ENABLED`; no-doc/same-matter turns byte-for-byte unchanged. (2) **R5 test fix** — `it.each` per wrong-role fixture (8 distinct cases; title seat → posture held/neutral, representational seat → posture cannot be flipped). (3) **R9** — two explicit flag-OFF cases (title-elected + matter-less, zero gate reads). Preceded by a read-only **review pass** of #285 (PASS on R1–R10 implementation). **R8** posture provenance **accepted as-is** as a residual (best-effort/un-awaited `audit_events`; `accepted_risks: CHAT-INJ-1-R8-PROVENANCE-BEST-EFFORT`).
+
+**State-transition (Rule-11, operator-approved).** **INSTR-2B** (core #280 + title #282, both merged) **removed** from `blocked_engagements`: `[FOLD-ADV-TITLE-1, INSTR-2B, INSTR-2C / CHAT-INJ-1]` → `[FOLD-ADV-TITLE-1, INSTR-2C / CHAT-INJ-1]`; `blocked_detail.INSTR-2B` marked RESOLVED. The combined `INSTR-2C / CHAT-INJ-1` entry is left as-is (splitting it to leave only INSTR-2C — CHAT-INJ-1 is complete — is a separate, unapproved transition).
+
+**Build state.** `origin/main` = **9bba637**. Tracker records (INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1 + CHAT-INJ-1-R7 + the R8 residual + the INSTR-2B removal) land via **PR #283** (`accept:state-upkeep`). Additive/test-only beyond the doc-binding fix; **no** migration, new env var, deploy, or flag flip; `MASTER_CHAT_ENABLED` stays OFF; nothing deployed.
+
+**Open / next.** Track A INSTR: 2A + 2B(core+title) + Phase D CHAT-INJ-1 + its R7 hardening **all done** → only **INSTR-2C** (Phase C) remains, blocked on §3.1 + Gate 0. Pending operator-gated: the `INSTR-2C / CHAT-INJ-1` split; **Gate 0** (#271/#272/#273); migration **0031** apply-to-prod + `MASTER_LAWFIRM_ENABLED`; and `MASTER_CHAT_ENABLED` (after Gate 0 + §6 gaps).
+
+---
+
+## 2026-06-12f (CHAT-INJ-1 review pass + held remediation PR #286: R7 doc-binding + R5/R9 test cleanups; R8 accepted residual)
+
+**Not a merge.** A read-only review-pass audited the merged CHAT-INJ-1 (#285 → `a7d4e72`) against the locked R1–R10 spec + two catches: **implementation PASS on all ten** (the dangerous directions — false-positive injection, title-in-chat, flag-OFF leak — are structurally closed), with these items folded into the **held PR #286** (`lex-next/chat-inj-1-r7`; base `main`; HELD for operator accept, **not merged**):
+
+- **R7 hardening (`b86f3ae`):** the optional chat `documentId` was only owner-scoped; a same-owner document from a **different matter** could pull cross-matter context. New `assertDocumentInMatter` at the `submitTurn` chokepoint rejects it (**NOT_FOUND**; model never reached). Reject chosen (operator authorized reject-or-ignore). Independent of `MASTER_CHAT_ENABLED`; no-doc/same-matter turns byte-for-byte unchanged.
+- **R5 test fix (`8145236`, test-only):** the wrong-role fixtures loop had an unused `_fixture`; replaced with `it.each` so each ask is a distinct case (title seat → posture held/neutral; representational seat → posture cannot be flipped). 8 cases.
+- **R9 assertions (`8145236`, test-only):** added two explicit flag-OFF cases — title-elected and matter-less — each returning neutral (`layeredMasterText` null → byte-for-byte legacy) with **zero** gate reads when the flag is OFF.
+
+**R8 — ACCEPTED RESIDUAL (operator, 2026-06-12; recorded in `accepted_risks`, not silent):** posture provenance is **best-effort, un-awaited** telemetry — `void recordAuditEvent(...)` into the existing `audit_events.payload` JSON (no new column), which drops the write on failure. Acceptable because chat turns are inline/non-persisted (the turn rides the ephemeral job row) and provenance is a record, not a safety gate. Future option: make it awaited/fail-visible (`insertAuditEvent`) or a dedicated durable per-turn record. **No code change.**
+
+**Build state.** `origin/main` = **a7d4e72** (unchanged — #286 not merged). PR #286 CI green (re-running on the latest push). No migration, no new env var, no deploy, no flag flip; `MASTER_CHAT_ENABLED` stays OFF.
+
+---
+
+## 2026-06-12e (Rule-16 — CHAT-INJ-1 merged: master-into-chat behind MASTER_CHAT_ENABLED, default OFF)
+
+**Disposition.** Operator `accept:CHAT-INJ-1`; PR #285 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **a7d4e72**; branch deleted (local + remote). INSTR **Phase D**, a dispositioned **§3.1 FIRE** (triad **3/3 APPROVE WITH CHANGES**; operator 2026-06-12), built strictly to the locked R1–R10 spec. This Rule-16 entry **consolidates onto the still-open tracker PR #283** (now carries INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1).
+
+**What shipped.** The interactive `chat_turn` path now injects the firm master behind a **new independent flag `MASTER_CHAT_ENABLED` (default OFF, fail-closed)** — **stricter than drafting**. A representational master (lawfirm/te, **never** title) injects ONLY when: the principal is the supervising attorney (R6); a valid owner-authorized matter exists (R1); `engagementCapacity === 'law_firm'` (R3 — title is **structurally unreachable** in chat); there is **no** title signal in the practice area (R2); and the **existing** conflicts/identity gate is CLEARED/allowed (R10, `resolveDraftingGate.allowed`, fail-closed). **R2 "never the representational default":** `engagementCapacity` is `NOT NULL DEFAULT 'law_firm'` (a bare default is indistinguishable from an election), so the **affirmative signal is the cleared gate** (a CONFIRMED client party or an attested override), not capacity — a bare default matter never injects. Selection reuses the INSTR-2 `matchesTE`; the **non-suppressible R4 addendum** + the "internal working draft — attorney verification required" UI notice ride every injected turn; **R5** posture/capacity immutability is structural (the decision never reads the turn text); **R7** current-matter scope only; **R8** provenance via the **existing `audit_events.payload` JSON** (`recordAuditEvent`) — **no new column/table/migration** — and **no send path**; **R9** flag-OFF = byte-for-byte legacy with **zero** extra gate reads/writes. Isolated in a new **`chatMasterComposition.ts`**; `resolvePromptComposition`/drafting is **untouched**; `canonicalMutation` gains **one** optional `chatMasterText` param applied in the existing layered slot (master on top of matter-state, per-PA profile suppressed — D-5 parity), skipped for every non-chat job and flag-OFF chat. **53 tests / 5 suites** (incl. the R9 flag-OFF byte-for-byte regression, the R5 wrong-role fixtures, and the **R2/R10 production gate-binding** against the real `resolveDraftingGate`); tsc + eslint clean; CI green. A **4-lens adversarial review** (R-compliance / R9 blast-radius / ethics-re-FIRE / test-adequacy) returned **PASS** — no implementation defects, **no re-FIRE** — and its test-adequacy notes were folded in.
+
+**Build state.** `origin/main` = **a7d4e72**. New env var **`MASTER_CHAT_ENABLED` (default OFF)** is the sole activation item; the feature is inert until flipped. **Nothing deployed** (Railway auto-deploy OFF). Built in an isolated git worktree off `origin/main` — the shared clone + other sessions' branches untouched.
+
+**Open / next.** Track A INSTR: 2A + 2B (core + title) + **Phase D CHAT-INJ-1** all DONE → the only remaining INSTR work is **INSTR-2C** (Phase C judgment-bearing non-draft roles), still blocked on §3.1 + Gate 0. **Pending operator-gated steps (unchanged):** the **Rule-11 state-transitions** — remove the now-complete **INSTR-2B** from `blocked_engagements` (`state-transition:INSTR-2B`) and split the combined `INSTR-2C / CHAT-INJ-1` to leave only INSTR-2C; **Gate 0** (#271/#272/#273) activation (prod migrations 0028 → 0029 → 0030 + staged flag flips); the **INSTR-2B-title migration 0031** apply-to-prod + `MASTER_LAWFIRM_ENABLED` flip; and the **`MASTER_CHAT_ENABLED`** flip (after Gate 0 + the §6 information gaps). Tracker PR **#283** carries the INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1 records (held for operator merge).
+
+---
+
+## 2026-06-12d (Rule-16 — CHAT-COMPOSER-1 merged: the chat composer is wired to chatDispatch.submitTurn)
+
+**Disposition.** Operator `accept:CHAT-COMPOSER-1`; PR #284 CI-green, squash-merged to `main` as **0ab8d99**; branch **KEPT** (not deleted, per the engagement instruction). This Rule-16 entry **consolidates onto the still-open INSTR-2B-title tracker PR #283** (both records ride one PR) — avoids a `state.json` conflict between two cf4533b-based tracker branches.
+
+**What shipped.** Client-only: the inert CHAT-UI-1 W0 placeholder composer is replaced by a functional **`ChatComposer`** that submits a turn via `chatDispatch.submitTurn` (CHAT-DISPATCH-1, `92beec6`) and renders the model reply inline. **Gated** by `CHAT_UI_1_ENABLED` (the whole `ChatSurface` — redirects when OFF, so the composer never mounts → byte-for-byte unchanged) + `CHAT_DISPATCH_ENABLED` (`submitTurn` refuses `PRECONDITION_FAILED 'CHAT_DISPATCH_DISABLED'` when OFF → a visible, non-blocking error). **NO master injection** — `chat_turn` → `callRole 'other'` → legacy; `assemblePrompt`/roles/masters untouched (independent adversarial review **PASS**). Imperative `utils.client.chatDispatch.submitTurn.mutate` pattern (like `ChatDeliverable`) + a synchronous in-flight double-submit guard. **NO backend/schema/migration/env change** (both flags pre-existing). Tests: `chatComposer.render` (8) + `chatSurface.render` extended; full suite green except the known-6.
+
+**Build state.** `origin/main` = **0ab8d99**. New surface flag-gated OFF + inert; **nothing deployed**. Built in an isolated git worktree off `origin/main` — the shared clone + other sessions' branches were untouched.
+
+**Open / next.** **Activation** of the chat composer needs **both** `CHAT_UI_1_ENABLED` + `CHAT_DISPATCH_ENABLED` ON (operator-gated). Remaining INSTR work: only **INSTR-2C / CHAT-INJ-1** (Phase C/D master-into-chat), blocked on §3.1 + Gate 0. Still pending from before: the **`state-transition:INSTR-2B`** array-removal (Rule-11) and Gate-0 activation. Tracker PR **#283** now carries the INSTR-2B-title **and** CHAT-COMPOSER-1 records.
+
+---
+
+## 2026-06-12c (Rule-16 — INSTR-2B-title merged: title-posture routing via capacity election; the FULL INSTR-2B is now done)
+
+**Disposition.** Operator `accept:INSTR-2B-TITLE`; PR #282 CI-green, squash-merged to `main` as **cf4533b**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-title`). This **completes the full INSTR-2B** (core #280 + title #282).
+
+**What shipped.** Title-posture drafting routing on top of 2B-core, reachable **only** through an affirmative matter **capacity election**: `matters.engagementCapacity === 'title_settlement_agent'` → `master/claude/title` (it takes **precedence over paKey**); the default stays Law Firm general; title is **structurally unreachable** without the explicit election (and never from paKey alone). New **additive migration 0031** (`matters.engagementCapacity ENUM('law_firm','title_settlement_agent') NOT NULL DEFAULT 'law_firm'`, `ADD COLUMN IF NOT EXISTS`) on the pre-deploy additive allowlist — **pending operator apply-to-prod at deploy**. Capacity election = optional on `matter.create` (default law_firm) + an owner-scoped **audited** `matter.setEngagementCapacity` + a non-blocking New-Matter intake selector (+ jsdom render test); **no paKey auto-inference**. **Title master reframed v1.0 → v1.1** (settlement-agent / title-decision-maker; floor/VA-MD/source-hierarchy/escalation kept as-is); manifest re-pinned `b00e7611…`; the INSTR-2A golden hash + framing markers updated. **§3.1 title routing reclassified FIRE → normal automation** (operator-confirmed 2026-06-12 — the non-representational settlement-agent role removes the ethics/confidentiality prong).
+
+**Build state.** `origin/main` = **cf4533b**. Same `MASTER_LAWFIRM_ENABLED` flag (default OFF); **no new env var**. Flag OFF = byte-for-byte unchanged; **nothing deployed** (Railway auto-deploy OFF). Also merged earlier today: INSTR-2A (#275), CHAT-DISPATCH-1 (#276), MATTERSTATE-BADGE-1 (#279).
+
+**Open / next.** Track A: INSTR-2A + INSTR-2B (core + title) **all done** → the only remaining INSTR work is **INSTR-2C / CHAT-INJ-1** (Phase C judgment-bearing non-draft roles + Phase D chat always-on master injection), still blocked on §3.1 + Gate 0 + the (now-built) chat dispatch. The **master-injection feature activation** sequence: apply migration 0031 → deploy → set per-matter capacity → flip `MASTER_LAWFIRM_ENABLED`. Gate-0 activation (0028→0029→0030 + flag flips) still pending. **Housekeeping:** `INSTR-2B` is recorded COMPLETE in `blocked_detail` but still sits in the `blocked_engagements` array — removing it is an operator-gated Rule-11 step (`state-transition:INSTR-2B`).
+
+---
+
 ## 2026-06-12b (Rule-16 — INSTR-2B-core merged: drafting master selection behind MASTER_LAWFIRM_ENABLED, title routing deferred)
 
 **Disposition.** Operator `accept:INSTR-2B-CORE`; PR #280 CI-green, squash-merged to `main` as **64aa7f8**, branch deleted. Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2b-core`).
