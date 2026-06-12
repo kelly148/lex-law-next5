@@ -109,9 +109,13 @@ export default function MatterStateDashboard({ matterId, documentId }: MatterSta
               full.safeToSend.posture === 'unknown' && 'bg-gray-200 text-gray-600',
             )}
           >
+            {/* MATTERSTATE-BADGE-1: label this header pill "Sendability:" — it badges
+                safeToSend.posture, but sits under the "Matter State" title, so a bare
+                "unknown" read as if the matter STATE were unknown. Mirrors the in-panel
+                "Sendability:" label below; tint still conveys posture. */}
             {full.safeToSend.posture === 'blocked'
-              ? `${full.safeToSend.openBlockerCount} blocker(s)`
-              : full.safeToSend.posture}
+              ? `Sendability: ${full.safeToSend.openBlockerCount} blocker(s)`
+              : `Sendability: ${full.safeToSend.posture}`}
           </span>
         )}
         {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
