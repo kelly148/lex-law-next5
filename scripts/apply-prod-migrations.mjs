@@ -75,8 +75,12 @@ const MIGRATIONS = [
   // REVIEWER-LATENCY-1 Step 0 — jobs.tokensReasoning (additive ADD COLUMN IF NOT EXISTS on the
   // existing jobs table). Persistence-only; no provider request changes. Idempotent.
   '0027_reviewer_latency_0_tokens_reasoning.sql',
+  // REVIEWER-ASYNC-DISPLAY-1 (Gate 0 Component C): additive reviewer_lanes table. Apply BEFORE
+  // flipping REVIEWER_ASYNC_ENABLED. (NOTE: 0028/0029 — the CHAT-UI-1 posture_provenance table +
+  // subject column — remain absent from this allowlist; that is the separate CHAT_UI_1 exposure.)
+  '0030_reviewer_async_display_1_reviewer_lanes.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping

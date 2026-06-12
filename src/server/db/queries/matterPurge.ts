@@ -66,6 +66,7 @@ import {
   gateOverride,
   promptSnapshots,
   postureProvenance,
+  reviewerLanes,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -192,6 +193,7 @@ export async function purgeMatter(
     // auditEvents is — "permanent retention" governs in-operation immutability (no row update/delete),
     // not survival of an operator-gated full-matter purge. Owner-scoped like every other step.
     await step('postureProvenance', postureProvenance, byMatter(postureProvenance));
+    await step('reviewerLanes', reviewerLanes, byMatter(reviewerLanes));
     // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
     // before documents so no binding row is orphaned by the purge.
     await step('documentParty', documentParty, byMatter(documentParty));

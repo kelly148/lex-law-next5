@@ -36,6 +36,7 @@ import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
 import LddDiffPanel from './LddDiffPanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
 import DocumentReferencePane from './DocumentReferencePane.js';
+import { AsyncLaneReviewView } from './AsyncLaneReviewView.js';
 import ReviewToolOverlay from './ReviewToolOverlay.js';
 
 const REVIEWER_LABELS: Record<string, string> = {
@@ -1150,6 +1151,12 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     refetchInterval: (query) => {
       const d = query.state.data;
       if (!d) return false;
+      // REVIEWER-ASYNC-DISPLAY-1 (C-3): on the async path the server-owned lane contract is the single
+      // poll gate — poll until EVERY expected lane is terminal (condition 1), never stopping at the
+      // first. Sync path (lanes === null) keeps the byte-for-byte deriveCompletionState gate below.
+      if (d.lanes) {
+        return d.lanes.allTerminal ? false : 3000;
+      }
       const jobs = jobsData?.jobs ?? [];
       const completionState = deriveCompletionState(d.feedback ?? [], jobs);
       return completionState === 'pending_or_running' ? 3000 : false;
@@ -1299,6 +1306,16 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   }
 
   const { session, feedback, evaluation } = data;
+
+  // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-3): when the server provides the per-reviewer lane contract
+  // (async path only), render off it and STOP using deriveCompletionState — the contract is the single
+  // source of truth for render + "keep polling?" (condition 1). When data.lanes is null (sync /
+  // REVIEWER_ASYNC_ENABLED OFF), fall through to the BYTE-FOR-BYTE unchanged sync display below (GUARD).
+  // This sits after every hook + the loading/error early returns, so hook order is preserved (no #310).
+  if (data.lanes) {
+    return <AsyncLaneReviewView lanes={data.lanes} feedback={feedback} onClose={onClose} />;
+  }
+
   const evalDispositions = evaluation?.dispositions ?? null;
 
   const lockedSuggestionIds = new Set(

@@ -1,0 +1,180 @@
+/**
+ * REVIEWER-ASYNC-DISPLAY-1 (Gate 0, Component C) — reviewer-lane state contract (SHARED).
+ *
+ * The server-owned per-reviewer "lane" is the single source of truth for the async multi-reviewer
+ * display, replacing the client's deriveCompletionState(feedback, jobs) inference. One lane per
+ * EXPECTED reviewer (the immutable expected set, persisted at iteration creation BEFORE dispatch).
+ * Every lane reaches a terminal status server-side (condition 4). The client renders + gates polling
+ * off this contract and never invents completion (condition 1/4).
+ *
+ * This module is shared (server writes lanes + builds the contract; client renders off it). It has
+ * NO DB/runtime deps — pure types + Zod + a pure derivation.
+ */
+import { z } from 'zod';
+
+// ── Lane status vocabulary (a DIFFERENT vocabulary than job status) ──
+export const REVIEWER_LANE_STATUS_VALUES = [
+  // non-terminal
+  'pending', // expected, not yet dispatched
+  'dispatched', // job enqueued/created
+  'running', // job running
+  // terminal (condition 4)
+  'completed_with_feedback',
+  'completed_without_feedback', // affirmative zero-result (condition 5)
+  'failed',
+  'timed_out',
+  'dispatch_failed', // the enqueue itself failed — never dropped from the denominator (operator decision)
+  'orphaned_reaped', // C's per-lane deadline reaped it (crash/restart orphan; defense-in-depth)
+  'canceled',
+] as const;
+export type ReviewerLaneStatus = (typeof REVIEWER_LANE_STATUS_VALUES)[number];
+
+export const TERMINAL_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
+  'completed_with_feedback',
+  'completed_without_feedback',
+  'failed',
+  'timed_out',
+  'dispatch_failed',
+  'orphaned_reaped',
+  'canceled',
+]);
+
+/** Terminal statuses that represent a FAILURE (no usable feedback from this lane). */
+export const FAILURE_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
+  'failed',
+  'timed_out',
+  'dispatch_failed',
+  'orphaned_reaped',
+  'canceled',
+]);
+
+export function isTerminalLaneStatus(s: ReviewerLaneStatus): boolean {
+  return TERMINAL_LANE_STATUSES.has(s);
+}
+
+// ── The DB row (Zod Wall) ──
+export const ReviewerLaneRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  documentId: z.string().uuid(),
+  versionId: z.string().uuid(), // condition 6: the document revision under review
+  reviewSessionId: z.string().uuid(),
+  iterationNumber: z.number().int().nonnegative(),
+  reviewerRole: z.string(), // free VARCHAR, like FeedbackRow.reviewerRole (no DB enum)
+  reviewerTitle: z.string(),
+  jobId: z.string().uuid().nullable(),
+  status: z.enum(REVIEWER_LANE_STATUS_VALUES),
+  suggestionCount: z.number().int().nonnegative().nullable(),
+  feedbackRowId: z.string().uuid().nullable(),
+  failureReason: z.string().nullable(),
+  terminalDeadlineAt: z.date(),
+  terminalizedAt: z.date().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type ReviewerLaneRow = z.infer<typeof ReviewerLaneRowSchema>;
+
+// ── The client-facing per-reviewer lane view (condition 1 fields) ──
+export interface ReviewerLaneView {
+  reviewerRole: string;
+  reviewerTitle: string;
+  status: ReviewerLaneStatus;
+  terminal: boolean;
+  suggestionCount: number | null;
+  feedbackRowId: string | null;
+  jobStatus: string | null; // joined from the reviewer job (display only)
+  failureReason: string | null;
+  dispatchedAt: string | null; // ISO; null until dispatched
+  terminalizedAt: string | null; // ISO; null until terminal
+  updatedAt: string; // ISO
+}
+
+export interface ReviewerLanesAggregate {
+  expected: number; // |intended reviewer set| (denominator — never shrinks)
+  terminal: number;
+  returned: number; // completed_with_feedback + completed_without_feedback
+  failed: number; // FAILURE_LANE_STATUSES
+  pending: number; // non-terminal
+}
+
+/**
+ * The server-derived display state for the async pane. The client layers an `incomplete_stalled`
+ * overlay on top (its own elapsed-time window) — the server never reports that, because liveness
+ * is the lane deadline's job, not the client's (condition 4).
+ */
+export type LaneDisplayState =
+  | 'pending' // nothing terminal yet
+  | 'partial' // some terminal, some still pending
+  | 'complete' // all terminal, all succeeded, >0 total suggestions
+  | 'complete_with_failures' // all terminal, >=1 success AND >=1 failure
+  | 'no_suggestions' // all terminal, all succeeded, total suggestions == 0
+  | 'all_failed'; // all terminal, every lane failed
+
+export interface ReviewerLanesContract {
+  lanes: ReviewerLaneView[]; // per EXPECTED reviewer, deduped to one lane per reviewer
+  aggregate: ReviewerLanesAggregate;
+  displayState: LaneDisplayState;
+  allTerminal: boolean;
+  totalSuggestions: number; // across completed_with_feedback lanes
+  /** condition 8: the set the (any) consolidation ran over reads honestly off this. */
+  incomplete: boolean; // !allTerminal OR aggregate.failed > 0
+}
+
+/**
+ * Pure derivation of the display state from the EXPECTED lanes (condition 5). The expected lanes are
+ * exactly the lanes whose reviewerRole is in the intended set; unknown/unselected lanes are excluded
+ * by the caller (condition 11). `totalSuggestions` sums completed_with_feedback lanes' counts.
+ */
+export function deriveLaneDisplayState(lanes: ReviewerLaneView[]): {
+  displayState: LaneDisplayState;
+  aggregate: ReviewerLanesAggregate;
+  allTerminal: boolean;
+  totalSuggestions: number;
+} {
+  const expected = lanes.length;
+  let terminal = 0;
+  let returned = 0;
+  let failed = 0;
+  let totalSuggestions = 0;
+  for (const lane of lanes) {
+    if (lane.terminal) terminal += 1;
+    if (lane.status === 'completed_with_feedback' || lane.status === 'completed_without_feedback') {
+      returned += 1;
+      totalSuggestions += lane.suggestionCount ?? 0;
+    } else if (FAILURE_LANE_STATUSES.has(lane.status)) {
+      failed += 1;
+    }
+  }
+  const pending = expected - terminal;
+  const allTerminal = expected > 0 && pending === 0;
+  const aggregate: ReviewerLanesAggregate = { expected, terminal, returned, failed, pending };
+
+  let displayState: LaneDisplayState;
+  if (!allTerminal) {
+    displayState = terminal > 0 ? 'partial' : 'pending';
+  } else if (returned === 0) {
+    displayState = 'all_failed';
+  } else if (failed > 0) {
+    displayState = 'complete_with_failures';
+  } else if (totalSuggestions === 0) {
+    // condition 5: global "no suggestions" ONLY when ALL terminal AND total == 0 (and none failed).
+    displayState = 'no_suggestions';
+  } else {
+    displayState = 'complete';
+  }
+  return { displayState, aggregate, allTerminal, totalSuggestions };
+}
+
+/** Build the full contract from the expected lane views (the single read-side surface). */
+export function buildReviewerLanesContract(lanes: ReviewerLaneView[]): ReviewerLanesContract {
+  const { displayState, aggregate, allTerminal, totalSuggestions } = deriveLaneDisplayState(lanes);
+  return {
+    lanes,
+    aggregate,
+    displayState,
+    allTerminal,
+    totalSuggestions,
+    incomplete: !allTerminal || aggregate.failed > 0,
+  };
+}
