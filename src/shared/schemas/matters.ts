@@ -22,6 +22,17 @@ export const MatterPhaseSchema = z.enum(MATTER_PHASE_VALUES);
 export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
 export const MatterAnalysisStatusSchema = z.enum(MATTER_ANALYSIS_STATUS_VALUES);
 
+// INSTR-2B-title: the firm CAPACITY this matter is handled in — 'law_firm' representation
+// (default-safe) vs 'title_settlement_agent' (non-representational settlement-agent / title-
+// decision-maker). The Title master (master/claude/title) is selected ONLY on an affirmative
+// 'title_settlement_agent' election (matter.create / matter.setEngagementCapacity); absent or
+// law_firm => the INSTR-2B-core safe default (lawfirm/te). ADDITIVE — duplicated in
+// src/server/db/schema.ts (kept in sync, like the other matter enums). Set only by an explicit
+// attorney act; never inferred from paKey alone.
+export const MATTER_ENGAGEMENT_CAPACITY_VALUES = ['law_firm', 'title_settlement_agent'] as const;
+export const MatterEngagementCapacitySchema = z.enum(MATTER_ENGAGEMENT_CAPACITY_VALUES);
+export type MatterEngagementCapacity = (typeof MATTER_ENGAGEMENT_CAPACITY_VALUES)[number];
+
 // FOLD-ORCH-1 Inc2b (Fork C): per-matter reviewer-lane override. Same reviewer keys as the
 // global ReviewerEnablement (claude/gpt/gemini/grok). Stored as a nullable JSON column on
 // matters; a NULL row = NO per-matter override => the matter falls back to the global default.
@@ -53,6 +64,9 @@ export const MatterRowSchema = z.object({
   orchestrationLanes: MatterOrchestrationLanesSchema.nullable().optional(),
   phase: MatterPhaseSchema,
   analysisStatus: MatterAnalysisStatusSchema.optional(),
+  // INSTR-2B-title engagement capacity. ADDITIVE: .optional() so pre-migration reads / legacy
+  // fixtures parse; a post-migration row (NOT NULL default 'law_firm') always carries it.
+  engagementCapacity: MatterEngagementCapacitySchema.optional(),
   archivedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
   createdAt: z.date(),

@@ -37,21 +37,36 @@ const PRACTICE_AREAS = [
   'Other',
 ];
 
+// INSTR-2B-title: the firm CAPACITY for this matter. Default 'law_firm' (representation, the safe
+// default); 'title_settlement_agent' is the affirmative non-representational settlement-agent
+// election that routes drafting to the Title master. Non-blocking; the attorney can change it.
+const CAPACITY_OPTIONS = [
+  { value: 'law_firm', label: 'Law-firm representation' },
+  { value: 'title_settlement_agent', label: 'Title & settlement (settlement agent)' },
+] as const;
+
+type EngagementCapacity = (typeof CAPACITY_OPTIONS)[number]['value'];
+
 interface CreateMatterFormProps {
   onClose: () => void;
   onCreated: () => void;
 }
 
-function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.ReactElement {
+export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.ReactElement {
   const [title, setTitle] = useState('');
   const [clientName, setClientName] = useState('');
   const [practiceArea, setPracticeArea] = useState('');
+  const [capacity, setCapacity] = useState<EngagementCapacity>('law_firm');
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const createMutation = useGuardedMutation(
-    (input: { title: string; clientName?: string; practiceArea?: string }) =>
-      utils.client.matter.create.mutate(input),
+    (input: {
+      title: string;
+      clientName?: string;
+      practiceArea?: string;
+      engagementCapacity?: EngagementCapacity;
+    }) => utils.client.matter.create.mutate(input),
     {
       onSuccess: () => {
         void utils.matter.list.invalidate();
@@ -74,6 +89,8 @@ function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.
       title: title.trim(),
       ...(clientName.trim() ? { clientName: clientName.trim() } : {}),
       ...(practiceArea ? { practiceArea } : {}),
+      // INSTR-2B-title: always record the capacity (it defaults to law_firm, the safe default).
+      engagementCapacity: capacity,
     });
   };
 
@@ -115,6 +132,20 @@ function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.
               <option value="">— Select —</option>
               {PRACTICE_AREAS.map((area) => (
                 <option key={area} value={area}>{area}</option>
+              ))}
+            </select>
+          </div>
+          <div data-testid="capacity-selector">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Capacity — how am I handling this matter?
+            </label>
+            <select
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value as EngagementCapacity)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+            >
+              {CAPACITY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </div>

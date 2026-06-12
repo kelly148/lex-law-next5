@@ -29,7 +29,7 @@
 
 import { PRIMARY_DRAFTER_MODEL, parseModelString } from './config.js';
 import { isPromptCompositionEnabled, isMasterLawfirmEnabled } from '../config/featureFlags.js';
-import { getPromptAsset, MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM } from './promptAssets.js';
+import { getPromptAsset, MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM, MASTER_CLAUDE_TITLE } from './promptAssets.js';
 
 // ============================================================
 // Call roles
@@ -98,10 +98,20 @@ export const TE_PRACTICE_AREA_EXACT_MATCHES: ReadonlySet<string> = new Set([
 export interface AssemblePromptMatter {
   paKey: string | null;
   practiceArea: string | null;
+  /**
+   * INSTR-2B-title: the matter's firm capacity election. OPTIONAL — absent === no election ===
+   * the safe default. Only the affirmative 'title_settlement_agent' value selects the Title
+   * master; absent/'law_firm'/anything else falls through to the INSTR-2B-core routing (te /
+   * lawfirm safe default).
+   */
+  engagementCapacity?: string | null;
 }
 
-/** The logical IDs a draft can compose: the T&E master or the general Law Firm master. */
-export type MasterSource = typeof MASTER_CLAUDE_TE | typeof MASTER_CLAUDE_LAWFIRM;
+/** The logical IDs a draft can compose: the T&E, the general Law Firm, or the Title master. */
+export type MasterSource =
+  | typeof MASTER_CLAUDE_TE
+  | typeof MASTER_CLAUDE_LAWFIRM
+  | typeof MASTER_CLAUDE_TITLE;
 
 export interface AssembledPrompt {
   /** The selected master logical ID, or 'legacy' (leave the legacy path byte-for-byte unchanged). */
@@ -163,10 +173,20 @@ export function assemblePrompt(args: {
   if (masterLawfirm) {
     if (args.callRole !== 'draft' && args.callRole !== 'regenerate') return legacy;
     if (matter === null) return legacy; // fail-closed: no matter row -> no master
-    // Safe default (D-3): any matter routes to the general Law Firm master EXCEPT exact-match T&E
-    // keys, which route to the TE master. title_settlement falls through to the lawfirm safe
-    // default here — Title routing is INSTR-2B-TITLE, deferred.
-    const id: MasterSource = matchesTE(matter) ? MASTER_CLAUDE_TE : MASTER_CLAUDE_LAWFIRM;
+    // INSTR-2B-title: the Title (settlement-agent) master is reachable ONLY through an affirmative
+    // engagement-capacity election, and it takes precedence over the practice-area routing — a
+    // settlement-agent matter never gets the TE or Law Firm master. The dangerous direction (a
+    // client matter getting the title posture) is structurally impossible without this explicit
+    // election; every other value (incl. the 'law_firm' default) falls through to the 2B-core
+    // safe default below. NEVER from paKey alone.
+    let id: MasterSource;
+    if (matter.engagementCapacity === 'title_settlement_agent') {
+      id = MASTER_CLAUDE_TITLE;
+    } else {
+      // Safe default (D-3): exact-match T&E keys -> the TE master; anything else -> the general
+      // Law Firm master.
+      id = matchesTE(matter) ? MASTER_CLAUDE_TE : MASTER_CLAUDE_LAWFIRM;
+    }
     const asset = getPromptAsset(id);
     return { source: id, systemText: null, layeredMasterText: asset.text, assetSha256: asset.sha256, flagEnabled };
   }
@@ -191,7 +211,15 @@ export interface CompositionReaders {
   getMatter: (
     matterId: string,
     userId: string,
-  ) => Promise<{ paKey?: string | null | undefined; practiceArea?: string | null | undefined } | null | undefined>;
+  ) => Promise<
+    | {
+        paKey?: string | null | undefined;
+        practiceArea?: string | null | undefined;
+        engagementCapacity?: string | null | undefined;
+      }
+    | null
+    | undefined
+  >;
   getDocument: (
     documentId: string,
     userId: string,
@@ -257,7 +285,13 @@ export async function resolvePromptComposition(args: {
     const doc = args.documentId ? ((await readers.getDocument(args.documentId, args.userId)) ?? null) : null;
     const docType = doc?.documentType ?? null;
     const decision = assemblePrompt({
-      matter: matter ? { paKey: matter.paKey ?? null, practiceArea: matter.practiceArea ?? null } : null,
+      matter: matter
+        ? {
+            paKey: matter.paKey ?? null,
+            practiceArea: matter.practiceArea ?? null,
+            engagementCapacity: matter.engagementCapacity ?? null,
+          }
+        : null,
       docType,
       callRole,
       model: args.modelString,

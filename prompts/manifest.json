@@ -10,8 +10,8 @@
       "sha256": "7e801dde0c59101e364c5963a342305fbc66ece5a5fffc9c8a472b7b32bd3547"
     },
     "master/claude/title": {
-      "file": "prompts/assets/Title_Master_Instructions_v1.0.md",
-      "sha256": "54cf3b2d78ef14c9bf3c34fb837f3a3ef6934c8fe242eac96e5f4e054c574ccb"
+      "file": "prompts/assets/Title_Master_Instructions_v1.1.md",
+      "sha256": "b00e7611d858c84a7eadea529479a3fe69e34a5cfb2c46f73031898f94650599"
     }
   }
 }

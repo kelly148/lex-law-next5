@@ -79,6 +79,10 @@ const MIGRATIONS = [
   // flipping REVIEWER_ASYNC_ENABLED. (NOTE: 0028/0029 — the CHAT-UI-1 posture_provenance table +
   // subject column — remain absent from this allowlist; that is the separate CHAT_UI_1 exposure.)
   '0030_reviewer_async_display_1_reviewer_lanes.sql',
+  // INSTR-2B-title — additive matters.engagementCapacity ENUM NOT NULL DEFAULT 'law_firm'
+  // (capacity election; ADD COLUMN IF NOT EXISTS, idempotent). Apply BEFORE the INSTR-2B-title code
+  // serves (matter.create / reads reference the column). Default-safe; on the additive pre-deploy path.
+  '0031_instr_2b_title_matter_engagement_capacity.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];

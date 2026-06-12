@@ -29,6 +29,9 @@ export const MASTER_CLAUDE_TE = 'master/claude/te';
 /** Logical ID of the general Law Firm master (INSTR-2A registered; INSTR-2B-core selects it). */
 export const MASTER_CLAUDE_LAWFIRM = 'master/claude/lawfirm';
 
+/** Logical ID of the Title (settlement-agent) master (INSTR-2A registered; INSTR-2B-title selects it). */
+export const MASTER_CLAUDE_TITLE = 'master/claude/title';
+
 /** Manifest location, relative to the app base dir (repo root locally; /app in the image). */
 export const PROMPT_MANIFEST_PATH = 'prompts/manifest.json';
 

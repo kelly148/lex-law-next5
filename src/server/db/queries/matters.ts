@@ -11,7 +11,12 @@ import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { matters, type Matter, type NewMatter } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
-import { MatterRowSchema, type MatterRow, type MatterOrchestrationLanes } from '../../../shared/schemas/matters.js';
+import {
+  MatterRowSchema,
+  type MatterRow,
+  type MatterOrchestrationLanes,
+  type MatterEngagementCapacity,
+} from '../../../shared/schemas/matters.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -143,6 +148,24 @@ export async function setMatterOrchestrationLanes(
   await db
     .update(matters)
     .set({ orchestrationLanes: lanes })
+    .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
+  return getMatterById(matterId, userId);
+}
+
+/**
+ * INSTR-2B-title: set the matter's firm ENGAGEMENT CAPACITY (the affirmative attorney election
+ * that routes drafting to the Title master when 'title_settlement_agent'; 'law_firm' is the safe
+ * default). Owner-scoped via ownerScope() (new-code chokepoint). NOT nullable — capacity always
+ * carries a concrete value (the column is NOT NULL DEFAULT 'law_firm').
+ */
+export async function setMatterEngagementCapacity(
+  matterId: string,
+  userId: string,
+  engagementCapacity: MatterEngagementCapacity,
+): Promise<MatterRow | null> {
+  await db
+    .update(matters)
+    .set({ engagementCapacity })
     .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
   return getMatterById(matterId, userId);
 }
