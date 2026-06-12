@@ -262,6 +262,12 @@ export type MatterPhase = (typeof MATTER_PHASE_VALUES)[number];
 export const MATTER_ANALYSIS_STATUS_VALUES = ['none', 'in_analysis', 'plan_locked'] as const;
 export type MatterAnalysisStatus = (typeof MATTER_ANALYSIS_STATUS_VALUES)[number];
 
+// INSTR-2B-title: the firm CAPACITY this matter is handled in. Kept in sync with the Zod Wall
+// copy in src/shared/schemas/matters.ts (MATTER_ENGAGEMENT_CAPACITY_VALUES). Additive, NOT NULL
+// DEFAULT 'law_firm' so every existing row is the safe default.
+export const MATTER_ENGAGEMENT_CAPACITY_VALUES = ['law_firm', 'title_settlement_agent'] as const;
+export type MatterEngagementCapacity = (typeof MATTER_ENGAGEMENT_CAPACITY_VALUES)[number];
+
 export const matters = mysqlTable(
   'matters',
   {
@@ -291,6 +297,14 @@ export const matters = mysqlTable(
     analysisStatus: mysqlEnum('analysisStatus', MATTER_ANALYSIS_STATUS_VALUES)
       .notNull()
       .default('none'),
+    // INSTR-2B-title (Fork: capacity election): which capacity the firm acts in for this matter.
+    // Additive, NOT NULL DEFAULT 'law_firm' (the safe default) so every existing row stays valid.
+    // 'title_settlement_agent' (an affirmative attorney election) is what routes drafting to the
+    // Title master; absent/law_firm => the 2B-core safe default. Set only by an explicit attorney
+    // act (matter.create / matter.setEngagementCapacity); never inferred.
+    engagementCapacity: mysqlEnum('engagementCapacity', MATTER_ENGAGEMENT_CAPACITY_VALUES)
+      .notNull()
+      .default('law_firm'),
     // archivedAt: set on archive; cleared on unarchive (Ch 5.5). Orthogonal to phase.
     archivedAt: timestamp('archivedAt'),
     // completedAt: system-managed; set when phase transitions to complete (Ch 5.3)

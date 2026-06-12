@@ -32,7 +32,7 @@ const MASTER_TITLE = 'master/claude/title';
 const GOLDEN: Record<string, string> = {
   [MASTER_CLAUDE_TE]: '0e137d1013a277f8b96cb9fa7cca2a12f9be619256fee55888a5e01420603f63',
   [MASTER_LAWFIRM]: '7e801dde0c59101e364c5963a342305fbc66ece5a5fffc9c8a472b7b32bd3547',
-  [MASTER_TITLE]: '54cf3b2d78ef14c9bf3c34fb837f3a3ef6934c8fe242eac96e5f4e054c574ccb',
+  [MASTER_TITLE]: 'b00e7611d858c84a7eadea529479a3fe69e34a5cfb2c46f73031898f94650599',
 };
 
 /** Forbidden markers (decisions doc §5.6) — container paths, docx pipeline, jailbreak. */
@@ -91,11 +91,12 @@ describe('INSTR-2A — positive-marker guard (load-bearing clauses present in th
     expect(text).toContain('reserve consequential acts for express human decision'); // §16 floor
   });
 
-  it('the Title master carries the consequential-actions floor clause', () => {
+  it('the Title master carries the floor clause + the settlement-agent reframe (INSTR-2B-title v1.1)', () => {
     loadPromptAssets();
-    expect(getPromptAsset(MASTER_TITLE).text).toContain(
-      'do not authorize taking consequential actions on their own',
-    );
+    const text = getPromptAsset(MASTER_TITLE).text;
+    expect(text).toContain('do not authorize taking consequential actions on their own'); // floor (unchanged)
+    expect(text).toContain('settlement agent and title decision-maker'); // INSTR-2B-title reframe present
+    expect(text).not.toContain('title-company counsel'); // old client-counsel framing removed
   });
 });
 

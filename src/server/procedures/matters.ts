@@ -23,6 +23,7 @@ import {
   insertMatter,
   updateMatterMetadata,
   setMatterOrchestrationLanes,
+  setMatterEngagementCapacity,
   archiveMatter,
   unarchiveMatter,
   deleteMatter,
@@ -32,7 +33,10 @@ import { ensureAutoClientParty } from '../db/queries/matterParties.js';
 import { purgeMatter } from '../db/queries/matterPurge.js';
 import { recordAuditEvent, listAuditEventsForMatter } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
-import { MatterOrchestrationLanesSchema } from '../../shared/schemas/matters.js';
+import {
+  MatterOrchestrationLanesSchema,
+  MatterEngagementCapacitySchema,
+} from '../../shared/schemas/matters.js';
 
 export const matterRouter = router({
   // ============================================================
@@ -46,6 +50,9 @@ export const matterRouter = router({
         practiceArea: z.string().max(128).nullable().optional(),
         // R2-PRE-JURIS-1: governing jurisdiction ('VA'|'MD'); free string (UI constrains), optional.
         jurisdiction: z.string().max(16).nullable().optional(),
+        // INSTR-2B-title: the firm capacity election. Optional + defaults to 'law_firm' (the safe
+        // default); only an affirmative 'title_settlement_agent' routes drafting to the Title master.
+        engagementCapacity: MatterEngagementCapacitySchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -55,6 +62,7 @@ export const matterRouter = router({
         clientName: input.clientName ?? null,
         practiceArea: input.practiceArea ?? null,
         jurisdiction: input.jurisdiction ?? null,
+        engagementCapacity: input.engagementCapacity ?? 'law_firm',
         phase: 'intake',
         archivedAt: null,
         completedAt: null,
@@ -210,6 +218,52 @@ export const matterRouter = router({
         action: 'set_orchestration_lanes',
         scope: 'matter',
         payload: { lanes: input.lanes },
+      });
+
+      return updated;
+    }),
+
+  // ============================================================
+  // matter.setEngagementCapacity — INSTR-2B-title: the affirmative capacity election that governs
+  // which master prompt drafts use ('title_settlement_agent' -> Title master; 'law_firm' -> the
+  // 2B-core safe default). A deliberate, owner-scoped, AUDITED act — it shifts the posture
+  // governing every draft on the matter (audited as eventType 'disposition', like the other
+  // matter-level attorney decisions). The default stays law_firm; this changes it explicitly.
+  // ============================================================
+  setEngagementCapacity: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        engagementCapacity: MatterEngagementCapacitySchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await getMatterById(input.matterId, ctx.userId);
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      const updated = await setMatterEngagementCapacity(
+        input.matterId,
+        ctx.userId,
+        input.engagementCapacity,
+      );
+      if (!updated) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+
+      const previous = existing.engagementCapacity ?? 'law_firm';
+      await recordAuditEvent({
+        userId: ctx.userId,
+        matterId: input.matterId,
+        eventType: 'disposition',
+        actor: 'attorney',
+        summary: `Engagement capacity set to ${input.engagementCapacity} (was ${previous})`,
+        targetType: 'engagement_capacity',
+        targetId: input.matterId,
+        action: 'set_engagement_capacity',
+        scope: 'matter',
+        payload: { from: previous, to: input.engagementCapacity },
       });
 
       return updated;
