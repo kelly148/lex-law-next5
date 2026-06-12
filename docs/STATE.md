@@ -4,6 +4,19 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12 (Rule-16 — INSTR-2A + CHAT-DISPATCH-1 merged on operator accept; Gate-0 reconcile #274 landed first)
+
+**Disposition.** Operator `accept:INSTR-2A` covering **both** PR #275 and #276; both squash-merged to `main` (CI-green), branches deleted. On operator instruction, the open Gate-0 reconcile **PR #274** (squash **c1053a0**) was merged FIRST so the tracker was current before recording these completions. This is the Rule-16 bookkeeping (docs-only, on `lex-next/state-instr2a-chatdispatch`).
+
+- **INSTR-2A** — #275 squash **9a370ec** — registered `master/claude/lawfirm` (`Master_Instructions_v2.2.md`) + `master/claude/title` (`Title_Master_Instructions_v1.0.md`) + reved `master/claude/te` **v1.1 → v1.2** (added the §16 consequential-action floor clause) into `prompts/manifest.json`, SHA-256 pinned + boot hash-verified. New `instr_2a_master_assets` test (golden-hash + negative/positive marker guards over all three masters + a zero-selection-change guard); the INSTR-1A0 golden was re-pinned to the v1.2 TE hash. **ZERO selection change** — `assemblePrompt` untouched; both new masters are loaded + verified at boot but selected by nothing (inert until INSTR-2B).
+- **CHAT-DISPATCH-1** — #276 squash **92beec6** — new `chat_turn` jobType routes a single chat turn through `executeCanonicalMutation` (the DISPATCHER-COMPLETE-1 enqueue/run split) and returns the model text, behind **`CHAT_DISPATCH_ENABLED` (default OFF)** — flag OFF = `chatDispatch.submitTurn` refuses, byte-for-byte unchanged. **No master injection** (callRole `other` → legacy; master-into-chat is the triad-gated INSTR Phase D). Backend only: no UI, no migration (`jobType` is `varchar(64)`), no `canonicalMutation.ts` change. **§3.1 triage = SKIP.** Plan: `docs/engagements/CHAT-DISPATCH-1-plan.md`. Unblocks the INSTR Phase D "chat→model dispatch exists" prerequisite.
+
+**Build state.** `origin/main` after the three merges = **c1053a0** (then this Rule-16 docs commit on top). Both new features flag-gated OFF + inert; **nothing deployed** (Railway auto-deploy OFF; merge ≠ deploy). Gate 0 (A/B/C) activation is unchanged from the 2026-06-11 entry below (prod migrations 0028 → 0029 → 0030 + staged flag flips, all PENDING operator).
+
+**Open / next.** **INSTR-2B** is now blocked **only** by Open Decision **D-2** (practice-area / title key) + the **Title-routing §3.1 ethics disposition** — the INSTR-2A-merge prerequisite is satisfied. **INSTR-2C / CHAT-INJ-1** still blocked on 2B. Held docs **PR #277** (FOLLOWUP-CATALOG-1, the reversible-build follow-up menu) is **OPEN** for review; the ready picks are MATTERSTATE-BADGE-1 and RELAYOUT-2-STRIP-CLEANUP, and the Gemini valid-JSON reliability fix needs a provider-adapter scope authorization. Deploy of Gate 0 + these two merges remains a separate operator-gated step (`operator approve deploy:`); none done.
+
+---
+
 ## 2026-06-11 (Rule-16 — Gate 0 substrate COMPLETE: A+B+C all merged, flag-OFF/inert; activation pending operator)
 
 **Disposition.** Rule-16 ungated bookkeeping (docs-only PR, held for review). The three Gate-0 components are now all merged to `main`:
