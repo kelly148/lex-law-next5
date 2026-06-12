@@ -96,13 +96,15 @@ beforeEach(() => {
 });
 
 describe('ChatSurface — CHAT-UI-1 W0', () => {
-  it('flag OFF (default): no surface, redirects to the matter page', () => {
+  it('flag OFF (default): no surface, redirects to the matter page; NO composer', () => {
     const { queryByTestId, getByText } = renderAt();
     expect(queryByTestId('chat-surface')).toBeNull();
     expect(getByText('MATTER PAGE')).toBeTruthy();
+    // CHAT-COMPOSER-1: the functional composer is gated by this surface — flag OFF => not mounted.
+    expect(queryByTestId('chat-composer')).toBeNull();
   });
 
-  it('flag ON: the three-zone conversation skeleton mounts', () => {
+  it('flag ON: the three-zone conversation skeleton mounts with the functional composer', () => {
     mock.enabled = true;
     const { getByTestId, getByText } = renderAt();
     expect(getByTestId('chat-surface')).toBeTruthy();
@@ -110,6 +112,10 @@ describe('ChatSurface — CHAT-UI-1 W0', () => {
     expect(getByTestId('chat-zone-thread')).toBeTruthy();
     expect(getByTestId('chat-zone-deliverable')).toBeTruthy();
     expect(getByText('Conversation')).toBeTruthy();
+    // CHAT-COMPOSER-1: the inert W0 placeholder is replaced by the functional composer.
+    expect(getByTestId('chat-composer')).toBeTruthy();
+    expect(getByTestId('chat-input')).toBeTruthy();
+    expect(getByTestId('chat-send')).toBeTruthy();
   });
 
   it('while the flag is loading: neutral loader, surface not flashed', () => {

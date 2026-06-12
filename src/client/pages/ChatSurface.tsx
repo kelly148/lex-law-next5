@@ -22,6 +22,7 @@ import { ConsequenceProvider } from '../components/ConsequenceProvider.js';
 import AutonomySlider from '../components/AutonomySlider.js';
 import ChatDeliverable from '../components/ChatDeliverable.js';
 import ContextIntegrityPanel from '../components/ContextIntegrityPanel.js';
+import ChatComposer from '../components/ChatComposer.js';
 
 export default function ChatSurface(): React.ReactElement {
   const { matterId } = useParams<{ matterId: string }>();
@@ -93,15 +94,11 @@ export default function ChatSurface(): React.ReactElement {
           </p>
         </div>
 
-        {/* Composer placeholder — inert in the scaffold. No send control: send is a hard-stop act. */}
-        <div className="border-t border-line px-5 py-4">
-          <div
-            aria-disabled="true"
-            className="w-full select-none rounded border border-line bg-surface-2 px-3 py-2 text-sm text-ink-hint"
-          >
-            Conversation composer — arrives in CHAT-UI-1 W1.
-          </div>
-        </div>
+        {/* CHAT-COMPOSER-1: the functional composer — submits a turn via chatDispatch.submitTurn
+            and renders the model reply inline. Gated by CHAT_UI_1_ENABLED (this whole surface, which
+            redirects when OFF) + CHAT_DISPATCH_ENABLED (the submitTurn procedure refuses when OFF).
+            NO master injection — the turn stays callRole 'other' -> legacy. */}
+        <ChatComposer matterId={matterId} />
       </section>
 
       {/* RIGHT — focused deliverable: slides out and squeezes the LEFT rail, never the thread
