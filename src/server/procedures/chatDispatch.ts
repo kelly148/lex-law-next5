@@ -7,11 +7,16 @@
  * (default OFF): when OFF the procedure refuses and no chat turn ever reaches a model, so
  * behavior is byte-for-byte unchanged (the chat composer stays the inert placeholder).
  *
- * SUBSTRATE ONLY:
- *  - Injects NO master prompt. callRoleForJobType('chat_turn') maps to 'other', so
- *    assemblePrompt returns legacy — master-into-chat selection (Law-Firm vs Title posture)
- *    is INSTR Phase D and is separately gated on the external triad review.
- *  - userId is ALWAYS ctx.userId (Ch 35.2); the turn is matter-owner-scoped (assertMatterOwned),
+ * SUBSTRATE + CHAT-INJ-1 master-into-chat (INSTR Phase D, behind MASTER_CHAT_ENABLED, default OFF):
+ *  - With MASTER_CHAT_ENABLED OFF (default) the turn injects NO master — byte-for-byte the
+ *    CHAT-DISPATCH-1 substrate (the neutral chat prompt + matter-state), with ZERO extra reads.
+ *  - With MASTER_CHAT_ENABLED ON, the turn receives a representational master (lawfirm / te, NEVER
+ *    title) ONLY for the supervising attorney (R6), a valid owner-authorized matter (R1) in the
+ *    representational law_firm seat (R3) with no unresolved title signal (R2) and a CLEARED
+ *    conflicts/identity gate (R10). The decision lives in chatMasterComposition.resolveChatMaster;
+ *    the master + its non-suppressible addendum (R4) is layered by the chokepoint; provenance (R8)
+ *    is appended to the existing audit_events ledger. There is NO send/share/export path.
+ *  - userId is ALWAYS ctx.userId (Ch 35.2); the turn is matter-owner-scoped (getOwnedMatterOrThrow),
  *    so it inherits the same access-control as every other model-calling job.
  *  - No new table: the turn rides the existing jobs row (jobType is varchar(64) → no migration).
  *  - Runs INLINE (request→response, the matter_analysis template). The async/deferred-via-
@@ -20,10 +25,12 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
-import { isChatDispatchEnabled } from '../config/featureFlags.js';
+import { isChatDispatchEnabled, isMasterChatEnabled } from '../config/featureFlags.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
+import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
 
 /**
  * Minimal neutral substrate system prompt. This is NOT the firm master — master-into-chat
@@ -44,9 +51,16 @@ function assertChatDispatchEnabled(): void {
   }
 }
 
-async function assertMatterOwned(matterId: string, userId: string): Promise<void> {
+/**
+ * Owner-scoped matter lookup (R1 matter-binding). The SAME single read CHAT-DISPATCH-1 already
+ * performed, now RETURNING the row so the master-injection decision (R2/R3) can read the matter's
+ * capacity without a second query. A miss (no matter / unauthorized) throws NOT_FOUND, so the turn
+ * never reaches a model.
+ */
+async function getOwnedMatterOrThrow(matterId: string, userId: string) {
   const matter = await getMatterById(matterId, userId);
   if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+  return matter;
 }
 
 export const chatDispatchRouter = router({
@@ -64,7 +78,17 @@ export const chatDispatchRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       assertChatDispatchEnabled();
-      await assertMatterOwned(input.matterId, ctx.userId);
+      const matter = await getOwnedMatterOrThrow(input.matterId, ctx.userId);
+
+      // CHAT-INJ-1: decide whether this turn receives a firm master. Flag OFF (default) => NEUTRAL
+      // with ZERO extra reads (the conflicts gate is never consulted) => byte-for-byte the substrate.
+      // Never title; never the Law Firm default — the affirmative signal is the cleared gate (R10).
+      const chat = await resolveChatMaster({
+        matterId: input.matterId,
+        userId: ctx.userId,
+        matter,
+        principal: { userId: ctx.userId },
+      });
 
       let response = '';
       const result = await executeCanonicalMutation({
@@ -73,6 +97,8 @@ export const chatDispatchRouter = router({
         modelString: PRIMARY_DRAFTER_MODEL,
         matterId: input.matterId,
         ...(input.documentId ? { documentId: input.documentId } : {}),
+        // Only present when a master was injected; absent => the chokepoint's chat branch is skipped.
+        ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
         txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
         buildLlmParams: () => ({
           systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
@@ -94,6 +120,47 @@ export const chatDispatchRouter = router({
         },
       });
 
-      return { jobId: result.jobId, status: result.status, response };
+      // R8 — provenance for the persisted turn: matter binding, posture/master id (or 'neutral'),
+      // flag state, and representational-vs-neutral. Best-effort append to the EXISTING audit_events
+      // JSON payload (no new column/migration). Recorded only while the feature is ON — a flag-OFF
+      // turn writes nothing extra (R9). NO send/share/export path exists from this procedure.
+      if (isMasterChatEnabled()) {
+        void recordAuditEvent({
+          userId: ctx.userId,
+          matterId: input.matterId,
+          documentId: input.documentId ?? null,
+          eventType: 'model_output',
+          actor: 'system',
+          summary: chat.inject
+            ? `Chat master injected (${chat.source}) for matter ${input.matterId}`
+            : `Chat turn — no master (neutral) for matter ${input.matterId}`,
+          action: chat.inject ? 'chat_master_injected' : 'chat_master_neutral',
+          targetType: 'chat_turn',
+          targetId: result.jobId,
+          scope: chat.representational ? 'representational' : 'neutral',
+          payload: {
+            matterId: input.matterId,
+            jobId: result.jobId,
+            masterId: chat.source,
+            representational: chat.representational,
+            flagEnabled: true,
+            engagementCapacity: matter.engagementCapacity ?? null,
+            reason: chat.reason,
+          },
+        });
+      }
+
+      return {
+        jobId: result.jobId,
+        status: result.status,
+        response,
+        // R4 UI treatment: tell the composer to mark an injected turn an internal working draft.
+        master: {
+          applied: chat.inject,
+          source: chat.source,
+          representational: chat.representational,
+          notice: chat.inject ? CHAT_MASTER_UI_NOTICE : null,
+        },
+      };
     }),
 });

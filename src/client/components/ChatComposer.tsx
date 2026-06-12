@@ -8,8 +8,11 @@
  * is OFF (the default) the surface redirects and this component never mounts, so the existing app
  * is byte-for-byte unchanged. submitTurn is ITSELF gated by CHAT_DISPATCH_ENABLED on the server:
  * when that is OFF it refuses with PRECONDITION_FAILED 'CHAT_DISPATCH_DISABLED', which surfaces
- * here as a visible, non-blocking error (no crash). NO master injection — the chat turn stays
- * callRole 'other' -> legacy (master-into-chat is the triad-gated INSTR Phase D, not this).
+ * here as a visible, non-blocking error (no crash). Master injection (CHAT-INJ-1, INSTR Phase D) is
+ * a SEPARATE server flag (MASTER_CHAT_ENABLED, default OFF); when a turn is master-injected the
+ * server returns a non-suppressible "internal working draft — attorney verification required" notice
+ * (R4), which this composer renders as a visible banner on that turn. With the flag OFF the notice is
+ * null and no banner shows.
  *
  * Follows the chat-surface imperative mutation pattern (utils.client.<proc>.mutate, like
  * ChatDeliverable) rather than the useMutation hook — no QueryClient at render, render-test-clean.
@@ -22,6 +25,12 @@ interface ChatTurn {
   id: number;
   user: string;
   model: string;
+  /**
+   * CHAT-INJ-1 (R4): when the server injected a firm master into this turn it returns a
+   * non-suppressible "internal working draft — attorney verification required" notice; null when
+   * no master was injected (the substrate turn). Rendered as a visible banner on the turn.
+   */
+  notice: string | null;
 }
 
 export default function ChatComposer({ matterId }: { matterId: string }): React.ReactElement {
@@ -41,7 +50,8 @@ export default function ChatComposer({ matterId }: { matterId: string }): React.
     try {
       const data = await utils.client.chatDispatch.submitTurn.mutate({ matterId, turnText: text });
       const reply = data.response.trim();
-      setThread((prev) => [...prev, { id: prev.length, user: text, model: reply }]);
+      const notice = data.master?.notice ?? null; // CHAT-INJ-1 R4: present only on master-injected turns
+      setThread((prev) => [...prev, { id: prev.length, user: text, model: reply, notice }]);
       setTurnText('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -65,6 +75,14 @@ export default function ChatComposer({ matterId }: { matterId: string }): React.
                 <span className="text-ink-hint">Assistant: </span>
                 {t.model ? t.model : <em className="text-ink-hint">(the model returned no text)</em>}
               </p>
+              {t.notice !== null && (
+                <p
+                  data-testid="chat-turn-notice"
+                  className="mt-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800"
+                >
+                  {t.notice}
+                </p>
+              )}
             </div>
           ))}
         </div>

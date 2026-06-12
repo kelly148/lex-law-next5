@@ -11,8 +11,13 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 
 const submitTurnMock = vi.hoisted(() =>
-  vi.fn((_input: { matterId: string; turnText: string }) =>
-    Promise.resolve({ jobId: 'j1', status: 'completed', response: 'MODEL REPLY' }),
+  vi.fn(
+    (_input: { matterId: string; turnText: string }): Promise<{
+      jobId: string;
+      status: string;
+      response: string;
+      master?: { applied: boolean; source: string; representational: boolean; notice: string | null };
+    }> => Promise.resolve({ jobId: 'j1', status: 'completed', response: 'MODEL REPLY' }),
   ),
 );
 
@@ -121,5 +126,47 @@ describe('ChatComposer — CHAT-COMPOSER-1', () => {
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.click(send);
     expect(submitTurnMock).not.toHaveBeenCalled();
+  });
+
+  it('CHAT-INJ-1 R4: renders the "internal working draft" notice when a master was injected', async () => {
+    submitTurnMock.mockResolvedValueOnce({
+      jobId: 'j1',
+      status: 'completed',
+      response: 'DRAFTED CLAUSE',
+      master: {
+        applied: true,
+        source: 'master/claude/lawfirm',
+        representational: true,
+        notice: 'Internal working draft — attorney verification required.',
+      },
+    });
+    const { input, send, findByTestId } = setup();
+    fireEvent.change(input, { target: { value: 'draft a clause' } });
+    fireEvent.click(send);
+    const notice = await findByTestId('chat-turn-notice');
+    expect(notice.textContent).toContain('attorney verification required');
+  });
+
+  it('CHAT-INJ-1 R4: no notice banner when no master was injected (substrate turn)', async () => {
+    submitTurnMock.mockResolvedValueOnce({
+      jobId: 'j1',
+      status: 'completed',
+      response: 'plain reply',
+      master: { applied: false, source: 'neutral', representational: false, notice: null },
+    });
+    const { input, send, findByText, queryByTestId } = setup();
+    fireEvent.change(input, { target: { value: 'hi' } });
+    fireEvent.click(send);
+    await findByText('plain reply');
+    expect(queryByTestId('chat-turn-notice')).toBeNull();
+  });
+
+  it('CHAT-INJ-1: a legacy response WITHOUT a master field still renders (no banner, no crash)', async () => {
+    submitTurnMock.mockResolvedValueOnce({ jobId: 'j1', status: 'completed', response: 'legacy' });
+    const { input, send, findByText, queryByTestId } = setup();
+    fireEvent.change(input, { target: { value: 'hi' } });
+    fireEvent.click(send);
+    await findByText('legacy');
+    expect(queryByTestId('chat-turn-notice')).toBeNull();
   });
 });
