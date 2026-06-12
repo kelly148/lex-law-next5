@@ -779,8 +779,8 @@
       "notes": "Operator approve accept:CHAT-INJ-1. PR #285 CI-green (Lint + Type Check + Tests), squash-merged to main as a7d4e72; branch deleted (local+remote). INSTR Phase D master-into-chat behind a NEW flag MASTER_CHAT_ENABLED (default OFF, fail-closed), stricter than drafting: representational lawfirm/te ONLY, NEVER title (R3, structurally unreachable), NEVER the Law Firm default (R2 -- the affirmative signal is the cleared conflicts/identity gate R10, not the indistinguishable NOT NULL DEFAULT 'law_firm'); R4 non-suppressible addendum + UI notice; R5 structural immutability; R7 current-matter scope; R8 provenance via the EXISTING audit_events.payload JSON (NO new column) + no send; R9 flag-OFF byte-for-byte, zero extra reads. Isolated chatMasterComposition.ts; resolvePromptComposition/drafting untouched; canonicalMutation +1 optional chatMasterText param in the existing layered slot. 53 tests/5 suites (R9 byte-for-byte regression, R5 wrong-role fixtures, R2/R10 production gate-binding); tsc+eslint clean; CI green. 4-lens adversarial review PASS (no defects, no re-FIRE). §3.1 dispositioned FIRE (triad 3/3 APPROVE WITH CHANGES; operator 2026-06-12). Built in an isolated worktree off origin/main (shared clone + other sessions' branches untouched). NEW env var MASTER_CHAT_ENABLED (default OFF) = the sole activation item; NOT deployed. This tracker upkeep CONSOLIDATES onto the still-open tracker PR #283 (now carries INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1). CHAT-INJ-1 (Phase D) is now COMPLETE; the combined blocked entry 'INSTR-2C / CHAT-INJ-1' should be SPLIT to leave only INSTR-2C (Phase C) -- a pending operator-gated Rule-11 state-transition, NOT done here."
     }
   ],
-  "last_updated": "2026-06-12T19:00:00-04:00",
-  "last_updater": "Rule-16 CHAT-INJ-1 accept bookkeeping (Claude Code, lex-next/state-instr2b-title)",
+  "last_updated": "2026-06-12T20:00:00-04:00",
+  "last_updater": "CHAT-INJ-1 review-pass: R8 best-effort-provenance accepted residual (operator-directed)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -794,6 +794,12 @@
       "desc": "GPT P8-T6 counterparty over-disclosure substantive FAIL.",
       "accepted_at": "2026-05-30T16:00:45-04:00",
       "engagement": "MR-CAL-2I-LIVE"
+    },
+    {
+      "id": "CHAT-INJ-1-R8-PROVENANCE-BEST-EFFORT",
+      "desc": "CHAT-INJ-1 posture provenance (R8) is best-effort, un-awaited telemetry: chatDispatch records the master-injection posture via `void recordAuditEvent(...)` into the EXISTING audit_events.payload JSON (no new column/migration); recordAuditEvent swallows write errors (telemetry breadcrumb only). A failed audit write is silently dropped, so a master-injected chat turn could lack its provenance row. ACCEPTED AS-IS (operator, 2026-06-12) because chat turns are inline / non-persisted (no conversation-history table -- the turn rides the ephemeral job row) and provenance is a RECORD, not a safety gate (it does not affect the false-positive-injection direction). Future option if durability is wanted: make the write awaited / fail-visible (insertAuditEvent) or add a dedicated durable per-turn provenance record. Surfaced in the CHAT-INJ-1 review pass; NOT reclassified silently.",
+      "accepted_at": "2026-06-12T20:00:00-04:00",
+      "engagement": "CHAT-INJ-1"
     }
   ],
   "deferred_verifications": [],

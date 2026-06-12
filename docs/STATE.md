@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12f (CHAT-INJ-1 review pass + held remediation PR #286: R7 doc-binding + R5/R9 test cleanups; R8 accepted residual)
+
+**Not a merge.** A read-only review-pass audited the merged CHAT-INJ-1 (#285 → `a7d4e72`) against the locked R1–R10 spec + two catches: **implementation PASS on all ten** (the dangerous directions — false-positive injection, title-in-chat, flag-OFF leak — are structurally closed), with these items folded into the **held PR #286** (`lex-next/chat-inj-1-r7`; base `main`; HELD for operator accept, **not merged**):
+
+- **R7 hardening (`b86f3ae`):** the optional chat `documentId` was only owner-scoped; a same-owner document from a **different matter** could pull cross-matter context. New `assertDocumentInMatter` at the `submitTurn` chokepoint rejects it (**NOT_FOUND**; model never reached). Reject chosen (operator authorized reject-or-ignore). Independent of `MASTER_CHAT_ENABLED`; no-doc/same-matter turns byte-for-byte unchanged.
+- **R5 test fix (`8145236`, test-only):** the wrong-role fixtures loop had an unused `_fixture`; replaced with `it.each` so each ask is a distinct case (title seat → posture held/neutral; representational seat → posture cannot be flipped). 8 cases.
+- **R9 assertions (`8145236`, test-only):** added two explicit flag-OFF cases — title-elected and matter-less — each returning neutral (`layeredMasterText` null → byte-for-byte legacy) with **zero** gate reads when the flag is OFF.
+
+**R8 — ACCEPTED RESIDUAL (operator, 2026-06-12; recorded in `accepted_risks`, not silent):** posture provenance is **best-effort, un-awaited** telemetry — `void recordAuditEvent(...)` into the existing `audit_events.payload` JSON (no new column), which drops the write on failure. Acceptable because chat turns are inline/non-persisted (the turn rides the ephemeral job row) and provenance is a record, not a safety gate. Future option: make it awaited/fail-visible (`insertAuditEvent`) or a dedicated durable per-turn record. **No code change.**
+
+**Build state.** `origin/main` = **a7d4e72** (unchanged — #286 not merged). PR #286 CI green (re-running on the latest push). No migration, no new env var, no deploy, no flag flip; `MASTER_CHAT_ENABLED` stays OFF.
+
+---
+
 ## 2026-06-12e (Rule-16 — CHAT-INJ-1 merged: master-into-chat behind MASTER_CHAT_ENABLED, default OFF)
 
 **Disposition.** Operator `accept:CHAT-INJ-1`; PR #285 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **a7d4e72**; branch deleted (local + remote). INSTR **Phase D**, a dispositioned **§3.1 FIRE** (triad **3/3 APPROVE WITH CHANGES**; operator 2026-06-12), built strictly to the locked R1–R10 spec. This Rule-16 entry **consolidates onto the still-open tracker PR #283** (now carries INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1).
