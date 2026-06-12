@@ -38,6 +38,8 @@ const JOB_TYPE_VALUES = [
   'context_summary_generation',
   // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation.
   'matter_analysis',
+  // chat_turn — CHAT-DISPATCH-1 single chat turn through the canonical chokepoint (flag-gated).
+  'chat_turn',
 ] as const;
 
 const JOB_ERROR_CLASS_VALUES = [

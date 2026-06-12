@@ -41,6 +41,7 @@ import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
 import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { chatUiRouter } from './procedures/chatUi.js';
+import { chatDispatchRouter } from './procedures/chatDispatch.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -91,6 +92,10 @@ export const appRouter = router({
   // CHAT-UI-1 — conversation-surface flag exposure (isEnabled), gated behind CHAT_UI_1_ENABLED
   // (default OFF). W0 scaffold is display-only; the surface is absent when the flag is off.
   chatUi: chatUiRouter,
+  // CHAT-DISPATCH-1 — chat→model dispatch substrate (submitTurn), gated behind
+  // CHAT_DISPATCH_ENABLED (default OFF). Routes a chat turn through the canonical chokepoint;
+  // no master injection (that is INSTR Phase D). Refuses with PRECONDITION_FAILED when OFF.
+  chatDispatch: chatDispatchRouter,
 });
 
 export type AppRouter = typeof appRouter;

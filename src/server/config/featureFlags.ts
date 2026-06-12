@@ -246,6 +246,22 @@ export function isChatUi1Enabled(): boolean {
 }
 
 /**
+ * Chat→model dispatch substrate — the `chat_turn` job path (CHAT-DISPATCH-1). DEFAULT OFF.
+ *
+ * When OFF (the default), the `chatDispatch.submitTurn` procedure refuses with
+ * PRECONDITION_FAILED and no chat turn ever reaches a model — behavior is byte-for-byte
+ * unchanged everywhere (the chat composer remains the inert placeholder).
+ *
+ * When exactly "true", `submitTurn` routes a single chat turn through the canonical LLM
+ * chokepoint (executeCanonicalMutation) as a `chat_turn` job and returns the model text.
+ * The substrate injects NO master prompt (legacy composition); master-into-chat injection
+ * is INSTR Phase D, separately gated on the external triad review. Activation is operator-gated.
+ */
+export function isChatDispatchEnabled(): boolean {
+  return process.env['CHAT_DISPATCH_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

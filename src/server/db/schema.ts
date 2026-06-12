@@ -153,6 +153,9 @@ export const JOB_TYPE_VALUES = [
   // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation (jobType column is
   // varchar(64), not a DB enum, so adding this value requires NO schema migration).
   'matter_analysis',
+  // chat_turn — CHAT-DISPATCH-1 single chat turn routed through the canonical LLM chokepoint
+  // (behind CHAT_DISPATCH_ENABLED, default OFF). Same varchar(64) column → NO migration.
+  'chat_turn',
 ] as const;
 
 export type JobType = (typeof JOB_TYPE_VALUES)[number];
