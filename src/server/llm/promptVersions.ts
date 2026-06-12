@@ -99,6 +99,10 @@ export const JOB_TYPE_TO_PROMPT_ROLE: Record<string, PromptRole> = {
   // prompt role for version provenance (no separate analyst prompt asset in v1); the
   // single-lane model is the Claude default (PRIMARY_DRAFTER_MODEL).
   matter_analysis: 'drafter',
+  // chat_turn — CHAT-DISPATCH-1 chat→model dispatch substrate. Reuses the drafter-family
+  // prompt role for version provenance (no separate chat prompt asset in the substrate; the
+  // firm master for chat is INSTR Phase D, triad-gated). Model is PRIMARY_DRAFTER_MODEL.
+  chat_turn: 'drafter',
 };
 
 /**
