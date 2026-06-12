@@ -302,6 +302,26 @@ export function isMasterChatEnabled(): boolean {
 }
 
 /**
+ * Master injection into the OUTLINE role (INSTR-2C, Phase C). DEFAULT OFF, fail-closed.
+ *
+ * INDEPENDENT of MASTER_LAWFIRM_ENABLED (drafting) and MASTER_CHAT_ENABLED (chat). When OFF (the
+ * default), outline_generation composes byte-for-byte the legacy outline assembly (the hardcoded
+ * "expert legal document drafter" outline prompt + matter-state + confirmed-PA profile), with ZERO
+ * extra reads — the conflict gate is never consulted for composition.
+ *
+ * When exactly "true", an outline turn receives a representational master (master/claude/lawfirm or
+ * master/claude/te, NEVER title) ONLY when, under the INSTR-2C R1 allowlist, the matter is the
+ * explicit representational law_firm seat (R3), carries no title signal (R4), and the existing
+ * conflicts/identity gate is CLEARED (R5) — with the non-suppressible internal-planning-scaffold
+ * addendum as a precedence floor (R6). Outline is the only judgment-bearing non-draft role enabled;
+ * matter_analysis and matrix stay deferred/legacy. Activation is operator-gated; not client-facing
+ * until FOLD-L0-1 is live-verified.
+ */
+export function isMasterOutlineEnabled(): boolean {
+  return process.env['MASTER_OUTLINE_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

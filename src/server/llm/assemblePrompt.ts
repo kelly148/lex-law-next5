@@ -28,8 +28,9 @@
  */
 
 import { PRIMARY_DRAFTER_MODEL, parseModelString } from './config.js';
-import { isPromptCompositionEnabled, isMasterLawfirmEnabled } from '../config/featureFlags.js';
+import { isPromptCompositionEnabled, isMasterLawfirmEnabled, isMasterOutlineEnabled } from '../config/featureFlags.js';
 import { getPromptAsset, MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM, MASTER_CLAUDE_TITLE } from './promptAssets.js';
+import { resolveOutlineMaster } from './outlineMasterComposition.js';
 
 // ============================================================
 // Call roles
@@ -74,6 +75,26 @@ export function callRoleForJobType(jobType: string): PromptCallRole {
       return 'other';
   }
 }
+
+// ============================================================
+// INSTR-2C R1 — the composition ALLOWLIST (not a denylist)
+// ============================================================
+// A firm master composes ONLY for a callRole in this explicit allowlist; every OTHER callRole —
+// including any FUTURE-added role — returns legacy BY CONSTRUCTION. This is the structural firewall the
+// reviewer/evaluator exclusion now rests on: 'review'/'reviewer_feedback'/'evaluator' (callRoles
+// 'review'/'evaluator'), plus 'analysis'/'matrix'/'extract'/'format'/'other', are NOT in the set and
+// can never reach a master regardless of any flag. Adding a role is a deliberate, reviewable edit here.
+//
+// Members: 'draft'/'regenerate' (INSTR-2B drafting, MASTER_LAWFIRM_ENABLED / PROMPT_COMPOSITION_ENABLED);
+// 'outline' (INSTR-2C, MASTER_OUTLINE_ENABLED, this file's resolver); and 'chat' — realized via the chat
+// dispatcher's `chatMasterText` param (chat_turn maps to callRole 'other', so 'chat' never appears as a
+// callRole HERE; it is listed so the allowlist is the single system-wide record of master-eligible roles).
+export const MASTER_COMPOSABLE_CALLROLES: ReadonlySet<string> = new Set([
+  'draft',
+  'regenerate',
+  'chat',
+  'outline',
+]);
 
 // ============================================================
 // T&E practice-area exact-match set (1A0 minimal mapping)
@@ -164,6 +185,10 @@ export function assemblePrompt(args: {
   };
 
   if (!flagEnabled) return legacy;
+  // INSTR-2C R1 — allowlist firewall: a non-allowlisted callRole can never compose. (This pure
+  // function composes only draft/regenerate; outline is composed by the async resolver in
+  // resolvePromptComposition. reviewer/evaluator/analysis/matrix/extract/format/other -> legacy here.)
+  if (!MASTER_COMPOSABLE_CALLROLES.has(args.callRole)) return legacy;
   // Shared guard: only the Anthropic drafter ever composes a Claude master (an operator override
   // of PRIMARY_DRAFTER_MODEL to a non-Anthropic model disables composition rather than sending a
   // Claude master elsewhere).
@@ -261,6 +286,12 @@ export async function resolvePromptComposition(args: {
   const callRole = callRoleForJobType(args.jobType);
   const masterLawfirm = isMasterLawfirmEnabled();
   const promptComposition = isPromptCompositionEnabled();
+  const masterOutline = isMasterOutlineEnabled();
+  // The zero-read guard considers ANY composition flag; the RECORDED flagEnabled (snapshotted on the
+  // draft-only path) reflects the DRAFTING composition flags ONLY — MASTER_OUTLINE_ENABLED never composes
+  // a draft, so it must not flip a draft job's snapshot flag_enabled (keeps the drafting A/B clean). The
+  // outline branch records its own (masterOutline) below; outline itself is not snapshotted.
+  const anyComposableFlag = masterLawfirm || promptComposition || masterOutline;
   const flagEnabled = masterLawfirm || promptComposition;
   const legacy: ResolvedComposition = {
     source: 'legacy',
@@ -272,16 +303,49 @@ export async function resolvePromptComposition(args: {
     docType: null,
   };
 
-  // Cheap guards first — no DB reads unless a composition flag is on and this is a composable
-  // path. INSTR-2B-core composes draft OR regenerate; the INSTR-1A0 blob path is draft-only.
-  if (!flagEnabled) return legacy;
+  // Cheap guards first — ZERO DB reads unless a composition flag is on AND this is an allowlisted,
+  // Anthropic-drafter, matter-scoped, per-role-enabled path.
+  if (!anyComposableFlag) return legacy;
+  // INSTR-2C R1 — allowlist firewall: a non-allowlisted callRole can never compose, under any flag.
+  // reviewer/evaluator (callRoles 'review'/'evaluator') + analysis/matrix/extract/format/other -> legacy.
+  if (!MASTER_COMPOSABLE_CALLROLES.has(callRole)) return legacy;
+  if (args.modelString !== PRIMARY_DRAFTER_MODEL) return legacy;
+  if (parseModelString(args.modelString).providerId !== 'anthropic') return legacy;
+  if (!args.matterId) return legacy;
+
+  // INSTR-2C — the OUTLINE role: its OWN stricter predicate + the conflict-gate bind (async).
+  if (callRole === 'outline') {
+    if (!masterOutline) return legacy; // outline flag OFF -> legacy with ZERO further reads (R7)
+    try {
+      const readers = await getReaders();
+      const matter = (await readers.getMatter(args.matterId, args.userId)) ?? null;
+      const decision = await resolveOutlineMaster({
+        matterId: args.matterId,
+        userId: args.userId,
+        matter,
+      });
+      if (!decision.inject) return legacy;
+      return {
+        source: decision.source,
+        systemText: null,
+        layeredMasterText: decision.layeredMasterText,
+        assetSha256: decision.assetSha256,
+        flagEnabled: masterOutline, // this composition was driven by the outline flag
+        callRole,
+        docType: null,
+      };
+    } catch {
+      return legacy; // fail-closed
+    }
+  }
+
+  // INSTR-2B / INSTR-1A0 — draft/regenerate. MASTER_OUTLINE_ENABLED alone NEVER enables these, so a
+  // draft job with only the outline flag on is byte-for-byte legacy with ZERO reads.
+  if (!masterLawfirm && !promptComposition) return legacy;
   const composableRole = masterLawfirm
     ? callRole === 'draft' || callRole === 'regenerate'
     : callRole === 'draft';
   if (!composableRole) return legacy;
-  if (args.modelString !== PRIMARY_DRAFTER_MODEL) return legacy;
-  if (parseModelString(args.modelString).providerId !== 'anthropic') return legacy;
-  if (!args.matterId) return legacy;
 
   try {
     const readers = await getReaders();
