@@ -26,6 +26,9 @@ import { resolve } from 'node:path';
 /** Logical ID of the one asset wired in INSTR-1A0. */
 export const MASTER_CLAUDE_TE = 'master/claude/te';
 
+/** Logical ID of the general Law Firm master (INSTR-2A registered; INSTR-2B-core selects it). */
+export const MASTER_CLAUDE_LAWFIRM = 'master/claude/lawfirm';
+
 /** Manifest location, relative to the app base dir (repo root locally; /app in the image). */
 export const PROMPT_MANIFEST_PATH = 'prompts/manifest.json';
 

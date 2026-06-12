@@ -6,29 +6,30 @@
  * call site is the LLM-dispatch chokepoint (executeCanonicalMutation), via the async
  * resolvePromptComposition() wrapper below that supplies the matter/doc rows.
  *
- * THIS INCREMENT (1A0) the logic is minimal — master/claude/te is returned as the ENTIRE
- * system block IFF ALL of:
- *   - PROMPT_COMPOSITION_ENABLED is exactly "true" (default OFF = zero behavior change);
- *   - callRole is 'draft' (jobType draft_generation — not regeneration/formatting/etc.);
- *   - the resolved model IS the Anthropic drafter (modelString === PRIMARY_DRAFTER_MODEL
- *     AND its provider is 'anthropic' — an operator override of PRIMARY_DRAFTER_MODEL to a
- *     non-Anthropic model disables composition rather than sending a Claude master elsewhere);
- *   - the matter's practice area EXACT-MATCHES the T&E set below (matters.paKey — the
- *     attorney-CONFIRMED key — or the matter's practiceArea field, verbatim string equality
- *     against a finite literal set; NO inference, NO normalization, NO fallback — that is 1B).
- * Anything else -> legacy hardcoded path, byte-for-byte unchanged (systemText null tells the
- * chokepoint to leave its existing legacy block — including the matter-state and per-PA-profile
- * injections — completely untouched).
+ * TWO FLAGS, in precedence order:
  *
- * When composed, the master IS the entire system block: the chokepoint's matter-state and
- * PA-profile prepends are intentionally NOT applied (cache hygiene — no per-job data inside
- * the system block; matter materials/context continue to ride the user turn). This is the
- * measured 1A0 baseline; layered composition is 1A-prime.
+ *   - INSTR-2B-core (MASTER_LAWFIRM_ENABLED, default OFF) — drafting master SELECTION, LAYERED.
+ *     When ON, a drafting job (draft_generation OR regeneration) on the Anthropic drafter selects
+ *     a master based on practice area: exact-match T&E keys -> master/claude/te; ANY OTHER paKey
+ *     (including unconfirmed/NULL and, for now, title_settlement) -> master/claude/lawfirm (the
+ *     operator-ratified safe default). The selected master is returned via `layeredMasterText`,
+ *     which the chokepoint layers ON TOP of the matter-state block + the per-call role prompt (D-4)
+ *     while SUPPRESSING the per-PA instruction profile (D-5). Title routing (master/claude/title)
+ *     is INSTR-2B-TITLE, deferred — title_settlement gets the lawfirm safe default here.
+ *
+ *   - INSTR-1A0 (PROMPT_COMPOSITION_ENABLED, default OFF) — the original TE BLOB path. Used only
+ *     when MASTER_LAWFIRM_ENABLED is OFF: master/claude/te is returned via `systemText` as the
+ *     ENTIRE system block (draft-only, exact-match T&E, Anthropic drafter), matter-state +
+ *     PA-profile intentionally skipped (cache hygiene). Byte-for-byte unchanged.
+ *
+ * Anything else -> legacy (both systemText and layeredMasterText null): the chokepoint leaves its
+ * legacy block — matter-state + per-PA-profile injections — completely untouched. Both flags OFF
+ * (the default) is the pre-INSTR-1A0 behavior with ZERO DB reads.
  */
 
 import { PRIMARY_DRAFTER_MODEL, parseModelString } from './config.js';
-import { isPromptCompositionEnabled } from '../config/featureFlags.js';
-import { getPromptAsset, MASTER_CLAUDE_TE } from './promptAssets.js';
+import { isPromptCompositionEnabled, isMasterLawfirmEnabled } from '../config/featureFlags.js';
+import { getPromptAsset, MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM } from './promptAssets.js';
 
 // ============================================================
 // Call roles
@@ -99,40 +100,84 @@ export interface AssemblePromptMatter {
   practiceArea: string | null;
 }
 
+/** The logical IDs a draft can compose: the T&E master or the general Law Firm master. */
+export type MasterSource = typeof MASTER_CLAUDE_TE | typeof MASTER_CLAUDE_LAWFIRM;
+
 export interface AssembledPrompt {
-  /** 'legacy' = leave the legacy hardcoded path byte-for-byte unchanged. */
-  source: typeof MASTER_CLAUDE_TE | 'legacy';
-  /** The ENTIRE system block when composed; null on the legacy path. */
+  /** The selected master logical ID, or 'legacy' (leave the legacy path byte-for-byte unchanged). */
+  source: MasterSource | 'legacy';
+  /**
+   * BLOB path (INSTR-1A0; MASTER_LAWFIRM_ENABLED OFF + PROMPT_COMPOSITION_ENABLED ON, T&E only):
+   * the master IS the ENTIRE system block (matter-state + PA-profile intentionally skipped).
+   * null on the layered/legacy paths.
+   */
   systemText: string | null;
+  /**
+   * LAYERED path (INSTR-2B-core; MASTER_LAWFIRM_ENABLED ON): the master text to layer ON TOP of
+   * the matter-state block + the per-call role/subject-scope prompt (D-4), with the per-PA
+   * instruction profile SUPPRESSED (D-5). null on the blob/legacy paths.
+   */
+  layeredMasterText: string | null;
   /** The composed asset's manifest SHA-256; null on the legacy path. */
   assetSha256: string | null;
-  /** Flag state at decision time (snapshotted). */
+  /** True iff a composition flag (MASTER_LAWFIRM_ENABLED or PROMPT_COMPOSITION_ENABLED) was on at decision time (snapshotted). */
   flagEnabled: boolean;
+}
+
+/** Exact-match T&E test against the attorney-confirmed paKey or the freeform practiceArea. */
+function matchesTE(matter: AssemblePromptMatter): boolean {
+  return (
+    (matter.paKey !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.paKey)) ||
+    (matter.practiceArea !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.practiceArea))
+  );
 }
 
 export function assemblePrompt(args: {
   matter: AssemblePromptMatter | null;
-  docType: string | null; // carried for snapshots + 1B selection; not consulted in 1A0
+  docType: string | null; // carried for snapshots + subject-scope; not consulted in the decision
   callRole: PromptCallRole;
   model: string; // "provider:model"
 }): AssembledPrompt {
-  const flagEnabled = isPromptCompositionEnabled();
-  const legacy: AssembledPrompt = { source: 'legacy', systemText: null, assetSha256: null, flagEnabled };
+  const masterLawfirm = isMasterLawfirmEnabled();
+  const promptComposition = isPromptCompositionEnabled();
+  const flagEnabled = masterLawfirm || promptComposition;
+  const legacy: AssembledPrompt = {
+    source: 'legacy',
+    systemText: null,
+    layeredMasterText: null,
+    assetSha256: null,
+    flagEnabled,
+  };
 
   if (!flagEnabled) return legacy;
-  if (args.callRole !== 'draft') return legacy;
+  // Shared guard: only the Anthropic drafter ever composes a Claude master (an operator override
+  // of PRIMARY_DRAFTER_MODEL to a non-Anthropic model disables composition rather than sending a
+  // Claude master elsewhere).
   if (args.model !== PRIMARY_DRAFTER_MODEL) return legacy;
   if (parseModelString(args.model).providerId !== 'anthropic') return legacy;
 
   const matter = args.matter;
-  if (!matter) return legacy;
-  const paMatch =
-    (matter.paKey !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.paKey)) ||
-    (matter.practiceArea !== null && TE_PRACTICE_AREA_EXACT_MATCHES.has(matter.practiceArea));
-  if (!paMatch) return legacy;
 
+  // INSTR-2B-core: drafting (generate OR regenerate) master selection, LAYERED. Takes precedence
+  // over the INSTR-1A0 blob path when MASTER_LAWFIRM_ENABLED is on.
+  if (masterLawfirm) {
+    if (args.callRole !== 'draft' && args.callRole !== 'regenerate') return legacy;
+    if (matter === null) return legacy; // fail-closed: no matter row -> no master
+    // Safe default (D-3): any matter routes to the general Law Firm master EXCEPT exact-match T&E
+    // keys, which route to the TE master. title_settlement falls through to the lawfirm safe
+    // default here — Title routing is INSTR-2B-TITLE, deferred.
+    const id: MasterSource = matchesTE(matter) ? MASTER_CLAUDE_TE : MASTER_CLAUDE_LAWFIRM;
+    const asset = getPromptAsset(id);
+    return { source: id, systemText: null, layeredMasterText: asset.text, assetSha256: asset.sha256, flagEnabled };
+  }
+
+  // INSTR-1A0 (MASTER_LAWFIRM_ENABLED OFF, PROMPT_COMPOSITION_ENABLED ON): the TE BLOB path,
+  // draft-only, exact-match T&E only — byte-for-byte unchanged.
+  if (args.callRole !== 'draft') return legacy;
+  if (matter === null) return legacy;
+  if (!matchesTE(matter)) return legacy;
   const asset = getPromptAsset(MASTER_CLAUDE_TE);
-  return { source: MASTER_CLAUDE_TE, systemText: asset.text, assetSha256: asset.sha256, flagEnabled };
+  return { source: MASTER_CLAUDE_TE, systemText: asset.text, layeredMasterText: null, assetSha256: asset.sha256, flagEnabled };
 }
 
 // ============================================================
@@ -182,19 +227,26 @@ export async function resolvePromptComposition(args: {
   userId: string;
 }): Promise<ResolvedComposition> {
   const callRole = callRoleForJobType(args.jobType);
-  const flagEnabled = isPromptCompositionEnabled();
+  const masterLawfirm = isMasterLawfirmEnabled();
+  const promptComposition = isPromptCompositionEnabled();
+  const flagEnabled = masterLawfirm || promptComposition;
   const legacy: ResolvedComposition = {
     source: 'legacy',
     systemText: null,
+    layeredMasterText: null,
     assetSha256: null,
     flagEnabled,
     callRole,
     docType: null,
   };
 
-  // Cheap guards first — no DB reads unless the flag is ON and this is the one wired path.
+  // Cheap guards first — no DB reads unless a composition flag is on and this is a composable
+  // path. INSTR-2B-core composes draft OR regenerate; the INSTR-1A0 blob path is draft-only.
   if (!flagEnabled) return legacy;
-  if (callRole !== 'draft') return legacy;
+  const composableRole = masterLawfirm
+    ? callRole === 'draft' || callRole === 'regenerate'
+    : callRole === 'draft';
+  if (!composableRole) return legacy;
   if (args.modelString !== PRIMARY_DRAFTER_MODEL) return legacy;
   if (parseModelString(args.modelString).providerId !== 'anthropic') return legacy;
   if (!args.matterId) return legacy;

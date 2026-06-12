@@ -482,7 +482,7 @@ async function runJob(
   });
 
   if (composition.systemText !== null) {
-    // Composed path: the master IS the ENTIRE system block. The matter-state and PA-profile
+    // INSTR-1A0 BLOB path: the master IS the ENTIRE system block. The matter-state and PA-profile
     // prepends are intentionally NOT applied here — no per-job data may enter the system
     // block (cache hygiene); matter materials/context continue to ride the user turn.
     llmParams = { ...llmParams, systemPrompt: composition.systemText };
@@ -490,6 +490,7 @@ async function runJob(
     // FOLD-L1-2: inject the current matter state into the systemPrompt so no model call
     // dispatches "cold". Best-effort: a failed read degrades to no-injection (byte-identical
     // prompt) rather than failing the call. Only matter-scoped jobs (matterId present) inject.
+    // Shared by the legacy path AND the INSTR-2B-core layered path.
     if (matterId) {
       let matterStateBlock = '';
       try {
@@ -514,35 +515,45 @@ async function runJob(
       }
     }
 
-    // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended
-    // OUTERMOST (it is the attorney's own top-level instruction). Best-effort: a failed/absent load
-    // degrades to the base prompt (byte-identical) — never a mismatched PA. Captures the loaded
-    // profile id+version for THIS job in the append-only kb_events trail (R11 immutability) — no
-    // jobs-table change required.
-    if (matterId) {
-      try {
-        const profile = await getPaProfileProvider()({ matterId, userId });
-        if (profile && profile.body) {
-          llmParams = { ...llmParams, systemPrompt: `${profile.body}\n\n${llmParams.systemPrompt}` };
-          void recordKbEvent({
-            userId,
-            action: 'pa_profile_loaded_for_job',
-            targetType: 'pa_instruction_profile',
-            targetId: profile.profileId,
-            summary: `Loaded PA profile (paKey=${profile.paKey}, v${profile.version}) for job`,
-            payload: { jobId, profileId: profile.profileId, version: profile.version, paKey: profile.paKey },
-          });
+    if (composition.layeredMasterText !== null) {
+      // INSTR-2B-core LAYERED (D-4): layer the selected master ON TOP of the matter-state block +
+      // the per-call role/subject-scope prompt. D-5: the per-PA instruction profile is SUPPRESSED
+      // (the master governs; no double identity layer) — the FOLD-KB-1 injection below is skipped.
+      llmParams = {
+        ...llmParams,
+        systemPrompt: `${composition.layeredMasterText}\n\n${llmParams.systemPrompt}`,
+      };
+    } else {
+      // FOLD-KB-1 Inc4 (Fork E): auto-load the attorney's CONFIRMED per-PA master prompt, prepended
+      // OUTERMOST (it is the attorney's own top-level instruction). Best-effort: a failed/absent load
+      // degrades to the base prompt (byte-identical) — never a mismatched PA. Captures the loaded
+      // profile id+version for THIS job in the append-only kb_events trail (R11 immutability) — no
+      // jobs-table change required. Skipped under INSTR-2B-core layered composition (D-5).
+      if (matterId) {
+        try {
+          const profile = await getPaProfileProvider()({ matterId, userId });
+          if (profile && profile.body) {
+            llmParams = { ...llmParams, systemPrompt: `${profile.body}\n\n${llmParams.systemPrompt}` };
+            void recordKbEvent({
+              userId,
+              action: 'pa_profile_loaded_for_job',
+              targetType: 'pa_instruction_profile',
+              targetId: profile.profileId,
+              summary: `Loaded PA profile (paKey=${profile.paKey}, v${profile.version}) for job`,
+              payload: { jobId, profileId: profile.profileId, version: profile.version, paKey: profile.paKey },
+            });
+          }
+        } catch (err) {
+          void emitTelemetry(
+            'procedure_error',
+            {
+              procedureName: 'paProfileInjection',
+              errorCode: 'PA_PROFILE_INJECT_FAILED',
+              errorMessage: err instanceof Error ? err.message : String(err),
+            },
+            { ...telemetryCtx, jobId },
+          );
         }
-      } catch (err) {
-        void emitTelemetry(
-          'procedure_error',
-          {
-            procedureName: 'paProfileInjection',
-            errorCode: 'PA_PROFILE_INJECT_FAILED',
-            errorMessage: err instanceof Error ? err.message : String(err),
-          },
-          { ...telemetryCtx, jobId },
-        );
       }
     }
   }

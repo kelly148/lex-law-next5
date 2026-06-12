@@ -15,8 +15,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   loadPromptAssets,
   getPromptAsset,
@@ -149,9 +147,25 @@ describe('INSTR-2A — GUARD: new masters are REGISTERED but NOT SELECTED (zero 
     expect(out.assetSha256).toBe(GOLDEN[MASTER_CLAUDE_TE]);
   });
 
-  it('source-audit: assemblePrompt.ts wires NEITHER new logical ID', () => {
-    const src = readFileSync(resolve(process.cwd(), 'src/server/llm/assemblePrompt.ts'), 'utf8');
-    expect(src).not.toContain(MASTER_LAWFIRM);
-    expect(src).not.toContain(MASTER_TITLE);
+  it('Title routing is still deferred (post-INSTR-2B-core): a title_settlement matter composes lawfirm, never title', () => {
+    // INSTR-2B-core wires lawfirm/te selection in assemblePrompt.ts, so the old source-string-scan
+    // ("references neither new ID") is retired. What must still hold is that the Title master is
+    // NOT selected — title_settlement falls through to the lawfirm safe default until INSTR-2B-TITLE.
+    // Pin INTENT (behavior), not spelling (ci-gotchas #8).
+    const savedMl = process.env['MASTER_LAWFIRM_ENABLED'];
+    process.env['MASTER_LAWFIRM_ENABLED'] = 'true';
+    try {
+      const out = assemblePrompt({
+        matter: { paKey: 'title_settlement', practiceArea: null },
+        docType: null,
+        callRole: 'draft',
+        model: PRIMARY_DRAFTER_MODEL,
+      });
+      expect(out.source).toBe(MASTER_LAWFIRM); // operator-ratified safe default
+      expect(out.source).not.toBe(MASTER_TITLE); // Title routing is INSTR-2B-TITLE, deferred
+    } finally {
+      if (savedMl === undefined) delete process.env['MASTER_LAWFIRM_ENABLED'];
+      else process.env['MASTER_LAWFIRM_ENABLED'] = savedMl;
+    }
   });
 });
