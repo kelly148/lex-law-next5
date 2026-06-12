@@ -4,6 +4,20 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-12g (CHAT-INJ-1-R7 merged #286; INSTR-2B removed from blocked; tracker landing via #283)
+
+**Disposition.** Operator `accept push 286` → PR #286 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **9bba637**; branch deleted. Plus operator `accept:state-upkeep` (merge tracker #283) and `state-transition:INSTR-2B`.
+
+**What landed (#286).** (1) **R7 hardening** — `chatDispatch.submitTurn` binds the optional `documentId` to the bound matter (`assertDocumentInMatter`): a same-owner document from **another matter** is **rejected** (NOT_FOUND) before any model call, closing an owner-internal cross-matter context path. Reject chosen (operator-authorized). Independent of `MASTER_CHAT_ENABLED`; no-doc/same-matter turns byte-for-byte unchanged. (2) **R5 test fix** — `it.each` per wrong-role fixture (8 distinct cases; title seat → posture held/neutral, representational seat → posture cannot be flipped). (3) **R9** — two explicit flag-OFF cases (title-elected + matter-less, zero gate reads). Preceded by a read-only **review pass** of #285 (PASS on R1–R10 implementation). **R8** posture provenance **accepted as-is** as a residual (best-effort/un-awaited `audit_events`; `accepted_risks: CHAT-INJ-1-R8-PROVENANCE-BEST-EFFORT`).
+
+**State-transition (Rule-11, operator-approved).** **INSTR-2B** (core #280 + title #282, both merged) **removed** from `blocked_engagements`: `[FOLD-ADV-TITLE-1, INSTR-2B, INSTR-2C / CHAT-INJ-1]` → `[FOLD-ADV-TITLE-1, INSTR-2C / CHAT-INJ-1]`; `blocked_detail.INSTR-2B` marked RESOLVED. The combined `INSTR-2C / CHAT-INJ-1` entry is left as-is (splitting it to leave only INSTR-2C — CHAT-INJ-1 is complete — is a separate, unapproved transition).
+
+**Build state.** `origin/main` = **9bba637**. Tracker records (INSTR-2B-title + CHAT-COMPOSER-1 + CHAT-INJ-1 + CHAT-INJ-1-R7 + the R8 residual + the INSTR-2B removal) land via **PR #283** (`accept:state-upkeep`). Additive/test-only beyond the doc-binding fix; **no** migration, new env var, deploy, or flag flip; `MASTER_CHAT_ENABLED` stays OFF; nothing deployed.
+
+**Open / next.** Track A INSTR: 2A + 2B(core+title) + Phase D CHAT-INJ-1 + its R7 hardening **all done** → only **INSTR-2C** (Phase C) remains, blocked on §3.1 + Gate 0. Pending operator-gated: the `INSTR-2C / CHAT-INJ-1` split; **Gate 0** (#271/#272/#273); migration **0031** apply-to-prod + `MASTER_LAWFIRM_ENABLED`; and `MASTER_CHAT_ENABLED` (after Gate 0 + §6 gaps).
+
+---
+
 ## 2026-06-12f (CHAT-INJ-1 review pass + held remediation PR #286: R7 doc-binding + R5/R9 test cleanups; R8 accepted residual)
 
 **Not a merge.** A read-only review-pass audited the merged CHAT-INJ-1 (#285 → `a7d4e72`) against the locked R1–R10 spec + two catches: **implementation PASS on all ten** (the dangerous directions — false-positive injection, title-in-chat, flag-OFF leak — are structurally closed), with these items folded into the **held PR #286** (`lex-next/chat-inj-1-r7`; base `main`; HELD for operator accept, **not merged**):
