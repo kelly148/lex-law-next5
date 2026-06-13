@@ -33,8 +33,10 @@ const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
 const BASE = 'You are an expert legal document drafter. Generate a structured outline.';
 
-type Matter = { engagementCapacity?: string | null; paKey?: string | null; practiceArea?: string | null };
-const lawFirm: Matter = { engagementCapacity: 'law_firm', paKey: null, practiceArea: null };
+// CAPACITY-ELECTION-UX (R3): the representational law_firm seat now requires an affirmative election
+// marker; the lawFirm fixture carries it (the flag-OFF cases short-circuit before the marker is read).
+type Matter = { engagementCapacity?: string | null; engagementCapacityElectedAt?: Date | string | null; paKey?: string | null; practiceArea?: string | null };
+const lawFirm: Matter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: new Date('2026-06-13T00:00:00Z'), paKey: null, practiceArea: null };
 const titleElected: Matter = { engagementCapacity: 'title_settlement_agent', paKey: null, practiceArea: null };
 const ambiguous: Matter = { paKey: 'corporate', practiceArea: null }; // capacity field ABSENT (unelected)
 

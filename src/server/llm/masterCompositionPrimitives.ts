@@ -19,6 +19,11 @@ import { MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM } from './promptAssets.js';
 /** The matter fields a representational-composition predicate needs (a read-only subset of MatterRow). */
 export interface CompositionMatter {
   engagementCapacity?: string | null | undefined;
+  /**
+   * CAPACITY-ELECTION-UX (R1/R3): the affirmative-election marker. NULL/absent = never affirmatively
+   * elected. Read as a Date (DB row) or string (serialized) — only its null-ness is consulted.
+   */
+  engagementCapacityElectedAt?: Date | string | null | undefined;
   paKey?: string | null | undefined;
   practiceArea?: string | null | undefined;
 }
@@ -38,14 +43,27 @@ export function hasTitleSignal(matter: CompositionMatter): boolean {
 }
 
 /**
- * Is the matter the EXPLICIT representational law_firm seat? `engagementCapacity` is NOT NULL DEFAULT
- * 'law_firm', so a bare default is indistinguishable from an affirmative election — capacity ALONE is
- * therefore NEVER sufficient to inject; the affirmative representational signal is the cleared conflict
- * gate (which the caller binds). This primitive only confirms the seat is representational (law_firm) —
- * not the title/settlement seat, and not a missing/unknown/ambiguous value.
+ * Is the capacity VALUE the representational law_firm seat? Confirms the seat is law_firm — not the
+ * title/settlement seat, and not a missing/unknown/ambiguous value. NOTE: capacity value ALONE is no
+ * longer sufficient to inject — see isElectedRepresentationalLawFirm (CAPACITY-ELECTION-UX closed the
+ * "law_firm default == election" residual). This sub-check remains the value half of that predicate.
  */
 export function isRepresentationalLawFirmCapacity(capacity: string | null | undefined): boolean {
   return capacity === 'law_firm';
+}
+
+/**
+ * CAPACITY-ELECTION-UX (R3) — is the matter the AFFIRMATIVELY-ELECTED representational law_firm seat?
+ * The representational (counsel) master may compose ONLY when BOTH hold: the capacity value is
+ * law_firm AND an affirmative election was recorded (engagementCapacityElectedAt != null). This is the
+ * data-layer residual closure: a matter left at the NOT-NULL DEFAULT 'law_firm' with a NULL marker is
+ * UNELECTED -> neutral, independent of (and AND-ed with) the cleared conflict gate. The dangerous
+ * direction guarded is a defaulted (e.g. settlement) matter riding the law_firm default into a
+ * counsel posture. Title routing (engagementCapacity === 'title_settlement_agent') is handled by each
+ * role separately and does NOT depend on this predicate.
+ */
+export function isElectedRepresentationalLawFirm(matter: CompositionMatter): boolean {
+  return isRepresentationalLawFirmCapacity(matter.engagementCapacity) && matter.engagementCapacityElectedAt != null;
 }
 
 /**

@@ -24,7 +24,10 @@ import { MASTER_CLAUDE_LAWFIRM } from '../promptAssets.js';
 const FLAG = 'MASTER_CHAT_ENABLED';
 const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
-const lawFirmMatter = { engagementCapacity: 'law_firm', paKey: null, practiceArea: null };
+// CAPACITY-ELECTION-UX (R3): an AFFIRMATIVELY-ELECTED law_firm seat (marker set) so the decision
+// reaches the gate bind under test; an unelected matter would short-circuit before the gate (covered
+// by the residual tests in chat_inj_1_master_composition).
+const lawFirmMatter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: new Date('2026-06-13T00:00:00Z'), paKey: null, practiceArea: null };
 
 type GateResult = Awaited<ReturnType<typeof resolveDraftingGate>>;
 const gateResult = (allowed: boolean): GateResult =>

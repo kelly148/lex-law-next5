@@ -305,6 +305,13 @@ export const matters = mysqlTable(
     engagementCapacity: mysqlEnum('engagementCapacity', MATTER_ENGAGEMENT_CAPACITY_VALUES)
       .notNull()
       .default('law_firm'),
+    // CAPACITY-ELECTION-UX (R1): additive, NULLABLE marker recording that an AFFIRMATIVE capacity
+    // election was made (NULL = never elected). Distinguishes "attorney elected law_firm" from "the
+    // column defaulted to law_firm and nobody chose" — the residual engagementCapacity (NOT NULL
+    // DEFAULT 'law_firm') cannot represent alone. Plain nullable timestamp (like archivedAt) so the
+    // inferred type is Date | null; NO .$type<Date>() (that would drop the null). Set on intake when an
+    // explicit capacity is passed (matter.create) and on every matter.setEngagementCapacity. NO backfill.
+    engagementCapacityElectedAt: timestamp('engagementCapacityElectedAt'),
     // archivedAt: set on archive; cleared on unarchive (Ch 5.5). Orthogonal to phase.
     archivedAt: timestamp('archivedAt'),
     // completedAt: system-managed; set when phase transitions to complete (Ch 5.3)

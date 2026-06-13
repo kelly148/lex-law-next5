@@ -120,12 +120,19 @@ export interface AssemblePromptMatter {
   paKey: string | null;
   practiceArea: string | null;
   /**
-   * INSTR-2B-title: the matter's firm capacity election. OPTIONAL — absent === no election ===
-   * the safe default. Only the affirmative 'title_settlement_agent' value selects the Title
-   * master; absent/'law_firm'/anything else falls through to the INSTR-2B-core routing (te /
-   * lawfirm safe default).
+   * INSTR-2B-title: the matter's firm capacity election. Only the affirmative 'title_settlement_agent'
+   * value selects the Title master. CAPACITY-ELECTION-UX (R3): the te/lawfirm default is no longer the
+   * fallback for "anything else" — it composes ONLY on an AFFIRMATIVELY-ELECTED law_firm seat (see
+   * engagementCapacityElectedAt); an unelected matter falls through to legacy.
    */
   engagementCapacity?: string | null;
+  /**
+   * CAPACITY-ELECTION-UX (R3): the affirmative-election marker. NULL/absent = unelected. A law_firm
+   * matter composes the te/lawfirm master ONLY when this is non-null (matches
+   * isElectedRepresentationalLawFirm). Inlined here (not the shared import) to avoid tightening the
+   * existing assemblePrompt <-> masterCompositionPrimitives module cycle; semantics are identical.
+   */
+  engagementCapacityElectedAt?: Date | string | null;
 }
 
 /** The logical IDs a draft can compose: the T&E, the general Law Firm, or the Title master. */
@@ -206,15 +213,20 @@ export function assemblePrompt(args: {
     // engagement-capacity election, and it takes precedence over the practice-area routing — a
     // settlement-agent matter never gets the TE or Law Firm master. The dangerous direction (a
     // client matter getting the title posture) is structurally impossible without this explicit
-    // election; every other value (incl. the 'law_firm' default) falls through to the 2B-core
-    // safe default below. NEVER from paKey alone.
+    // election. NEVER from paKey alone. Title routing is UNCHANGED by CAPACITY-ELECTION-UX.
     let id: MasterSource;
     if (matter.engagementCapacity === 'title_settlement_agent') {
       id = MASTER_CLAUDE_TITLE;
-    } else {
-      // Safe default (D-3): exact-match T&E keys -> the TE master; anything else -> the general
-      // Law Firm master.
+    } else if (matter.engagementCapacity === 'law_firm' && matter.engagementCapacityElectedAt != null) {
+      // CAPACITY-ELECTION-UX (R3): the te/lawfirm default composes ONLY on an AFFIRMATIVELY-ELECTED
+      // law_firm seat (mirrors masterCompositionPrimitives.isElectedRepresentationalLawFirm). D-3
+      // safe default WITHIN that seat: exact-match T&E keys -> the TE master; anything else -> the
+      // general Law Firm master.
       id = matchesTE(matter) ? MASTER_CLAUDE_TE : MASTER_CLAUDE_LAWFIRM;
+    } else {
+      // Unelected (law_firm default with a NULL marker, or any non-elected/unknown capacity) -> legacy,
+      // NOT the silent safe-default-to-lawfirm (the residual CAPACITY-ELECTION-UX closes).
+      return legacy;
     }
     const asset = getPromptAsset(id);
     return { source: id, systemText: null, layeredMasterText: asset.text, assetSha256: asset.sha256, flagEnabled };
@@ -245,6 +257,8 @@ export interface CompositionReaders {
         paKey?: string | null | undefined;
         practiceArea?: string | null | undefined;
         engagementCapacity?: string | null | undefined;
+        // CAPACITY-ELECTION-UX (R3): the affirmative-election marker rides the existing matter read.
+        engagementCapacityElectedAt?: Date | string | null | undefined;
       }
     | null
     | undefined
@@ -358,6 +372,9 @@ export async function resolvePromptComposition(args: {
             paKey: matter.paKey ?? null,
             practiceArea: matter.practiceArea ?? null,
             engagementCapacity: matter.engagementCapacity ?? null,
+            // CAPACITY-ELECTION-UX (R3): forward the marker so an unelected law_firm matter -> legacy
+            // (this object is rebuilt explicitly, so the field would be dropped if not carried here).
+            engagementCapacityElectedAt: matter.engagementCapacityElectedAt ?? null,
           }
         : null,
       docType,

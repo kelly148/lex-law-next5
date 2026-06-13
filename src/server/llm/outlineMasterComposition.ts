@@ -24,7 +24,7 @@
 import { getPromptAsset } from './promptAssets.js';
 import {
   hasTitleSignal,
-  isRepresentationalLawFirmCapacity,
+  isElectedRepresentationalLawFirm,
   selectRepresentationalMaster,
   type CompositionMatter,
   type RepresentationalMaster,
@@ -84,9 +84,11 @@ export type OutlinePreGateResult =
  */
 export function decideOutlinePreGate(matter: CompositionMatter | null | undefined): OutlinePreGateResult {
   if (matter == null) return { candidate: false, reason: 'no_matter' }; // R3 fail-closed
-  // R3 + R4: must be the EXPLICIT representational law_firm seat. A missing/unknown capacity, or the
-  // title/settlement seat, is NOT representational -> neutral (never the drafting default-to-lawfirm).
-  if (!isRepresentationalLawFirmCapacity(matter.engagementCapacity)) {
+  // R3 + R4: must be the AFFIRMATIVELY-ELECTED representational law_firm seat (CAPACITY-ELECTION-UX:
+  // capacity === 'law_firm' AND engagementCapacityElectedAt != null). A missing/unknown capacity, the
+  // title/settlement seat, OR a law_firm matter that was never affirmatively elected (NULL marker) is
+  // NOT representational -> neutral (never the drafting default-to-lawfirm).
+  if (!isElectedRepresentationalLawFirm(matter)) {
     return { candidate: false, reason: 'capacity_not_representational' };
   }
   // R4: a title signal in the practice area, on the law_firm seat, is an unresolved/mixed signal -> neutral.

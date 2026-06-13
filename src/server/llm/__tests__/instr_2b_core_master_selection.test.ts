@@ -58,11 +58,32 @@ afterEach(() => {
   clearPromptAssetCacheForTests();
 });
 
+// CAPACITY-ELECTION-UX (R3): the te/lawfirm default now composes ONLY on an AFFIRMATIVELY-ELECTED
+// law_firm seat. These 2B-core routing tests exercise an elected law_firm seat by default (capacity
+// 'law_firm' + a non-null marker injected here), so they keep testing paKey -> te/lawfirm selection.
+// A test that needs the unelected/title path passes engagementCapacity / engagementCapacityElectedAt
+// explicitly (the explicit value wins over the default).
+const ELECTED = new Date('2026-06-13T00:00:00Z');
 const draftArgs = (
-  matter: { paKey: string | null; practiceArea: string | null } | null,
+  matter:
+    | { paKey: string | null; practiceArea: string | null; engagementCapacity?: string | null; engagementCapacityElectedAt?: Date | string | null }
+    | null,
   model: string = PRIMARY_DRAFTER_MODEL,
   callRole: 'draft' | 'regenerate' | 'review' | 'evaluator' = 'draft',
-) => ({ matter, docType: null, callRole, model } as const);
+) => ({
+  matter: matter
+    ? {
+        paKey: matter.paKey,
+        practiceArea: matter.practiceArea,
+        engagementCapacity: matter.engagementCapacity ?? 'law_firm',
+        engagementCapacityElectedAt:
+          matter.engagementCapacityElectedAt === undefined ? ELECTED : matter.engagementCapacityElectedAt,
+      }
+    : null,
+  docType: null,
+  callRole,
+  model,
+} as const);
 
 // ---------------------------------------------------------------------------
 // 1. GUARD — MASTER_LAWFIRM_ENABLED OFF => byte-for-byte unchanged; lawfirm NEVER composed
@@ -130,9 +151,21 @@ describe('INSTR-2B-core — routing (flag ON)', () => {
     expect(out.assetSha256).toBe(getPromptAsset(MASTER_CLAUDE_LAWFIRM).sha256);
   });
 
-  it('unconfirmed / NULL paKey -> lawfirm (safe default)', () => {
+  it('unconfirmed / NULL paKey -> lawfirm (safe default, on an ELECTED law_firm seat)', () => {
     const out = assemblePrompt(draftArgs({ paKey: null, practiceArea: null }));
     expect(out.source).toBe(MASTER_CLAUDE_LAWFIRM);
+  });
+
+  it('CAPACITY-ELECTION-UX [residual]: an UNELECTED law_firm matter (NULL marker) -> legacy, NEVER the lawfirm default', () => {
+    const out = assemblePrompt(draftArgs({ paKey: 'real_estate', practiceArea: 'Real Estate', engagementCapacity: 'law_firm', engagementCapacityElectedAt: null }));
+    expect(out.source).toBe('legacy');
+    expect(out.layeredMasterText).toBeNull();
+  });
+
+  it('CAPACITY-ELECTION-UX [residual]: capacity ABSENT (legacy/unelected row) -> legacy', () => {
+    // engagementCapacity null AND marker null -> not title, not an elected law_firm -> legacy.
+    const out = assemblePrompt(draftArgs({ paKey: 'real_estate', practiceArea: 'Real Estate', engagementCapacity: null, engagementCapacityElectedAt: null }));
+    expect(out.source).toBe('legacy');
   });
 
   it('title_settlement paKey -> lawfirm (safe default; Title routing deferred to 2B-TITLE)', () => {
@@ -237,7 +270,8 @@ describe('INSTR-2B-core — chokepoint LAYERED composition (D-4/D-5) + snapshot'
     setTestLlmAdapter(adapter);
     installNoopJobWrites();
     setCompositionReaders({
-      getMatter: vi.fn().mockResolvedValue({ paKey: 'trusts_estates', practiceArea: null }) as never,
+      // CAPACITY-ELECTION-UX (R3): an ELECTED law_firm seat so the te/lawfirm default still composes.
+      getMatter: vi.fn().mockResolvedValue({ paKey: 'trusts_estates', practiceArea: null, engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED }) as never,
       getDocument: vi.fn().mockResolvedValue({ documentType: 'last_will_testament' }) as never,
     });
     const paProvider = vi.fn().mockResolvedValue({
@@ -272,7 +306,8 @@ describe('INSTR-2B-core — chokepoint LAYERED composition (D-4/D-5) + snapshot'
     setTestLlmAdapter(adapter);
     installNoopJobWrites();
     setCompositionReaders({
-      getMatter: vi.fn().mockResolvedValue({ paKey: 'real_estate', practiceArea: 'Real Estate' }) as never,
+      // CAPACITY-ELECTION-UX (R3): an ELECTED law_firm seat so the lawfirm default still composes.
+      getMatter: vi.fn().mockResolvedValue({ paKey: 'real_estate', practiceArea: 'Real Estate', engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED }) as never,
       getDocument: vi.fn().mockResolvedValue({ documentType: 'purchase_agreement' }) as never,
     });
     setPaProfileProvider(vi.fn().mockResolvedValue(null));

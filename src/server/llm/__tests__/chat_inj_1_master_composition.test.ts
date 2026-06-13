@@ -37,10 +37,16 @@ const MATTER = '22222222-2222-2222-2222-222222222222';
 const OTHER_MATTER = '33333333-3333-3333-3333-333333333333';
 
 const ATTORNEY = { userId: USER } as const;
-const lawFirmMatter = { engagementCapacity: 'law_firm', paKey: null, practiceArea: null };
-const teMatter = { engagementCapacity: 'law_firm', paKey: 'trusts_estates', practiceArea: null };
-const titleSignalMatter = { engagementCapacity: 'law_firm', paKey: 'title_settlement', practiceArea: null };
-const titleElectedMatter = { engagementCapacity: 'title_settlement_agent', paKey: 'trusts_estates', practiceArea: null };
+// CAPACITY-ELECTION-UX (R3): a representational law_firm seat now requires an affirmative election
+// marker (engagementCapacityElectedAt != null) before any master injects; an unelected law_firm
+// matter -> neutral. The representational fixtures below carry the marker; lawFirmUnelected omits it.
+const ELECTED = new Date('2026-06-13T00:00:00Z');
+const lawFirmMatter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: null, practiceArea: null };
+const teMatter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: 'trusts_estates', practiceArea: null };
+const titleSignalMatter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: 'title_settlement', practiceArea: null };
+const titleElectedMatter = { engagementCapacity: 'title_settlement_agent', engagementCapacityElectedAt: ELECTED, paKey: 'trusts_estates', practiceArea: null };
+// The residual-closure case: a law_firm matter that was never affirmatively elected (NULL marker).
+const lawFirmUnelected = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: null, paKey: null, practiceArea: null };
 
 let savedFlag: string | undefined;
 beforeEach(() => {
@@ -124,6 +130,14 @@ describe('CHAT-INJ-1 decideChatMasterPreGate — pure gates', () => {
     expect(r.candidate).toBe(false);
     if (!r.candidate) expect(r.decision.reason).toBe('capacity_not_law_firm');
   });
+  it('CAPACITY-ELECTION-UX [residual]: an UNELECTED law_firm matter (NULL marker) -> not a candidate (capacity_not_elected)', () => {
+    const r = decideChatMasterPreGate({ flagOn: true, principal: ATTORNEY, matter: lawFirmUnelected });
+    expect(r.candidate).toBe(false);
+    if (!r.candidate) {
+      expect(r.decision.reason).toBe('capacity_not_elected');
+      expect(r.decision.source).toBe('neutral');
+    }
+  });
   it('R3: title-elected capacity -> not a candidate (Title never in chat)', () => {
     const r = decideChatMasterPreGate({ flagOn: true, principal: ATTORNEY, matter: titleElectedMatter });
     expect(r.candidate).toBe(false);
@@ -141,7 +155,7 @@ describe('CHAT-INJ-1 decideChatMasterPreGate — pure gates', () => {
     const r = decideChatMasterPreGate({
       flagOn: true,
       principal: ATTORNEY,
-      matter: { engagementCapacity: 'law_firm', paKey: null, practiceArea: 'Title Insurance' },
+      matter: { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: null, practiceArea: 'Title Insurance' },
     });
     expect(r.candidate).toBe(false);
     if (!r.candidate) expect(r.decision.reason).toBe('title_signal_without_election');
@@ -212,6 +226,17 @@ describe('CHAT-INJ-1 R10 — resolveChatMaster gate binding', () => {
     expect(d.inject).toBe(false);
     expect(d.source).toBe('neutral');
     expect(d.reason).toBe('gate_not_cleared');
+  });
+  it('CAPACITY-ELECTION-UX [residual]: an UNELECTED law_firm matter stays neutral even with the gate CLEARED (data-layer closure, ZERO gate reads)', async () => {
+    process.env[FLAG] = 'true';
+    const { reader, calls } = gateSpy(true);
+    setChatGateReader(reader);
+    const d = await resolveChatMaster({ matterId: MATTER, userId: USER, matter: lawFirmUnelected, principal: ATTORNEY });
+    expect(d.inject).toBe(false);
+    expect(d.source).toBe('neutral');
+    expect(d.reason).toBe('capacity_not_elected');
+    // the closure lives in the pure pre-gate, so the conflict gate is never even consulted.
+    expect(calls).toHaveLength(0);
   });
   it('R10 fail-closed: a gate read error -> neutral (never opened by an error)', async () => {
     process.env[FLAG] = 'true';

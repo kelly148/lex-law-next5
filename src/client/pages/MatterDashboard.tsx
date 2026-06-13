@@ -56,7 +56,11 @@ export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps):
   const [title, setTitle] = useState('');
   const [clientName, setClientName] = useState('');
   const [practiceArea, setPracticeArea] = useState('');
-  const [capacity, setCapacity] = useState<EngagementCapacity>('law_firm');
+  // CAPACITY-ELECTION-UX (R4): start UNSELECTED and REQUIRE an affirmative election (mirrors the
+  // Title-required pattern). A new matter cannot be created without the attorney choosing a capacity,
+  // so its election marker is always set at creation (R2). This is the Option-B funnel on top of the
+  // Option-A data-layer floor.
+  const [capacity, setCapacity] = useState<EngagementCapacity | ''>('');
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
@@ -84,12 +88,17 @@ export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps):
       setError('Title is required.');
       return;
     }
+    // CAPACITY-ELECTION-UX (R4): block submit until an affirmative capacity is chosen (intake-blocking).
+    if (!capacity) {
+      setError('Capacity is required — choose how you are handling this matter.');
+      return;
+    }
     setError(null);
     createMutation.mutate({
       title: title.trim(),
       ...(clientName.trim() ? { clientName: clientName.trim() } : {}),
       ...(practiceArea ? { practiceArea } : {}),
-      // INSTR-2B-title: always record the capacity (it defaults to law_firm, the safe default).
+      // CAPACITY-ELECTION-UX (R2/R4): an explicit, attorney-chosen capacity (the marker is set server-side).
       engagementCapacity: capacity,
     });
   };
@@ -137,13 +146,15 @@ export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps):
           </div>
           <div data-testid="capacity-selector">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Capacity — how am I handling this matter?
+              Capacity — how am I handling this matter? <span className="text-red-500">*</span>
             </label>
             <select
               value={capacity}
-              onChange={(e) => setCapacity(e.target.value as EngagementCapacity)}
+              onChange={(e) => setCapacity(e.target.value as EngagementCapacity | '')}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
             >
+              {/* CAPACITY-ELECTION-UX (R4): starts unselected; an affirmative pick is required to submit. */}
+              <option value="">— Select capacity —</option>
               {CAPACITY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
