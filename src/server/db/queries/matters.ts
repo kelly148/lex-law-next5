@@ -157,6 +157,11 @@ export async function setMatterOrchestrationLanes(
  * that routes drafting to the Title master when 'title_settlement_agent'; 'law_firm' is the safe
  * default). Owner-scoped via ownerScope() (new-code chokepoint). NOT nullable — capacity always
  * carries a concrete value (the column is NOT NULL DEFAULT 'law_firm').
+ *
+ * CAPACITY-ELECTION-UX (R2): every call here IS an affirmative election, so it ALWAYS stamps
+ * engagementCapacityElectedAt = now() — for EITHER capacity value (the marker records "an election
+ * happened," not "law_firm was chosen"; routing still keys the capacity value). This is the only way
+ * a pre-existing / synthetic NULL-marker matter becomes elected.
  */
 export async function setMatterEngagementCapacity(
   matterId: string,
@@ -165,7 +170,7 @@ export async function setMatterEngagementCapacity(
 ): Promise<MatterRow | null> {
   await db
     .update(matters)
-    .set({ engagementCapacity })
+    .set({ engagementCapacity, engagementCapacityElectedAt: new Date() })
     .where(and(eq(matters.id, matterId), ownerScope(matters.userId, userId)));
   return getMatterById(matterId, userId);
 }

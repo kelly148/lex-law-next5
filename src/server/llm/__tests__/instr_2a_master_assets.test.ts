@@ -148,21 +148,22 @@ describe('INSTR-2A — GUARD: new masters are REGISTERED but NOT SELECTED (zero 
     expect(out.assetSha256).toBe(GOLDEN[MASTER_CLAUDE_TE]);
   });
 
-  it('Title routing is still deferred (post-INSTR-2B-core): a title_settlement matter composes lawfirm, never title', () => {
+  it('Title is never auto-selected from a title_settlement paKey: an ELECTED law_firm seat composes lawfirm, never title', () => {
     // INSTR-2B-core wires lawfirm/te selection in assemblePrompt.ts, so the old source-string-scan
-    // ("references neither new ID") is retired. What must still hold is that the Title master is
-    // NOT selected — title_settlement falls through to the lawfirm safe default until INSTR-2B-TITLE.
-    // Pin INTENT (behavior), not spelling (ci-gotchas #8).
+    // ("references neither new ID") is retired. What must still hold is that the Title master is NOT
+    // selected from a paKey alone. CAPACITY-ELECTION-UX (R3): the lawfirm default now requires an
+    // ELECTED law_firm seat, so this matter carries the election marker; the title_settlement PAKEY
+    // does not reach Title. Pin INTENT (behavior), not spelling (ci-gotchas #8).
     const savedMl = process.env['MASTER_LAWFIRM_ENABLED'];
     process.env['MASTER_LAWFIRM_ENABLED'] = 'true';
     try {
       const out = assemblePrompt({
-        matter: { paKey: 'title_settlement', practiceArea: null },
+        matter: { paKey: 'title_settlement', practiceArea: null, engagementCapacity: 'law_firm', engagementCapacityElectedAt: new Date('2026-06-13T00:00:00Z') },
         docType: null,
         callRole: 'draft',
         model: PRIMARY_DRAFTER_MODEL,
       });
-      expect(out.source).toBe(MASTER_LAWFIRM); // operator-ratified safe default
+      expect(out.source).toBe(MASTER_LAWFIRM); // operator-ratified safe default (on an elected seat)
       expect(out.source).not.toBe(MASTER_TITLE); // Title routing is INSTR-2B-TITLE, deferred
     } finally {
       if (savedMl === undefined) delete process.env['MASTER_LAWFIRM_ENABLED'];

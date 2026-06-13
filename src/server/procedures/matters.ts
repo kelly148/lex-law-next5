@@ -56,6 +56,12 @@ export const matterRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // CAPACITY-ELECTION-UX (R2): the marker records an AFFIRMATIVE election. An explicit
+      // engagementCapacity from the client IS an election (the UI gate requires one — R4), so stamp
+      // the marker now(). If capacity is OMITTED, the column still defaults to 'law_firm' but the
+      // matter is UNELECTED (marker NULL) and will NOT inject (R3 residual closure) — the value
+      // default no longer implies an election.
+      const engagementCapacityElectedAt = input.engagementCapacity !== undefined ? new Date() : null;
       const matter = await insertMatter({
         userId: ctx.userId,
         title: input.title,
@@ -63,6 +69,7 @@ export const matterRouter = router({
         practiceArea: input.practiceArea ?? null,
         jurisdiction: input.jurisdiction ?? null,
         engagementCapacity: input.engagementCapacity ?? 'law_firm',
+        engagementCapacityElectedAt,
         phase: 'intake',
         archivedAt: null,
         completedAt: null,

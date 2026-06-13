@@ -40,13 +40,18 @@ const BLOB_FLAG = 'PROMPT_COMPOSITION_ENABLED';
 const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
 
-type Matter = { engagementCapacity?: string | null; paKey?: string | null; practiceArea?: string | null };
-const lawFirm: Matter = { engagementCapacity: 'law_firm', paKey: null, practiceArea: null };
-const te: Matter = { engagementCapacity: 'law_firm', paKey: 'trusts_estates', practiceArea: null };
-const titleElected: Matter = { engagementCapacity: 'title_settlement_agent', paKey: null, practiceArea: null };
-const titleSignal: Matter = { engagementCapacity: 'law_firm', paKey: 'title_settlement', practiceArea: null };
+// CAPACITY-ELECTION-UX (R3): the representational law_firm seat now also requires an affirmative
+// election marker (engagementCapacityElectedAt != null). Elected fixtures carry it; the unelected /
+// ambiguous / null-capacity fixtures (which must resolve to legacy) deliberately omit/null it.
+type Matter = { engagementCapacity?: string | null; engagementCapacityElectedAt?: Date | string | null; paKey?: string | null; practiceArea?: string | null };
+const ELECTED = new Date('2026-06-13T00:00:00Z');
+const lawFirm: Matter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: null, practiceArea: null };
+const te: Matter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: 'trusts_estates', practiceArea: null };
+const titleElected: Matter = { engagementCapacity: 'title_settlement_agent', engagementCapacityElectedAt: ELECTED, paKey: null, practiceArea: null };
+const titleSignal: Matter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: ELECTED, paKey: 'title_settlement', practiceArea: null };
 const ambiguous: Matter = { paKey: 'corporate', practiceArea: null }; // capacity field ABSENT (unelected)
 const nullCapacity: Matter = { engagementCapacity: null, paKey: 'corporate', practiceArea: null };
+const lawFirmUnelected: Matter = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: null, paKey: null, practiceArea: null }; // law_firm value, NEVER elected
 
 const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
@@ -155,6 +160,12 @@ describe('INSTR-2C R2/R3/R4 — outline capacity x gate matrix', () => {
     seam(nullCapacity, true);
     expect((await compose('outline_generation')).source).toBe('legacy');
   });
+  it('R3 [CAPACITY-ELECTION-UX residual]: an UNELECTED law_firm matter (NULL marker) + gate CLEARED -> legacy (never the default), ZERO gate reads', async () => {
+    process.env[OUTLINE_FLAG] = 'true';
+    const { gateCalls } = seam(lawFirmUnelected, true);
+    expect((await compose('outline_generation')).source).toBe('legacy');
+    expect(gateCalls()).toBe(0); // closed in the pure pre-gate; the conflict gate is never consulted
+  });
   it('R4: a title-elected matter -> legacy (title posture never in outline v1)', async () => {
     process.env[OUTLINE_FLAG] = 'true';
     seam(titleElected, true);
@@ -175,6 +186,7 @@ describe('INSTR-2C R2/R3/R4 — outline capacity x gate matrix', () => {
     expect(decideOutlinePreGate(titleSignal).candidate).toBe(false);
     expect(decideOutlinePreGate(ambiguous).candidate).toBe(false);
     expect(decideOutlinePreGate(nullCapacity).candidate).toBe(false);
+    expect(decideOutlinePreGate(lawFirmUnelected).candidate).toBe(false); // CAPACITY-ELECTION-UX residual
     expect(decideOutlinePreGate(null).candidate).toBe(false);
     // the source is NEVER the title master
     for (const m of [lawFirm, te, titleElected, titleSignal, ambiguous]) {

@@ -33,6 +33,7 @@ import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import DeadlinePanel from '../components/DeadlinePanel.js';
 import MatterRecordLedger from '../components/MatterRecordLedger.js';
 import KnowledgeBasePanel from '../components/KnowledgeBasePanel.js';
+import CapacityElectionPanel from '../components/CapacityElectionPanel.js';
 
 const DOCUMENT_TYPES: { value: string; label: string }[] = [
   // Trusts & Estates
@@ -529,6 +530,14 @@ export default function MatterDetail(): React.ReactElement {
 
       {/* RELAYOUT-2 — matter recital band v2 (the established record, read in one glance) */}
       <MatterRecitalBand matterId={matterId} />
+
+      {/* CAPACITY-ELECTION-UX (R5) — post-intake elect/correct control; the only way to elect a
+          pre-existing / NULL-marker matter. Surfaces whether an affirmative election exists. */}
+      <CapacityElectionPanel
+        matterId={matterId}
+        engagementCapacity={matter.engagementCapacity}
+        electedAt={matter.engagementCapacityElectedAt}
+      />
 
       {/* Documents section */}
       <div className="flex items-center justify-between mb-3">

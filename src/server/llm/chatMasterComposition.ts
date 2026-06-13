@@ -32,6 +32,7 @@
 import { isMasterChatEnabled } from '../config/featureFlags.js';
 import { getPromptAsset, MASTER_CLAUDE_TE, MASTER_CLAUDE_LAWFIRM } from './promptAssets.js';
 import { matchesTE } from './assemblePrompt.js';
+import { isElectedRepresentationalLawFirm } from './masterCompositionPrimitives.js';
 
 /** UI treatment (R4): the response is marked an internal working draft requiring attorney verification. */
 export const CHAT_MASTER_UI_NOTICE = 'Internal working draft — attorney verification required.';
@@ -84,6 +85,8 @@ export function principalIsSupervisingAttorney(principal: ChatPrincipal): boolea
 /** Matter fields the chat decision needs (a read-only subset of MatterRow). */
 export interface ChatDecisionMatter {
   engagementCapacity?: string | null | undefined;
+  /** CAPACITY-ELECTION-UX (R3): the affirmative-election marker. NULL/absent = unelected -> neutral. */
+  engagementCapacityElectedAt?: Date | string | null | undefined;
   paKey?: string | null | undefined;
   practiceArea?: string | null | undefined;
 }
@@ -150,6 +153,12 @@ export function decideChatMasterPreGate(args: {
   // non-representational title seat (never in chat); a missing/unknown capacity is ambiguous metadata.
   if (m.engagementCapacity !== 'law_firm') {
     return { candidate: false, decision: { ...NEUTRAL, reason: 'capacity_not_law_firm' } };
+  }
+  // CAPACITY-ELECTION-UX (R3): a law_firm matter that was never AFFIRMATIVELY elected (NULL marker) is
+  // unelected metadata, not a representational election -> neutral (the residual-closure case; chat
+  // NEVER injects on a bare default). isElectedRepresentationalLawFirm re-checks law_firm AND marker.
+  if (!isElectedRepresentationalLawFirm(m)) {
+    return { candidate: false, decision: { ...NEUTRAL, reason: 'capacity_not_elected' } };
   }
   // R2: a title signal without an affirmative title election is unresolved -> neutral.
   if (hasTitleSignal(m)) {

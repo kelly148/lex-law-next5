@@ -67,6 +67,10 @@ export const MatterRowSchema = z.object({
   // INSTR-2B-title engagement capacity. ADDITIVE: .optional() so pre-migration reads / legacy
   // fixtures parse; a post-migration row (NOT NULL default 'law_firm') always carries it.
   engagementCapacity: MatterEngagementCapacitySchema.optional(),
+  // CAPACITY-ELECTION-UX (R1) affirmative-election marker. ADDITIVE: .nullable().optional() so a
+  // pre-migration read / legacy fixture (column absent) parses; a post-migration row carries a Date
+  // (an election happened) or null (unelected). NULL = never affirmatively elected (the safe state).
+  engagementCapacityElectedAt: z.date().nullable().optional(),
   archivedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
   createdAt: z.date(),

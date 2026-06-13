@@ -44,14 +44,21 @@ afterEach(() => {
   clearPromptAssetCacheForTests();
 });
 
+// CAPACITY-ELECTION-UX (R3): the te/lawfirm default now composes ONLY on an AFFIRMATIVELY-ELECTED
+// law_firm seat (capacity 'law_firm' AND a non-null marker). Title routing
+// (engagementCapacity === 'title_settlement_agent') is UNCHANGED and does NOT depend on the marker.
+// The helper defaults the marker to ELECTED so law_firm cases stay representational; pass null as the
+// 4th arg to exercise the unelected residual (-> legacy).
+const ELECTED = new Date('2026-06-13T00:00:00Z');
 const matter = (
   engagementCapacity: string | null,
   paKey: string | null = null,
   practiceArea: string | null = null,
-) => ({ paKey, practiceArea, engagementCapacity });
+  engagementCapacityElectedAt: Date | string | null = ELECTED,
+) => ({ paKey, practiceArea, engagementCapacity, engagementCapacityElectedAt });
 
 const draftArgs = (
-  m: { paKey: string | null; practiceArea: string | null; engagementCapacity: string | null } | null,
+  m: { paKey: string | null; practiceArea: string | null; engagementCapacity: string | null; engagementCapacityElectedAt?: Date | string | null } | null,
   model: string = PRIMARY_DRAFTER_MODEL,
   callRole: 'draft' | 'regenerate' | 'review' = 'draft',
 ) => ({ matter: m, docType: null, callRole, model } as const);
@@ -96,20 +103,27 @@ describe('INSTR-2B-title — routing (MASTER_LAWFIRM_ENABLED ON)', () => {
     expect(out.source).toBe(MASTER_CLAUDE_LAWFIRM);
   });
 
-  it('capacity NULL (backfilled/legacy row) -> lawfirm general (safe default), NEVER title', () => {
+  it('CAPACITY-ELECTION-UX: capacity NULL (backfilled/legacy row) -> legacy (unelected; never title, never the lawfirm default)', () => {
+    // R3 reversal: a NULL-capacity row is no longer the lawfirm safe default — it is unelected -> legacy.
     const out = assemblePrompt(draftArgs(matter(null, null, null)));
-    expect(out.source).toBe(MASTER_CLAUDE_LAWFIRM);
+    expect(out.source).toBe('legacy');
+    expect(out.source).not.toBe(MASTER_CLAUDE_TITLE);
   });
 
-  it('SAFE DEFAULT: a title_settlement paKey WITHOUT the capacity election routes lawfirm general, not title', () => {
+  it('SAFE DEFAULT: a title_settlement paKey on an ELECTED law_firm seat routes lawfirm general, not title (paKey alone never triggers title)', () => {
+    // The safety property preserved: a title_settlement PAKEY does not reach the Title master; on an
+    // elected law_firm seat it stays lawfirm. (Unelected variants are covered by the residual tests.)
     expect(assemblePrompt(draftArgs(matter('law_firm', 'title_settlement', null))).source).toBe(MASTER_CLAUDE_LAWFIRM);
-    expect(assemblePrompt(draftArgs(matter(null, 'title_settlement', null))).source).toBe(MASTER_CLAUDE_LAWFIRM);
+    // CAPACITY-ELECTION-UX: the same paKey on a NULL-capacity (unelected) row -> legacy (not lawfirm).
+    expect(assemblePrompt(draftArgs(matter(null, 'title_settlement', null))).source).toBe('legacy');
   });
 
-  it('only the EXACT capacity value triggers title — the paKey string "title_settlement" does not', () => {
-    // 'title_settlement' (the paKey vocabulary) is NOT the capacity value 'title_settlement_agent'.
+  it('only the EXACT capacity value triggers title — the string "title_settlement" never composes a master', () => {
+    // 'title_settlement' (the paKey vocabulary) is NOT the capacity value 'title_settlement_agent', and
+    // it is NOT 'law_firm' either -> not an elected law_firm seat -> legacy (and NEVER the Title master).
     const out = assemblePrompt(draftArgs(matter('title_settlement', null, null)));
-    expect(out.source).toBe(MASTER_CLAUDE_LAWFIRM);
+    expect(out.source).toBe('legacy');
+    expect(out.source).not.toBe(MASTER_CLAUDE_TITLE);
   });
 
   it('T&E keys still route to te when capacity is law_firm (2B-core preserved)', () => {
@@ -119,6 +133,19 @@ describe('INSTR-2B-title — routing (MASTER_LAWFIRM_ENABLED ON)', () => {
 
   it('the title capacity election takes PRECEDENCE over a T&E paKey', () => {
     const out = assemblePrompt(draftArgs(matter('title_settlement_agent', 'trusts_estates', null)));
+    expect(out.source).toBe(MASTER_CLAUDE_TITLE);
+  });
+
+  it('CAPACITY-ELECTION-UX [residual]: an UNELECTED law_firm matter (NULL marker) -> legacy, never lawfirm', () => {
+    const out = assemblePrompt(draftArgs(matter('law_firm', 'real_estate', 'Real Estate', null)));
+    expect(out.source).toBe('legacy');
+    expect(out.layeredMasterText).toBeNull();
+  });
+
+  it('CAPACITY-ELECTION-UX: title routing is UNCHANGED by the marker — a title election with a NULL marker still composes Title', () => {
+    // Title routing keys ONLY on engagementCapacity === "title_settlement_agent" (R3 left it untouched);
+    // it does not require the election marker. (matter.create/setEngagementCapacity stamp it anyway.)
+    const out = assemblePrompt(draftArgs(matter('title_settlement_agent', null, null, null)));
     expect(out.source).toBe(MASTER_CLAUDE_TITLE);
   });
 

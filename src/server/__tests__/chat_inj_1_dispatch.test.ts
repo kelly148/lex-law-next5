@@ -43,8 +43,12 @@ const USER = '11111111-1111-1111-1111-111111111111';
 const MATTER = '22222222-2222-2222-2222-222222222222';
 
 type MatterReturn = Awaited<ReturnType<typeof getMatterById>>;
-const asMatter = (o: { engagementCapacity?: string | null; paKey?: string | null; practiceArea?: string | null }): MatterReturn =>
-  ({ id: MATTER, userId: USER, paKey: null, practiceArea: null, ...o } as unknown as MatterReturn);
+// CAPACITY-ELECTION-UX (R3): default an AFFIRMATIVELY-ELECTED marker so the law_firm cases reach the
+// gate/injection under test (a test may override engagementCapacityElectedAt to exercise unelected).
+// The title case stays neutral on capacity, and the flag-OFF case stays neutral on the flag — both
+// independent of the marker.
+const asMatter = (o: { engagementCapacity?: string | null; engagementCapacityElectedAt?: Date | string | null; paKey?: string | null; practiceArea?: string | null }): MatterReturn =>
+  ({ id: MATTER, userId: USER, paKey: null, practiceArea: null, engagementCapacityElectedAt: new Date('2026-06-13T00:00:00Z'), ...o } as unknown as MatterReturn);
 
 class CapturingAdapter implements LlmClient {
   public lastSystemPrompt: string | null = null;

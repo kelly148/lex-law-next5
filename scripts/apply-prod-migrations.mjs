@@ -83,6 +83,11 @@ const MIGRATIONS = [
   // (capacity election; ADD COLUMN IF NOT EXISTS, idempotent). Apply BEFORE the INSTR-2B-title code
   // serves (matter.create / reads reference the column). Default-safe; on the additive pre-deploy path.
   '0031_instr_2b_title_matter_engagement_capacity.sql',
+  // CAPACITY-ELECTION-UX — additive matters.engagementCapacityElectedAt TIMESTAMP NULL (affirmative-
+  // election marker; ADD COLUMN IF NOT EXISTS, idempotent, NO backfill). NULL = unelected. Apply
+  // BEFORE the CAPACITY-ELECTION-UX code serves (reads/predicates reference the column). Default-safe
+  // (the Zod Wall reads it .nullable().optional()); on the additive pre-deploy path. No new env var.
+  '0032_capacity_election_marker.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
