@@ -4,6 +4,26 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-13b (state-transition: the `INSTR-2C / CHAT-INJ-1` blocked entry removed; tracker landing via #288)
+
+**Rule-11 state-transition (operator-approved).** Operator `accept:state-upkeep` (merge tracker #288) + `state-transition:INSTR-2C-CHAT-INJ-1`. The combined **`INSTR-2C / CHAT-INJ-1`** entry is **removed** from `blocked_engagements`: `[FOLD-ADV-TITLE-1, "INSTR-2C / CHAT-INJ-1"]` → `[FOLD-ADV-TITLE-1]`. Both elements are addressed — CHAT-INJ-1 merged #285 (+ R7 #286); INSTR-2C-outline merged #287; `matter_analysis`/`matrix` deferred (presumed permanently-legacy). The **only** remaining blocked engagement is **`FOLD-ADV-TITLE-1`** (advisory title-examination lane, BLOCKED-ON-SPEC, §3.1 FIRE expected). These tracker changes (2026-06-13a + 13b) land on `main` via **PR #288**.
+
+---
+
+## 2026-06-13a (INSTR-2C-outline merged #287 — the last INSTR build; master-into-outline behind MASTER_OUTLINE_ENABLED, default OFF)
+
+**Disposition.** Operator `accept:INSTR-2C`; PR #287 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **0777182**; branch deleted. INSTR **Phase C**, a dispositioned **§3.1 FIRE** (triad **3/3 APPROVE WITH CHANGES**; operator 2026-06-12, **outline-only**), built strictly to the locked R1–R12 spec.
+
+**What shipped.** Firm-master injection extended to **`outline_generation` only**, behind **`MASTER_OUTLINE_ENABLED` (default OFF, fail-closed)**. **R1** converts the composition chokepoint to an **allowlist** `MASTER_COMPOSABLE_CALLROLES = {draft,regenerate,chat,outline}` — every other callRole (incl. future) returns legacy **by construction**, so reviewer/evaluator/analysis/matrix/extract/format/other are unreachable under any flag; draft/regenerate are **byte-for-byte** preserved (incl. the draft snapshot `flag_enabled`, which excludes the outline flag). **R2/R3** outline composes lawfirm/te **only** on the explicit representational `law_firm` seat (never the drafting default); **R4** title → legacy (Title structurally unreachable); **R5** binds the **existing** `resolveDraftingGate` (fail-closed; not rebuilt); **R6** the non-suppressible addendum is a **precedence floor** (first) + a fail-closed post-assembly assertion (`startsWith`); **R7** flag-OFF = byte-for-byte legacy with zero extra reads; **R8** reviewer/evaluator firewall (allowlist + retained calibration pins); **R9** shared `masterCompositionPrimitives` lib + outline's own predicate; **R10** outline feeds no other model; **R11** written deferral records (`matter_analysis` + `matrix`, presumed permanently-legacy); **R12** governance note. New modules `masterCompositionPrimitives.ts` + `outlineMasterComposition.ts`; outline rides the existing layered path. **No migration** (reads existing `engagementCapacity`); chat + drafting injection untouched. **47 tests / 3 suites** + a 4-lens adversarial review (**PASS**, no blocker, **no re-FIRE**, findings folded in).
+
+**Residual (pre-flag-flip confirmation).** **R3 "unelected → legacy" is realized via R5** (the cleared gate's confirmed-client requirement), not the capacity field — `engagementCapacity` is `NOT NULL DEFAULT 'law_firm'`, so a bare default is indistinguishable from an election and a **gate-cleared default-`law_firm`** matter *can* inject. Same design + disposition as CHAT-INJ-1; the capacity-election UX is a spec-§5 pre-flag-flip gap. **Flagged for operator/triad confirmation; NOT formally reclassified into `accepted_risks` here** (awaiting an explicit `risk-accept` if desired).
+
+**Build state.** `origin/main` = **0777182**. **The INSTR track is complete** — 2A (#275) + 2B-core (#280) + 2B-title (#282) + CHAT-DISPATCH-1 (#276) + CHAT-COMPOSER-1 (#284) + CHAT-INJ-1 (#285) + CHAT-INJ-1-R7 (#286) + INSTR-2C-outline (#287) all merged; `matter_analysis`/`matrix` deferred. **Nothing deployed** (Railway auto-deploy OFF; all master + chat flags default OFF). This Rule-16 upkeep is on a **fresh tracker branch off `main`** (prior tracker PR #283 merged into `f2c61a5`).
+
+**Open / next.** **Pending operator-gated:** (a) the Rule-11 removal of the now-fully-addressed `INSTR-2C / CHAT-INJ-1` `blocked_engagements` entry (both merged/deferred); (b) **Gate 0** (#271/#272/#273) activation (prod migrations 0028 → 0029 → 0030 + staged flag flips); (c) migration **0031** apply-to-prod + `MASTER_LAWFIRM_ENABLED`; (d) `MASTER_CHAT_ENABLED` (after Gate 0 + §6 gaps); (e) `MASTER_OUTLINE_ENABLED` (after live-readiness + the R3 capacity-election confirmation).
+
+---
+
 ## 2026-06-12g (CHAT-INJ-1-R7 merged #286; INSTR-2B removed from blocked; tracker landing via #283)
 
 **Disposition.** Operator `accept push 286` → PR #286 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **9bba637**; branch deleted. Plus operator `accept:state-upkeep` (merge tracker #283) and `state-transition:INSTR-2B`.
