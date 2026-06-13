@@ -4,6 +4,12 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-13b (state-transition: the `INSTR-2C / CHAT-INJ-1` blocked entry removed; tracker landing via #288)
+
+**Rule-11 state-transition (operator-approved).** Operator `accept:state-upkeep` (merge tracker #288) + `state-transition:INSTR-2C-CHAT-INJ-1`. The combined **`INSTR-2C / CHAT-INJ-1`** entry is **removed** from `blocked_engagements`: `[FOLD-ADV-TITLE-1, "INSTR-2C / CHAT-INJ-1"]` → `[FOLD-ADV-TITLE-1]`. Both elements are addressed — CHAT-INJ-1 merged #285 (+ R7 #286); INSTR-2C-outline merged #287; `matter_analysis`/`matrix` deferred (presumed permanently-legacy). The **only** remaining blocked engagement is **`FOLD-ADV-TITLE-1`** (advisory title-examination lane, BLOCKED-ON-SPEC, §3.1 FIRE expected). These tracker changes (2026-06-13a + 13b) land on `main` via **PR #288**.
+
+---
+
 ## 2026-06-13a (INSTR-2C-outline merged #287 — the last INSTR build; master-into-outline behind MASTER_OUTLINE_ENABLED, default OFF)
 
 **Disposition.** Operator `accept:INSTR-2C`; PR #287 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **0777182**; branch deleted. INSTR **Phase C**, a dispositioned **§3.1 FIRE** (triad **3/3 APPROVE WITH CHANGES**; operator 2026-06-12, **outline-only**), built strictly to the locked R1–R12 spec.

@@ -88,8 +88,7 @@
     "FOLD-PM-1"
   ],
   "blocked_engagements": [
-    "FOLD-ADV-TITLE-1",
-    "INSTR-2C / CHAT-INJ-1"
+    "FOLD-ADV-TITLE-1"
   ],
   "skipped_engagements": [],
   "deferred_engagements": [],
@@ -793,10 +792,15 @@
       "ts": "2026-06-13T09:00:00-04:00",
       "decision": "accept:INSTR-2C (merge #287)",
       "notes": "Operator approve accept:INSTR-2C. PR #287 CI-green, squash-merged to main as 0777182; branch deleted. INSTR Phase C, OUTLINE ONLY behind MASTER_OUTLINE_ENABLED (default OFF). R1 allowlist chokepoint (reviewer/evaluator unreachable by construction); outline composes lawfirm/te on the representational law_firm seat (R2/R3 never-default) + not-title (R4) + the EXISTING cleared conflict gate (R5, fail-closed); R6 addendum precedence floor + fail-closed assertion; R7 flag-OFF byte-for-byte zero reads; R8/R10 firewall + no-downstream; R9 shared primitives + own predicate; R11 deferrals (analysis/matrix permanently-legacy); R12 governance. NO migration; only new env var MASTER_OUTLINE_ENABLED; chat+drafting untouched. 47 tests/3 suites; 4-lens adversarial review PASS (no re-FIRE). RESIDUAL flagged for pre-flag-flip operator/triad confirmation: R3 unelected->legacy rests on the gate (engagementCapacity NOT NULL DEFAULT 'law_firm'); same as CHAT-INJ-1; NOT formally added to accepted_risks here (awaiting explicit risk-accept if desired). The INSTR track (2A + 2B core/title + CHAT-* + INSTR-2C-outline) is now COMPLETE; analysis/matrix deferred. Tracker upkeep on a FRESH branch off main (prior tracker #283 merged into f2c61a5)."
+    },
+    {
+      "ts": "2026-06-13T10:00:00-04:00",
+      "decision": "state-transition:INSTR-2C-CHAT-INJ-1 (remove from blocked_engagements)",
+      "notes": "Operator approve state-transition:INSTR-2C-CHAT-INJ-1. The combined 'INSTR-2C / CHAT-INJ-1' entry removed from blocked_engagements: [\"FOLD-ADV-TITLE-1\",\"INSTR-2C / CHAT-INJ-1\"] -> [\"FOLD-ADV-TITLE-1\"]. Both addressed: CHAT-INJ-1 merged #285 (+ R7 #286); INSTR-2C-outline merged #287, analysis/matrix DEFERRED (presumed permanently-legacy). Only remaining blocked engagement: FOLD-ADV-TITLE-1 (advisory title-examination lane, BLOCKED-ON-SPEC, §3.1 FIRE expected). This rides the held tracker PR #288 (accept:state-upkeep)."
     }
   ],
-  "last_updated": "2026-06-13T09:00:00-04:00",
-  "last_updater": "Rule-16 INSTR-2C-outline accept bookkeeping (Claude Code, lex-next/state-instr-2c off main)",
+  "last_updated": "2026-06-13T10:00:00-04:00",
+  "last_updater": "state-transition:INSTR-2C-CHAT-INJ-1 (Claude Code, lex-next/state-instr-2c)",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {
@@ -877,7 +881,9 @@
       "completed_at": "2026-06-13T09:00:00-04:00",
       "status": "COMPLETE (outline) + DEFERRED (analysis/matrix, presumed permanently-legacy)",
       "merged": "#287 squash 0777182",
-      "note": "INSTR-2C outline_generation master injection DONE and MERGED behind MASTER_OUTLINE_ENABLED (default OFF). matter_analysis + matrix are DEFERRED (presumed permanently-legacy; own future §3.1) -- docs/engagements/INSTR-2C-deferrals.md. Both elements of the combined blocked_engagements entry 'INSTR-2C / CHAT-INJ-1' are now addressed (CHAT-INJ-1 merged #285; INSTR-2C-outline merged #287 + analysis/matrix deferred); REMOVING/updating that array entry is a pending operator-gated Rule-11 state-transition (not done here). MASTER_OUTLINE_ENABLED flip is gated on live-readiness + the R3 capacity-election pre-flag-flip confirmation. NOT deployed."
+      "note": "INSTR-2C outline_generation master injection DONE and MERGED behind MASTER_OUTLINE_ENABLED (default OFF). matter_analysis + matrix are DEFERRED (presumed permanently-legacy; own future §3.1) -- docs/engagements/INSTR-2C-deferrals.md. Both elements of the combined blocked_engagements entry 'INSTR-2C / CHAT-INJ-1' are now addressed (CHAT-INJ-1 merged #285; INSTR-2C-outline merged #287 + analysis/matrix deferred); REMOVING/updating that array entry is a pending operator-gated Rule-11 state-transition (not done here). MASTER_OUTLINE_ENABLED flip is gated on live-readiness + the R3 capacity-election pre-flag-flip confirmation. NOT deployed.",
+      "removed_from_blocked_at": "2026-06-13T10:00:00-04:00",
+      "removed_note": "Combined entry 'INSTR-2C / CHAT-INJ-1' removed from blocked_engagements per operator approve state-transition:INSTR-2C-CHAT-INJ-1 (2026-06-13). CHAT-INJ-1 merged #285 (+ R7 #286); INSTR-2C-outline merged #287; matter_analysis/matrix deferred (presumed permanently-legacy, own future §3.1)."
     }
   },
   "recommended_followups": [
