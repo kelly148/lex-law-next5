@@ -14,6 +14,14 @@
  * userId is always drawn from ctx.userId — never from input.
  *
  * R4: All LLM-producing procedures (generate, regenerate) use executeCanonicalMutation.
+ *
+ * INSTR-2C R12 (governance) — the outline_generation dispatch routes through the canonical chokepoint,
+ * where (behind MASTER_OUTLINE_ENABLED, default OFF) it may compose a firm master under the INSTR-2C
+ * stricter guards (see src/server/llm/outlineMasterComposition.ts). The master is an INTERNAL DRAFTING
+ * AID for the planning scaffold ONLY; it does NOT substitute for attorney judgment. The outline remains
+ * an internal artifact the attorney reviews, edits, and must EXPLICITLY approve (outline.approve) before
+ * it advances — attorney approval is, and remains, the final decision gate. The output feeds no other
+ * model call (INSTR-2C R10: draft generation does not consume the outline).
  */
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';

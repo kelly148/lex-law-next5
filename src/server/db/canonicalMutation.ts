@@ -56,6 +56,7 @@ import { buildMatterStateContextBlock } from '../matterState/injection.js';
 import { buildActivePaProfileForMatter, type LoadedPaProfile } from '../practiceKb/profileInjection.js';
 import { recordKbEvent } from './queries/kbEvents.js';
 import { resolvePromptComposition } from '../llm/assemblePrompt.js';
+import { OUTLINE_ADDENDUM } from '../llm/outlineMasterComposition.js';
 import { sha256Hex } from '../llm/promptAssets.js';
 import { insertPromptSnapshot } from './queries/promptSnapshots.js';
 import type { NewJob, JobType, NewPromptSnapshot } from './schema.js';
@@ -578,6 +579,21 @@ async function runJob(
           );
         }
       }
+    }
+  }
+
+  // INSTR-2C R6: the outline master's non-suppressible addendum is a PRECEDENCE FLOOR. After ALL
+  // assembly, verify it appears verbatim in the model-bound system block; if a bug ever stripped or
+  // paraphrased it, FAIL CLOSED — never dispatch an outline master without its governing floor.
+  // (Reached only when MASTER_OUTLINE_ENABLED is on and a master was composed for an outline turn;
+  // construction places the addendum FIRST in the layered block, so this is a defensive tripwire.)
+  if (composition.callRole === 'outline' && composition.source !== 'legacy') {
+    // startsWith (not includes): enforce the PRECEDENCE FLOOR — the addendum must be the FIRST thing in
+    // the model-bound block. A future change that kept it present but moved it off byte-0 fails closed.
+    if (!llmParams.systemPrompt.startsWith(OUTLINE_ADDENDUM)) {
+      throw new Error(
+        'INSTR-2C: outline master composed without its non-suppressible addendum floor (first) — refusing to dispatch.',
+      );
     }
   }
 
