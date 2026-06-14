@@ -30,7 +30,9 @@ import { router, protectedProcedure } from '../trpc.js';
 import { isChatDispatchEnabled, isMasterChatEnabled } from '../config/featureFlags.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { getDocumentById } from '../db/queries/documents.js';
-import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+// CHAT-COPILOT-2 G1: this chat-dispatch surface reaches a provider ONLY through the egress broker — the
+// same single non-bypassable chokepoint as the matter copilot (no direct executeCanonicalMutation).
+import { egressClient } from '../llm/egressClient.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
@@ -118,34 +120,51 @@ export const chatDispatchRouter = router({
       });
 
       let response = '';
-      const result = await executeCanonicalMutation({
-        userId: ctx.userId,
-        jobType: 'chat_turn',
-        modelString: PRIMARY_DRAFTER_MODEL,
-        matterId: input.matterId,
-        ...(input.documentId ? { documentId: input.documentId } : {}),
-        // Only present when a master was injected; absent => the chokepoint's chat branch is skipped.
-        ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
-        txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
-        buildLlmParams: () => ({
-          systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
-          userPrompt: input.turnText,
-          temperature: 0.3,
-          maxTokens: 2048,
-        }),
-        txn2Commit: ({ output }) => {
-          response = typeof output === 'string' ? output : JSON.stringify(output);
-          return Promise.resolve();
-        },
-        // The turn owns no in-flight document mutation, so there is nothing to revert.
-        txn2Revert: () => Promise.resolve(),
-        telemetryCtx: {
-          userId: ctx.userId,
+      // CHAT-COPILOT-2 G1: the send routes through the SINGLE egress broker — it GATES (allowlist
+      // FAIL-CLOSED + 'no_external' + text-only/G4), writes a chat_egress_events audit row (allowed OR
+      // BLOCKED), then dispatches through the canonical chokepoint. With the default-EMPTY allowlist the
+      // broker BLOCKS the send (the copilot cannot operate until a provider is allowlisted) and logs it.
+      const egress = await egressClient.send({
+        audit: {
+          kind: 'chat_primary',
           matterId: input.matterId,
-          documentId: input.documentId ?? null,
-          jobId: null,
+          conversationId: null,
+          holdFlag: 'none', // inline dispatch — no persisted per-conversation hold
+          minimizationApplied: false,
+          // Q1 hash-at-gate: the copilot-composed outbound bundle (system + any layered master + turn).
+          serializedPayload: [CHAT_TURN_SYSTEM_PROMPT, chat.layeredMasterText, input.turnText].filter(Boolean).join('\n\n'),
+          carriesImageEgress: false,
+        },
+        canonical: {
+          userId: ctx.userId,
+          jobType: 'chat_turn',
+          modelString: PRIMARY_DRAFTER_MODEL,
+          matterId: input.matterId,
+          ...(input.documentId ? { documentId: input.documentId } : {}),
+          // Only present when a master was injected; absent => the chokepoint's chat branch is skipped.
+          ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
+          txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
+          buildLlmParams: () => ({
+            systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
+            userPrompt: input.turnText,
+            temperature: 0.3,
+            maxTokens: 2048,
+          }),
+          txn2Commit: ({ output }) => {
+            response = typeof output === 'string' ? output : JSON.stringify(output);
+            return Promise.resolve();
+          },
+          // The turn owns no in-flight document mutation, so there is nothing to revert.
+          txn2Revert: () => Promise.resolve(),
+          telemetryCtx: {
+            userId: ctx.userId,
+            matterId: input.matterId,
+            documentId: input.documentId ?? null,
+            jobId: null,
+          },
         },
       });
+      const result = egress.result;
 
       // R8 — provenance for the persisted turn: matter binding, posture/master id (or 'neutral'),
       // flag state, and representational-vs-neutral. Best-effort append to the EXISTING audit_events

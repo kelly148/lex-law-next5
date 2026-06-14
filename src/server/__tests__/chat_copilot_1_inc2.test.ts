@@ -14,9 +14,19 @@ vi.mock('../db/queries/matters.js', async (orig) => {
   const actual = await orig<typeof import('../db/queries/matters.js')>();
   return { ...actual, getMatterById: vi.fn() };
 });
+// CHAT-COPILOT-2 A1: the primary send now routes through the egress broker, which gates on the allowlist.
+// These integration tests allowlist 'anthropic' so the broker PERMITS the send; that also makes grounding
+// eligible, so the grounding readers are mocked to EMPTY (these are persistence tests, not grounding tests).
+vi.mock('../db/queries/materials.js', async (orig) => ({ ...(await orig<typeof import('../db/queries/materials.js')>()), listMaterialsForMatter: vi.fn(), listPinnedMaterials: vi.fn() }));
+vi.mock('../db/queries/phase4b.js', async (orig) => ({ ...(await orig<typeof import('../db/queries/phase4b.js')>()), listLockedDecisionsForMatter: vi.fn(), listAdoptLedgerForMatter: vi.fn() }));
 
 import { appRouter } from '../router.js';
 import { getMatterById } from '../db/queries/matters.js';
+import { listMaterialsForMatter, listPinnedMaterials } from '../db/queries/materials.js';
+import { listLockedDecisionsForMatter, listAdoptLedgerForMatter } from '../db/queries/phase4b.js';
+import { setEgressEventStore } from '../db/queries/chatEgress.js';
+import { createInMemoryEgressEventStore } from './inMemoryEgressStore.js';
+import { setGroundedChatProviderAllowlistForTests } from '../llm/chatCopilotConfig.js';
 import {
   setChatCopilotStore,
   createConversation,
@@ -167,6 +177,12 @@ describe('CHAT-COPILOT-1 Inc 2 — submitTurn integration', () => {
     process.env[COPILOT_FLAG] = 'true';
     process.env[CHAT_FLAG] = 'true';
     setChatCopilotStore(createInMemoryChatCopilotStore());
+    setEgressEventStore(createInMemoryEgressEventStore());
+    setGroundedChatProviderAllowlistForTests(['anthropic']); // broker permits the anthropic primary send
+    vi.mocked(listMaterialsForMatter).mockResolvedValue([]);
+    vi.mocked(listPinnedMaterials).mockResolvedValue([]);
+    vi.mocked(listLockedDecisionsForMatter).mockResolvedValue([]);
+    vi.mocked(listAdoptLedgerForMatter).mockResolvedValue([]);
     capturing = new CapturingAdapter();
     setTestLlmAdapter(capturing);
     setJobWriteFunctions({
@@ -186,6 +202,8 @@ describe('CHAT-COPILOT-1 Inc 2 — submitTurn integration', () => {
     if (savedCopilot === undefined) delete process.env[COPILOT_FLAG]; else process.env[COPILOT_FLAG] = savedCopilot;
     if (savedChat === undefined) delete process.env[CHAT_FLAG]; else process.env[CHAT_FLAG] = savedChat;
     setChatCopilotStore(null);
+    setEgressEventStore(null);
+    setGroundedChatProviderAllowlistForTests(null);
     setChatGateReader(null);
     setTestLlmAdapter(null);
     setJobWriteFunctions(null);

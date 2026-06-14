@@ -34,6 +34,47 @@ export const CHAT_MESSAGE_ROLE_VALUES = ['attorney', 'assistant'] as const;
 export const ChatMessageRoleSchema = z.enum(CHAT_MESSAGE_ROLE_VALUES);
 export type ChatMessageRole = (typeof CHAT_MESSAGE_ROLE_VALUES)[number];
 
+// ── CHAT-COPILOT-2 Increment A: egress control plane vocabularies ─────────────────────────────────────
+
+/**
+ * holdFlag (CHAT-COPILOT-2 G2) — a per-conversation external-egress hold. `none` = no hold; `no_panel` =
+ * the (Increment B) review panel must not run for this conversation; `no_external` = NOTHING from this
+ * conversation may reach an external provider — it blocks BOTH the primary model call AND grounding
+ * egress (an NDA / own-confidentiality conversation). Default 'none'.
+ */
+export const CHAT_HOLD_FLAG_VALUES = ['none', 'no_panel', 'no_external'] as const;
+export const ChatHoldFlagSchema = z.enum(CHAT_HOLD_FLAG_VALUES);
+export type ChatHoldFlag = (typeof CHAT_HOLD_FLAG_VALUES)[number];
+
+/** The kind of copilot egress an event records (G1). The primary chat send, the grounded-context send, or
+ *  the (Increment B) review-panel send — each independently gated + logged through the single broker. */
+export const CHAT_EGRESS_KIND_VALUES = ['chat_primary', 'chat_grounding', 'chat_panel'] as const;
+export const ChatEgressKindSchema = z.enum(CHAT_EGRESS_KIND_VALUES);
+export type ChatEgressKind = (typeof CHAT_EGRESS_KIND_VALUES)[number];
+
+/** The gate decision (G3): a send is allowed or BLOCKED — blocked sends are logged too (incident evidence). */
+export const CHAT_EGRESS_DECISION_VALUES = ['allowed', 'blocked'] as const;
+export const ChatEgressDecisionSchema = z.enum(CHAT_EGRESS_DECISION_VALUES);
+export type ChatEgressDecision = (typeof CHAT_EGRESS_DECISION_VALUES)[number];
+
+/** What authorized the send (G3): the config allowlist (Increment A) or a panel confirm (Increment B). */
+export const CHAT_EGRESS_AUTH_BASIS_VALUES = ['config_allowlist', 'panel_confirm'] as const;
+export const ChatEgressAuthBasisSchema = z.enum(CHAT_EGRESS_AUTH_BASIS_VALUES);
+export type ChatEgressAuthBasis = (typeof CHAT_EGRESS_AUTH_BASIS_VALUES)[number];
+
+/** Dispatch lifecycle of an egress event (G3). `blocked` = never dispatched (gate refused); `pending` =
+ *  allowed + in flight; then success/failed/timeout/cancelled once the provider call resolves. */
+export const CHAT_EGRESS_STATUS_VALUES = [
+  'pending',
+  'success',
+  'failed',
+  'blocked',
+  'timeout',
+  'cancelled',
+] as const;
+export const ChatEgressStatusSchema = z.enum(CHAT_EGRESS_STATUS_VALUES);
+export type ChatEgressStatus = (typeof CHAT_EGRESS_STATUS_VALUES)[number];
+
 // ── Embedded JSON shapes ────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -84,6 +125,9 @@ export const ChatConversationRowSchema = z.object({
   legalHoldReason: z.string().nullable(),
   doNotPersist: z.boolean(),
   excludeFromGrounding: z.boolean(),
+  // CHAT-COPILOT-2 G2 external-egress hold. Default 'none' so pre-A2 rows / in-memory fixtures (which
+  // predate the column) read as no-hold; the DB column also defaults 'none'.
+  holdFlag: ChatHoldFlagSchema.default('none'),
   frozenAt: z.date().nullable(),
   freezeReason: z.string().nullable(),
   closedAt: z.date().nullable(),
@@ -132,3 +176,52 @@ export const ChatSummaryRowSchema = z.object({
   createdAt: z.date(),
 });
 export type ChatSummaryRow = z.infer<typeof ChatSummaryRowSchema>;
+
+/**
+ * chat_egress_events (CHAT-COPILOT-2 G3) — the append-only, immutable audit record of EVERY copilot
+ * egress decision: the GLBA/incident-detection evidence. CONTAINS NO NPI, NO full prompts, NO raw
+ * provider payloads — only metadata + a salted/keyed hash over the MINIMIZED payload (inputBundleHash).
+ * Blocked sends are logged too (decision='blocked' + blockReason). Outlives the matter.
+ *
+ * `status`/`failureReason`/`completedAt`/token counts are filled in by a single completion update after
+ * dispatch; the decision + payload hash + metadata are never mutated once written.
+ */
+export const ChatEgressEventRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  conversationId: z.string().uuid().nullable(),
+  messageId: z.string().uuid().nullable(),
+  // The deterministic id of the drafting/posture gate decision at egress time (provenance back-link).
+  gateDecisionId: z.string().nullable(),
+  kind: ChatEgressKindSchema,
+  decision: ChatEgressDecisionSchema,
+  blockReason: z.string().nullable(),
+  // A snapshot id/hash of the allowlist policy at decision time (which providers were permitted).
+  allowlistVersion: z.string().nullable(),
+  authorizationBasis: ChatEgressAuthBasisSchema,
+  provider: z.string(),
+  model: z.string(),
+  // Minimization: was NPI minimization applied + which categories were included vs withheld (no values).
+  minimizationApplied: z.boolean(),
+  minimizationProfile: z.string().nullable(),
+  npiCategoriesIncluded: z.array(z.string()).nullable(),
+  npiCategoriesWithheld: z.array(z.string()).nullable(),
+  // Hold: was a hold honored + which attachment ids were excluded by it (ids only, never content).
+  holdHonored: z.boolean(),
+  holdExcludedAttachmentIds: z.array(z.string()).nullable(),
+  // Salted/keyed hash over the actual serialized, minimized, hold-filtered payload (Q1: hash-at-gate).
+  inputBundleHash: z.string().nullable(),
+  attachmentIds: z.array(z.string()).nullable(),
+  region: z.string().nullable(),
+  correlationId: z.string(),
+  requestId: z.string().nullable(),
+  status: ChatEgressStatusSchema,
+  failureReason: z.string().nullable(),
+  // Aggregate supervision fields (Q7): queryable volume without opening the payload.
+  includedAttachmentCount: z.number().int().nonnegative(),
+  npiWithheldCount: z.number().int().nonnegative(),
+  createdAt: z.date(),
+  completedAt: z.date().nullable(),
+});
+export type ChatEgressEventRow = z.infer<typeof ChatEgressEventRowSchema>;

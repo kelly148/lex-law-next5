@@ -70,6 +70,7 @@ import {
   chatConversations,
   chatMessages,
   chatSummaries,
+  chatEgressEvents,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -204,6 +205,11 @@ export async function purgeMatter(
     await step('chatMessages', chatMessages, byMatter(chatMessages));
     await step('chatSummaries', chatSummaries, byMatter(chatSummaries));
     await step('chatConversations', chatConversations, byMatter(chatConversations));
+    // CHAT-COPILOT-2 (Increment A): the matter's egress audit log. Append-only + "outlives the matter"
+    // governs IN-OPERATION immutability (no row update/delete; survives matter closure/retention) — NOT
+    // survival of an operator-gated full-matter purge, exactly as auditEvents / postureProvenance / chat
+    // tables above. Purged WITH the matter so an (operator-gated, synthetic/test) purge leaves no orphan.
+    await step('chatEgressEvents', chatEgressEvents, byMatter(chatEgressEvents));
     // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
     // before documents so no binding row is orphaned by the purge.
     await step('documentParty', documentParty, byMatter(documentParty));

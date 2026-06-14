@@ -94,8 +94,13 @@ const MIGRATIONS = [
   // BEFORE flipping CHAT_COPILOT_ENABLED. Default-safe; on the additive pre-deploy path. No new env var
   // beyond the flag.
   '0033_chat_copilot_1_conversations.sql',
+  // CHAT-COPILOT-2 (Increment A — egress control plane) — additive chat_conversations.holdFlag
+  // (ADD COLUMN IF NOT EXISTS) + chat_egress_events (CREATE TABLE IF NOT EXISTS, append-only audit, NO
+  // FK — isolation is app-layer). Written/read ONLY when CHAT_COPILOT_ENABLED is ON (default OFF); apply
+  // BEFORE flipping CHAT_COPILOT_ENABLED. Default-safe; on the additive pre-deploy path. No new env var.
+  '0034_chat_copilot_2_egress.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
