@@ -88,8 +88,14 @@ const MIGRATIONS = [
   // BEFORE the CAPACITY-ELECTION-UX code serves (reads/predicates reference the column). Default-safe
   // (the Zod Wall reads it .nullable().optional()); on the additive pre-deploy path. No new env var.
   '0032_capacity_election_marker.sql',
+  // CHAT-COPILOT-1 (Inc 1) — additive chat_conversations / chat_messages / chat_summaries
+  // (CREATE TABLE IF NOT EXISTS, idempotent, NO FK constraints — isolation is app-layer). Written
+  // ONLY when CHAT_COPILOT_ENABLED is ON (default OFF); flag-OFF never touches these tables. Apply
+  // BEFORE flipping CHAT_COPILOT_ENABLED. Default-safe; on the additive pre-deploy path. No new env var
+  // beyond the flag.
+  '0033_chat_copilot_1_conversations.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
