@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14d (CHAT-COPILOT-2 Increment A · A1 merged — egress control plane: single non-bypassable broker + holdFlag + append-only audit; flag OFF, nothing deployed)
+
+**Disposition.** `run batch CHAT-COPILOT-2 Increment A` — sub-increment **A1** (the GLBA/attorney-confidentiality **spine**) built to the **§3.1-dispositioned** design (3/3 APPROVE-WITH-CHANGES), **auto-merged on green CI** per operator pre-authorization. PR **#301** squash **7830143**; `origin/main` = **7830143**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. **The panel (Increment B) + promote-to-draft are NOT built.**
+
+**G1 — single, non-bypassable egress broker** (`src/server/llm/egressClient.ts`). Every copilot provider send routes through `egressClient.send()`: **gate fail-closed** immediately before dispatch + before any retry → **write a `chat_egress_events` audit row in the same atomic decision** (allowed **or BLOCKED** — blocked sends logged) → dispatch via the canonical chokepoint (**no silent fallback**). **Both** copilot chat surfaces — `chatCopilot.submitTurn` **and** `chatDispatch.submitTurn` — route through it. An **architecture test** fails the build on a raw provider-SDK import, a provider-primitive (`resolveAdapter`/`llmFetch`/adapter) reached outside the chokepoint, or a copilot surface that bypasses the broker (static **and** dynamic imports).
+
+**G2/G3/G4/Q1/Q7.** `holdFlag` enum (`none|no_panel|no_external`; `no_external` blocks primary **and** grounding). `chat_egress_events` — append-only, immutable, **no NPI / no payload content**, full field set, **purged with the matter**. Image egress **never** (text-only). `inputBundleHash` hashes the copilot-composed minimized/hold-filtered bundle at the chokepoint. `listEgressEvents` supervision query.
+
+**★ Operator-facing behavior change (confirmed via AskUserQuestion).** The egress allowlist **reuses `GROUNDED_CHAT_PROVIDERS`** (no new env var) and now gates the **primary** send: **default-empty allowlist ⇒ the copilot is BLOCKED entirely** (a provider must be allowlisted for the copilot to operate — the intended GLBA posture; every send logged). The Inc 3+4 KEY fail-closed test assertion was updated to this stronger behavior.
+
+**Migration (operator apply item).** **`0034_chat_copilot_2_egress.sql`** — additive (`ADD COLUMN IF NOT EXISTS holdFlag` + `CREATE TABLE chat_egress_events`), registered in the prod allowlist + `EXPECTED_TABLES_EXTRA`; auto-applies on a future operator deploy.
+
+**Build state + review.** 19 files (+1255/−59); tsc + eslint clean; **CI green**; all G-gate / architecture / dispatch / inc2 / inc34 / purge-coverage suites pass; full local suite at the **pre-existing 6 local-env failures** (no regressions). **3-lens adversarial review: 4 majors found + FIXED before merge** — the `chatDispatch` sibling-surface bypass, the `inputBundleHash` coverage gap (now covers the copilot-composed bundle; **documented limitation**: not yet the platform's downstream matter-state injection — an A1 follow-up), architecture-guard transitive/dynamic robustness, and audit-completion error-masking.
+
+**HALTED at the A1 boundary. NOTHING deployed; `CHAT_COPILOT_ENABLED` OFF; external-provider sends still gated (allowlist empty); `GROUNDED_CHAT_PROVIDERS` NOT populated.** NEXT (the same batch): **A2** (ephemeral attachments — reuse the materials/OCR pipeline; OCR-quality gating G5; cross-matter Q3; ephemeral lifecycle Q5) then **A3** (extended context assembly + UX chips + provenance pins, with the **provenance-sufficiency exit gate** Q6). Panel (Increment B) + promote-to-draft remain separately gated.
+
+---
+
 ## 2026-06-14c (CHAT-COPILOT-1-GCFG merged — grounding-config env-drive + per-message isolation hardening; fail-closed preserved; flag OFF, grounding inert)
 
 **Disposition.** `run batch CHAT-COPILOT-1-GCFG` — a **reversible config/hardening fast-follow** on the merged copilot, **auto-merged on green CI** per operator pre-authorization (Rule 15, conditional on the fail-closed tests passing — they do). Rides the parent CHAT-COPILOT-1 §3.1 disposition (3/3 APPROVE-WITH-CHANGES); **no re-FIRE** (the grounded-chat allowlist stays FAIL-CLOSED — only *how* it's populated changes). PR **#299** squash **c54bdc4**; `origin/main` = **c54bdc4**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. **No migration, no schema change.** This was a clean **RESUME** after the prior run's PowerShell was killed mid-build (it had pushed nothing); rebuilt FRESH off `origin/main` (the interrupted run's uncommitted partial edits in the shared worktree were surfaced, **not** salvaged).
