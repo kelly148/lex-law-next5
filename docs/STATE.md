@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14b (CHAT-COPILOT-1 Copilot UI + Inc 5 merged — BUILD COMPLETE through Inc 5; HALTED; flag OFF, grounding inert)
+
+**Disposition.** `run batch` of the Copilot UI increment + Inc 5 (guided modes + refine), each its own PR, **auto-merged on green CI** per operator pre-authorization. Both **display + wiring of the already-built, triad-reviewed Inc 1–4 backend** — no new load-bearing decision, ride the parent §3.1 disposition (no re-FIRE). Copilot UI → PR #296 squash **0755c88**; Inc 5 → PR #297 squash **1a2d81d**; `origin/main` = **1a2d81d**. Both behind **`CHAT_COPILOT_ENABLED` (default OFF)**; **no server/schema change, no migration**.
+
+**Copilot UI.** A NEW surface at **`/matters/:matterId/copilot`**, DISTINCT from the CHAT-UI-1 `/chat` scaffold; self-guards on the flag (OFF → redirect, no copilot query fires → byte-for-byte legacy). `CopilotPage` (conversation list + create + selection) + `CopilotThread` (restores the persisted thread via `chatCopilot.messages`; composer via `chatCopilot.submitTurn`; **renders all server signals** — R4 "internal working draft" notice, scrubbed-master-turn count, reference-only citation chips [dormant until grounding live], omitted/truncated/NPI counts [no silent truncation], `CONVERSATION_FROZEN` banner; **lifecycle controls** wired to the existing gated procedures: delete, legal-hold, export-to-matter-file, per-conversation + per-turn do-not-persist / exclude-from-grounding, redact).
+
+**Inc 5.** Guided modes (Draft / Review / Analyze / Outline) **collect inputs** (audience, jurisdiction, document/version, posture, deliverable, client-sendable-language-requested) and fold them into a **structured turn** (`buildGuidedTurn`), passing the **mode** to `submitTurn` (not just a prompt swap; the server already keys the grounding budget on `mode`). Review **auto-binds the operative document** when the conversation is doc-bound. One-click **refine** (Expand / Shorten / Add citations / Rephrase) issues a follow-up turn keeping the mode. Client-only.
+
+**★ HARD EXCLUSION enforced.** **No promote-to-draft / send / finalize / client-ready affordance anywhere** — the composer submit reads **"Ask"** (asks the assistant; internal work product only). Render-tested (no such button) + grep-verified (no promote/send/finalize/sendability/document.create wiring). Promote-to-draft remains a **separate future engagement + §3.1 checkpoint**.
+
+**Build state.** `origin/main` = **1a2d81d**. **CHAT-COPILOT-1 build is COMPLETE through Inc 5** (Inc 1 #291, Inc 2 #292, Inc 3+4 #294, Copilot UI #296, Inc 5 #297; promote excluded). 12 render/pure tests across the two increments; tsc + eslint clean; CI green; full local suite = only the 6 pre-existing local-env failures. **Nothing deployed; flag OFF; grounded-chat allowlist EMPTY → grounding inert in prod.** Local `main` is the pre-existing diverged/stale checkout (shared-worktree hazard switches the tree after each `--delete-branch`); every increment built from `origin/main`.
+
+**Operator apply item (unchanged).** ONE additive migration **0033** (from Inc 1; auto-applies a future deploy). No new migration in the UI / Inc 5 increments. No new env var.
+
+**HALTED (end of batch). NEXT — all operator-gated:** (a) **move CHAT-COPILOT-1 in_progress → completed** (a Rule-11 membership move + an engagement-acceptance call — flagged, not made); (b) confirm grounded-chat providers' **written no-train / ZDR / DPA** and **populate `GROUNDED_CHAT_PROVIDER_ALLOWLIST`** (activates grounding); (c) ratify the Part-C config defaults (retention + NPI list + dynamic budget map); (d) **deploy** (migration 0033 + the flag flip) — a separate operator-gated step; (e) **promote-to-draft** as a future FIRE engagement. Carried flags: te-vs-lawfirm within-capacity fast-follow (Inc 2 minor); Inc 1 per-message conversation-context (pre-existing); the prior-engagement prod-state correction.
+
+---
+
 ## 2026-06-14a (CHAT-COPILOT-1 Inc 3+4 merged — grounding + citations, BUNDLED + FAIL-CLOSED; HALTED after Inc 4; flag OFF, allowlist EMPTY)
 
 **Disposition.** `run batch` of Inc 3+4 (document/materials grounding + source citations, shipped as ONE unit per the triad disposition), auto-merged on green CI per operator pre-authorization **conditional on the fail-closed test passing** (it does). PR #294 squash **6f46434**; `origin/main` = **6f46434**. Builds on merged Inc 1/2. **Code + config only — NO new migration** (reuses Inc 1/2 columns). Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy, zero new reads.
