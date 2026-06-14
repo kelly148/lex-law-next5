@@ -32,7 +32,10 @@ import {
   redactMessage,
   exportConversationToMatterFile,
 } from '../db/queries/chatCopilot.js';
-import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+// CHAT-COPILOT-2 G1: the copilot reaches a provider ONLY through the egress broker (gate + audit +
+// dispatch). It does NOT import executeCanonicalMutation / resolveAdapter / any adapter directly —
+// enforced by src/server/__tests__/architecture_egress_broker.test.ts.
+import { egressClient } from '../llm/egressClient.js';
 import { PRIMARY_DRAFTER_MODEL, parseModelString } from '../llm/config.js';
 import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
 import { CHAT_TURN_SYSTEM_PROMPT } from './chatDispatch.js';
@@ -152,7 +155,13 @@ export const chatCopilotRouter = router({
       // assembler applies NPI minimization + mints sourceIds the model cannot invent; citations are
       // validated against that set after the response (a hallucinated sourceId is rejected, not rendered).
       const provider = parseModelString(PRIMARY_DRAFTER_MODEL).providerId;
-      const groundingEligible = isGroundedChatProviderAllowed(provider) && conv.excludeFromGrounding !== true;
+      // CHAT-COPILOT-2 G2: a 'no_external' hold blocks ALL external egress for this conversation — so do
+      // not even ASSEMBLE grounded context (no document/material text is read). The broker is the
+      // authoritative backstop (it blocks the primary send + logs a blocked event), but skipping assembly
+      // here means a held conversation never touches the grounding readers at all.
+      const noExternalHold = conv.holdFlag === 'no_external';
+      const groundingEligible =
+        !noExternalHold && isGroundedChatProviderAllowed(provider) && conv.excludeFromGrounding !== true;
       const grounding = groundingEligible
         ? await assembleGroundedChatContext({
             matterId: input.matterId,
@@ -189,26 +198,51 @@ export const chatCopilotRouter = router({
       // groundedPrefix is '' whenever grounding is inert (the default), so the OFF path is byte-for-byte Inc 2.
       const userPrompt = groundedPrefix + turnAndHistory;
       let response = '';
-      const result = await executeCanonicalMutation({
-        userId: ctx.userId,
-        jobType: 'chat_turn',
-        modelString: PRIMARY_DRAFTER_MODEL,
-        matterId: input.matterId,
-        ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
-        txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
-        buildLlmParams: () => ({
-          systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
-          userPrompt,
-          temperature: 0.3,
-          maxTokens: 2048,
-        }),
-        txn2Commit: ({ output }) => {
-          response = typeof output === 'string' ? output : JSON.stringify(output);
-          return Promise.resolve();
+      // CHAT-COPILOT-2 G1: the primary chat send goes through the single egress broker — it GATES
+      // (allowlist FAIL-CLOSED + 'no_external' hold + text-only/G4), writes a chat_egress_events audit row
+      // (allowed OR BLOCKED — blocked sends are logged too), then dispatches through the canonical
+      // chokepoint. With the default-EMPTY allowlist the broker BLOCKS every send (the copilot cannot
+      // operate until a provider is allowlisted — the intended GLBA posture); a blocked send throws
+      // EGRESS_BLOCKED. The gate runs ONCE, before any retry inside the canonical dispatch.
+      const egress = await egressClient.send({
+        audit: {
+          kind: 'chat_primary',
+          matterId: input.matterId,
+          conversationId: conv.id,
+          gateDecisionId: gateId,
+          holdFlag: conv.holdFlag,
+          minimizationApplied: grounding !== null,
+          minimizationProfile: grounding !== null ? 'npi_category_default' : null,
+          npiWithheldCount: grounding?.npiWithheldCount ?? 0,
+          includedAttachmentCount: 0, // ephemeral chat attachments arrive in Increment A2
+          // Q1 hash-at-gate: the copilot-composed outbound bundle (system + any layered master + grounded
+          // context + windowed history + turn). Text-only by construction (G4). The platform's downstream
+          // matter-state metadata block is NOT part of this hash — see the EgressAuditContext note.
+          serializedPayload: [CHAT_TURN_SYSTEM_PROMPT, chat.layeredMasterText, userPrompt].filter(Boolean).join('\n\n'),
+          carriesImageEgress: false,
         },
-        txn2Revert: () => Promise.resolve(),
-        telemetryCtx: { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
+        canonical: {
+          userId: ctx.userId,
+          jobType: 'chat_turn',
+          modelString: PRIMARY_DRAFTER_MODEL,
+          matterId: input.matterId,
+          ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
+          txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
+          buildLlmParams: () => ({
+            systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
+            userPrompt,
+            temperature: 0.3,
+            maxTokens: 2048,
+          }),
+          txn2Commit: ({ output }) => {
+            response = typeof output === 'string' ? output : JSON.stringify(output);
+            return Promise.resolve();
+          },
+          txn2Revert: () => Promise.resolve(),
+          telemetryCtx: { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
+        },
       });
+      const result = egress.result;
 
       // CITATION FIDELITY: validate the model's [[cite:...]] markers against the assembled sourceId set —
       // a cited sourceId not present is a hallucination and is REJECTED (dropped, not rendered/persisted).

@@ -35,6 +35,12 @@ import {
   setPromptSnapshotWriter,
 } from '../db/canonicalMutation.js';
 import { setTestLlmAdapter } from '../llm/registry.js';
+// CHAT-COPILOT-2 A1: chatDispatch.submitTurn now routes its send through the egress broker (the single
+// non-bypassable chokepoint). Inject the in-memory egress store + allowlist the provider so the broker
+// PERMITS the send (chatDispatch does no grounding, so the allowlist does not pull document context).
+import { setEgressEventStore } from '../db/queries/chatEgress.js';
+import { createInMemoryEgressEventStore } from './inMemoryEgressStore.js';
+import { setGroundedChatProviderAllowlistForTests } from '../llm/chatCopilotConfig.js';
 import type { LlmClient, LlmGenerateParams, LlmGenerateResult } from '../llm/types.js';
 
 const CHAT_FLAG = 'MASTER_CHAT_ENABLED';
@@ -73,6 +79,8 @@ beforeEach(() => {
   process.env[DISPATCH_FLAG] = 'true'; // dispatch substrate ON so submitTurn does not refuse
   capturing = new CapturingAdapter();
   setTestLlmAdapter(capturing);
+  setEgressEventStore(createInMemoryEgressEventStore());
+  setGroundedChatProviderAllowlistForTests(['anthropic']); // broker permits the anthropic primary send
   setJobWriteFunctions({
     insertJob: vi.fn().mockResolvedValue(undefined),
     markJobRunning: vi.fn().mockResolvedValue(1),
@@ -94,6 +102,8 @@ afterEach(() => {
   else process.env[DISPATCH_FLAG] = savedDispatch;
   setChatGateReader(null);
   setTestLlmAdapter(null);
+  setEgressEventStore(null);
+  setGroundedChatProviderAllowlistForTests(null);
   setJobWriteFunctions(null);
   setMatterStateProvider(null);
   setPaProfileProvider(null);

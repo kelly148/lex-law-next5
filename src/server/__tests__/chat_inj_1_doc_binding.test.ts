@@ -32,6 +32,11 @@ import { getMatterById } from '../db/queries/matters.js';
 import { getDocumentById } from '../db/queries/documents.js';
 import { setJobWriteFunctions, setMatterStateProvider, setPaProfileProvider, setPromptSnapshotWriter } from '../db/canonicalMutation.js';
 import { setTestLlmAdapter } from '../llm/registry.js';
+// CHAT-COPILOT-2 A1: chatDispatch.submitTurn routes through the egress broker — inject the egress store +
+// allowlist the provider so the broker permits the send (chatDispatch does no grounding).
+import { setEgressEventStore } from '../db/queries/chatEgress.js';
+import { createInMemoryEgressEventStore } from './inMemoryEgressStore.js';
+import { setGroundedChatProviderAllowlistForTests } from '../llm/chatCopilotConfig.js';
 import type { LlmClient, LlmGenerateParams, LlmGenerateResult } from '../llm/types.js';
 
 const DISPATCH_FLAG = 'CHAT_DISPATCH_ENABLED';
@@ -70,6 +75,8 @@ beforeEach(() => {
   vi.mocked(getMatterById).mockResolvedValue(asMatter());
   capturing = new CapturingAdapter();
   setTestLlmAdapter(capturing);
+  setEgressEventStore(createInMemoryEgressEventStore());
+  setGroundedChatProviderAllowlistForTests(['anthropic']); // broker permits the anthropic primary send
   setJobWriteFunctions({
     insertJob: vi.fn().mockResolvedValue(undefined),
     markJobRunning: vi.fn().mockResolvedValue(1),
@@ -88,6 +95,8 @@ afterEach(() => {
   if (savedDispatch === undefined) delete process.env[DISPATCH_FLAG]; else process.env[DISPATCH_FLAG] = savedDispatch;
   if (savedChat === undefined) delete process.env[CHAT_FLAG]; else process.env[CHAT_FLAG] = savedChat;
   setTestLlmAdapter(null);
+  setEgressEventStore(null);
+  setGroundedChatProviderAllowlistForTests(null);
   setJobWriteFunctions(null);
   setMatterStateProvider(null);
   setPaProfileProvider(null);

@@ -42,6 +42,7 @@ export function createInMemoryChatCopilotStore(now: () => Date = () => new Date(
         legalHoldReason: row.legalHoldReason ?? null,
         doNotPersist: row.doNotPersist ?? false,
         excludeFromGrounding: row.excludeFromGrounding ?? false,
+        holdFlag: row.holdFlag ?? 'none',
         frozenAt: row.frozenAt ?? null,
         freezeReason: row.freezeReason ?? null,
         closedAt: row.closedAt ?? null,

@@ -28,6 +28,10 @@ import {
   setConversationMark,
 } from '../db/queries/chatCopilot.js';
 import { createInMemoryChatCopilotStore } from './inMemoryChatCopilotStore.js';
+// CHAT-COPILOT-2 A1: submitTurn's primary send now routes through the egress broker, which writes a
+// chat_egress_events row. Inject the in-memory egress store so the broker has a DB-free audit sink.
+import { setEgressEventStore, listEgressEvents } from '../db/queries/chatEgress.js';
+import { createInMemoryEgressEventStore } from './inMemoryEgressStore.js';
 import { setChatGateReader } from '../llm/chatMasterComposition.js';
 import { setJobWriteFunctions, setMatterStateProvider, setPaProfileProvider, setPromptSnapshotWriter } from '../db/canonicalMutation.js';
 import { setTestLlmAdapter } from '../llm/registry.js';
@@ -128,6 +132,7 @@ describe('CHAT-COPILOT-1 Inc 3+4 — submitTurn grounding integration', () => {
     saved = process.env[COPILOT_FLAG];
     process.env[COPILOT_FLAG] = 'true';
     setChatCopilotStore(createInMemoryChatCopilotStore());
+    setEgressEventStore(createInMemoryEgressEventStore());
     capturing = new CapturingAdapter();
     setTestLlmAdapter(capturing);
     setJobWriteFunctions({
@@ -149,35 +154,48 @@ describe('CHAT-COPILOT-1 Inc 3+4 — submitTurn grounding integration', () => {
   });
   afterEach(() => {
     if (saved === undefined) delete process.env[COPILOT_FLAG]; else process.env[COPILOT_FLAG] = saved;
-    setChatCopilotStore(null); setChatGateReader(null); setTestLlmAdapter(null); setJobWriteFunctions(null);
+    setChatCopilotStore(null); setEgressEventStore(null); setChatGateReader(null); setTestLlmAdapter(null); setJobWriteFunctions(null);
     setMatterStateProvider(null); setPaProfileProvider(null); setPromptSnapshotWriter(null);
     setGroundedChatProviderAllowlistForTests(null);
     vi.clearAllMocks();
   });
 
-  it('KEY FAIL-CLOSED: with the EMPTY allowlist, a grounded turn assembles NO document/material text into the model input', async () => {
-    // allowlist left EMPTY (the prod default)
+  it('KEY FAIL-CLOSED (CHAT-COPILOT-2 A1): with the EMPTY allowlist the PRIMARY send is BLOCKED (logged), NO model call, NO document/material text assembled', async () => {
+    // allowlist left EMPTY (the prod default). CHAT-COPILOT-2 A1 routes the primary send through the
+    // egress broker, which gates on the allowlist FAIL-CLOSED. So the EMPTY allowlist now BLOCKS the
+    // send entirely (stronger than the prior 'grounding inert, primary responds') — the copilot cannot
+    // operate until a provider is allowlisted (the intended GLBA posture). The blocked decision is logged.
     const conv = await createConversation({ userId: U1, matterId: MATTER_A, matter: lawFirmElected, documentId: DOC_1 });
-    const res = await caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'summarize the trust' });
-    expect(res.grounding.grounded).toBe(false);
-    expect(capturing.lastUserPrompt).not.toContain('OPERATIVE_DOC_TEXT');
-    expect(capturing.lastUserPrompt).not.toContain('MATERIAL_TEXT');
-    expect(capturing.lastUserPrompt).not.toContain('[GROUNDED CONTEXT]');
+    await expect(
+      caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'summarize the trust' }),
+    ).rejects.toThrow(/EGRESS_BLOCKED/);
+    // No model call at all — the guarantee is stronger than before (not just 'no doc text in the prompt').
+    expect(capturing.lastUserPrompt).toBeNull();
     // grounding readers are never consulted when grounding is inert
     expect(vi.mocked(getDocumentById)).not.toHaveBeenCalled();
     expect(vi.mocked(listMaterialsForMatter)).not.toHaveBeenCalled();
+    // the blocked send is logged (incident-detection evidence — G3)
+    const events = await listEgressEvents(U1, { matterId: MATTER_A });
+    expect(events.length).toBe(1);
+    expect(events[0]!.decision).toBe('blocked');
+    expect(events[0]!.blockReason).toContain('provider_not_allowlisted');
+    expect(events[0]!.status).toBe('blocked');
   });
 
-  it('only an ALLOWLISTED provider grounds: anthropic turn with allowlist [openai] stays inert; [anthropic] grounds', async () => {
-    setGroundedChatProviderAllowlistForTests(['openai']); // not the chat provider (anthropic)
+  it('only an ALLOWLISTED provider operates + grounds (CHAT-COPILOT-2 A1): allowlist [openai] BLOCKS the anthropic primary; [anthropic] sends + grounds', async () => {
+    // [openai] does not include the chat provider (anthropic): post-A1 the PRIMARY send is BLOCKED at the
+    // broker (not merely grounding-inert). No model call; the blocked decision is logged.
+    setGroundedChatProviderAllowlistForTests(['openai']);
     let conv = await createConversation({ userId: U1, matterId: MATTER_A, matter: lawFirmElected, documentId: DOC_1 });
-    let res = await caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'q' });
-    expect(res.grounding.grounded).toBe(false);
-    expect(capturing.lastUserPrompt).not.toContain('OPERATIVE_DOC_TEXT');
+    await expect(
+      caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'q' }),
+    ).rejects.toThrow(/EGRESS_BLOCKED/);
+    expect(capturing.lastUserPrompt).toBeNull();
 
+    // [anthropic] (the chat provider) IS allowlisted: the primary send is allowed AND grounding activates.
     setGroundedChatProviderAllowlistForTests(['anthropic']);
     conv = await createConversation({ userId: U1, matterId: MATTER_A, matter: lawFirmElected, documentId: DOC_1 });
-    res = await caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'q' });
+    const res = await caller().chatCopilot.submitTurn({ conversationId: conv.id, matterId: MATTER_A, turnText: 'q' });
     expect(res.grounding.grounded).toBe(true);
     expect(capturing.lastUserPrompt).toContain('OPERATIVE_DOC_TEXT'); // operative document grounded
     expect(capturing.lastUserPrompt).toContain('MATERIAL_TEXT');

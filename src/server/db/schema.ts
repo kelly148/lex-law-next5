@@ -43,6 +43,12 @@ import { REVIEWER_LANE_STATUS_VALUES } from '../../shared/schemas/reviewerLaneSt
 import {
   CHAT_CONVERSATION_RETENTION_CLASS_VALUES,
   CHAT_MESSAGE_ROLE_VALUES,
+  // CHAT-COPILOT-2 Increment A (egress control plane): holdFlag + egress-event vocabularies.
+  CHAT_HOLD_FLAG_VALUES,
+  CHAT_EGRESS_KIND_VALUES,
+  CHAT_EGRESS_DECISION_VALUES,
+  CHAT_EGRESS_AUTH_BASIS_VALUES,
+  CHAT_EGRESS_STATUS_VALUES,
 } from '../../shared/schemas/chatCopilot.js';
 
 // ============================================================
@@ -2697,6 +2703,9 @@ export const chatConversations = mysqlTable(
     legalHoldReason: text('legalHoldReason'),
     doNotPersist: boolean('doNotPersist').notNull().default(false),
     excludeFromGrounding: boolean('excludeFromGrounding').notNull().default(false),
+    // CHAT-COPILOT-2 G2: external-egress hold. 'no_external' blocks the primary model call AND grounding
+    // egress for this conversation (an NDA / own-confidentiality conversation). Default 'none'.
+    holdFlag: mysqlEnum('holdFlag', CHAT_HOLD_FLAG_VALUES).notNull().default('none'),
     // Inc 2 freeze-on-capacity-divergence (column added now so Inc 2 needs no new migration).
     frozenAt: timestamp('frozenAt'),
     freezeReason: text('freezeReason'),
@@ -2776,3 +2785,62 @@ export const chatSummaries = mysqlTable(
 );
 export type ChatSummary = typeof chatSummaries.$inferSelect;
 export type NewChatSummary = typeof chatSummaries.$inferInsert;
+
+// CHAT-COPILOT-2 Increment A (G1/G3) — the append-only egress audit log. Every copilot egress decision
+// (allowed OR blocked) is written here in the SAME transaction as the gate decision, BY CONSTRUCTION:
+// the broker (src/server/llm/egressClient.ts) cannot dispatch a copilot send without first writing a row.
+// STORE-BY-REFERENCE / no-content: there is deliberately NO column for the prompt/payload, the response,
+// or any NPI value — only metadata + a salted/keyed hash over the MINIMIZED payload (inputBundleHash).
+// Append-only: only the dispatch-outcome fields (status/failureReason/completedAt/token counts) are
+// filled in by a single completion update; the decision + hash + metadata are never mutated. No DB FK
+// (app-layer isolation, codebase convention). Written ONLY when CHAT_COPILOT_ENABLED is ON (default OFF).
+export const chatEgressEvents = mysqlTable(
+  'chat_egress_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    conversationId: char('conversationId', { length: 36 }),
+    messageId: char('messageId', { length: 36 }),
+    gateDecisionId: varchar('gateDecisionId', { length: 128 }),
+    kind: mysqlEnum('kind', CHAT_EGRESS_KIND_VALUES).notNull(),
+    decision: mysqlEnum('decision', CHAT_EGRESS_DECISION_VALUES).notNull(),
+    blockReason: varchar('blockReason', { length: 128 }),
+    allowlistVersion: varchar('allowlistVersion', { length: 128 }),
+    authorizationBasis: mysqlEnum('authorizationBasis', CHAT_EGRESS_AUTH_BASIS_VALUES)
+      .notNull()
+      .default('config_allowlist'),
+    provider: varchar('provider', { length: 64 }).notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    minimizationApplied: boolean('minimizationApplied').notNull().default(false),
+    minimizationProfile: varchar('minimizationProfile', { length: 64 }),
+    // JSON arrays of category labels / ids only — NEVER NPI values.
+    npiCategoriesIncluded: json('npiCategoriesIncluded'),
+    npiCategoriesWithheld: json('npiCategoriesWithheld'),
+    holdHonored: boolean('holdHonored').notNull().default(false),
+    holdExcludedAttachmentIds: json('holdExcludedAttachmentIds'),
+    // Q1 hash-at-gate: salted/keyed hash over the COPILOT-COMPOSED minimized, hold-filtered bundle
+    // (system + any layered master + grounded context + history + turn). NOT the raw payload (a
+    // low-entropy field is not recoverable from the hash). Does NOT yet cover the platform's downstream
+    // matter-state metadata block (documented A1 follow-up — see egressClient EgressAuditContext).
+    inputBundleHash: varchar('inputBundleHash', { length: 128 }),
+    attachmentIds: json('attachmentIds'),
+    region: varchar('region', { length: 64 }),
+    correlationId: char('correlationId', { length: 36 }).notNull(),
+    requestId: varchar('requestId', { length: 128 }),
+    status: mysqlEnum('status', CHAT_EGRESS_STATUS_VALUES).notNull().default('pending'),
+    failureReason: varchar('failureReason', { length: 255 }),
+    includedAttachmentCount: int('includedAttachmentCount').notNull().default(0),
+    npiWithheldCount: int('npiWithheldCount').notNull().default(0),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    completedAt: timestamp('completedAt'),
+  },
+  (table) => ({
+    // Supervision queries (Q7): by matter, by provider, by recency.
+    idxChatEgressMatter: index('idx_chat_egress_matter').on(table.matterId, table.userId, table.createdAt),
+    idxChatEgressProvider: index('idx_chat_egress_provider').on(table.provider, table.createdAt),
+    idxChatEgressConversation: index('idx_chat_egress_conversation').on(table.conversationId, table.createdAt),
+  }),
+);
+export type ChatEgressEvent = typeof chatEgressEvents.$inferSelect;
+export type NewChatEgressEvent = typeof chatEgressEvents.$inferInsert;
