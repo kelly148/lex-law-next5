@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14a (CHAT-COPILOT-1 Inc 3+4 merged — grounding + citations, BUNDLED + FAIL-CLOSED; HALTED after Inc 4; flag OFF, allowlist EMPTY)
+
+**Disposition.** `run batch` of Inc 3+4 (document/materials grounding + source citations, shipped as ONE unit per the triad disposition), auto-merged on green CI per operator pre-authorization **conditional on the fail-closed test passing** (it does). PR #294 squash **6f46434**; `origin/main` = **6f46434**. Builds on merged Inc 1/2. **Code + config only — NO new migration** (reuses Inc 1/2 columns). Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy, zero new reads.
+
+**Fail-closed (the triad HALT, honored structurally).** The grounded-chat **provider allowlist ships EMPTY** (`chatCopilotConfig.GROUNDED_CHAT_PROVIDER_ALLOWLIST`), distinct from general chat. A grounded turn assembles + sends document/material context **only** if the turn's provider is allowlisted; **EMPTY ⇒ grounding INERT ⇒ matter-state-only** (no document/material text leaves the system; byte-for-byte the Inc 2 turn). The const is **never populated in code** (a test-only seam exercises the grounded path). The KEY test passes: empty allowlist ⇒ no doc/material text reaches the model input + the grounding readers are never consulted.
+
+**What shipped.** Grounding reuses the single authoritative `assembleContext` (`chat_turn` added to `OperationType`/`OPERATION_BUDGETS`) with a dynamic-by-mode budget; guaranteed slices first (operative document current version when `documentId` bound, then locked/adopted decisions), then pinned + recency materials; **scoped strictly to the bound matter+document**. **NPI minimization** is deterministic + category-level (material-tag based, NOT probabilistic) — default-withheld categories excluded unless the attorney **affirmatively selects** that material for the turn. **Citation fidelity**: the model gets sourceIds it cannot invent; `parseChatCitations` **rejects** any cited sourceId not in the assembled set (hallucination → dropped, not rendered/persisted); citations persisted **reference-only** (Inc 1 store-by-reference) + surfaced. **No silent truncation** (omitted/truncated/NPI-withheld counts surfaced). **Sensitivity downgrade** (conversation `excludeFromGrounding` → matter-state-only). UI deferred (response payload only). 12 tests; tsc + eslint clean; CI green; **3-lens adversarial review 0 blockers / 0 minors**.
+
+**Build state.** `origin/main` = **6f46434**. **Nothing deployed; flag OFF; allowlist EMPTY → grounding inert in prod.** Local `main` remains the pre-existing diverged/stale checkout (the documented shared-worktree hazard switches the working tree to it after each `--delete-branch`); each increment was built from `origin/main`.
+
+**Operator apply item (unchanged).** ONE additive migration **0033** (auto-applies a future deploy). No new migration in Inc 3+4. No new env var (config only).
+
+**HALTED after Inc 4.** **NEXT — operator-gated:** (a) confirm grounded-chat providers' **written no-train / ZDR / DPA** terms and **populate `GROUNDED_CHAT_PROVIDER_ALLOWLIST`** (this is what activates grounding — do NOT until confirmed); (b) ratify the Part-C config defaults (retention + NPI list + the dynamic budget map); (c) Inc 5 (guided modes) is its own build; promote-to-draft remains a separate future engagement + §3.1 checkpoint. Carried flags: the te-vs-lawfirm within-capacity fast-follow (Inc 2 minor), the Inc 1 per-message conversation-context (pre-existing), and the prior-engagement prod-state correction.
+
+---
+
 ## 2026-06-13e (CHAT-COPILOT-1 Inc 1 + Inc 2 merged — overnight batch; HALTED at Inc 3; flag stays OFF)
 
 **Disposition.** Overnight `run batch` of the §3.1-dispositioned (3/3 APPROVE-WITH-CHANGES) chat copilot, built to the v2 spec. Two increments, each its own PR, **auto-merged on green CI per operator pre-authorization** (Rule 15): **Inc 1** (data model + lifecycle) → PR #291 squash **700f195**; **Inc 2** (persistence + windowed history + master-laundering mitigations) → PR #292 squash **6482690**. `origin/main` = **6482690**. All behind **`CHAT_COPILOT_ENABLED` (default OFF, fail-closed)** → flag-OFF is byte-for-byte legacy with zero reads; the legacy `chatDispatch` path is untouched. **CHAT-COPILOT-1 registered** in the tracker (operator-pre-authorized Rule-11 add); the engagement stays **in_progress**, halted at Inc 3.
