@@ -44,6 +44,10 @@ export const OPERATION_BUDGETS: Record<OperationType, number> = {
   information_request_generation: 60_000,
   outline_generation: 60_000,
   context_preview: 80_000,
+  // CHAT-COPILOT-1 Inc 3+4: base budget for a grounded chat turn. The COPILOT path picks a dynamic
+  // per-mode budget (chatCopilotConfig.chatTurnBudgetForMode) and passes it via budgetOverride; this
+  // base is the fallback when no mode is given. Grounding is INERT unless the provider is allowlisted.
+  chat_turn: 40_000,
 };
 
 /**
@@ -60,7 +64,8 @@ export type OperationType =
   | 'formatting'
   | 'information_request_generation'
   | 'outline_generation'
-  | 'context_preview';
+  | 'context_preview'
+  | 'chat_turn';
 
 // ============================================================
 // Types
