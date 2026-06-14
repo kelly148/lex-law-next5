@@ -322,6 +322,27 @@ export function isMasterOutlineEnabled(): boolean {
 }
 
 /**
+ * Chat copilot — persisted conversations, windowed multi-turn history, grounding/citations, guided
+ * modes (CHAT-COPILOT-1). DEFAULT OFF, fail-closed. Layered ABOVE the existing chat flags
+ * (CHAT_DISPATCH_ENABLED / CHAT_UI_1_ENABLED / MASTER_CHAT_ENABLED).
+ *
+ * When OFF (the default), the chat copilot surface is entirely dormant: no conversation/message/summary
+ * row is read or written, the copilot procedures refuse (PRECONDITION_FAILED), and every existing chat
+ * path is BYTE-FOR-BYTE the CHAT-DISPATCH-1 / CHAT-INJ-1 substrate with ZERO new reads. The three
+ * additive tables (migration 0033) simply sit empty.
+ *
+ * When exactly "true", chat turns persist by-reference (never the compiled master body, raw assembled
+ * context, source chunks, or NPI field values), windowed history is restored across reloads, and every
+ * turn re-runs the FRESH per-turn posture gate from live matter state (persisted masterApplied/
+ * masterSource are audit-only). Grounding + citations (Inc 3) and guided modes (Inc 5) land behind this
+ * SAME flag in later, separately-gated increments. Activation is operator-gated; nothing is client-facing
+ * until the FOLD-L0-1 live-verification bar (per the chat lineage). Not deployed by this build.
+ */
+export function isChatCopilotEnabled(): boolean {
+  return process.env['CHAT_COPILOT_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

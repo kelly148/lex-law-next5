@@ -67,6 +67,9 @@ import {
   promptSnapshots,
   postureProvenance,
   reviewerLanes,
+  chatConversations,
+  chatMessages,
+  chatSummaries,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -194,6 +197,13 @@ export async function purgeMatter(
     // not survival of an operator-gated full-matter purge. Owner-scoped like every other step.
     await step('postureProvenance', postureProvenance, byMatter(postureProvenance));
     await step('reviewerLanes', reviewerLanes, byMatter(reviewerLanes));
+    // CHAT-COPILOT-1 (Inc 1): the matter's persisted chat copilot — messages + summaries (conversation
+    // children, both carry matterId) before the conversations themselves. All purge WITH the matter (the
+    // app-level cascade that stands in for a DB FK; an operator-gated full-matter purge overrides the
+    // per-conversation legal-hold/retention flag, exactly as it overrides auditEvents/postureProvenance).
+    await step('chatMessages', chatMessages, byMatter(chatMessages));
+    await step('chatSummaries', chatSummaries, byMatter(chatSummaries));
+    await step('chatConversations', chatConversations, byMatter(chatConversations));
     // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
     // before documents so no binding row is orphaned by the purge.
     await step('documentParty', documentParty, byMatter(documentParty));

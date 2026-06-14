@@ -39,6 +39,11 @@ import {
 import { sql } from 'drizzle-orm';
 // REVIEWER-ASYNC-DISPLAY-1 (Component C): single source of the reviewer-lane status vocabulary.
 import { REVIEWER_LANE_STATUS_VALUES } from '../../shared/schemas/reviewerLaneState.js';
+// CHAT-COPILOT-1 (Inc 1): single source of the chat-copilot enum vocabularies (kept in sync with the Zod Wall).
+import {
+  CHAT_CONVERSATION_RETENTION_CLASS_VALUES,
+  CHAT_MESSAGE_ROLE_VALUES,
+} from '../../shared/schemas/chatCopilot.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -2663,3 +2668,111 @@ export const reviewerLanes = mysqlTable(
 );
 export type ReviewerLane = typeof reviewerLanes.$inferSelect;
 export type NewReviewerLane = typeof reviewerLanes.$inferInsert;
+
+// ============================================================
+// CHAT-COPILOT-1 (Inc 1) — chat_conversations / chat_messages / chat_summaries
+// ============================================================
+// Persisted matter-scoped chat copilot. Additive (migration 0033); written ONLY when
+// CHAT_COPILOT_ENABLED is ON (default OFF). STORE-BY-REFERENCE by construction: there is NO column for
+// the compiled master body, raw assembled context, source chunks, or NPI field values. Isolation is
+// app-layer (immutable matterId/documentId/capacitySnapshot + ownerScope() + the assertConversationContext
+// guard + capacity-bound summaries); no DB FK (codebase convention; matterPurge cascades in app code).
+export const chatConversations = mysqlTable(
+  'chat_conversations',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // Immutable binding — a conversation belongs to exactly one matter, forever (never updated).
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Immutable / explicitly-versioned document binding (nullable — a conversation need not be doc-bound).
+    documentId: char('documentId', { length: 36 }),
+    documentVersionId: char('documentVersionId', { length: 36 }),
+    title: varchar('title', { length: 256 }),
+    // capacitySnapshot: { engagementCapacity, electionMarker, titleSignal } at conversation start.
+    capacitySnapshot: json('capacitySnapshot').notNull(),
+    retentionClass: mysqlEnum('retentionClass', CHAT_CONVERSATION_RETENTION_CLASS_VALUES)
+      .notNull()
+      .default('active_matter_plus_5y'),
+    legalHold: boolean('legalHold').notNull().default(false),
+    legalHoldReason: text('legalHoldReason'),
+    doNotPersist: boolean('doNotPersist').notNull().default(false),
+    excludeFromGrounding: boolean('excludeFromGrounding').notNull().default(false),
+    // Inc 2 freeze-on-capacity-divergence (column added now so Inc 2 needs no new migration).
+    frozenAt: timestamp('frozenAt'),
+    freezeReason: text('freezeReason'),
+    closedAt: timestamp('closedAt'),
+    exportedAt: timestamp('exportedAt'),
+    exportRef: varchar('exportRef', { length: 255 }),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxChatConversationsMatter: index('idx_chat_conversations_matter').on(table.matterId, table.userId),
+    idxChatConversationsOwner: index('idx_chat_conversations_owner').on(table.userId, table.createdAt),
+  }),
+);
+export type ChatConversation = typeof chatConversations.$inferSelect;
+export type NewChatConversation = typeof chatConversations.$inferInsert;
+
+export const chatMessages = mysqlTable(
+  'chat_messages',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    conversationId: char('conversationId', { length: 36 }).notNull(),
+    seq: int('seq').notNull(),
+    role: mysqlEnum('role', CHAT_MESSAGE_ROLE_VALUES).notNull(),
+    // content: attorney turn text OR model response. NULL on a do-not-persist tombstone. NEVER the
+    // compiled master body or raw assembled context (store-by-reference).
+    content: mediumtext('content'),
+    contentHash: varchar('contentHash', { length: 64 }),
+    // masterApplied / masterSource: AUDIT-ONLY — never short-circuit the fresh per-turn gate.
+    masterApplied: boolean('masterApplied').notNull().default(false),
+    masterSource: varchar('masterSource', { length: 64 }),
+    capacitySnapshot: json('capacitySnapshot'),
+    // draftingGateDecisionId: deterministic hash of the resolveDraftingGate decision at turn time.
+    draftingGateDecisionId: varchar('draftingGateDecisionId', { length: 128 }),
+    // citations: [{ sourceId, locator }] references ONLY (Inc 3 populates) — never copied chunk text.
+    citations: json('citations'),
+    modelProvider: varchar('modelProvider', { length: 64 }),
+    modelId: varchar('modelId', { length: 64 }),
+    doNotPersist: boolean('doNotPersist').notNull().default(false),
+    excludeFromGrounding: boolean('excludeFromGrounding').notNull().default(false),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxChatMessagesConversation: index('idx_chat_messages_conversation').on(table.conversationId, table.seq),
+    idxChatMessagesMatter: index('idx_chat_messages_matter').on(table.matterId, table.userId),
+    uniqChatMessageConversationSeq: uniqueIndex('uniq_chat_message_conversation_seq').on(
+      table.conversationId,
+      table.seq,
+    ),
+  }),
+);
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type NewChatMessage = typeof chatMessages.$inferInsert;
+
+export const chatSummaries = mysqlTable(
+  'chat_summaries',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    conversationId: char('conversationId', { length: 36 }).notNull(),
+    // matter-bound AND capacity-bound; posture is STRUCTURED metadata (never just prose).
+    capacitySnapshot: json('capacitySnapshot').notNull(),
+    posture: json('posture').notNull(),
+    coversFromSeq: int('coversFromSeq').notNull(),
+    coversToSeq: int('coversToSeq').notNull(),
+    summaryText: mediumtext('summaryText').notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxChatSummariesConversation: index('idx_chat_summaries_conversation').on(table.conversationId, table.coversToSeq),
+    idxChatSummariesMatter: index('idx_chat_summaries_matter').on(table.matterId, table.userId),
+  }),
+);
+export type ChatSummary = typeof chatSummaries.$inferSelect;
+export type NewChatSummary = typeof chatSummaries.$inferInsert;

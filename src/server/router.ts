@@ -42,6 +42,7 @@ import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
+import { chatCopilotRouter } from './procedures/chatCopilot.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -96,6 +97,10 @@ export const appRouter = router({
   // CHAT_DISPATCH_ENABLED (default OFF). Routes a chat turn through the canonical chokepoint;
   // no master injection (that is INSTR Phase D). Refuses with PRECONDITION_FAILED when OFF.
   chatDispatch: chatDispatchRouter,
+  // CHAT-COPILOT-1 (Inc 1) — persisted matter-scoped chat copilot lifecycle (create/read/delete/
+  // legal-hold/marks/export), gated behind CHAT_COPILOT_ENABLED (default OFF, refuses when OFF).
+  // Store-by-reference + isolation-guarded; the per-turn persistence path lands in Inc 2.
+  chatCopilot: chatCopilotRouter,
 });
 
 export type AppRouter = typeof appRouter;
