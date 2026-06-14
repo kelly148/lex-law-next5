@@ -317,3 +317,151 @@ export function buildMatterFileExport(
       .map((s) => ({ coversFromSeq: s.coversFromSeq, coversToSeq: s.coversToSeq, summaryText: s.summaryText })),
   };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════
+// Inc 2 — windowed multi-turn history + master-laundering mitigations (all PURE)
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════
+// The triad's adopted defenses against laundering the firm master across persisted memory:
+//   (a) FRESH per-turn gate (the caller recomputes resolveChatMaster from LIVE matter state every turn;
+//       persisted masterApplied/masterSource are AUDIT-ONLY and must never short-circuit it — enforced by
+//       the procedure, which never reads them to decide injection);
+//   (b) FREEZE-on-capacity-divergence (evaluateFreeze);
+//   (c) WINDOW-SCRUB (scrubWindow — exclude master-applied prior turns when the current turn is neutral);
+//   (d) POSTURE-AWARE summaries (selectCompatibleSummaries — never feed a master / cross-capacity summary
+//       into a turn whose posture wouldn't permit it; segmentForSummary never spans a master boundary).
+
+/** The freeze decision for a turn. A frozen (or newly-divergent) conversation refuses further turns. */
+export interface FreezeDecision {
+  freeze: boolean; // a NEW divergence detected this turn -> freeze the thread now
+  alreadyFrozen: boolean; // the conversation was already frozen
+  reason: string | null;
+}
+
+/**
+ * (b) FREEZE-ON-CAPACITY-DIVERGENCE. If the conversation was already frozen, refuse. If the LIVE matter
+ * capacity posture diverges from the conversation's bound snapshot (capacity changed / election flipped /
+ * title signal changed), freeze the thread — the attorney must start a new conversation. This is the
+ * primary laundering defense: a thread cannot continue under a posture different from the one it was born
+ * in, so a master-applied history can never be replayed into a now-different posture.
+ */
+export function evaluateFreeze(
+  conversation: Pick<ChatConversationRow, 'frozenAt' | 'freezeReason' | 'capacitySnapshot'>,
+  liveSnapshot: CapacitySnapshot,
+): FreezeDecision {
+  if (conversation.frozenAt != null) {
+    return { freeze: false, alreadyFrozen: true, reason: conversation.freezeReason ?? 'frozen' };
+  }
+  if (capacitySnapshotsDiverge(conversation.capacitySnapshot, liveSnapshot)) {
+    return { freeze: true, alreadyFrozen: false, reason: 'capacity_divergence' };
+  }
+  return { freeze: false, alreadyFrozen: false, reason: null };
+}
+
+/** A windowable view of a stored turn (subset of ChatMessageRow). */
+export interface WindowMessage {
+  seq: number;
+  role: ChatMessageRole;
+  content: string | null;
+  masterApplied: boolean;
+  doNotPersist: boolean;
+  excludeFromGrounding: boolean;
+  capacitySnapshot: CapacitySnapshot | null;
+}
+
+/**
+ * Last-N windowing: the most recent `limit` turns that actually carry content (tombstoned do-not-persist
+ * turns are skipped). Returned in chronological order. Raw turns remain retrievable elsewhere — this is a
+ * windowing convenience, not a deletion.
+ */
+export function selectHistoryWindow<T extends WindowMessage>(messages: T[], limit: number): T[] {
+  const usable = [...messages].sort((a, b) => a.seq - b.seq).filter((m) => m.content != null && !m.doNotPersist);
+  if (limit <= 0) return [];
+  return usable.slice(Math.max(0, usable.length - limit));
+}
+
+/**
+ * (c) WINDOW-SCRUB. When the CURRENT turn's fresh posture is NEUTRAL (no master), exclude prior
+ * master-applied turns from the window — their representational (firm-counsel) content must never be
+ * replayed into a turn the live gate would not permit a master for. When the current turn IS
+ * master-applied, the same-posture prior turns are kept (a new fresh gate cleared this turn). Returns the
+ * scrubbed window + how many master-applied turns were removed (surfaced as a non-silent signal).
+ */
+export function scrubWindow<T extends WindowMessage>(
+  window: T[],
+  currentMasterApplied: boolean,
+): { window: T[]; scrubbedMasterTurns: number } {
+  if (currentMasterApplied) return { window, scrubbedMasterTurns: 0 };
+  const kept = window.filter((m) => !m.masterApplied);
+  return { window: kept, scrubbedMasterTurns: window.length - kept.length };
+}
+
+/**
+ * (d) POSTURE-AWARE SUMMARY SELECTION. Only feed summaries whose posture is compatible with the current
+ * turn: same masterApplied AND same engagementCapacity. A law-firm (or any master-applied) summary is
+ * NEVER fed into a neutral or different-capacity turn — that would launder the master through the summary.
+ */
+export function selectCompatibleSummaries(
+  summaries: ChatSummaryRow[],
+  current: { masterApplied: boolean; capacitySnapshot: CapacitySnapshot },
+): ChatSummaryRow[] {
+  return summaries.filter(
+    (s) =>
+      s.posture.masterApplied === current.masterApplied &&
+      s.posture.engagementCapacity === current.capacitySnapshot.engagementCapacity,
+  );
+}
+
+/**
+ * (d) POSTURE-AWARE SUMMARY SEGMENTATION. Split a message run into contiguous segments that never cross a
+ * master/non-master boundary (a summary is built per segment, so it never compresses across the boundary).
+ * Each segment is posture-homogeneous on masterApplied.
+ */
+export function segmentForSummary<T extends WindowMessage>(messages: T[]): T[][] {
+  const ordered = [...messages].sort((a, b) => a.seq - b.seq).filter((m) => m.content != null && !m.doNotPersist);
+  const segments: T[][] = [];
+  let current: T[] = [];
+  let posture: boolean | null = null;
+  for (const m of ordered) {
+    if (posture === null || m.masterApplied === posture) {
+      current.push(m);
+      posture = m.masterApplied;
+    } else {
+      if (current.length > 0) segments.push(current);
+      current = [m];
+      posture = m.masterApplied;
+    }
+  }
+  if (current.length > 0) segments.push(current);
+  return segments;
+}
+
+export interface AssembledWindow {
+  windowMessages: WindowMessage[];
+  includedSummaries: ChatSummaryRow[];
+  scrubbedMasterTurns: number;
+}
+
+/**
+ * Assemble the history a turn may see: last-N window -> window-scrub (per the current fresh posture) ->
+ * posture-compatible summaries. Pure; the procedure renders the result for the model and records the
+ * scrubbed-turn count (no silent scrub).
+ */
+export function assembleCopilotWindow(args: {
+  priorMessages: WindowMessage[];
+  summaries: ChatSummaryRow[];
+  currentMasterApplied: boolean;
+  currentCapacitySnapshot: CapacitySnapshot;
+  limit: number;
+}): AssembledWindow {
+  const win = selectHistoryWindow(args.priorMessages, args.limit);
+  const scrubbed = scrubWindow(win, args.currentMasterApplied);
+  const includedSummaries = selectCompatibleSummaries(args.summaries, {
+    masterApplied: args.currentMasterApplied,
+    capacitySnapshot: args.currentCapacitySnapshot,
+  });
+  return {
+    windowMessages: scrubbed.window,
+    includedSummaries,
+    scrubbedMasterTurns: scrubbed.scrubbedMasterTurns,
+  };
+}

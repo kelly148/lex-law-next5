@@ -256,6 +256,27 @@ export async function listConversations(matterId: string, userId: string): Promi
   return store().listConversationsForMatter(matterId, userId, false);
 }
 
+/** Inc 2: posture-aware summaries for a conversation (isolation-guarded). */
+export async function listConversationSummaries(
+  conversationId: string,
+  ctx: ConversationContext,
+): Promise<ChatSummaryRow[]> {
+  await getConversationInContext(conversationId, ctx);
+  return store().listSummaries(conversationId, ctx.userId);
+}
+
+/**
+ * Inc 2: FREEZE a conversation (freeze-on-capacity-divergence). After freezing, the thread refuses
+ * further turns — the attorney must start a new conversation. Idempotent (stamps frozenAt + reason).
+ */
+export async function freezeConversation(
+  conversationId: string,
+  userId: string,
+  reason: string,
+): Promise<ChatConversationRow | null> {
+  return store().patchConversation(conversationId, userId, { frozenAt: new Date(), freezeReason: reason });
+}
+
 export interface AppendMessageArgs {
   conversationId: string;
   ctx: ConversationContext;
