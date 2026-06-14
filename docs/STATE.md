@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-13e (CHAT-COPILOT-1 Inc 1 + Inc 2 merged — overnight batch; HALTED at Inc 3; flag stays OFF)
+
+**Disposition.** Overnight `run batch` of the §3.1-dispositioned (3/3 APPROVE-WITH-CHANGES) chat copilot, built to the v2 spec. Two increments, each its own PR, **auto-merged on green CI per operator pre-authorization** (Rule 15): **Inc 1** (data model + lifecycle) → PR #291 squash **700f195**; **Inc 2** (persistence + windowed history + master-laundering mitigations) → PR #292 squash **6482690**. `origin/main` = **6482690**. All behind **`CHAT_COPILOT_ENABLED` (default OFF, fail-closed)** → flag-OFF is byte-for-byte legacy with zero reads; the legacy `chatDispatch` path is untouched. **CHAT-COPILOT-1 registered** in the tracker (operator-pre-authorized Rule-11 add); the engagement stays **in_progress**, halted at Inc 3.
+
+**Inc 1 — data model + lifecycle.** Migration **0033** (additive `chat_conversations`/`chat_messages`/`chat_summaries`, `CREATE TABLE IF NOT EXISTS`, allowlisted, **no backfill**, **no DB FK** — app-layer isolation + `matterPurge` cascade, matching the codebase's universal no-declared-FK convention) + schema.ts + Zod Wall + flag. **Store-by-reference by construction** (no column for the compiled master body / raw assembled context / source chunks / NPI values; `toPersistableMessage` + `assertPersistableSafe`; reference-only citations; `masterApplied`/`masterSource` **audit-only**). **Isolation invariants** (immutable `matterId`/`documentId`/`capacitySnapshot`, `ownerScope` on every read, the pure `assertConversationContext` guard, capacity-bound summaries). **Lifecycle** (soft-delete with **legal-hold block**, legal-hold, per-turn + per-conversation do-not-persist/exclude-from-grounding, export-to-matter-file). Review hardening: **legal hold also preserves content** (redaction + setting do-not-persist refused under hold). 15 tests; 4-lens adversarial review **0 blockers**.
+
+**Inc 2 — persistence + windowed history + master-laundering mitigations.** Code-only (no new migration). New gated `chatCopilot.submitTurn` + the pure mitigations: **(a)** fresh per-turn gate (`resolveChatMaster` recomputed from the live matter every turn; persisted flags **audit-only**; R4 addendum re-asserted); **(b)** freeze-on-capacity-divergence; **(c)** window-scrub (drop master-applied priors on a neutral turn; no silent scrub); **(d)** posture-aware summaries (never compress across a master boundary; never feed a master/cross-capacity summary into an incompatible turn). Windowed last-N restored across reloads; raw turns retrievable (summaries additive). **History-replay laundering CLOSED.** 10 tests; 3-lens adversarial review **0 blockers**.
+
+**Build state.** `origin/main` = **6482690**. tsc + eslint clean; CI green on both PRs; full local suite = only the 6 pre-existing local-env failures. Local `main` remains the pre-existing diverged/stale checkout — `--delete-branch` switched the working tree to it twice (the documented shared-worktree hazard); each increment was built from `origin/main`. **Nothing deployed; flag OFF.**
+
+**Operator apply item.** ONE additive migration **0033** (auto-applies on a future deploy; Inc 2 added no migration). No new env var beyond the flag.
+
+**HALTED at Inc 3** (grounding+citations) — **HARD HALT** pending operator **provider no-train confirmation** + **NPI list ratification**. Inc 5 + promote-to-draft **not started** (promote removed from this engagement → own future checkpoint).
+
+**Flagged for operator MORNING RATIFICATION.** (a) Part-C config **defaults** — retention (active matter + 5y; export-on-close) + the NPI default-withhold list (`chatCopilotConfig.ts`), built as config; (b) the **no-DB-FK** isolation choice (app-layer, convention-consistent — say if you want DB FKs, a trivial additive follow-up); (c) Inc 2 review **minors** (non-blocking): **te-vs-lawfirm within-capacity** scrub/freeze refinement (a documented fast-follow + posture-boundary policy call — both turns stay within the representational law_firm capacity, never crossing the master/neutral or capacity boundaries the triad named blocking) and the Inc 1 per-message `setMessageExcludeFromGrounding`/`redactMessage` conversation-context assertion (owner-scoped today; no cross-owner leak); (d) the carried prod-state correction from the prior engagement (prod pointer → `f2c61a5`; 0030/0031 applied) still pending.
+
+---
+
 ## 2026-06-13c (CAPACITY-ELECTION-UX merged #289 — the R3 capacity-election residual closed at the DATA layer; flags stay OFF)
 
 **Disposition.** Operator `accept:CAPACITY-ELECTION-UX`; PR #289 CI-green (Lint + Type Check + Tests), squash-merged to `main` as **cd790de**; branch deleted (remote + local). Data-capture for the already-triad-reviewed master-routing (CHAT-INJ-1 + INSTR-2C named this UX as the pre-flag-flip gate); **§3.1 SKIP**, reversible build-and-PR.
