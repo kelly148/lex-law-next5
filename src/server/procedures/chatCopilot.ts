@@ -33,7 +33,7 @@ import {
   exportConversationToMatterFile,
 } from '../db/queries/chatCopilot.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
-import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
+import { PRIMARY_DRAFTER_MODEL, parseModelString } from '../llm/config.js';
 import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
 import { CHAT_TURN_SYSTEM_PROMPT } from './chatDispatch.js';
 import {
@@ -44,6 +44,9 @@ import {
   type WindowMessage,
   type AssembledWindow,
 } from '../llm/chatCopilotPolicy.js';
+import { isGroundedChatProviderAllowed } from '../llm/chatCopilotConfig.js';
+import { assembleGroundedChatContext, parseChatCitations } from '../llm/chatGrounding.js';
+import type { ChatCitation } from '../../shared/schemas/chatCopilot.js';
 
 /** Inc 2: default windowed-history size (last-N turns), overridable per call. */
 const DEFAULT_WINDOW_LIMIT = 12;
@@ -83,6 +86,10 @@ export const chatCopilotRouter = router({
         turnText: z.string().min(1).max(8000),
         windowLimit: z.number().int().min(0).max(100).optional(),
         doNotPersist: z.boolean().optional(),
+        // Inc 3+4: optional mode (dynamic grounding budget) + the attorney's affirmative per-turn
+        // material selection (overrides the default NPI category-level withhold for those materials).
+        mode: z.string().max(32).optional(),
+        selectedMaterialIds: z.array(z.string().uuid()).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -138,6 +145,25 @@ export const chatCopilotRouter = router({
         limit: input.windowLimit ?? DEFAULT_WINDOW_LIMIT,
       });
 
+      // ── Inc 3+4: GROUNDING (FAIL-CLOSED). Eligible ONLY when the turn's provider is on the grounded-chat
+      // allowlist (ships EMPTY) AND the conversation is not sensitivity-downgraded (excludeFromGrounding).
+      // With the default EMPTY allowlist this is ALWAYS false -> NO grounding -> matter-state-only, i.e.
+      // byte-for-byte the Inc 2 turn (no document/material text is assembled or sent). When eligible, the
+      // assembler applies NPI minimization + mints sourceIds the model cannot invent; citations are
+      // validated against that set after the response (a hallucinated sourceId is rejected, not rendered).
+      const provider = parseModelString(PRIMARY_DRAFTER_MODEL).providerId;
+      const groundingEligible = isGroundedChatProviderAllowed(provider) && conv.excludeFromGrounding !== true;
+      const grounding = groundingEligible
+        ? await assembleGroundedChatContext({
+            matterId: input.matterId,
+            userId: ctx.userId,
+            documentId: conv.documentId,
+            mode: input.mode ?? null,
+            selectedMaterialIds: input.selectedMaterialIds ?? [],
+          })
+        : null;
+      const groundedSourceIds = new Set<string>(grounding?.sourceIds ?? []);
+
       // Persist the attorney turn by-reference (store-by-reference + per-turn do-not-persist honored).
       await appendChatMessage({
         conversationId: conv.id,
@@ -156,7 +182,12 @@ export const chatCopilotRouter = router({
       // Model call through the canonical chokepoint. The scrubbed/posture-filtered history is prepended to
       // the user prompt; the master text (with its re-asserted R4 addendum) is layered only when injected.
       const historyText = renderWindow(assembled);
-      const userPrompt = historyText ? `${historyText}\n\n[CURRENT TURN]\nattorney: ${input.turnText}` : input.turnText;
+      const groundedPrefix = grounding && grounding.contextText ? `${grounding.contextText}\n\n` : '';
+      const turnAndHistory = historyText
+        ? `${historyText}\n\n[CURRENT TURN]\nattorney: ${input.turnText}`
+        : input.turnText;
+      // groundedPrefix is '' whenever grounding is inert (the default), so the OFF path is byte-for-byte Inc 2.
+      const userPrompt = groundedPrefix + turnAndHistory;
       let response = '';
       const result = await executeCanonicalMutation({
         userId: ctx.userId,
@@ -179,7 +210,16 @@ export const chatCopilotRouter = router({
         telemetryCtx: { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
       });
 
-      // Persist the assistant response by-reference (masterApplied/masterSource AUDIT-ONLY).
+      // CITATION FIDELITY: validate the model's [[cite:...]] markers against the assembled sourceId set —
+      // a cited sourceId not present is a hallucination and is REJECTED (dropped, not rendered/persisted).
+      // Only meaningful on a grounded turn (no grounding -> no sourceIds -> any citation is rejected/empty).
+      const { citations: validCitations, rejectedCount: rejectedCitationCount }: {
+        citations: ChatCitation[];
+        rejectedCount: number;
+      } = grounding ? parseChatCitations(response, groundedSourceIds) : { citations: [], rejectedCount: 0 };
+
+      // Persist the assistant response by-reference (masterApplied/masterSource AUDIT-ONLY; citations
+      // reference-only — sanitized to sourceId + locator by the Inc 1 store-by-reference projection).
       await appendChatMessage({
         conversationId: conv.id,
         ctx: cctx,
@@ -192,6 +232,7 @@ export const chatCopilotRouter = router({
           draftingGateDecisionId: gateId,
           modelProvider: 'anthropic',
           modelId: PRIMARY_DRAFTER_MODEL,
+          ...(validCitations.length > 0 ? { citations: validCitations } : {}),
           ...(input.doNotPersist === true ? { doNotPersist: true } : {}),
         },
       });
@@ -211,6 +252,17 @@ export const chatCopilotRouter = router({
           included: assembled.windowMessages.length,
           scrubbedMasterTurns: assembled.scrubbedMasterTurns,
           summaries: assembled.includedSummaries.length,
+        },
+        // Inc 3+4: citations (reference-only) + grounding posture surfaced for the future copilot UI.
+        citations: validCitations,
+        rejectedCitationCount,
+        grounding: {
+          grounded: grounding !== null,
+          sources: grounding?.sources.length ?? 0,
+          // No SILENT truncation: omitted materials + truncation + NPI-withheld counts are surfaced.
+          omittedCount: grounding?.omittedCount ?? 0,
+          truncated: grounding?.truncated ?? false,
+          npiWithheldCount: grounding?.npiWithheldCount ?? 0,
         },
       };
     }),

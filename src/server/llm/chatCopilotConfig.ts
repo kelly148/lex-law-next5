@@ -62,3 +62,64 @@ export const NPI_DEFAULT_WITHHELD_CATEGORIES = [
   'full_borrower_seller_npi',
 ] as const;
 export type NpiWithheldCategory = (typeof NPI_DEFAULT_WITHHELD_CATEGORIES)[number];
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════
+// CHAT-COPILOT-1 Inc 3+4 — grounded-chat provider allowlist (FAIL-CLOSED) + dynamic budget
+// ════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Grounded-chat provider allowlist — SHIPS EMPTY (fail-closed). A grounded chat turn may send assembled
+ * document/material context to a provider ONLY if that provider's id (e.g. 'anthropic') is on this list.
+ *
+ * EMPTY => grounding is INERT for EVERY provider: every grounded turn falls back to today's
+ * matter-state-only behavior (no document/material text leaves the system). This is DISTINCT from the
+ * general-chat path — general chat (no grounding) is unaffected by this list.
+ *
+ * DO NOT POPULATE THIS in code. Populating it is a LATER operator config step, taken ONLY after the
+ * operator confirms WRITTEN no-train / no-human-review / bounded-retention (ZDR/enterprise) + DPA terms
+ * for that provider (triad HALT precondition; ABA Op. 512 / VA Rule 1.6 / MD Rule 19-301.6). Until then,
+ * grounded chat does not exist at runtime.
+ */
+export const GROUNDED_CHAT_PROVIDER_ALLOWLIST: readonly string[] = [];
+
+// Test seam ONLY: the prod allowlist const above ships EMPTY and is never populated in code; tests set
+// this override to exercise the grounded path, then reset to null. null (the prod default) => the empty
+// const is used => grounding inert. This does NOT enable grounding in prod.
+let _allowlistOverrideForTests: readonly string[] | null = null;
+export function setGroundedChatProviderAllowlistForTests(list: readonly string[] | null): void {
+  _allowlistOverrideForTests = list;
+}
+
+/** Fail-closed: is this provider id permitted to receive grounded (document/material) chat context? */
+export function isGroundedChatProviderAllowed(providerId: string): boolean {
+  return (_allowlistOverrideForTests ?? GROUNDED_CHAT_PROVIDER_ALLOWLIST).includes(providerId);
+}
+
+/**
+ * Dynamic per-mode token budget for a grounded chat turn (NOT one fixed cap). Defaults are CONFIG,
+ * flagged for operator ratification. 'review'/'analyze' pull more context; a default chat turn is leaner.
+ * The operative document + pinned materials + locked/adopted decisions get their guaranteed slice first
+ * (chatGrounding.assembleGroundedChatContext); this budget bounds the remaining recency-material slice.
+ */
+export const CHAT_TURN_BUDGET_BY_MODE: Readonly<Record<string, number>> = {
+  default: 40_000,
+  draft: 60_000,
+  review: 60_000,
+  analyze: 60_000,
+  outline: 50_000,
+};
+
+export function chatTurnBudgetForMode(mode?: string | null): number {
+  if (mode != null && CHAT_TURN_BUDGET_BY_MODE[mode] != null) return CHAT_TURN_BUDGET_BY_MODE[mode]!;
+  return CHAT_TURN_BUDGET_BY_MODE['default']!;
+}
+
+/**
+ * Deterministic, category-level NPI minimization (NOT probabilistic NLP redaction). A material is
+ * withheld-by-default from grounding iff ANY of its tags matches a default-withheld NPI category. The
+ * attorney can AFFIRMATIVELY select a withheld material for a turn (select-to-send), overriding this.
+ */
+export function materialTagsAreNpiWithheld(tags: readonly string[]): boolean {
+  const withheld = new Set<string>(NPI_DEFAULT_WITHHELD_CATEGORIES);
+  return tags.some((t) => withheld.has(t));
+}
