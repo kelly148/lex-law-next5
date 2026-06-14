@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14c (CHAT-COPILOT-1-GCFG merged — grounding-config env-drive + per-message isolation hardening; fail-closed preserved; flag OFF, grounding inert)
+
+**Disposition.** `run batch CHAT-COPILOT-1-GCFG` — a **reversible config/hardening fast-follow** on the merged copilot, **auto-merged on green CI** per operator pre-authorization (Rule 15, conditional on the fail-closed tests passing — they do). Rides the parent CHAT-COPILOT-1 §3.1 disposition (3/3 APPROVE-WITH-CHANGES); **no re-FIRE** (the grounded-chat allowlist stays FAIL-CLOSED — only *how* it's populated changes). PR **#299** squash **c54bdc4**; `origin/main` = **c54bdc4**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. **No migration, no schema change.** This was a clean **RESUME** after the prior run's PowerShell was killed mid-build (it had pushed nothing); rebuilt FRESH off `origin/main` (the interrupted run's uncommitted partial edits in the shared worktree were surfaced, **not** salvaged).
+
+**(1) Env-drive the grounded-chat provider allowlist.** The allowlist is now sourced from a **new env var `GROUNDED_CHAT_PROVIDERS`** (comma-separated provider ids → `parseGroundedChatProviders()`: split, trim, lowercase, drop empties), replacing the hardcoded-empty `GROUNDED_CHAT_PROVIDER_ALLOWLIST` const. **FAIL-CLOSED PRESERVED**: absent / empty / whitespace-only / unparseable ⇒ allowlist `[]` ⇒ no provider grounding-eligible ⇒ **no document/material text leaves the system**. `isGroundedChatProviderAllowed` stays the single chokepoint (now normalizing the query id); the test seam is preserved.
+
+**(2) Observability.** One **non-secret** startup line — `grounded-chat: OFF (allowlist empty)` / `ON (providers: …)` — so the operator can confirm grounded-chat state from logs. No secrets / NPI / document text.
+
+**(3) Isolation hardening.** `setMessageExcludeFromGrounding` + `redactMessage` now take `matterId` and assert the message's conversation matches the caller's **owner + matter CONTEXT** (`assertConversationContext`), not owner-scope alone — wrong matter (same owner) or wrong owner ⇒ `NOT_FOUND`. This **closes the Inc 1 per-message conversation-context carryforward**. Procedures + `CopilotThread` client call-sites + existing Inc-1 call-sites updated.
+
+**New operator switch.** **`GROUNDED_CHAT_PROVIDERS`** is the grounding ON/OFF switch — **UNSET on prod keeps grounding inert**; set to confirmed provider ids (only after written no-train / ZDR / DPA per provider) to activate. This **supersedes** the prior "populate the `GROUNDED_CHAT_PROVIDER_ALLOWLIST` const" activation step. No other new env var.
+
+**Build state.** `origin/main` = **c54bdc4**. 8 files (+244/−26); tsc + eslint clean; **CI green**; the new `chat_copilot_1_gcfg.test.ts` suite + the Inc 3+4 KEY fail-closed test pass; **3-lens adversarial review: 0 blockers** (3 benign nits — one drove the inc34 test-hermeticity hardening). The `.claude/settings.json` permission edits and untracked docs in the shared worktree were left untouched (not part of this engagement).
+
+**HALTED (STOP after build). Grounding still inert (env unset); fail-closed preserved; nothing deployed; `CHAT_COPILOT_ENABLED` still OFF.** CHAT-COPILOT-1 stays `in_progress` (build complete through Inc 5 + GCFG; `in_progress → completed` remains the operator's flagged-not-made acceptance call). NEXT — all operator-gated: set `GROUNDED_CHAT_PROVIDERS` on prod to activate grounding; ratify Part-C config defaults; deploy (migration 0033 + flag flip); promote-to-draft as a future FIRE engagement.
+
+---
+
 ## 2026-06-14b (CHAT-COPILOT-1 Copilot UI + Inc 5 merged — BUILD COMPLETE through Inc 5; HALTED; flag OFF, grounding inert)
 
 **Disposition.** `run batch` of the Copilot UI increment + Inc 5 (guided modes + refine), each its own PR, **auto-merged on green CI** per operator pre-authorization. Both **display + wiring of the already-built, triad-reviewed Inc 1–4 backend** — no new load-bearing decision, ride the parent §3.1 disposition (no re-FIRE). Copilot UI → PR #296 squash **0755c88**; Inc 5 → PR #297 squash **1a2d81d**; `origin/main` = **1a2d81d**. Both behind **`CHAT_COPILOT_ENABLED` (default OFF)**; **no server/schema change, no migration**.
