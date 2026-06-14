@@ -179,13 +179,13 @@ describe('CHAT-COPILOT-1 Inc 1 — lifecycle', () => {
     const conv = await createConversation({ userId: U1, matterId: MATTER_A, matter: lawFirmElected });
     const msg = await appendChatMessage({ conversationId: conv.id, ctx: { userId: U1, matterId: MATTER_A }, turn: turn({ text: 'preserve me' }) });
     await setLegalHold(conv.id, U1, true, 'litigation hold');
-    await expect(redactMessage(msg.id, U1)).rejects.toThrow(/LEGAL_HOLD/);
+    await expect(redactMessage(msg.id, U1, MATTER_A)).rejects.toThrow(/LEGAL_HOLD/);
     await expect(setConversationMark(conv.id, U1, { doNotPersist: true })).rejects.toThrow(/LEGAL_HOLD/);
     // exclude-from-grounding preserves content (only withholds from grounding) -> allowed under hold
     await expect(setConversationMark(conv.id, U1, { excludeFromGrounding: true })).resolves.toBeTruthy();
     // once the hold clears, redaction works again
     await setLegalHold(conv.id, U1, false);
-    const redacted = await redactMessage(msg.id, U1);
+    const redacted = await redactMessage(msg.id, U1, MATTER_A);
     expect(redacted?.content).toBeNull();
   });
 
@@ -240,10 +240,10 @@ describe('CHAT-COPILOT-1 Inc 1 — do-not-persist + exclude-from-grounding', () 
   it('per-turn exclude-from-grounding can be set post-hoc, and a stored turn can be redacted', async () => {
     const conv = await createConversation({ userId: U1, matterId: MATTER_A, matter: lawFirmElected });
     const msg = await appendChatMessage({ conversationId: conv.id, ctx: { userId: U1, matterId: MATTER_A }, turn: turn({ text: 'keep but exclude' }) });
-    const excluded = await setMessageExcludeFromGrounding(msg.id, U1, true);
+    const excluded = await setMessageExcludeFromGrounding(msg.id, U1, MATTER_A, true);
     expect(excluded?.excludeFromGrounding).toBe(true);
     expect(excluded?.content).toBe('keep but exclude'); // still stored
-    const redacted = await redactMessage(msg.id, U1);
+    const redacted = await redactMessage(msg.id, U1, MATTER_A);
     expect(redacted?.content).toBeNull();
     expect(redacted?.doNotPersist).toBe(true);
   });

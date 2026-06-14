@@ -373,22 +373,37 @@ export async function setConversationMark(
 export async function setMessageExcludeFromGrounding(
   messageId: string,
   userId: string,
+  matterId: string,
   on: boolean,
 ): Promise<ChatMessageRow | null> {
   const msg = await store().getMessage(messageId, userId);
   if (!msg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
+  // CHAT-COPILOT-1-GCFG isolation hardening: the message's conversation must match the caller's owner +
+  // matter CONTEXT (not owner-scope alone) — a same-owner message from a DIFFERENT matter is rejected
+  // (NOT_FOUND), mirroring assertConversationContext on every other conversation use.
+  const conv = await store().getConversation(msg.conversationId, userId);
+  if (!conv) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversation not found' });
+  assertConversationContext(conv, { userId, matterId });
   return store().patchMessage(messageId, userId, { excludeFromGrounding: on });
 }
 
 /** Per-turn do-not-persist applied POST-HOC: redact a stored turn's content (tombstone) on attorney request. */
-export async function redactMessage(messageId: string, userId: string): Promise<ChatMessageRow | null> {
+export async function redactMessage(
+  messageId: string,
+  userId: string,
+  matterId: string,
+): Promise<ChatMessageRow | null> {
   const msg = await store().getMessage(messageId, userId);
   if (!msg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found' });
+  const conv = await store().getConversation(msg.conversationId, userId);
+  if (!conv) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversation not found' });
+  // CHAT-COPILOT-1-GCFG isolation hardening: owner + matter CONTEXT (not owner-scope alone) — a
+  // same-owner message bound to a DIFFERENT matter is rejected (NOT_FOUND) before any redaction.
+  assertConversationContext(conv, { userId, matterId });
   // CHAT-COPILOT-1 (review hardening): legal hold PRESERVES content — a held conversation's stored turns
   // cannot be destroyed by redaction (mirrors the soft-delete hold gate, so a hold cannot be defeated by
   // attorney redaction). Flagged for operator ratification.
-  const conv = await store().getConversation(msg.conversationId, userId);
-  if (conv && !canDeleteConversation(conv).ok) {
+  if (!canDeleteConversation(conv).ok) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'LEGAL_HOLD' });
   }
   return store().patchMessage(messageId, userId, {

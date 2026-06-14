@@ -362,17 +362,19 @@ export const chatCopilotRouter = router({
     }),
 
   setMessageExcludeFromGrounding: protectedProcedure
-    .input(z.object({ messageId: z.string().uuid(), on: z.boolean() }))
+    // matterId binds the per-message op to the caller's matter CONTEXT (isolation hardening, not owner-scope alone).
+    .input(z.object({ messageId: z.string().uuid(), matterId: z.string().uuid(), on: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       assertChatCopilotEnabled();
-      return setMessageExcludeFromGrounding(input.messageId, ctx.userId, input.on);
+      return setMessageExcludeFromGrounding(input.messageId, ctx.userId, input.matterId, input.on);
     }),
 
   redactMessage: protectedProcedure
-    .input(z.object({ messageId: z.string().uuid() }))
+    // matterId binds the per-message op to the caller's matter CONTEXT (isolation hardening, not owner-scope alone).
+    .input(z.object({ messageId: z.string().uuid(), matterId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       assertChatCopilotEnabled();
-      return redactMessage(input.messageId, ctx.userId);
+      return redactMessage(input.messageId, ctx.userId, input.matterId);
     }),
 
   exportToMatterFile: protectedProcedure
