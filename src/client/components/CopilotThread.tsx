@@ -58,6 +58,52 @@ interface ThreadMessage {
   excludeFromGrounding: boolean;
 }
 
+// ── Inc 5 — guided modes + one-click refine ────────────────────────────────────────────────────────
+export type GuidedMode = 'draft' | 'review' | 'analyze' | 'outline';
+export const GUIDED_MODES: ReadonlyArray<{ key: GuidedMode; label: string }> = [
+  { key: 'draft', label: 'Draft' },
+  { key: 'review', label: 'Review' },
+  { key: 'analyze', label: 'Analyze' },
+  { key: 'outline', label: 'Outline' },
+];
+
+export interface GuidedInputs {
+  audience: string;
+  jurisdiction: string;
+  documentRef: string;
+  posture: string;
+  deliverable: string;
+  clientSendable: boolean;
+}
+const EMPTY_GUIDED: GuidedInputs = { audience: '', jurisdiction: '', documentRef: '', posture: '', deliverable: '', clientSendable: false };
+
+/**
+ * Build a STRUCTURED turn from a guided mode + the collected inputs (not just a prompt swap): the mode
+ * and the answered fields are folded into the turn text, and the mode is ALSO passed to submitTurn (the
+ * server already keys grounding budget on it). "Client-sendable language requested" is an INPUT to the
+ * drafting register — it never makes the output client-ready (this surface produces internal work product
+ * only; there is no send/finalize/promote affordance).
+ */
+export function buildGuidedTurn(mode: GuidedMode, inputs: GuidedInputs, freeText: string): string {
+  const lines: string[] = [`[Guided ${mode}]`];
+  if (inputs.audience.trim()) lines.push(`Audience: ${inputs.audience.trim()}`);
+  if (inputs.jurisdiction.trim()) lines.push(`Jurisdiction: ${inputs.jurisdiction.trim()}`);
+  if (inputs.documentRef.trim()) lines.push(`Document/version: ${inputs.documentRef.trim()}`);
+  if (inputs.posture.trim()) lines.push(`Posture: ${inputs.posture.trim()}`);
+  if (inputs.deliverable.trim()) lines.push(`Deliverable: ${inputs.deliverable.trim()}`);
+  lines.push(`Client-sendable language requested: ${inputs.clientSendable ? 'yes' : 'no'}`);
+  lines.push('', freeText.trim());
+  return lines.join('\n');
+}
+
+/** The one-click refine follow-up instructions. Each issues a follow-up turn (keeping the active mode). */
+export const REFINE_ACTIONS: ReadonlyArray<{ key: string; label: string; instruction: string }> = [
+  { key: 'expand', label: 'Expand', instruction: 'Refine the previous response: expand it with more detail and supporting analysis.' },
+  { key: 'shorten', label: 'Shorten', instruction: 'Refine the previous response: make it more concise without losing any controlling point.' },
+  { key: 'cite', label: 'Add citations', instruction: 'Refine the previous response: add a source citation for each factual claim that is grounded in the matter sources.' },
+  { key: 'rephrase', label: 'Rephrase for audience', instruction: 'Refine the previous response: rephrase it for the stated audience and register.' },
+];
+
 export default function CopilotThread({ conversation, matterId, onRefetch, onDeleted }: CopilotThreadProps): React.ReactElement {
   const utils = trpc.useUtils();
   const conversationId = conversation.id;
@@ -69,20 +115,40 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
   const [error, setError] = useState<string | null>(null);
   const [frozen, setFrozen] = useState<boolean>(conversation.frozenAt != null);
   const [signals, setSignals] = useState<TurnSignals | null>(null);
+  // Inc 5: the active guided mode (null = freeform) + the collected inputs.
+  const [mode, setMode] = useState<GuidedMode | null>(null);
+  const [guided, setGuided] = useState<GuidedInputs>(EMPTY_GUIDED);
   const inFlight = useRef(false);
+
+  /** Select/clear a guided mode. Review auto-binds the operative document when the conversation is doc-bound. */
+  const chooseMode = (next: GuidedMode | null): void => {
+    setMode(next);
+    if (next === 'review' && conversation.documentId != null) {
+      setGuided((g) => ({ ...g, documentRef: g.documentRef || 'operative document (current version)' }));
+    }
+  };
 
   const refreshMessages = (): void => {
     void utils.chatCopilot.messages.invalidate({ conversationId, matterId });
   };
 
   const handleSend = async (over?: { textOverride?: string }): Promise<void> => {
-    const text = (over?.textOverride ?? turnText).trim();
-    if (!text || inFlight.current || frozen) return;
+    const raw = (over?.textOverride ?? turnText).trim();
+    if (!raw || inFlight.current || frozen) return;
+    // A refine action passes textOverride (already a full instruction). A fresh guided turn folds the
+    // collected inputs into a structured turn (Inc 5). The active mode is passed to submitTurn either way.
+    const isRefine = over?.textOverride !== undefined;
+    const text = mode !== null && !isRefine ? buildGuidedTurn(mode, guided, raw) : raw;
     inFlight.current = true;
     setPending(true);
     setError(null);
     try {
-      const data = await utils.client.chatCopilot.submitTurn.mutate({ conversationId, matterId, turnText: text });
+      const data = await utils.client.chatCopilot.submitTurn.mutate({
+        conversationId,
+        matterId,
+        turnText: text,
+        ...(mode !== null ? { mode } : {}),
+      });
       setSignals({
         notice: data.master?.notice ?? null,
         scrubbedMasterTurns: data.window?.scrubbedMasterTurns ?? 0,
@@ -250,6 +316,57 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
 
       {/* Composer */}
       <div className="border-t border-line px-4 py-3">
+        {/* Inc 5 — guided modes: select a mode, collect inputs, and pass the mode to submitTurn (not just
+            a prompt swap). Review auto-binds the operative document when the conversation is doc-bound. */}
+        <div data-testid="copilot-modes" className="mb-2 flex flex-wrap items-center gap-1">
+          <span className="text-xs text-ink-hint">Mode:</span>
+          {GUIDED_MODES.map((gm) => (
+            <button
+              key={gm.key}
+              data-testid={`copilot-mode-${gm.key}`}
+              type="button"
+              onClick={() => chooseMode(mode === gm.key ? null : gm.key)}
+              className={`rounded border px-2 py-0.5 text-xs ${mode === gm.key ? 'border-accent bg-accent/10 text-ink' : 'border-line text-ink-secondary hover:bg-surface-2'}`}
+            >
+              {gm.label}
+            </button>
+          ))}
+          {mode !== null && (
+            <button data-testid="copilot-mode-clear" type="button" onClick={() => chooseMode(null)} className="ml-1 text-xs text-ink-hint underline-offset-2 hover:underline">
+              freeform
+            </button>
+          )}
+        </div>
+        {mode !== null && (
+          <div data-testid="copilot-guided-form" className="mb-2 grid grid-cols-2 gap-2">
+            <input data-testid="copilot-guided-audience" value={guided.audience} onChange={(e) => setGuided((g) => ({ ...g, audience: e.target.value }))} placeholder="Audience (e.g. court, client)" className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <input data-testid="copilot-guided-jurisdiction" value={guided.jurisdiction} onChange={(e) => setGuided((g) => ({ ...g, jurisdiction: e.target.value }))} placeholder="Jurisdiction (VA / MD)" className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <input data-testid="copilot-guided-document" value={guided.documentRef} onChange={(e) => setGuided((g) => ({ ...g, documentRef: e.target.value }))} placeholder="Document / version" className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <input data-testid="copilot-guided-deliverable" value={guided.deliverable} onChange={(e) => setGuided((g) => ({ ...g, deliverable: e.target.value }))} placeholder="Deliverable" className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <input data-testid="copilot-guided-posture" value={guided.posture} onChange={(e) => setGuided((g) => ({ ...g, posture: e.target.value }))} placeholder="Posture" className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+              <input data-testid="copilot-guided-clientsendable" type="checkbox" checked={guided.clientSendable} onChange={(e) => setGuided((g) => ({ ...g, clientSendable: e.target.checked }))} />
+              Client-sendable language requested
+            </label>
+          </div>
+        )}
+        {messages.length > 0 && !frozen && (
+          <div data-testid="copilot-refine" className="mb-2 flex flex-wrap items-center gap-1">
+            <span className="text-xs text-ink-hint">Refine:</span>
+            {REFINE_ACTIONS.map((ra) => (
+              <button
+                key={ra.key}
+                data-testid={`copilot-refine-${ra.key}`}
+                type="button"
+                disabled={pending}
+                onClick={() => void handleSend({ textOverride: ra.instruction })}
+                className="rounded border border-line px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+              >
+                {ra.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <textarea
             data-testid="copilot-input"
