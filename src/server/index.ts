@@ -28,6 +28,7 @@ import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.j
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
 import { validateLlmConfig } from './llm/config.js';
+import { groundedChatStatusLine } from './llm/chatCopilotConfig.js';
 import { loadPromptAssets } from './llm/promptAssets.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
 import { getSession, extractUserId } from './middleware/session.js';
@@ -53,6 +54,11 @@ import { resolveRootServe } from './landingRoot.js';
 // with a misconfigured model whitelist.
 // ============================================================
 validateLlmConfig();
+
+// CHAT-COPILOT-1-GCFG: one NON-SECRET startup line so the operator can confirm grounded-chat state
+// from logs. OFF (the default — env GROUNDED_CHAT_PROVIDERS unset) means grounding is inert: no
+// document/material context leaves the system. No secrets / NPI / document text is ever logged.
+console.log(`[startup] ${groundedChatStatusLine()}`);
 
 // INSTR-1A0: load + hash-validate the committed prompt assets (prompts/manifest.json).
 // Fail fast and LOUDLY on a missing file or SHA-256 mismatch — a silently-drifted master

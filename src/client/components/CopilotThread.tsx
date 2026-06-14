@@ -271,7 +271,7 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                     <button
                       data-testid="copilot-redact"
                       type="button"
-                      onClick={() => void runLifecycle(() => { const p = utils.client.chatCopilot.redactMessage.mutate({ messageId: m.id }); refreshMessages(); return p; })}
+                      onClick={() => void runLifecycle(() => { const p = utils.client.chatCopilot.redactMessage.mutate({ messageId: m.id, matterId }); refreshMessages(); return p; })}
                       className="text-xs text-ink-hint underline-offset-2 hover:underline"
                     >
                       Redact
@@ -279,7 +279,7 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                     <button
                       data-testid="copilot-msg-exclude"
                       type="button"
-                      onClick={() => void runLifecycle(() => utils.client.chatCopilot.setMessageExcludeFromGrounding.mutate({ messageId: m.id, on: !m.excludeFromGrounding }))}
+                      onClick={() => void runLifecycle(() => utils.client.chatCopilot.setMessageExcludeFromGrounding.mutate({ messageId: m.id, matterId, on: !m.excludeFromGrounding }))}
                       className="text-xs text-ink-hint underline-offset-2 hover:underline"
                     >
                       {m.excludeFromGrounding ? 'Re-include in grounding' : 'Exclude from grounding'}

@@ -68,23 +68,39 @@ export type NpiWithheldCategory = (typeof NPI_DEFAULT_WITHHELD_CATEGORIES)[numbe
 // ════════════════════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * Grounded-chat provider allowlist — SHIPS EMPTY (fail-closed). A grounded chat turn may send assembled
- * document/material context to a provider ONLY if that provider's id (e.g. 'anthropic') is on this list.
+ * Grounded-chat provider allowlist — sourced from the env var GROUNDED_CHAT_PROVIDERS, FAIL-CLOSED. A
+ * grounded chat turn may send assembled document/material context to a provider ONLY if that provider's
+ * id (e.g. 'anthropic') is on this list.
  *
- * EMPTY => grounding is INERT for EVERY provider: every grounded turn falls back to today's
- * matter-state-only behavior (no document/material text leaves the system). This is DISTINCT from the
+ * GROUNDED_CHAT_PROVIDERS is a comma-separated list of provider ids ("anthropic,openai"), trimmed +
+ * lowercased, empties dropped. ABSENT / empty / whitespace-only / unparseable => the allowlist is []
+ * (no provider allowed) => grounding is INERT for EVERY provider: every grounded turn falls back to
+ * today's matter-state-only behavior (no document/material text leaves the system). DISTINCT from the
  * general-chat path — general chat (no grounding) is unaffected by this list.
  *
- * DO NOT POPULATE THIS in code. Populating it is a LATER operator config step, taken ONLY after the
- * operator confirms WRITTEN no-train / no-human-review / bounded-retention (ZDR/enterprise) + DPA terms
- * for that provider (triad HALT precondition; ABA Op. 512 / VA Rule 1.6 / MD Rule 19-301.6). Until then,
- * grounded chat does not exist at runtime.
+ * This env var is the operator's grounding ON/OFF SWITCH. DO NOT set it in code or here — populating it
+ * is a LATER operator config step on prod, taken ONLY after the operator confirms WRITTEN no-train /
+ * no-human-review / bounded-retention (ZDR/enterprise) + DPA terms for that provider (triad HALT
+ * precondition; ABA Op. 512 / VA Rule 1.6 / MD Rule 19-301.6). Default / dev = unset = inert.
  */
-export const GROUNDED_CHAT_PROVIDER_ALLOWLIST: readonly string[] = [];
+export const GROUNDED_CHAT_PROVIDERS_ENV = 'GROUNDED_CHAT_PROVIDERS';
 
-// Test seam ONLY: the prod allowlist const above ships EMPTY and is never populated in code; tests set
-// this override to exercise the grounded path, then reset to null. null (the prod default) => the empty
-// const is used => grounding inert. This does NOT enable grounding in prod.
+/**
+ * Parse the grounded-chat provider allowlist from GROUNDED_CHAT_PROVIDERS. FAIL-CLOSED: a non-string
+ * (absent), empty, whitespace-only, or otherwise unparseable value yields [] (no provider allowed).
+ */
+export function parseGroundedChatProviders(): string[] {
+  const raw = process.env[GROUNDED_CHAT_PROVIDERS_ENV];
+  if (typeof raw !== 'string') return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+}
+
+// Test seam ONLY: the prod allowlist is env-sourced (GROUNDED_CHAT_PROVIDERS) and ships inert (env unset).
+// Tests set this override to exercise the grounded path, then reset to null. null (the prod default) =>
+// the env-parsed value is used => grounding inert when the env is unset. This does NOT enable grounding in prod.
 let _allowlistOverrideForTests: readonly string[] | null = null;
 export function setGroundedChatProviderAllowlistForTests(list: readonly string[] | null): void {
   _allowlistOverrideForTests = list;
@@ -92,7 +108,20 @@ export function setGroundedChatProviderAllowlistForTests(list: readonly string[]
 
 /** Fail-closed: is this provider id permitted to receive grounded (document/material) chat context? */
 export function isGroundedChatProviderAllowed(providerId: string): boolean {
-  return (_allowlistOverrideForTests ?? GROUNDED_CHAT_PROVIDER_ALLOWLIST).includes(providerId);
+  const allow = _allowlistOverrideForTests ?? parseGroundedChatProviders();
+  return allow.includes(providerId.trim().toLowerCase());
+}
+
+/**
+ * A single NON-SECRET status line for startup/observability so the operator can confirm grounded-chat
+ * state from logs. Reports ON/OFF + the (non-secret) provider ids only — NEVER secrets, NPI, or document
+ * text. Honors the test seam so a test can assert both states.
+ */
+export function groundedChatStatusLine(): string {
+  const providers = _allowlistOverrideForTests ?? parseGroundedChatProviders();
+  return providers.length === 0
+    ? 'grounded-chat: OFF (allowlist empty)'
+    : `grounded-chat: ON (providers: ${providers.join(', ')})`;
 }
 
 /**

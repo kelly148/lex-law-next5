@@ -50,6 +50,20 @@ const MAT_NPI = 'c2222222-2222-2222-2222-222222222222';
 const MAT_EMPTY = 'c3333333-3333-3333-3333-333333333333';
 const lawFirmElected = { engagementCapacity: 'law_firm', engagementCapacityElectedAt: new Date('2026-06-13T00:00:00Z'), paKey: null, practiceArea: null };
 
+// CHAT-COPILOT-1-GCFG: the grounded-chat allowlist is now env-driven (GROUNDED_CHAT_PROVIDERS). Make every
+// test in this file HERMETIC w.r.t. that env var so the KEY fail-closed assertions (empty allowlist => no
+// document/material text leaves the system) hold by construction regardless of any ambient env. The test
+// seam (setGroundedChatProviderAllowlistForTests) still takes precedence, so seam-driven tests are unaffected.
+let _savedGroundedEnv: string | undefined;
+beforeEach(() => {
+  _savedGroundedEnv = process.env.GROUNDED_CHAT_PROVIDERS;
+  delete process.env.GROUNDED_CHAT_PROVIDERS;
+});
+afterEach(() => {
+  if (_savedGroundedEnv === undefined) delete process.env.GROUNDED_CHAT_PROVIDERS;
+  else process.env.GROUNDED_CHAT_PROVIDERS = _savedGroundedEnv;
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PURE
 // ─────────────────────────────────────────────────────────────────────────────
