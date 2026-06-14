@@ -22,6 +22,9 @@ import {
   getConversationInContext,
   listConversations,
   listMessages,
+  listConversationSummaries,
+  appendChatMessage,
+  freezeConversation,
   softDeleteConversation,
   setLegalHold,
   setConversationMark,
@@ -29,6 +32,35 @@ import {
   redactMessage,
   exportConversationToMatterFile,
 } from '../db/queries/chatCopilot.js';
+import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
+import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
+import { CHAT_TURN_SYSTEM_PROMPT } from './chatDispatch.js';
+import {
+  buildCapacitySnapshot,
+  evaluateFreeze,
+  assembleCopilotWindow,
+  draftingGateDecisionId,
+  type WindowMessage,
+  type AssembledWindow,
+} from '../llm/chatCopilotPolicy.js';
+
+/** Inc 2: default windowed-history size (last-N turns), overridable per call. */
+const DEFAULT_WINDOW_LIMIT = 12;
+
+/** Render the posture-compatible summaries + scrubbed window into a text block for the model. */
+function renderWindow(assembled: AssembledWindow): string {
+  const parts: string[] = [];
+  if (assembled.includedSummaries.length > 0) {
+    parts.push('[CONVERSATION SUMMARY]');
+    for (const s of assembled.includedSummaries) parts.push(s.summaryText);
+  }
+  if (assembled.windowMessages.length > 0) {
+    parts.push('[PRIOR TURNS]');
+    for (const m of assembled.windowMessages) parts.push(`${m.role}: ${m.content ?? ''}`);
+  }
+  return parts.join('\n');
+}
 
 function assertChatCopilotEnabled(): void {
   if (!isChatCopilotEnabled()) {
@@ -39,6 +71,149 @@ function assertChatCopilotEnabled(): void {
 export const chatCopilotRouter = router({
   // Ungated flag read so a future composer can decide whether to render the copilot surface.
   isEnabled: protectedProcedure.query(() => ({ enabled: isChatCopilotEnabled() })),
+
+  // ============================================================
+  // Inc 2 — submitTurn: persisted, windowed, fresh-per-turn-gated chat turn with the laundering mitigations.
+  // ============================================================
+  submitTurn: protectedProcedure
+    .input(
+      z.object({
+        conversationId: z.string().uuid(),
+        matterId: z.string().uuid(),
+        turnText: z.string().min(1).max(8000),
+        windowLimit: z.number().int().min(0).max(100).optional(),
+        doNotPersist: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertChatCopilotEnabled();
+      // LIVE matter (owner-scoped). The whole turn re-derives posture from this — never from stored flags.
+      const matter = await getMatterById(input.matterId, ctx.userId);
+      if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      const cctx = { userId: ctx.userId, matterId: input.matterId };
+      const conv = await getConversationInContext(input.conversationId, cctx); // isolation guard
+
+      // (b) FREEZE-ON-CAPACITY-DIVERGENCE. A thread cannot continue under a posture different from the one
+      // it was born in — the primary defense against replaying a master-applied history into a new posture.
+      const liveSnapshot = buildCapacitySnapshot(matter);
+      const freeze = evaluateFreeze(conv, liveSnapshot);
+      if (freeze.alreadyFrozen) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONVERSATION_FROZEN' });
+      }
+      if (freeze.freeze) {
+        await freezeConversation(conv.id, ctx.userId, freeze.reason ?? 'capacity_divergence');
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONVERSATION_FROZEN_CAPACITY_DIVERGENCE' });
+      }
+
+      // (a) FRESH per-turn gate — recompute principal + capacity + election + title-signal + the conflict
+      // gate from LIVE matter state EVERY turn. Persisted masterApplied/masterSource are AUDIT-ONLY and are
+      // never read to decide injection. The non-suppressible R4 addendum is re-asserted inside the decision.
+      const chat = await resolveChatMaster({
+        matterId: input.matterId,
+        userId: ctx.userId,
+        matter,
+        principal: { userId: ctx.userId },
+      });
+      const currentMasterApplied = chat.inject;
+      const gateId = draftingGateDecisionId({ allowed: chat.inject, clearance: { state: chat.reason } });
+
+      // Windowed history: last-N -> (c) window-scrub (drop master-applied priors when this turn is neutral)
+      // -> (d) posture-compatible summaries only. No silent scrub — the scrubbed count is returned.
+      const prior = await listMessages(input.conversationId, cctx);
+      const summaries = await listConversationSummaries(input.conversationId, cctx);
+      const window: WindowMessage[] = prior.map((m) => ({
+        seq: m.seq,
+        role: m.role,
+        content: m.content,
+        masterApplied: m.masterApplied,
+        doNotPersist: m.doNotPersist,
+        excludeFromGrounding: m.excludeFromGrounding,
+        capacitySnapshot: m.capacitySnapshot,
+      }));
+      const assembled = assembleCopilotWindow({
+        priorMessages: window,
+        summaries,
+        currentMasterApplied,
+        currentCapacitySnapshot: liveSnapshot,
+        limit: input.windowLimit ?? DEFAULT_WINDOW_LIMIT,
+      });
+
+      // Persist the attorney turn by-reference (store-by-reference + per-turn do-not-persist honored).
+      await appendChatMessage({
+        conversationId: conv.id,
+        ctx: cctx,
+        turn: {
+          role: 'attorney',
+          text: input.turnText,
+          masterApplied: currentMasterApplied,
+          masterSource: chat.source,
+          capacitySnapshot: liveSnapshot,
+          draftingGateDecisionId: gateId,
+          ...(input.doNotPersist === true ? { doNotPersist: true } : {}),
+        },
+      });
+
+      // Model call through the canonical chokepoint. The scrubbed/posture-filtered history is prepended to
+      // the user prompt; the master text (with its re-asserted R4 addendum) is layered only when injected.
+      const historyText = renderWindow(assembled);
+      const userPrompt = historyText ? `${historyText}\n\n[CURRENT TURN]\nattorney: ${input.turnText}` : input.turnText;
+      let response = '';
+      const result = await executeCanonicalMutation({
+        userId: ctx.userId,
+        jobType: 'chat_turn',
+        modelString: PRIMARY_DRAFTER_MODEL,
+        matterId: input.matterId,
+        ...(chat.layeredMasterText !== null ? { chatMasterText: chat.layeredMasterText } : {}),
+        txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
+        buildLlmParams: () => ({
+          systemPrompt: CHAT_TURN_SYSTEM_PROMPT,
+          userPrompt,
+          temperature: 0.3,
+          maxTokens: 2048,
+        }),
+        txn2Commit: ({ output }) => {
+          response = typeof output === 'string' ? output : JSON.stringify(output);
+          return Promise.resolve();
+        },
+        txn2Revert: () => Promise.resolve(),
+        telemetryCtx: { userId: ctx.userId, matterId: input.matterId, documentId: null, jobId: null },
+      });
+
+      // Persist the assistant response by-reference (masterApplied/masterSource AUDIT-ONLY).
+      await appendChatMessage({
+        conversationId: conv.id,
+        ctx: cctx,
+        turn: {
+          role: 'assistant',
+          text: response,
+          masterApplied: currentMasterApplied,
+          masterSource: chat.source,
+          capacitySnapshot: liveSnapshot,
+          draftingGateDecisionId: gateId,
+          modelProvider: 'anthropic',
+          modelId: PRIMARY_DRAFTER_MODEL,
+          ...(input.doNotPersist === true ? { doNotPersist: true } : {}),
+        },
+      });
+
+      return {
+        jobId: result.jobId,
+        status: result.status,
+        response,
+        master: {
+          applied: chat.inject,
+          source: chat.source,
+          representational: chat.representational,
+          notice: chat.inject ? CHAT_MASTER_UI_NOTICE : null,
+        },
+        // No silent truncation/scrub: the UI is told how much history was windowed/scrubbed.
+        window: {
+          included: assembled.windowMessages.length,
+          scrubbedMasterTurns: assembled.scrubbedMasterTurns,
+          summaries: assembled.includedSummaries.length,
+        },
+      };
+    }),
 
   create: protectedProcedure
     .input(
