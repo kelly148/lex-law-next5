@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14e (CHAT-COPILOT-2 Increment A · A2 merged — ephemeral attachments: G5 OCR quality + cross-matter (Q3) + ephemeral lifecycle; flag OFF, nothing deployed)
+
+**Disposition.** `run batch CHAT-COPILOT-2 Increment A` continued — sub-increment **A2** (ephemeral chat attachments, the server pipeline) **auto-merged on green CI** per operator pre-authorization. PR **#303** squash **6a2cd2f**; `origin/main` = **6a2cd2f**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. Panel (Increment B) + promote-to-draft **not** built. **Nothing deploys.**
+
+**Data model.** `chat_attachments` (ephemeral, conversation-scoped, **store-by-reference** — extracted text + metadata, never raw bytes) + `chat_attachment_party` (Q3). **Migration `0035`** additive (`CREATE TABLE IF NOT EXISTS`), registered in the prod allowlist + `EXPECTED_TABLES_EXTRA`; purged with the matter.
+
+**G5 OCR quality** (pure, `chatAttachmentQuality.ts`). Reuses the `classifyOcr` **honesty floor** → low-confidence/failed text **withheld** (`NULL`), now applied for *any* sub-floor confidence regardless of source kind. **Dangerous-middle** warnings — legal-description + recording/parcel/instrument identifier (**TYPE labels only — never the values; no NPI**) + `visual_review_required`; graphical-document / handwriting-or-seal / skew flags.
+
+**Q3 / Q5 / Q6.** Cross-matter byte-identical = **harder stop** (`CROSS_MATTER_DUPLICATE`, overridable + logged; **owner-scoped**; fires even against a *purged* prior drop). Soft matter-mismatch = advisory (never a hard block). Accept-with-warning = logged **risk acceptance**, not a text fix (withheld text stays withheld). **Provenance-pin survives** the ephemeral purge.
+
+**Ephemeral lifecycle.** Purge at conversation end + immediately on do-not-persist (wired into the `delete`/`setMark` procedures), **nulling the by-reference text** so it doesn't survive the soft-delete; a full matter purge overrides provenance. Lifecycle procedures: list / accept-with-warning / pin / **save-to-matter** (a purged attachment **cannot** be promoted to permanent retention).
+
+**Build state + review.** 11 files (+1150/−3); tsc + eslint clean; **CI green**; A2 blocking suite + purge-coverage + A1 regression pass; full local suite at the **pre-existing 6 local-env failures** (no regressions). **3-lens adversarial review: 0 blockers / 0 majors**; the minors/nits were applied (ephemeral-text-on-purge, sub-floor text-layer floor, purged-promotion guard, stable ordering).
+
+**HALTED at the A2 boundary. NOTHING deployed; `CHAT_COPILOT_ENABLED` OFF; `GROUNDED_CHAT_PROVIDERS` NOT populated.** REMAINING in Increment A: the **multipart upload endpoint** (bytes → OCR → `ingestChatAttachment`) reuses the materials pipeline, and the rich **UI chips (Q4)** land in A3. NEXT: **A3** (extended context assembly + UX chips + provenance pins, with the **provenance-sufficiency exit gate** Q6).
+
+---
+
 ## 2026-06-14d (CHAT-COPILOT-2 Increment A · A1 merged — egress control plane: single non-bypassable broker + holdFlag + append-only audit; flag OFF, nothing deployed)
 
 **Disposition.** `run batch CHAT-COPILOT-2 Increment A` — sub-increment **A1** (the GLBA/attorney-confidentiality **spine**) built to the **§3.1-dispositioned** design (3/3 APPROVE-WITH-CHANGES), **auto-merged on green CI** per operator pre-authorization. PR **#301** squash **7830143**; `origin/main` = **7830143**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. **The panel (Increment B) + promote-to-draft are NOT built.**
