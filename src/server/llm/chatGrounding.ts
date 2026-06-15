@@ -16,6 +16,7 @@ import { getVersionById } from '../db/queries/versions.js';
 import { listMaterialsForMatter } from '../db/queries/materials.js';
 import { listLockedDecisionsForMatter, listAdoptLedgerForMatter } from '../db/queries/phase4b.js';
 import { chatTurnBudgetForMode, materialTagsAreNpiWithheld } from './chatCopilotConfig.js';
+import { getChatAttachment } from '../db/queries/chatAttachments.js';
 import type { ChatCitation } from '../../shared/schemas/chatCopilot.js';
 
 const CHARS_PER_TOKEN = 4;
@@ -24,7 +25,7 @@ const estimate = (s: string): number => Math.ceil(s.length / CHARS_PER_TOKEN);
 export interface GroundedSource {
   /** The id the model is given and must cite verbatim; never inventable. */
   sourceId: string;
-  kind: 'operative_document' | 'locked_decision' | 'adopted_decision' | 'material' | 'sibling';
+  kind: 'operative_document' | 'locked_decision' | 'adopted_decision' | 'material' | 'sibling' | 'attachment';
   label: string;
   text: string;
   /** A human locator hint (version/page/¶ or filename); reference-only, persisted with a citation. */
@@ -42,6 +43,9 @@ export interface GroundedChatAssembly {
   truncated: boolean;
   /** Materials withheld by the default category-level NPI minimization (not affirmatively selected). */
   npiWithheldCount: number;
+  /** A3: the ephemeral chat-attachment ids actually included in the grounded bundle (the provenance set
+   *  the EXIT GATE must pin so a later promote-to-draft never points at a purged object). */
+  includedAttachmentIds: string[];
 }
 
 // ── Pure: NPI minimization ────────────────────────────────────────────────────────────────────────────
@@ -118,6 +122,8 @@ export interface AssembleGroundedChatArgs {
   mode?: string | null;
   /** Material ids the attorney affirmatively selected to send this turn (overrides NPI default-withhold). */
   selectedMaterialIds?: readonly string[];
+  /** A3: ephemeral chat-attachment ids the attorney selected for this turn (included if extracted + not held). */
+  attachmentIds?: readonly string[];
 }
 
 /**
@@ -167,6 +173,26 @@ export async function assembleGroundedChatContext(args: AssembleGroundedChatArgs
     if (al.status !== 'active') continue;
     sources.push({ sourceId: `adopt:${al.id}`, kind: 'adopted_decision', label: `Adopted (${al.disposition})`, text: al.adoptedText, locator: null });
     usedTokens += estimate(al.adoptedText);
+  }
+
+  // 2b) A3: selected EPHEMERAL chat attachments — owner+matter scoped, EXTRACTED (honesty floor: withheld
+  //     text is never grounded), not externally held. Attorney-selected -> prioritized like the guaranteed
+  //     slices. The included ids are the provenance set the EXIT GATE pins (Q6 provenance-sufficiency).
+  const includedAttachmentIds: string[] = [];
+  for (const attId of args.attachmentIds ?? []) {
+    const att = await getChatAttachment(attId, args.userId);
+    if (!att || att.matterId !== args.matterId || att.deletedAt !== null) continue; // matter-scope + live only
+    if (att.holdFlag === 'no_external') continue; // per-attachment external-egress hold
+    if (att.textContent == null || att.textContent.trim().length === 0) continue; // honesty floor — never ground withheld text
+    sources.push({
+      sourceId: `attachment:${att.id}`,
+      kind: 'attachment',
+      label: att.filename ?? 'attachment',
+      text: att.textContent,
+      locator: att.filename,
+    });
+    includedAttachmentIds.push(att.id);
+    usedTokens += estimate(att.textContent);
   }
 
   // 3) NPI minimization: compute the default-withheld material ids (minus affirmatively-selected).
@@ -228,5 +254,6 @@ export async function assembleGroundedChatContext(args: AssembleGroundedChatArgs
     omittedCount,
     truncated,
     npiWithheldCount,
+    includedAttachmentIds,
   };
 }
