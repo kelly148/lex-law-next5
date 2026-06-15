@@ -26,11 +26,11 @@ import {
   setMatterEngagementCapacity,
   archiveMatter,
   unarchiveMatter,
-  deleteMatter,
 } from '../db/queries/matters.js';
 import { listDocumentsForMatter } from '../db/queries/documents.js';
 import { ensureAutoClientParty } from '../db/queries/matterParties.js';
-import { purgeMatter } from '../db/queries/matterPurge.js';
+import { purgeMatter, deleteMatterCascade } from '../db/queries/matterPurge.js';
+import { matterHasLegalHold } from '../db/queries/chatCopilot.js';
 import { recordAuditEvent, listAuditEventsForMatter } from '../db/queries/auditEvents.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import {
@@ -360,7 +360,23 @@ export const matterRouter = router({
         });
       }
 
-      await deleteMatter(input.matterId, ctx.userId);
+      // DELETEMATTER-ORPHAN-1: legal hold wins over an attorney delete. If ANY of the matter's chat
+      // conversations is under legal hold — including SOFT-DELETED ones, since a hold can be placed on
+      // already-"deleted" material and the cascade removes chat rows regardless of deletedAt — refuse the
+      // delete; the hold must be released first (mirrors canDeleteConversation / softDeleteConversation).
+      if (await matterHasLegalHold(input.matterId, ctx.userId)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'MATTER_HAS_LEGAL_HOLD',
+        });
+      }
+
+      // DELETEMATTER-ORPHAN-1: cascade-delete the matter's client WORK-PRODUCT child rows so nothing is
+      // orphaned, while PRESERVING the matter's permanent records — the audit/posture Matter Record and
+      // the GLBA egress-supervision log (deleteMatterCascade applies EVERYDAY_DELETE_PRESERVE). Full
+      // destruction of those permanent records stays only on the operator-gated purge. The "no active
+      // documents" precondition above is unchanged.
+      await deleteMatterCascade(input.matterId, ctx.userId);
 
       // NOTE: 'matter_deleted' is not in the telemetry catalog (Ch 25 / Appendix E).
       // No telemetry emitted for matter deletion per R1 (spec is absolute).
