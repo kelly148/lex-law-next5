@@ -41,3 +41,7 @@ export type {
   DocumentExtractionResult,
   MaterialExtractionRow,
 } from './documentExtraction.js';
+
+// KB-PROVENANCE-1 — authority_source (firm/jurisdiction legal-authority registry)
+export { AUTHORITY_TYPE_VALUES, AuthoritySourceRowSchema } from './authoritySource.js';
+export type { AuthorityType, AuthoritySourceRow } from './authoritySource.js';
