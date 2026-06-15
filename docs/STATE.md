@@ -4,6 +4,24 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-14f (CHAT-COPILOT-2 **Increment A COMPLETE** — A3 context/UX/provenance merged; the batch's STOP-after-build point; flag OFF, nothing deployed)
+
+**Disposition.** `run batch CHAT-COPILOT-2 Increment A` — the **final** sub-increment **A3** (context assembly + UX + provenance, the **exit gate**) **auto-merged on green CI** per operator pre-authorization. PR **#305** squash **01d7473**; `origin/main` = **01d7473**. **CHAT-COPILOT-2 Increment A is now COMPLETE** through A1 + A2 + A3. Behind **`CHAT_COPILOT_ENABLED` (default OFF)**. **Nothing deploys.**
+
+**A3 — context assembly.** `assembleGroundedChatContext` includes the attorney's selected **ephemeral attachments** as grounded sources — owner+matter scoped (cross-matter rejected), **LIVE only**, **honesty floor** (withheld/low-confidence text never grounded), per-attachment `no_external` hold excluded; returns `includedAttachmentIds`. They flow into the grounded `contextText` → the broker `serializedPayload` → `inputBundleHash` (**Q1** covered).
+
+**A3 — provenance-sufficiency EXIT GATE (Q6, Increment A's exit criterion).** After a **successful** egress, `submitTurn` **pins** every grounded attachment so the conversation-end / do-not-persist ephemeral purge does **not** remove it and a later promote-to-draft chain never points at a purged object. (A blocked/failed turn leaves the attachment ephemeral.) The egress audit records `attachmentIds` + `includedAttachmentCount`.
+
+**A3 — Q4 UX + Q7.** The citation chip says **"present in the bundle"** (grounding, not legal correctness) and **never "verified"**; `computeEgressIndicator` (configured/allowlisted/selected-this-turn/excluded) + per-send provenance are surfaced in the response. `listEgressEvents` + `includedAttachmentCount` = queryable supervision (provider/matter/date + attachment volume).
+
+**Build state + review.** 5 files (+321/−8); tsc + eslint clean; **CI green**; A3 suite (11) + inc34/inc2 grounding regression + client render tests pass; full local suite at the **pre-existing 6 local-env failures** (no regressions). **3-lens adversarial review: 0 blockers / 0 majors**; the minors were applied (pin-after-successful-send over-retention; surface the dormant egress indicator).
+
+**★ Increment A is COMPLETE — the batch's STOP-after-build point is reached. NOTHING deployed; `CHAT_COPILOT_ENABLED` OFF; `GROUNDED_CHAT_PROVIDERS` NOT populated.** Operator apply items: migrations **0034** (egress) + **0035** (attachments). **Light follow-ups (not blocking):** the multipart upload endpoint (bytes → OCR → `ingestChatAttachment`, reuses the materials pipeline) + the full client chip rendering (3 attachment states / provenance chip). **Separately gated (NOT built):** Increment B (the review panel; `CHAT_REVIEW_PANEL_ENABLED` introduced default-OFF, unused in A) + promote-to-draft (its own §3.1 FIRE).
+
+**Activation chain (all operator-gated, unchanged):** apply migrations 0033/0034/0035 → confirm providers' written no-train/ZDR/DPA → set `GROUNDED_CHAT_PROVIDERS` on prod (the copilot's primary cannot operate until a provider is allowlisted — the intended GLBA posture) → flip `CHAT_COPILOT_ENABLED` → deploy. Not client-facing until the conflicts-at-intake gate is live (self-use only).
+
+---
+
 ## 2026-06-14e (CHAT-COPILOT-2 Increment A · A2 merged — ephemeral attachments: G5 OCR quality + cross-matter (Q3) + ephemeral lifecycle; flag OFF, nothing deployed)
 
 **Disposition.** `run batch CHAT-COPILOT-2 Increment A` continued — sub-increment **A2** (ephemeral chat attachments, the server pipeline) **auto-merged on green CI** per operator pre-authorization. PR **#303** squash **6a2cd2f**; `origin/main` = **6a2cd2f**. Behind **`CHAT_COPILOT_ENABLED` (default OFF)** → flag-OFF byte-for-byte legacy. Panel (Increment B) + promote-to-draft **not** built. **Nothing deploys.**
