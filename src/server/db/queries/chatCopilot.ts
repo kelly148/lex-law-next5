@@ -256,6 +256,19 @@ export async function listConversations(matterId: string, userId: string): Promi
   return store().listConversationsForMatter(matterId, userId, false);
 }
 
+/**
+ * DELETEMATTER-ORPHAN-1: does the matter have ANY conversation under legal hold — INCLUDING soft-deleted
+ * ones? `includeDeleted: true` is deliberate and load-bearing: a litigation hold is routinely placed on
+ * already-"deleted" material (setLegalHold reads via getConversation, which has no deletedAt filter), and
+ * the everyday matter.delete cascade removes chat rows regardless of deletedAt — so the delete's legal-hold
+ * gate MUST see soft-deleted held conversations too (the normal listConversations excludes them, which
+ * would let a held-but-soft-deleted conversation be destroyed). Owner-scoped via the store.
+ */
+export async function matterHasLegalHold(matterId: string, userId: string): Promise<boolean> {
+  const all = await store().listConversationsForMatter(matterId, userId, true);
+  return all.some((c) => c.legalHold);
+}
+
 /** Inc 2: posture-aware summaries for a conversation (isolation-guarded). */
 export async function listConversationSummaries(
   conversationId: string,
