@@ -59,12 +59,20 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 // ============================================================
 // Reviewer model identifiers (Ch 22.3a)
 // These are the four reviewer adapters implemented in v1.
+//
+// REVIEWER-MODEL-MODERNIZATION-1 (2026-06-15): the reviewer tracks were modernized to the current GA
+// flagship ids (operator-confirmed, verified against provider docs). This is REVIEWER-SCOPED ONLY — the
+// drafter (draft_generation), copilot-primary (chat_primary), and lite generation read
+// PRIMARY_DRAFTER_MODEL / LITE_GENERATION_MODEL (anthropic by default), NOT these constants, so client-
+// facing drafting/copilot models are unaffected. Claude is left unchanged. NOTE: Google currently has no
+// GA Gemini "Pro" — gemini-3.1-pro-preview is the recommended Pro slug (preview-tier; operator-accepted).
+// Each id below has a matching entry in modelCapabilities.ts (Gemini keeps its calibrated 32768 ceiling).
 // ============================================================
 export const REVIEWER_MODELS = {
   claude: 'anthropic:claude-opus-4-5',
-  gpt: 'openai:gpt-5',
-  gemini: 'google:gemini-2.5-pro',
-  grok: 'xai:grok-4',
+  gpt: 'openai:gpt-5.5',
+  gemini: 'google:gemini-3.1-pro-preview',
+  grok: 'xai:grok-4.3',
 } as const;
 
 export type ReviewerKey = keyof typeof REVIEWER_MODELS;
@@ -82,11 +90,15 @@ function resolveLiteModel(envVar: string, defaultModel: string): string {
   return defaultModel;
 }
 
+// REVIEWER-MODEL-MODERNIZATION-1: lite tier modernized to current GA ids (env overrides preserved).
+// claude_lite unchanged. grok-3-mini was RETIRED with no GA Grok "mini", so the lite Grok track reuses
+// the fast GA flagship grok-4.3 (deliberate operator choice — the full and lite Grok ids are intentionally
+// the same until a distinct GA Grok mini exists).
 export const LITE_REVIEWER_MODELS = {
   claude_lite: resolveLiteModel('LITE_ANTHROPIC_REVIEWER_MODEL', 'anthropic:claude-sonnet-4-5'),
-  gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-4.1-mini'),
-  gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-2.5-flash'),
-  grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-3-mini'),
+  gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-5.4-mini'),
+  gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-3.5-flash'),
+  grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-4.3'),
 } as const;
 
 export type LiteReviewerKey = keyof typeof LITE_REVIEWER_MODELS;

@@ -135,11 +135,14 @@ describe('T-LITE-7: LITE_REVIEWER_MODELS has all 4 Lite keys', () => {
   it('has grok_lite', () => {
     expect(LITE_REVIEWER_MODELS.grok_lite).toBeTruthy();
   });
-  it('Lite models are distinct from full models', () => {
+  it('Lite models are distinct from full models (except Grok — see note)', () => {
     expect(LITE_REVIEWER_MODELS.claude_lite).not.toBe(REVIEWER_MODELS.claude);
     expect(LITE_REVIEWER_MODELS.gpt_lite).not.toBe(REVIEWER_MODELS.gpt);
     expect(LITE_REVIEWER_MODELS.gemini_lite).not.toBe(REVIEWER_MODELS.gemini);
-    expect(LITE_REVIEWER_MODELS.grok_lite).not.toBe(REVIEWER_MODELS.grok);
+    // REVIEWER-MODEL-MODERNIZATION-1: grok-3-mini was retired with no GA Grok "mini", so BOTH the full and
+    // lite Grok tracks deliberately point at the fast GA flagship grok-4.3 (operator-confirmed). This is
+    // the one tier where lite == full, until a distinct GA Grok mini exists.
+    expect(LITE_REVIEWER_MODELS.grok_lite).toBe(REVIEWER_MODELS.grok);
   });
 });
 
