@@ -30,6 +30,18 @@ describe('getReviewerCeiling — calibrated per-model budgets', () => {
     expect(getReviewerCeiling('openai:some-future-model')).toBe(DEFAULT_REVIEWER_CEILING);
     expect(DEFAULT_REVIEWER_CEILING).toBe(16384);
   });
+  // REVIEWER-MODEL-MODERNIZATION-1: the modernized reviewer ids must be registered (not silently DEFAULT).
+  // Critically, the new Gemini Pro id KEEPS the calibrated 32768 ceiling — a bare config.ts id swap would
+  // have dropped it to 16384 (the DEFAULT), re-risking the Gemini truncation api_error.
+  it('preserves the Gemini-Pro 32768 reviewer ceiling on the modernized id (regression guard)', () => {
+    expect(getReviewerCeiling('google:gemini-3.1-pro-preview')).toBe(32768);
+  });
+  it('registers the modernized GA reviewer ids at the calibrated floor', () => {
+    expect(getReviewerCeiling('openai:gpt-5.5')).toBe(16384);
+    expect(getReviewerCeiling('xai:grok-4.3')).toBe(16384);
+    expect(getReviewerCeiling('openai:gpt-5.4-mini')).toBe(16384);
+    expect(getReviewerCeiling('google:gemini-3.5-flash')).toBe(16384);
+  });
 });
 
 describe('registry coverage + capability metadata', () => {

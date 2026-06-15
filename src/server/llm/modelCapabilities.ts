@@ -117,6 +117,53 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
     pricingClass: 'lite',
     timeoutClass: 'standard',
   },
+  // ── REVIEWER-MODEL-MODERNIZATION-1 (2026-06-15): current GA reviewer ids ──────────────────────────────
+  // Added ALONGSIDE the prior ids (kept so lookups on historical jobs still resolve). Each mirrors its
+  // model's tier so getReviewerCeiling does NOT silently fall back to DEFAULT — critically,
+  // gemini-3.1-pro-preview PRESERVES the calibrated 32768 ceiling (a bare id swap in config.ts alone would
+  // have dropped Gemini to the 16384 default, re-risking the truncation api_error CHAT-PANEL-REVIEWER-FIX-1
+  // resolved). Output budgets are unmeasured for the new ids -> held at the prior tier's value.
+  'openai:gpt-5.5': {
+    providerMaxOutputTokens: 128000,
+    reviewerCeiling: 16384, // HOLD — latency-bound like gpt-5 (no measured output-budget demand to raise)
+    supportsThinkingControl: true,
+    defaultThinkingMode: 'default',
+    pricingClass: 'premium',
+    timeoutClass: 'extended', // reasoning flagship — may exceed the sync envelope on big docs
+  },
+  'google:gemini-3.1-pro-preview': {
+    providerMaxOutputTokens: 65536,
+    reviewerCeiling: 32768, // PRESERVE the Gemini-Pro calibration carried over from gemini-2.5-pro
+    supportsThinkingControl: true,
+    defaultThinkingMode: 'dynamic',
+    pricingClass: 'standard',
+    timeoutClass: 'standard',
+  },
+  'xai:grok-4.3': {
+    providerMaxOutputTokens: 32000,
+    reviewerCeiling: 16384, // HOLD at the floor (no measured demand curve for grok-4.3 yet)
+    supportsThinkingControl: false,
+    defaultThinkingMode: 'default',
+    pricingClass: 'standard',
+    timeoutClass: 'standard',
+  },
+  // Lite tier (modernized): unmeasured -> held at the 16384 floor.
+  'openai:gpt-5.4-mini': {
+    providerMaxOutputTokens: 32000,
+    reviewerCeiling: 16384,
+    supportsThinkingControl: true,
+    defaultThinkingMode: 'default',
+    pricingClass: 'lite',
+    timeoutClass: 'standard',
+  },
+  'google:gemini-3.5-flash': {
+    providerMaxOutputTokens: 65536,
+    reviewerCeiling: 16384,
+    supportsThinkingControl: true,
+    defaultThinkingMode: 'dynamic',
+    pricingClass: 'lite',
+    timeoutClass: 'standard',
+  },
 };
 
 /** Look up a model's capability record, or undefined if unregistered. */
