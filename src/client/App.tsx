@@ -31,6 +31,7 @@ const UploadFormatPage = lazy(() => import("./pages/UploadFormatPage.js"));
 const ChatSurface = lazy(() => import("./pages/ChatSurface.js"));
 const CopilotPage = lazy(() => import("./pages/CopilotPage.js"));
 const MattersOverview = lazy(() => import("./pages/MattersOverview.js"));
+const SupervisionView = lazy(() => import("./pages/SupervisionView.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -69,6 +70,9 @@ export default function App(): React.ReactElement {
       {/* FOLD-PM-4 — ongoing matters + to-do overview. Always registered; MattersOverview
           self-guards on MATTER_DELIVERABLE_ENABLED (default OFF) and redirects to /matters when off. */}
       <Route path="/overview" element={<ProtectedLayout><MattersOverview /></ProtectedLayout>} />
+      {/* SUPERVISION-VIEW-1 — read-only egress supervision. Always registered; SupervisionView
+          self-guards on SUPERVISION_VIEW_ENABLED (default OFF) and redirects to /matters when off. */}
+      <Route path="/supervision" element={<ProtectedLayout><SupervisionView /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />

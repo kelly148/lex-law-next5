@@ -44,6 +44,7 @@ import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
 import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
+import { supervisionRouter } from './procedures/supervision.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -106,6 +107,10 @@ export const appRouter = router({
   // a cross-matter portfolio read, gated behind MATTER_DELIVERABLE_ENABLED (default OFF,
   // refuses with PRECONDITION_FAILED when OFF). Additive; no egress; surfaces only.
   matterDeliverable: matterDeliverableRouter,
+  // SUPERVISION-VIEW-1 — read-only owner-scoped supervision over the chat_egress_events
+  // audit log (GLBA vendor-oversight), gated behind SUPERVISION_VIEW_ENABLED (default OFF,
+  // refuses with PRECONDITION_FAILED when OFF). Read-only; no mutation; no migration.
+  supervision: supervisionRouter,
 });
 
 export type AppRouter = typeof appRouter;
