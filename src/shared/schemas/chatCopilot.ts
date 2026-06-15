@@ -13,6 +13,8 @@
  */
 
 import { z } from 'zod';
+// CHAT-COPILOT-2 A2: chat attachments reuse the materials extraction-status vocabulary (single source).
+import { ExtractionStatusSchema } from './matters.js';
 
 // ── Enum vocabularies (shared by schema.ts + the Zod Wall) ──────────────────────────────────────────
 
@@ -225,3 +227,93 @@ export const ChatEgressEventRowSchema = z.object({
   completedAt: z.date().nullable(),
 });
 export type ChatEgressEventRow = z.infer<typeof ChatEgressEventRowSchema>;
+
+// ── CHAT-COPILOT-2 A2: ephemeral chat attachments (G5 OCR quality + Q3/Q5) ────────────────────────────
+
+/**
+ * G5 title-document OCR-quality warnings. The "dangerous-middle" fields (legal_description +
+ * recording_parcel_instrument_identifier) are NEVER authoritative context without an attorney verify
+ * affordance + a source-image spot-check. graphical_document flags plats/surveys (extraction incomplete
+ * by nature). visual_review_required is the umbrella "an attorney must look at the image" flag.
+ */
+export const CHAT_ATTACHMENT_WARNING_VALUES = [
+  'legal_description',
+  'recording_parcel_instrument_identifier',
+  'graphical_document',
+  'handwriting_or_seal',
+  'skew_or_rotation',
+  'low_confidence',
+  'visual_review_required',
+] as const;
+export const ChatAttachmentWarningSchema = z.enum(CHAT_ATTACHMENT_WARNING_VALUES);
+export type ChatAttachmentWarning = (typeof CHAT_ATTACHMENT_WARNING_VALUES)[number];
+
+/** Structured OCR-quality metadata for an attachment. NO NPI: only confidences + warning labels + the
+ *  TYPES of dangerous-middle fields detected (never the field values). */
+export const AttachmentOcrQualitySchema = z.object({
+  meanConfidence: z.number().nullable(),
+  pageCount: z.number().int().nonnegative().nullable(),
+  perPageConfidence: z.array(z.number()).nullable(),
+  warnings: z.array(ChatAttachmentWarningSchema),
+  // Labels (e.g. 'parcel_id', 'instrument_number', 'book_page') of dangerous-middle fields detected —
+  // NEVER the values themselves.
+  dangerousMiddleFieldTypes: z.array(z.string()),
+  visualReviewRequired: z.boolean(),
+});
+export type AttachmentOcrQuality = z.infer<typeof AttachmentOcrQualitySchema>;
+
+/** How an attachment was attributed to a party at save-to-matter (Q3 role-based intra-matter exclusion). */
+export const CHAT_ATTACHMENT_ATTRIBUTION_VALUES = ['explicit', 'inferred'] as const;
+export const ChatAttachmentAttributionSchema = z.enum(CHAT_ATTACHMENT_ATTRIBUTION_VALUES);
+export type ChatAttachmentAttribution = (typeof CHAT_ATTACHMENT_ATTRIBUTION_VALUES)[number];
+
+/**
+ * A chat attachment: EPHEMERAL by default (purged at conversation end; immediately on do-not-persist),
+ * store-BY-REFERENCE (extracted text + metadata, NOT raw file bytes), conversation-scoped (selected for
+ * this turn, NOT globally available unless saved/pinned). `pinned` = provenance-pinned (survives purge);
+ * `savedMaterialId` is set when promoted to a matter_material. `textContent` follows the honesty floor
+ * (NULL on low-confidence/failed — never silently enters context). `holdFlag` is a per-attachment hold.
+ */
+export const ChatAttachmentRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  filename: z.string().max(512).nullable(),
+  mimeType: z.string().max(128).nullable(),
+  fileSize: z.number().int().nonnegative().nullable(),
+  storageKey: z.string().max(512).nullable(),
+  // contentHash: SHA-256 of the uploaded bytes — cross-matter duplicate detection (Q3). NOT NPI.
+  contentHash: z.string().max(64).nullable(),
+  textContent: z.string().nullable(),
+  extractionStatus: ExtractionStatusSchema,
+  extractionError: z.string().nullable(),
+  ocrQuality: AttachmentOcrQualitySchema.nullable(),
+  holdFlag: ChatHoldFlagSchema.default('none'),
+  // Q5: the attorney accepted the low-confidence/warning RISK for this attachment ("accepted risk",
+  // NOT "the text is correct"). Travels into context visibly; never propagates as verified.
+  acceptedWithWarning: z.boolean(),
+  // Provenance-pinned (Q6 seam): a pinned attachment SURVIVES the conversation-end purge.
+  pinned: z.boolean(),
+  // Set when promoted to a matter_material (save-to-matter is the retention act).
+  savedMaterialId: z.string().uuid().nullable(),
+  seq: z.number().int().nonnegative(),
+  deletedAt: z.date().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type ChatAttachmentRow = z.infer<typeof ChatAttachmentRowSchema>;
+
+/** Optional party attribution captured at save-to-matter (Q3) — which matter party a document belongs to,
+ *  so role-based intra-matter exclusion (buyer-vs-seller financials, insured-vs-lender) is enforceable. */
+export const ChatAttachmentPartyRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  attachmentId: z.string().uuid(),
+  partyId: z.string().uuid().nullable(),
+  partyRole: z.string().max(64).nullable(),
+  attribution: ChatAttachmentAttributionSchema,
+  createdAt: z.date(),
+});
+export type ChatAttachmentPartyRow = z.infer<typeof ChatAttachmentPartyRowSchema>;

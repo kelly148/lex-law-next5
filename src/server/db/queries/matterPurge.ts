@@ -71,6 +71,8 @@ import {
   chatMessages,
   chatSummaries,
   chatEgressEvents,
+  chatAttachments,
+  chatAttachmentParty,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -210,6 +212,10 @@ export async function purgeMatter(
     // survival of an operator-gated full-matter purge, exactly as auditEvents / postureProvenance / chat
     // tables above. Purged WITH the matter so an (operator-gated, synthetic/test) purge leaves no orphan.
     await step('chatEgressEvents', chatEgressEvents, byMatter(chatEgressEvents));
+    // CHAT-COPILOT-2 A2: the matter's ephemeral chat attachments + their party attributions. A full
+    // operator-gated matter purge overrides provenance-pinning, exactly as it overrides the chat tables.
+    await step('chatAttachmentParty', chatAttachmentParty, byMatter(chatAttachmentParty));
+    await step('chatAttachments', chatAttachments, byMatter(chatAttachments));
     // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
     // before documents so no binding row is orphaned by the purge.
     await step('documentParty', documentParty, byMatter(documentParty));

@@ -50,6 +50,17 @@ import {
 import { isGroundedChatProviderAllowed } from '../llm/chatCopilotConfig.js';
 import { assembleGroundedChatContext, parseChatCitations } from '../llm/chatGrounding.js';
 import type { ChatCitation } from '../../shared/schemas/chatCopilot.js';
+// CHAT-COPILOT-2 A2 — ephemeral attachment lifecycle.
+import {
+  acceptAttachmentWithWarning,
+  pinAttachment,
+  listChatAttachments,
+  purgeConversationAttachments,
+  attributeAttachmentParty,
+  getChatAttachment,
+  markAttachmentSaved,
+} from '../db/queries/chatAttachments.js';
+import { insertMaterial } from '../db/queries/materials.js';
 
 /** Inc 2: default windowed-history size (last-N turns), overridable per call. */
 const DEFAULT_WINDOW_LIMIT = 12;
@@ -369,6 +380,8 @@ export const chatCopilotRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertChatCopilotEnabled();
       await softDeleteConversation(input.conversationId, ctx.userId);
+      // CHAT-COPILOT-2 A2: conversation end -> purge ephemeral attachments (provenance-pinned survive).
+      await purgeConversationAttachments(input.conversationId, ctx.userId, { includePinned: false });
       return { deleted: true };
     }),
 
@@ -392,7 +405,12 @@ export const chatCopilotRouter = router({
       const marks: { doNotPersist?: boolean; excludeFromGrounding?: boolean } = {};
       if (input.doNotPersist !== undefined) marks.doNotPersist = input.doNotPersist;
       if (input.excludeFromGrounding !== undefined) marks.excludeFromGrounding = input.excludeFromGrounding;
-      return setConversationMark(input.conversationId, ctx.userId, marks);
+      const result = await setConversationMark(input.conversationId, ctx.userId, marks);
+      // CHAT-COPILOT-2 A2: do-not-persist -> IMMEDIATELY purge ephemeral attachments (provenance-pinned survive).
+      if (input.doNotPersist === true) {
+        await purgeConversationAttachments(input.conversationId, ctx.userId, { includePinned: false });
+      }
+      return result;
     }),
 
   setMessageExcludeFromGrounding: protectedProcedure
@@ -416,5 +434,75 @@ export const chatCopilotRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertChatCopilotEnabled();
       return exportConversationToMatterFile(input.conversationId, ctx.userId);
+    }),
+
+  // ── CHAT-COPILOT-2 A2 — ephemeral attachment lifecycle ───────────────────────────────────────────────
+
+  /** A conversation's live attachments (the selected-for-turn surface). */
+  listAttachments: protectedProcedure
+    .input(z.object({ conversationId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      assertChatCopilotEnabled();
+      return listChatAttachments(input.conversationId, ctx.userId);
+    }),
+
+  /** Q5: accept the warning RISK for a low-confidence attachment ("accepted risk", NOT "text is correct"). */
+  acceptAttachmentWithWarning: protectedProcedure
+    .input(z.object({ attachmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertChatCopilotEnabled();
+      return acceptAttachmentWithWarning(input.attachmentId, ctx.userId);
+    }),
+
+  /** Q6 seam: pin an attachment as provenance — it survives the conversation-end purge. */
+  pinAttachment: protectedProcedure
+    .input(z.object({ attachmentId: z.string().uuid(), pinned: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      assertChatCopilotEnabled();
+      return pinAttachment(input.attachmentId, ctx.userId, input.pinned);
+    }),
+
+  /** One-click save-to-matter: promote an ephemeral attachment to a matter_material (the RETENTION act),
+   *  with optional Q3 party attribution. */
+  saveAttachmentToMatter: protectedProcedure
+    .input(
+      z.object({
+        attachmentId: z.string().uuid(),
+        partyId: z.string().uuid().nullable().optional(),
+        partyRole: z.string().max(64).nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertChatCopilotEnabled();
+      const att = await getChatAttachment(input.attachmentId, ctx.userId);
+      // A purged (ephemeral/do-not-persist) attachment cannot be promoted to permanent retention.
+      if (!att || att.deletedAt !== null) throw new TRPCError({ code: 'NOT_FOUND', message: 'Attachment not found' });
+      const material = await insertMaterial({
+        userId: ctx.userId,
+        matterId: att.matterId,
+        filename: att.filename,
+        mimeType: att.mimeType,
+        fileSize: att.fileSize,
+        storageKey: att.storageKey,
+        textContent: att.textContent,
+        extractionStatus: att.extractionStatus,
+        extractionError: att.extractionError,
+        description: null,
+        pinned: false,
+        uploadSource: 'upload',
+        deletedAt: null,
+      });
+      await markAttachmentSaved(input.attachmentId, ctx.userId, material.id);
+      if (input.partyId != null || input.partyRole != null) {
+        await attributeAttachmentParty({
+          userId: ctx.userId,
+          matterId: att.matterId,
+          attachmentId: input.attachmentId,
+          partyId: input.partyId ?? null,
+          partyRole: input.partyRole ?? null,
+          attribution: 'explicit',
+        });
+      }
+      return { savedMaterialId: material.id };
     }),
 });
