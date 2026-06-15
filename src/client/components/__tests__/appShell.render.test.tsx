@@ -41,6 +41,15 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // SUPERVISION-VIEW-1: AppShell probes the supervision flag to decide the Supervision nav link.
+      supervision: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: { enabled: false }, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
     },
   };
 });

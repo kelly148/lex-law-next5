@@ -369,3 +369,19 @@ export function isReviewerSelectionCountAllowed(
 export function isMatterDeliverableEnabled(): boolean {
   return process.env['MATTER_DELIVERABLE_ENABLED'] === 'true';
 }
+
+/**
+ * Read-only egress / supervision view (SUPERVISION-VIEW-1). DEFAULT OFF.
+ *
+ * A READ-ONLY owner-scoped dashboard over the chat_egress_events audit log (the A1
+ * egress control plane) serving the GLBA vendor-oversight (recurring-review) duty:
+ * each attorney reviews THEIR OWN copilot vendor sends (provider/kind/decision, with
+ * NPI-withheld + attachment counts). When OFF (default), the supervision procedures
+ * refuse with PRECONDITION_FAILED and the /supervision page redirects + its nav link
+ * is hidden — zero new behavior. The underlying log is itself only populated when
+ * CHAT_COPILOT_ENABLED is ON, so on prod (both OFF) the view is empty. Read-only: no
+ * mutation of the append-only log, no new egress. No migration. Additive + reversible.
+ */
+export function isSupervisionViewEnabled(): boolean {
+  return process.env['SUPERVISION_VIEW_ENABLED'] === 'true';
+}

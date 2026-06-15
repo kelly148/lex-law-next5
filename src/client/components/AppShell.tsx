@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, Settings, LogOut, FilePlus, ClipboardList } from 'lucide-react';
+import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -34,6 +34,8 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   const utils = trpc.useUtils();
   // FOLD-PM-4 — show the Overview nav link only when the feature is enabled (default OFF -> hidden).
   const deliverableFlag = trpc.matterDeliverable.isEnabled.useQuery();
+  // SUPERVISION-VIEW-1 — show the Supervision nav link only when enabled (default OFF -> hidden).
+  const supervisionFlag = trpc.supervision.isEnabled.useQuery();
 
   const logoutMutation = useGuardedMutation(
     () => utils.client.auth.logout.mutate(),
@@ -83,6 +85,12 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             <NavLink to="/overview" className={navLinkClass}>
               <ClipboardList className="w-4 h-4 flex-shrink-0" />
               <span data-rail-label>Overview</span>
+            </NavLink>
+          )}
+          {supervisionFlag.data?.enabled === true && (
+            <NavLink to="/supervision" className={navLinkClass}>
+              <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+              <span data-rail-label>Supervision</span>
             </NavLink>
           )}
           <NavLink to="/templates" className={navLinkClass}>
