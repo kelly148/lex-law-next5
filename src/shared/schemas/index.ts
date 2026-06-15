@@ -27,3 +27,17 @@ export {
   MatterDeliverableRowSchema,
 } from './matterDeliverables.js';
 export type { MatterDeliverableStatus, MatterDeliverableRow } from './matterDeliverables.js';
+
+// FOLD-PM-2 — document-type structured extraction (commitment/deed/survey/settlement)
+export {
+  DOCUMENT_TYPE_VALUES,
+  ExtractedFieldSchema,
+  DocumentExtractionResultSchema,
+  MaterialExtractionRowSchema,
+} from './documentExtraction.js';
+export type {
+  DocumentType,
+  ExtractedField,
+  DocumentExtractionResult,
+  MaterialExtractionRow,
+} from './documentExtraction.js';

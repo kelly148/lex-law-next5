@@ -27,6 +27,7 @@ import { X, Pin, PinOff, Trash2, RotateCcw, Upload, FileText, Tag, ChevronDown, 
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import { DocumentExtractionPanel } from './DocumentExtractionPanel.js';
 
 interface MaterialsDrawerProps {
   matterId: string;
@@ -632,6 +633,9 @@ function MaterialCard({ material, matterId }: MaterialCardProps): React.ReactEle
               </div>
             )}
           </div>
+
+          {/* FOLD-PM-2 — document-type structured extraction (flag-gated; renders nothing when OFF). */}
+          <DocumentExtractionPanel materialId={material.id} />
         </div>
       )}
     </div>

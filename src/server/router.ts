@@ -45,6 +45,7 @@ import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
 import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
 import { supervisionRouter } from './procedures/supervision.js';
+import { materialExtractionRouter } from './procedures/materialExtraction.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -111,6 +112,10 @@ export const appRouter = router({
   // audit log (GLBA vendor-oversight), gated behind SUPERVISION_VIEW_ENABLED (default OFF,
   // refuses with PRECONDITION_FAILED when OFF). Read-only; no mutation; no migration.
   supervision: supervisionRouter,
+  // FOLD-PM-2 — document-type structured extraction (commitment/deed/survey/settlement)
+  // over a material's already-extracted text, gated behind DOCUMENT_EXTRACTION_ENABLED
+  // (default OFF, refuses with PRECONDITION_FAILED when OFF). Additive; no egress.
+  materialExtraction: materialExtractionRouter,
 });
 
 export type AppRouter = typeof appRouter;

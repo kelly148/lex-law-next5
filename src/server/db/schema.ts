@@ -54,6 +54,8 @@ import {
 } from '../../shared/schemas/chatCopilot.js';
 // FOLD-PM-4: single source of the matter-deliverable status vocabulary (kept in sync with the Zod Wall).
 import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDeliverables.js';
+// FOLD-PM-2: single source of the document-type vocabulary (kept in sync with the Zod Wall).
+import { DOCUMENT_TYPE_VALUES } from '../../shared/schemas/documentExtraction.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -2952,3 +2954,39 @@ export const matterDeliverable = mysqlTable(
 );
 export type MatterDeliverable = typeof matterDeliverable.$inferSelect;
 export type NewMatterDeliverable = typeof matterDeliverable.$inferInsert;
+
+// ============================================================
+// FOLD-PM-2 — material_extraction (document-type structured extraction)
+// ============================================================
+// One latest structured extraction per material (commitment/deed/survey/settlement),
+// produced by the PURE no-egress document-type parsers over the material's already-
+// extracted text. Owner+matter scoped; additive; NO DB FK (app-layer ownerScope).
+// Behind DOCUMENT_EXTRACTION_ENABLED (default OFF). The document-type enum is the
+// single source from src/shared/schemas/documentExtraction.ts.
+export const materialExtraction = mysqlTable(
+  'material_extraction',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    materialId: char('materialId', { length: 36 }).notNull(),
+    documentType: mysqlEnum('documentType', DOCUMENT_TYPE_VALUES).notNull(),
+    typeConfidence: int('typeConfidence').notNull().default(0),
+    overallConfidence: int('overallConfidence').notNull().default(0),
+    lowConfidence: boolean('lowConfidence').notNull().default(true),
+    fields: json('fields').notNull(), // ExtractedField[] (labels + values + confidence)
+    warnings: json('warnings').notNull(), // string[]
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // one extraction per material; owner-scoped lookups by material and by matter.
+    uxMaterialExtractionMaterial: uniqueIndex('ux_material_extraction_material').on(table.materialId),
+    idxMaterialExtractionMatter: index('idx_material_extraction_matter').on(table.userId, table.matterId),
+  }),
+);
+export type MaterialExtraction = typeof materialExtraction.$inferSelect;
+export type NewMaterialExtraction = typeof materialExtraction.$inferInsert;
