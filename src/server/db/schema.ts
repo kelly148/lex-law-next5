@@ -52,6 +52,8 @@ import {
   // CHAT-COPILOT-2 A2 (ephemeral attachments): party-attribution kind.
   CHAT_ATTACHMENT_ATTRIBUTION_VALUES,
 } from '../../shared/schemas/chatCopilot.js';
+// FOLD-PM-4: single source of the matter-deliverable status vocabulary (kept in sync with the Zod Wall).
+import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDeliverables.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -2911,3 +2913,42 @@ export const chatAttachmentParty = mysqlTable(
 );
 export type ChatAttachmentPartyRowDb = typeof chatAttachmentParty.$inferSelect;
 export type NewChatAttachmentParty = typeof chatAttachmentParty.$inferInsert;
+
+// ============================================================
+// FOLD-PM-4 — matter_deliverable (ongoing-matters / to-do list)
+// ============================================================
+// A simple owner+matter-scoped to-do item: one deliverable on one matter, owned by
+// one attorney. Additive, no DB FK by convention (app-layer ownerScope isolation).
+// Status enum is the single source from src/shared/schemas/matterDeliverables.ts.
+// Behind MATTER_DELIVERABLE_ENABLED (default OFF).
+export const matterDeliverable = mysqlTable(
+  'matter_deliverable',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    title: varchar('title', { length: 256 }).notNull(),
+    status: mysqlEnum('status', MATTER_DELIVERABLE_STATUS_VALUES).notNull().default('open'),
+    dueDate: date('dueDate', { mode: 'string' }), // date-only (YYYY-MM-DD), America/New_York; nullable
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // matter-scoped reads (owner + matter), and portfolio reads (owner + status).
+    idxMatterDeliverableMatter: index('idx_matter_deliverable_matter').on(
+      table.userId,
+      table.matterId,
+      table.status,
+    ),
+    idxMatterDeliverableOwnerStatus: index('idx_matter_deliverable_owner_status').on(
+      table.userId,
+      table.status,
+    ),
+  }),
+);
+export type MatterDeliverable = typeof matterDeliverable.$inferSelect;
+export type NewMatterDeliverable = typeof matterDeliverable.$inferInsert;

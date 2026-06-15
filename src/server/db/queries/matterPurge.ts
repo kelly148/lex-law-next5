@@ -20,7 +20,7 @@
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
  *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
  *     gateOverride (CONFLICT-GATE-OVERRIDE-1), promptSnapshots (INSTR-1A0), postureProvenance
- *     (CHAT-UI-1 W2), documents — then the `matters` row itself.
+ *     (CHAT-UI-1 W2), matterDeliverable (FOLD-PM-4), documents — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -73,6 +73,7 @@ import {
   chatEgressEvents,
   chatAttachments,
   chatAttachmentParty,
+  matterDeliverable,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -200,6 +201,9 @@ export async function purgeMatter(
     // not survival of an operator-gated full-matter purge. Owner-scoped like every other step.
     await step('postureProvenance', postureProvenance, byMatter(postureProvenance));
     await step('reviewerLanes', reviewerLanes, byMatter(reviewerLanes));
+    // FOLD-PM-4: the matter's deliverables (to-do list). Owner+matter-scoped child data; purges WITH the
+    // matter so an (operator-gated, synthetic/test) purge leaves no orphan.
+    await step('matterDeliverable', matterDeliverable, byMatter(matterDeliverable));
     // CHAT-COPILOT-1 (Inc 1): the matter's persisted chat copilot — messages + summaries (conversation
     // children, both carry matterId) before the conversations themselves. All purge WITH the matter (the
     // app-level cascade that stands in for a DB FK; an operator-gated full-matter purge overrides the

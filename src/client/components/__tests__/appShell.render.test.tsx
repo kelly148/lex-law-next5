@@ -32,6 +32,15 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // FOLD-PM-4: AppShell probes the deliverable flag to decide the Overview nav link.
+      matterDeliverable: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: { enabled: false }, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
     },
   };
 });

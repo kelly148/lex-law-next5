@@ -20,3 +20,10 @@ export {
   PublicJobSchema,
 } from './jobs.js';
 export type { JobInput, JobOutput, JobRow, PublicJob } from './jobs.js';
+
+// FOLD-PM-4 — matter_deliverable (owner+matter-scoped to-do / ongoing-matter items)
+export {
+  MATTER_DELIVERABLE_STATUS_VALUES,
+  MatterDeliverableRowSchema,
+} from './matterDeliverables.js';
+export type { MatterDeliverableStatus, MatterDeliverableRow } from './matterDeliverables.js';
