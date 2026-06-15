@@ -286,6 +286,15 @@ export interface CanonicalMutationParams {
 export interface CanonicalMutationResult {
   jobId: string;
   status: 'completed' | 'failed' | 'timed_out' | 'cancelled';
+  /**
+   * CHAT-PANEL-REVIEWER-FIX-1 (A2): the REAL provider error on a non-completed terminal status — the same
+   * errorClass/errorMessage written to the jobs row (markJobFailed/markJobTimedOut). Additive + optional, so
+   * every existing caller that reads only { jobId, status } is byte-for-byte unaffected. Lets the egress
+   * broker write the true failure reason (api_error/parse_error/timeout + provider detail) into the audit
+   * row's failureReason instead of the literal status string. Absent (undefined) on a completed result.
+   */
+  errorClass?: string;
+  errorMessage?: string;
 }
 
 // ============================================================
@@ -715,7 +724,7 @@ async function runJob(
           { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
           { ...telemetryCtx, jobId },
         );
-        return { jobId, status: 'failed' };
+        return { jobId, status: 'failed', errorClass: 'revert_failed', errorMessage: String(revertErr) };
       }
       await jw.markJobCancelled(jobId, userId);
       void emitTelemetry(
@@ -723,7 +732,7 @@ async function runJob(
         { jobType, elapsedMs, cancelOrigin: 'attorney' },
         { ...telemetryCtx, jobId },
       );
-      return { jobId, status: 'cancelled' };
+      return { jobId, status: 'cancelled', errorClass: 'other', errorMessage: 'Cancelled by attorney' };
     }
 
     if (isTimeout) {
@@ -747,7 +756,7 @@ async function runJob(
           { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
           { ...telemetryCtx, jobId },
         );
-        return { jobId, status: 'failed' };
+        return { jobId, status: 'failed', errorClass: 'revert_failed', errorMessage: String(revertErr) };
       }
       await jw.markJobTimedOut(jobId, userId, `Job timed out after ${elapsedMs}ms`);
       void emitTelemetry(
@@ -755,7 +764,7 @@ async function runJob(
         { jobType, timeoutMs: effectiveTimeoutMs, elapsedMs },
         { ...telemetryCtx, jobId },
       );
-      return { jobId, status: 'timed_out' };
+      return { jobId, status: 'timed_out', errorClass: 'timeout', errorMessage: `Job timed out after ${elapsedMs}ms` };
     }
 
     // Transaction 2 — failure path (HTTP/parse error)
@@ -776,7 +785,7 @@ async function runJob(
         { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
         { ...telemetryCtx, jobId },
       );
-      return { jobId, status: 'failed' };
+      return { jobId, status: 'failed', errorClass: 'revert_failed', errorMessage: String(revertErr) };
     }
     await jw.markJobFailed(jobId, userId, errorClass, errorMessage);
     void emitTelemetry(
@@ -784,7 +793,7 @@ async function runJob(
       { jobType, errorClass, errorMessage },
       { ...telemetryCtx, jobId },
     );
-    return { jobId, status: 'failed' };
+    return { jobId, status: 'failed', errorClass, errorMessage };
   }
 
   unregisterAbortController(jobId);
@@ -826,7 +835,7 @@ async function runJob(
         { jobType, errorClass: 'revert_failed', errorMessage: String(revertErr) },
         { ...telemetryCtx, jobId },
       );
-      return { jobId, status: 'failed' };
+      return { jobId, status: 'failed', errorClass: 'revert_failed', errorMessage: String(revertErr) };
     }
     // JOB-RECOVERY-1 (H3): a throw while marking the job failed must not wedge it (B-2 reaper backstops).
     try {
@@ -839,7 +848,7 @@ async function runJob(
       { jobType, errorClass: 'other', errorMessage: String(commitErr) },
       { ...telemetryCtx, jobId },
     );
-    return { jobId, status: 'failed' };
+    return { jobId, status: 'failed', errorClass: 'other', errorMessage: String(commitErr) };
   }
 
   // REVIEWER-LATENCY-1 Step 0: persist the reasoning-token count that already rides on the adapter

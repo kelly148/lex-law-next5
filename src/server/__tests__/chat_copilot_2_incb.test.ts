@@ -29,7 +29,9 @@ import { setTestLlmAdapter } from '../llm/registry.js';
 import { setGroundedChatProviderAllowlistForTests } from '../llm/chatCopilotConfig.js';
 import { setJobWriteFunctions, setMatterStateProvider, setPaProfileProvider, setPromptSnapshotWriter } from '../db/canonicalMutation.js';
 import { appRouter } from '../router.js';
-import type { LlmClient, LlmGenerateResult } from '../llm/types.js';
+import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from '../llm/types.js';
+import { PanelReviewerOutputSchema } from '../llm/chatReviewPanelEngine.js';
+import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import type { MatterRow } from '../../shared/schemas/matters.js';
 import type { ChatConversationRow, ChatMessageRow } from '../../shared/schemas/chatCopilot.js';
 
@@ -58,18 +60,17 @@ function assistantMsg(content: string): ChatMessageRow {
   return { id: MSG_A, role: 'assistant', content } as unknown as ChatMessageRow;
 }
 
-// A stub LLM: reviewers return 2 itemized suggestions (one cites a bundle source, one cites an off-bundle
-// authority); the dispositioner returns one disposition per index.
+// A stub LLM: reviewers return 2 itemized suggestions as the legacy bare-array {title,body,severity}
+// contract (CHAT-PANEL-REVIEWER-FIX-1 A1) — one cites a bundle source, one cites an off-bundle authority;
+// the dispositioner returns one disposition per index.
 const stub: LlmClient = {
   generate: (params) => {
     let content: string;
     if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
-      content = JSON.stringify({
-        suggestions: [
-          { suggestion: 'Tighten the indemnity scope [[cite:doc:x@y]]' },
-          { suggestion: 'Add the recording statute [[cite:va_code:55.1-345]]' },
-        ],
-      });
+      content = JSON.stringify([
+        { title: 'Indemnity scope', body: 'Tighten the indemnity scope [[cite:doc:x@y]]', severity: 'major' },
+        { title: 'Recording statute', body: 'Add the recording statute [[cite:va_code:55.1-345]]', severity: 'minor' },
+      ]);
     } else if (params.systemPrompt.includes('PRIMARY model that produced')) {
       // A well-formed dispositioner: exactly one disposition per suggestion index actually in the prompt.
       const ds = ['adopt', 'reject', 'modify_and_adopt'] as const;
@@ -171,7 +172,7 @@ describe('CHAT-COPILOT-2-INCB — review panel (behavioral)', () => {
     const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
     const raws = await listReviewRawOutputsForRun(prep.panelConfirmId, U1);
     expect(raws).toHaveLength(1);
-    expect(raws[0]!.rawText).toContain('suggestions'); // the verbatim raw model output (the JSON)
+    expect(raws[0]!.rawText).toContain('severity'); // the verbatim raw model output (the legacy-wrapper JSON)
     expect(raws[0]!.egressEventId).not.toBeNull(); // each lane is its own logged egress
     // items reference the raw output, and store the ITEMIZED suggestion (not the whole raw blob)
     expect(run.items.every((i) => i.rawOutputRef === raws[0]!.id)).toBe(true);
@@ -215,7 +216,7 @@ describe('CHAT-COPILOT-2-INCB — review panel (behavioral)', () => {
       generate: (params) => {
         const content = params.systemPrompt.includes('PRIMARY model that produced')
           ? JSON.stringify({ dispositions: [{ index: 0, disposition: 'adopt', reasoning: 'x' }, { index: 0, disposition: 'reject', reasoning: 'y' }] })
-          : JSON.stringify({ suggestions: [{ suggestion: 'A' }, { suggestion: 'B' }] });
+          : JSON.stringify([{ title: 'A', body: 'A', severity: 'minor' }, { title: 'B', body: 'B', severity: 'minor' }]);
         return Promise.resolve({ content, tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
       },
     });
@@ -235,6 +236,110 @@ describe('CHAT-COPILOT-2-INCB — review panel (behavioral)', () => {
     expect(raws.find((r) => r.reviewerModel === 'gpt')!.laneStatus).toBe('success');
     expect(run.items.every((i) => i.reviewerModel === 'gpt')).toBe(true);
     expect(run.dispositionerStatus).toBe('success');
+  });
+
+  // ── CHAT-PANEL-REVIEWER-FIX-1 ─────────────────────────────────────────────────────────────────────────
+  it('A1 — panel reviewer dispatch builds the SAME provider request contract as legacy (regression vs the api_error)', async () => {
+    // A RECORDING adapter captures the exact LlmGenerateParams the reviewer lane builds.
+    let captured: LlmGenerateParams | null = null;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          captured = params;
+          return Promise.resolve({ content: JSON.stringify([{ title: 't', body: 'b', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'r' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(captured).not.toBeNull();
+    // Same structured-output contract the legacy reviewer_feedback path validates against all four providers.
+    expect(captured!.structuredOutputSchema).toBe(PanelReviewerOutputSchema);
+    // Same per-model reviewer ceiling as legacy (NOT the prior flat 2048 that truncated Gemini -> api_error).
+    expect(captured!.maxTokens).toBe(getReviewerCeiling('openai:gpt-5'));
+    // The prompt MUST contain the literal word "json" — OpenAI's json_object mode 400s without it (the
+    // gpt-5 api_error). (Case-insensitive: the contract says "JSON array".)
+    expect((captured!.systemPrompt + captured!.userPrompt).toLowerCase()).toContain('json');
+  });
+
+  it('A2 — a FAILED (non-blocked) reviewer egress is recorded laneStatus "failed" with the REAL errorClass, never "success"', async () => {
+    // The prod case: the provider rejected; executeCanonicalMutation RETURNS {status:'failed'} (it does not
+    // throw), so the prior code mis-stamped the lane "success" with empty output.
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          // The real prod panel api_error: OpenAI 400 (non-retryable), exactly one dispatch attempt.
+          return Promise.reject(new LlmProviderError('api_error', 'OpenAI API error 400: messages must contain the word json'));
+        }
+        return Promise.resolve({ content: '{}', tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    const raws = await listReviewRawOutputsForRun(prep.panelConfirmId, U1);
+    expect(raws).toHaveLength(1);
+    expect(raws[0]!.laneStatus).toBe('failed'); // was wrongly 'success' before the fix
+    expect(raws[0]!.laneFailureReason).toContain('api_error'); // the REAL class, not the literal 'failed'
+    expect(raws[0]!.laneFailureReason).not.toBe('failed');
+    expect(raws[0]!.rawText).toBeNull(); // no output captured on a failed lane
+    expect(run.dispositionerStatus).toBe('skipped'); // zero reviewers succeeded
+    expect(run.items).toHaveLength(0);
+    // the egress AUDIT row carries the real provider error (not the literal status string)
+    const events = await listEgressEvents(U1, { matterId: MATTER_A });
+    const laneEvent = events.find((e) => e.status === 'failed');
+    expect(laneEvent).toBeTruthy();
+    expect(laneEvent!.failureReason).toContain('api_error');
+  });
+
+  it('A3 — a reviewer payload missing severity RETRIES once then succeeds; the real severity is used, never fabricated', async () => {
+    let reviewerCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          reviewerCalls += 1;
+          if (reviewerCalls === 1) {
+            // first attempt omits severity -> the adapter Zod-rejects -> parse_error
+            return Promise.reject(new LlmProviderError('parse_error', 'severity: Required at index 0'));
+          }
+          return Promise.resolve({ content: JSON.stringify([{ title: 'Tax deadline', body: 'Add the recording deadline', severity: 'critical' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'r' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(reviewerCalls).toBe(2); // tried once, retried exactly once
+    const raws = await listReviewRawOutputsForRun(prep.panelConfirmId, U1);
+    expect(raws[0]!.laneStatus).toBe('success'); // recovered on the retry
+    expect(run.items).toHaveLength(1);
+    // the REAL model-supplied severity is preserved inline; never a fabricated/defaulted one
+    expect(run.items[0]!.suggestion).toContain('CRITICAL');
+    expect(run.items[0]!.suggestion).toContain('Tax deadline');
+  });
+
+  it('A3 — a reviewer that stays malformed across the retry is labeled malformed output, never fabricated or silently dropped', async () => {
+    let reviewerCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          reviewerCalls += 1;
+          return Promise.reject(new LlmProviderError('parse_error', 'severity: Required at index 0'));
+        }
+        return Promise.resolve({ content: '{}', tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(reviewerCalls).toBe(2); // tried once, retried once, then gave up
+    const raws = await listReviewRawOutputsForRun(prep.panelConfirmId, U1);
+    expect(raws).toHaveLength(1);
+    expect(raws[0]!.laneStatus).toBe('failed');
+    expect(raws[0]!.laneFailureReason).toContain('malformed reviewer output'); // labeled, not a generic class
+    expect(run.items).toHaveLength(0); // not silently dropped into a fabricated item
+    expect(run.dispositionerStatus).toBe('skipped');
   });
 
   it('attorney-final: recordAttorneyDecision persists an override; nothing auto-applied', async () => {
@@ -317,5 +422,13 @@ describe('CHAT-COPILOT-2-INCB — purge coverage + flag wiring', () => {
   it('the panel flag is fail-closed default-OFF and the procedure is in the egress COPILOT_SURFACE', () => {
     expect(read('src/server/config/featureFlags.ts')).toContain("process.env['CHAT_REVIEW_PANEL_ENABLED'] === 'true'");
     expect(read('src/server/__tests__/architecture_egress_broker.test.ts')).toContain("server/procedures/chatReviewPanel.ts");
+  });
+
+  it('CHAT-PANEL-REVIEWER-FIX-1: the panel lanes carry the reviewer timeout budget (~300s), not the 120s chat default', () => {
+    // timeoutMs is a canonical-mutation param (not an LlmGenerateParam), so it is not observable through the
+    // test adapter seam — a source-scan (mr1.llm1_s2 pattern) locks the alignment.
+    const src = read('src/server/procedures/chatReviewPanel.ts');
+    expect(src).toContain('REVIEWER_PANEL_TIMEOUT_MS = 300_000');
+    expect(src).toContain('timeoutMs: REVIEWER_PANEL_TIMEOUT_MS');
   });
 });

@@ -24,6 +24,7 @@ import { getConversationInContext, listMessages } from '../db/queries/chatCopilo
 import { assembleGroundedChatContext } from '../llm/chatGrounding.js';
 import { egressClient, EgressBlockedError } from '../llm/egressClient.js';
 import { PRIMARY_DRAFTER_MODEL, resolveReviewerModel } from '../llm/config.js';
+import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import {
   buildReviewerReviewPrompt,
   buildDispositionerPrompt,
@@ -32,7 +33,7 @@ import {
   citationStatusForSuggestion,
   isSelfReviewExcluded,
   hashText,
-  ReviewerSuggestionsSchema,
+  PanelReviewerOutputSchema,
   DispositionsSchema,
 } from '../llm/chatReviewPanelEngine.js';
 import {
@@ -57,6 +58,58 @@ import type { NewChatReviewItem } from '../db/schema.js';
 function assertPanelEnabled(): void {
   if (!isChatReviewPanelEnabled()) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CHAT_REVIEW_PANEL_DISABLED' });
+  }
+}
+
+/**
+ * CHAT-PANEL-REVIEWER-FIX-1 (A1): the panel reviewer + dispositioner lanes use the reviewer timeout budget
+ * (~300s, matching the legacy reviewer_feedback sync lane) instead of the interactive chat_turn default
+ * (120s). Passed per-call via the canonical params, so the primary interactive chat path (also jobType
+ * 'chat_turn') keeps its 120s default unchanged.
+ */
+const REVIEWER_PANEL_TIMEOUT_MS = 300_000;
+
+/**
+ * CHAT-PANEL-REVIEWER-FIX-1 (A2): a lane whose egress was DISPATCHED but did not complete — the provider
+ * rejected (a non-retryable api_error/parse_error) or timed out, and executeCanonicalMutation RETURNED a
+ * non-completed status rather than throwing. panelSend throws this so runReview's catch maps the lane to a
+ * real failed/timeout status carrying the true errorClass/errorMessage + the jobId link, instead of the
+ * prior silent "success + empty output". errorClass surfaces 'parse_error' so A3 can retry the lane once.
+ */
+class PanelLaneError extends Error {
+  constructor(
+    readonly dispatchStatus: 'failed' | 'timed_out' | 'cancelled',
+    readonly errorClass: string,
+    readonly providerMessage: string,
+    readonly jobId: string,
+    readonly laneEgressEventId: string,
+  ) {
+    super(`PANEL_LANE_${dispatchStatus.toUpperCase()}: ${errorClass}`);
+  }
+}
+
+/** Bound a lane failure reason to the laneFailureReason column (varchar(255)), preserving the jobId link
+ *  (appended last and never truncated off). A parse_error is labeled as malformed-reviewer-output. */
+function panelFailureReason(err: PanelLaneError): string {
+  const suffix = ` (job ${err.jobId})`;
+  const label = err.errorClass === 'parse_error' ? 'malformed reviewer output' : err.errorClass;
+  const head = err.providerMessage ? `${label}: ${err.providerMessage}` : label;
+  return (head.slice(0, 255 - suffix.length) + suffix).slice(0, 255);
+}
+
+/** CHAT-PANEL-REVIEWER-FIX-1 (A3): retry a reviewer lane EXACTLY once on a parse_error (e.g. a model that
+ *  omitted the required severity enum). The canonical layer never retries parse_error (a re-roll is a
+ *  separate decision), so this narrow lane-level re-ask gives a flaky reviewer one more chance before the
+ *  lane is recorded as labeled malformed output. NEVER fabricates a missing field. Other failure classes
+ *  (api_error, timeout, blocked) are not retried here. */
+async function sendWithParseRetry<T>(send: () => Promise<T>): Promise<T> {
+  try {
+    return await send();
+  } catch (err) {
+    if (err instanceof PanelLaneError && err.errorClass === 'parse_error') {
+      return await send();
+    }
+    throw err;
   }
 }
 
@@ -89,8 +142,9 @@ async function assembleReviewBundle(args: {
   return { grounding, prompt, transmitCore, bundleSourceIds: new Set<string>(grounding.sourceIds) };
 }
 
-/** One panel egress through the broker. Returns the captured raw output + the audit event id. Throws
- *  EgressBlockedError (gate refused) or the provider error (dispatch failed) — the caller maps to a lane. */
+/** One panel egress through the broker. Returns the captured raw output + the audit event id + jobId.
+ *  Throws EgressBlockedError (gate refused) or PanelLaneError (dispatched but did not complete — provider
+ *  rejection/parse failure/timeout). The caller maps either to a lane. */
 async function panelSend(params: {
   userId: string;
   matterId: string;
@@ -104,7 +158,7 @@ async function panelSend(params: {
   serializedPayload: string;
   npiWithheldCount: number;
   attachmentIds: string[];
-}): Promise<{ egressEventId: string; rawOutput: string }> {
+}): Promise<{ egressEventId: string; rawOutput: string; jobId: string }> {
   let captured = '';
   const egress = await egressClient.send({
     audit: {
@@ -127,12 +181,18 @@ async function panelSend(params: {
       jobType: 'chat_turn',
       modelString: params.modelString,
       matterId: params.matterId,
+      // CHAT-PANEL-REVIEWER-FIX-1 (A1): reviewer-budget timeout (~300s) instead of the 120s chat default,
+      // so a slow gpt-5/Gemini reviewer-style turn is not cut short into a failure.
+      timeoutMs: REVIEWER_PANEL_TIMEOUT_MS,
       txn1Enqueue: (jobId) => Promise.resolve({ jobId }),
       buildLlmParams: () => ({
         systemPrompt: params.systemPrompt,
         userPrompt: params.userPrompt,
         temperature: 0.4,
-        maxTokens: 2048,
+        // CHAT-PANEL-REVIEWER-FIX-1 (A1): per-model reviewer ceiling (reused from the legacy reviewer
+        // path) instead of a flat 2048 — 2048 truncated a thinking model's output (Gemini emits no text
+        // before the budget is spent) into an api_error.
+        maxTokens: getReviewerCeiling(params.modelString),
         structuredOutputSchema: params.schema,
       }),
       txn2Commit: ({ output }) => {
@@ -143,12 +203,29 @@ async function panelSend(params: {
       telemetryCtx: { userId: params.userId, matterId: params.matterId, documentId: null, jobId: null },
     },
   });
-  return { egressEventId: egress.egressEventId, rawOutput: captured };
+  // CHAT-PANEL-REVIEWER-FIX-1 (A2): the dispatch can RETURN a non-completed status WITHOUT throwing (a
+  // non-retryable provider api_error/parse_error, or a timeout). Surface it as a real lane failure carrying
+  // the true error + jobId link, instead of the prior silent "success + empty output".
+  if (egress.result.status !== 'completed') {
+    throw new PanelLaneError(
+      egress.result.status,
+      egress.result.errorClass ?? egress.result.status,
+      egress.result.errorMessage ?? '',
+      egress.result.jobId,
+      egress.egressEventId,
+    );
+  }
+  return { egressEventId: egress.egressEventId, rawOutput: captured, jobId: egress.result.jobId };
 }
 
 function laneFromError(err: unknown): { laneStatus: ChatReviewLaneStatus; failureReason: string; egressEventId: string | null } {
   if (err instanceof EgressBlockedError) {
     return { laneStatus: 'blocked', failureReason: err.blockReason, egressEventId: err.egressEventId };
+  }
+  // CHAT-PANEL-REVIEWER-FIX-1 (A2): a dispatched-but-failed lane carries the real status + provider error.
+  if (err instanceof PanelLaneError) {
+    const laneStatus: ChatReviewLaneStatus = err.dispatchStatus === 'timed_out' ? 'timeout' : 'failed';
+    return { laneStatus, failureReason: panelFailureReason(err), egressEventId: err.laneEgressEventId };
   }
   const msg = err instanceof Error ? err.message : String(err);
   return { laneStatus: 'failed', failureReason: msg.length > 240 ? msg.slice(0, 240) : msg, egressEventId: null };
@@ -288,20 +365,24 @@ export const chatReviewPanelRouter = router({
         const liveConv = await getConversationInContext(run.conversationId, cctx);
         const rawId = uuidv4();
         try {
-          const { egressEventId, rawOutput } = await panelSend({
-            userId: ctx.userId,
-            matterId: input.matterId,
-            conversationId: run.conversationId,
-            messageId: run.messageId,
-            holdFlag: liveConv.holdFlag,
-            modelString,
-            systemPrompt: bundle.prompt.systemPrompt,
-            userPrompt: bundle.prompt.userPrompt,
-            schema: ReviewerSuggestionsSchema,
-            serializedPayload: bundle.transmitCore,
-            npiWithheldCount,
-            attachmentIds,
-          });
+          // CHAT-PANEL-REVIEWER-FIX-1 (A3): retry the lane once on a parse_error (e.g. a model that omitted
+          // the required severity enum) before recording it failed; never fabricate the missing field.
+          const { egressEventId, rawOutput } = await sendWithParseRetry(() =>
+            panelSend({
+              userId: ctx.userId,
+              matterId: input.matterId,
+              conversationId: run.conversationId,
+              messageId: run.messageId,
+              holdFlag: liveConv.holdFlag,
+              modelString,
+              systemPrompt: bundle.prompt.systemPrompt,
+              userPrompt: bundle.prompt.userPrompt,
+              schema: PanelReviewerOutputSchema,
+              serializedPayload: bundle.transmitCore,
+              npiWithheldCount,
+              attachmentIds,
+            }),
+          );
           const suggestions = parseReviewerSuggestions(rawOutput, rawOutput);
           await insertReviewRawOutput({
             id: rawId,

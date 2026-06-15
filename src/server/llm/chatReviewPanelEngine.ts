@@ -14,6 +14,7 @@ import {
   type ChatReviewDisposition,
   type ChatReviewCitationStatus,
 } from '../../shared/schemas/chatCopilot.js';
+import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
 
 /** Stable content hash (workProductHash / bundleHash / suggestionHash). */
 export function hashText(text: string): string {
@@ -22,11 +23,23 @@ export function hashText(text: string): string {
 
 // ── Structured output contracts (forced via structuredOutputSchema on the LLM call) ─────────────────────
 
-/** What each panel reviewer (GPT/Gemini/Grok) returns: an itemized list of suggestions. */
-export const ReviewerSuggestionsSchema = z.object({
-  suggestions: z.array(z.object({ suggestion: z.string().min(1) })).max(50),
-});
-export type ReviewerSuggestions = z.infer<typeof ReviewerSuggestionsSchema>;
+/**
+ * CHAT-PANEL-REVIEWER-FIX-1 — the panel reviewer lanes REUSE the legacy reviewer_feedback structured-output
+ * contract: `RawSuggestionsArraySchema` (a bare JSON ARRAY of { title, body, severity }). This is the request
+ * contract that already validates against all four providers, and adopting it fixes the panel-specific
+ * dispatch failures:
+ *   - the shared json_object adapters' normalizers (normalizeOpenAiStructuredOutput / normalizeGrokStructuredOutput)
+ *     are built for a BARE ARRAY; the prior object schema `{ suggestions: [...] }` was unwrapped to its inner
+ *     array and then failed validation against the object shape -> the grok `parse_error`;
+ *   - a bare-array reviewer prompt naturally instructs a "JSON array", and OpenAI's json_object mode returns
+ *     HTTP 400 unless the literal word "json" appears in the request (the prior panel prompt had none -> the
+ *     gpt-5 `api_error`).
+ * `severity` (critical|major|minor) is REQUIRED and attorney-meaningful; a model that omits it produces a
+ * parse_error that A3 handles by retrying once then surfacing labeled-malformed output — NEVER by fabricating
+ * a severity.
+ */
+export const PanelReviewerOutputSchema = RawSuggestionsArraySchema;
+export type PanelReviewerOutput = z.infer<typeof PanelReviewerOutputSchema>;
 
 /** What the PRIMARY (Claude) dispositioner returns: one disposition per reviewer-suggestion index. */
 export const DispositionsSchema = z.object({
@@ -56,7 +69,15 @@ const REVIEWER_SYSTEM = [
   'When a suggestion relies on a source provided in the [GROUNDED CONTEXT], cite it inline as',
   '[[cite:SOURCE_ID]]. You MAY also reference a real authority that is NOT in the context (e.g. a VA',
   'statute or ethics opinion) — it will be FLAGGED for the attorney to verify, never silently discarded.',
-  'Return ONLY the structured suggestions; no preamble.',
+  // CHAT-PANEL-REVIEWER-FIX-1 (A1): the OUTPUT CONTRACT matches the legacy reviewer wrapper
+  // (RawSuggestionsArraySchema) so the request validates against all four providers. The literal word
+  // "JSON" must appear here — OpenAI's json_object mode returns HTTP 400 without it.
+  'OUTPUT CONTRACT: Return ONLY a JSON array (no preamble, no prose, nothing outside the array). Each',
+  'element is an object with exactly these fields: { "title": "short issue title (under 80 chars)", "body":',
+  '"the itemized suggestion detail — put any [[cite:SOURCE_ID]] here", "severity": "critical" | "major" |',
+  '"minor" }. severity: critical = blocks responsible use; major = a substantive legal / risk-allocation /',
+  'drafting issue; minor = precision, structure, or polish. EVERY element MUST include a severity. Return',
+  'the empty array [] if you have no suggestions.',
 ].join('\n');
 
 export function buildReviewerReviewPrompt(args: ReviewerPromptArgs): { systemPrompt: string; userPrompt: string } {
@@ -64,7 +85,7 @@ export function buildReviewerReviewPrompt(args: ReviewerPromptArgs): { systemPro
   const ctx = args.bundleContextText ? `${args.bundleContextText}\n\n` : '';
   const userPrompt =
     `${ctx}[WORK PRODUCT UNDER REVIEW]\n${args.workProduct}\n${modeLine}` +
-    'List your itemized suggestions to improve the work product above.';
+    'Return your itemized suggestions to improve the work product above as the JSON array specified above.';
   return { systemPrompt: REVIEWER_SYSTEM, userPrompt };
 }
 
@@ -112,20 +133,41 @@ function coerceObject(output: unknown): unknown {
 }
 
 /**
- * Itemize one reviewer's raw output into suggestion strings. Robust: accepts the structured
- * { suggestions: [...] } object, a bare array, or (fallback) the whole text as a single suggestion when it
- * cannot be parsed — so a malformed-but-nonempty reviewer reply is never silently dropped (it becomes one
- * itemized suggestion the attorney still sees). Returns [] only for genuinely empty output.
+ * Compose one legacy reviewer item ({ title, body, severity }) into the panel's single suggestion string.
+ * The panel has no severity column (no schema change in this fix), so the model-reported severity is
+ * preserved INLINE — never inferred and never defaulted. The body (which carries any [[cite:...]]) is kept
+ * verbatim so citation flag-not-reject still works downstream.
+ */
+function formatReviewerSuggestion(item: { title: string; body: string; severity: string }): string {
+  const head = `[${item.severity.toUpperCase()}] ${item.title.trim()}`;
+  const body = item.body.trim();
+  return body.length > 0 ? `${head} — ${body}` : head;
+}
+
+/**
+ * Itemize one reviewer's raw output into suggestion strings. CHAT-PANEL-REVIEWER-FIX-1 (A1): the canonical
+ * shape is now the legacy reviewer wrapper — a bare JSON array of { title, body, severity } — which the
+ * adapter has already validated against `PanelReviewerOutputSchema` on the success path. Robust fallbacks
+ * remain so a malformed-but-nonempty reply is never silently dropped: a bare array of strings or {body}/
+ * {suggestion} objects, else the whole text as one suggestion. Returns [] only for genuinely empty output.
+ * Never fabricates a severity — only a model-supplied severity is ever shown (the legacy-wrapper branch).
  */
 export function parseReviewerSuggestions(output: unknown, rawText: string): string[] {
   const obj = coerceObject(output);
-  const parsed = ReviewerSuggestionsSchema.safeParse(obj);
+  const parsed = PanelReviewerOutputSchema.safeParse(obj);
   if (parsed.success) {
-    return parsed.data.suggestions.map((s) => s.suggestion.trim()).filter((s) => s.length > 0);
+    return parsed.data.map((s) => formatReviewerSuggestion(s).trim()).filter((s) => s.length > 0);
   }
   if (Array.isArray(obj)) {
     const items = obj
-      .map((x) => (typeof x === 'string' ? x : typeof (x as { suggestion?: unknown })?.suggestion === 'string' ? (x as { suggestion: string }).suggestion : ''))
+      .map((x) => {
+        if (typeof x === 'string') return x;
+        const o = x as { suggestion?: unknown; body?: unknown; title?: unknown };
+        if (typeof o?.suggestion === 'string') return o.suggestion;
+        if (typeof o?.body === 'string') return o.body;
+        if (typeof o?.title === 'string') return o.title;
+        return '';
+      })
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (items.length > 0) return items;
