@@ -56,6 +56,8 @@ import {
 import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDeliverables.js';
 // FOLD-PM-2: single source of the document-type vocabulary (kept in sync with the Zod Wall).
 import { DOCUMENT_TYPE_VALUES } from '../../shared/schemas/documentExtraction.js';
+// KB-PROVENANCE-1: single source of the legal-authority-type vocabulary (kept in sync with the Zod Wall).
+import { AUTHORITY_TYPE_VALUES } from '../../shared/schemas/authoritySource.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -2290,6 +2292,13 @@ export const practiceMemos = mysqlTable(
     // Owner-only link from an abstracted memo back to its raw origin; never exposed cross-matter.
     abstractedFromMemoId: char('abstractedFromMemoId', { length: 36 }),
     supersededById: char('supersededById', { length: 36 }),
+    // KB-PROVENANCE-1 (WHEREAS_KB_CONSTITUTION §8 provenance/currency fields). Additive nullable.
+    // verified_date intentionally NOT added (duplicates verifiedThroughDate/lastVerifiedAt);
+    // supersedes_id deferred per §8 (supersededById already exists above).
+    effectiveDate: date('effectiveDate', { mode: 'string' }),
+    reviewBy: date('reviewBy', { mode: 'string' }),
+    authoritySnapshotId: char('authoritySnapshotId', { length: 36 }),
+    negativeTreatmentFlag: boolean('negativeTreatmentFlag'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
   },
@@ -2990,3 +2999,43 @@ export const materialExtraction = mysqlTable(
 );
 export type MaterialExtraction = typeof materialExtraction.$inferSelect;
 export type NewMaterialExtraction = typeof materialExtraction.$inferInsert;
+
+// ============================================================
+// KB-PROVENANCE-1 — authority_source (firm/jurisdiction legal-authority registry)
+// ============================================================
+// A DURABLE firm/jurisdiction-level legal-authority (citation) registry — generalizes the
+// embedded practice_memos.lawReliedOn structure into a first-class row. Owner/firm-level
+// (userId, NO matterId) so it SURVIVES matter closure and is NOT matter-purged (unlike the
+// matter-scoped source_authority artifact-tier table — do NOT conflate the two). Additive;
+// NO DB FK (app-layer ownerScope). authorityType enum is the single source from
+// src/shared/schemas/authoritySource.ts. supersedes/superseded-by DEFERRED per Constitution §8;
+// the §2 pinned-citation+signature gate is enforced at the app-layer promotion boundary.
+export const authoritySource = mysqlTable(
+  'authority_source',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    jurisdiction: varchar('jurisdiction', { length: 128 }).notNull(),
+    authorityType: mysqlEnum('authorityType', AUTHORITY_TYPE_VALUES).notNull(),
+    citationText: varchar('citationText', { length: 512 }).notNull(),
+    pinpoint: varchar('pinpoint', { length: 256 }),
+    sourceUrlOrLocation: text('sourceUrlOrLocation'),
+    sourceSnapshotHash: varchar('sourceSnapshotHash', { length: 128 }),
+    effectiveDate: date('effectiveDate', { mode: 'string' }),
+    lastCheckedDate: date('lastCheckedDate', { mode: 'string' }),
+    reviewByDate: date('reviewByDate', { mode: 'string' }),
+    checkedBy: varchar('checkedBy', { length: 128 }),
+    notes: text('notes'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxAuthoritySourceOwner: index('idx_authority_source_owner').on(table.userId, table.jurisdiction),
+    idxAuthoritySourceReview: index('idx_authority_source_review').on(table.userId, table.reviewByDate),
+  }),
+);
+export type AuthoritySource = typeof authoritySource.$inferSelect;
+export type NewAuthoritySource = typeof authoritySource.$inferInsert;

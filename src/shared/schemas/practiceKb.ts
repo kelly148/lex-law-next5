@@ -37,6 +37,9 @@ export const LawReliedOnEntrySchema = z.object({
   sourceType: z.string(), // e.g. 'statute' | 'regulation' | 'case' | 'secondary' | 'internal_memo'
   effectiveDate: z.string().nullable().optional(),
   ref: z.string().nullable().optional(),
+  // KB-PROVENANCE-1: optional link from this relied-on authority to a first-class
+  // authority_source registry row (the durable firm/jurisdiction citation registry).
+  authoritySourceId: z.string().uuid().nullable().optional(),
 });
 export type LawReliedOnEntry = z.infer<typeof LawReliedOnEntrySchema>;
 
@@ -75,6 +78,15 @@ export const PracticeMemoRowSchema = z.object({
   reuseScope: z.enum(['matter_only', 'firm_wide']),
   abstractedFromMemoId: z.string().uuid().nullable(),
   supersededById: z.string().uuid().nullable(),
+  // KB-PROVENANCE-1 (WHEREAS_KB_CONSTITUTION §8 do-now provenance/currency fields). Migration-added
+  // columns -> .nullable().optional() (hard convention: pre-migration reads + legacy fixtures still
+  // parse). NOTE: verified_date is intentionally NOT added — it duplicates the existing
+  // verifiedThroughDate (currency horizon) + lastVerifiedAt (verification act). supersedes_id is
+  // DEFERRED per §8 (and supersededById above already exists).
+  effectiveDate: z.string().nullable().optional(), // 'YYYY-MM-DD' — when the stated law became effective
+  reviewBy: z.string().nullable().optional(), // 'YYYY-MM-DD' — recheck-by date for currency review
+  authoritySnapshotId: z.string().uuid().nullable().optional(), // link to a pinned authority snapshot/source
+  negativeTreatmentFlag: z.boolean().nullable().optional(), // overruled/superseded/questioned treatment
   createdAt: z.date(),
   updatedAt: z.date(),
 });
