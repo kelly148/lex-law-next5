@@ -69,6 +69,24 @@ function errMessage(err: unknown): string {
   return m.length > 240 ? m.slice(0, 240) : m;
 }
 
+/**
+ * CHAT-PANEL-REVIEWER-FIX-1 (A2): compose the real failure reason for the audit row from the canonical
+ * result. Previously the broker wrote the literal status string ('failed'/'timed_out') and the true
+ * provider error (api_error/parse_error/timeout + provider detail) was lost. Now we surface the REAL
+ * errorClass + errorMessage plus the jobId link, so supervision can see WHY a send failed. The jobId is
+ * appended LAST and the whole string is bounded to the failureReason column (varchar(255)); the jobId
+ * suffix is preserved (the link is never truncated off). The errorMessage is the provider/adapter error
+ * (HTTP status + sanitized provider detail — the adapters sanitize structured-output diagnostics), NOT
+ * document content. Falls back to the status string when no error detail is available.
+ */
+function failureReasonFromResult(result: CanonicalMutationResult): string {
+  const suffix = ` (job ${result.jobId})`;
+  const head = result.errorMessage
+    ? `${result.errorClass ?? 'error'}: ${result.errorMessage}`
+    : (result.errorClass ?? result.status);
+  return (head.slice(0, 255 - suffix.length) + suffix).slice(0, 255);
+}
+
 /** Complete the audit row best-effort: a failed completion update must NEVER mask the real dispatch
  *  outcome (success, or the underlying provider error). The decision row is already durably written. */
 async function safeComplete(id: string, userId: string, patch: EgressCompletionPatch): Promise<void> {
@@ -210,7 +228,7 @@ async function send(req: EgressSendRequest): Promise<EgressSendResult> {
   }
   await safeComplete(eventId, canonical.userId, {
     status: mapStatus(result.status),
-    failureReason: result.status === 'completed' ? null : result.status,
+    failureReason: result.status === 'completed' ? null : failureReasonFromResult(result),
     completedAt: new Date(),
   });
   return { egressEventId: eventId, result };
