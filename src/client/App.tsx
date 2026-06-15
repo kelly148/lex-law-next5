@@ -30,6 +30,7 @@ const InformationRequestPage = lazy(() => import("./pages/InformationRequestPage
 const UploadFormatPage = lazy(() => import("./pages/UploadFormatPage.js"));
 const ChatSurface = lazy(() => import("./pages/ChatSurface.js"));
 const CopilotPage = lazy(() => import("./pages/CopilotPage.js"));
+const MattersOverview = lazy(() => import("./pages/MattersOverview.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -65,6 +66,9 @@ export default function App(): React.ReactElement {
       {/* CHAT-COPILOT-1 — persisted matter copilot surface. Always registered; CopilotPage self-guards
           on CHAT_COPILOT_ENABLED (default OFF) and redirects to the matter page when the flag is off. */}
       <Route path="/matters/:matterId/copilot" element={<ProtectedLayout><CopilotPage /></ProtectedLayout>} />
+      {/* FOLD-PM-4 — ongoing matters + to-do overview. Always registered; MattersOverview
+          self-guards on MATTER_DELIVERABLE_ENABLED (default OFF) and redirects to /matters when off. */}
+      <Route path="/overview" element={<ProtectedLayout><MattersOverview /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />

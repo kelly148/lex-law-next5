@@ -355,3 +355,17 @@ export function isReviewerSelectionCountAllowed(
   if (count > 1 && !multiReviewerEnabled) return false;
   return true;
 }
+
+/**
+ * Matter-deliverable overview (FOLD-PM-4). DEFAULT OFF.
+ *
+ * A simple owner+matter-scoped "ongoing matters + to-do list": each row is one
+ * deliverable on one matter. When OFF (default), the matterDeliverable router
+ * refuses every op (MATTER_DELIVERABLE_DISABLED) except the ungated isEnabled
+ * probe, and the /overview page redirects — zero new behavior. When exactly
+ * "true", the overview surface and CRUD are live. Additive + reversible; the
+ * matter_deliverable table (migration 0036) must be applied BEFORE flipping this.
+ */
+export function isMatterDeliverableEnabled(): boolean {
+  return process.env['MATTER_DELIVERABLE_ENABLED'] === 'true';
+}
