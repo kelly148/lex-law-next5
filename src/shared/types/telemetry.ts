@@ -107,7 +107,9 @@ type MaterialsLibraryEvent =
   | 'material_hard_deleted'
   | 'material_manually_supplemented'
   | 'materials_included_in_operation'
-  | 'tier2_truncation_acknowledged';
+  | 'tier2_truncation_acknowledged'
+  // CHAT-COPILOT-2 A2: a chat attachment was ingested (drop event) — labels/flags only, no NPI.
+  | 'chat_attachment_ingested';
 
 // ============================================================
 // E.7 / Ch 25.8 — Template events
@@ -338,6 +340,15 @@ export interface TelemetryPayload {
     uploadSource: string;
   };
   material_pasted: { title?: string; tags?: string[]; textContentLength: number };
+  // CHAT-COPILOT-2 A2 — labels/flags only (NO NPI / no field values / no extracted text).
+  chat_attachment_ingested: {
+    conversationId: string;
+    extractionStatus: string;
+    warnings: string;
+    visualReviewRequired: boolean;
+    crossMatterDuplicate: boolean;
+    matterMismatch: boolean;
+  };
   material_metadata_updated: { fields: Record<string, { old: unknown; new: unknown }> };
   material_pinned: Record<string, never>;
   material_unpinned: Record<string, never>;

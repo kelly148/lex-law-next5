@@ -49,6 +49,8 @@ import {
   CHAT_EGRESS_DECISION_VALUES,
   CHAT_EGRESS_AUTH_BASIS_VALUES,
   CHAT_EGRESS_STATUS_VALUES,
+  // CHAT-COPILOT-2 A2 (ephemeral attachments): party-attribution kind.
+  CHAT_ATTACHMENT_ATTRIBUTION_VALUES,
 } from '../../shared/schemas/chatCopilot.js';
 
 // ============================================================
@@ -2844,3 +2846,68 @@ export const chatEgressEvents = mysqlTable(
 );
 export type ChatEgressEvent = typeof chatEgressEvents.$inferSelect;
 export type NewChatEgressEvent = typeof chatEgressEvents.$inferInsert;
+
+// CHAT-COPILOT-2 A2 — ephemeral chat attachments. Store BY-REFERENCE (extracted text + metadata, NOT raw
+// file bytes — storageKey is a placeholder like matter_materials), conversation-scoped, EPHEMERAL by
+// default (purged at conversation end / immediately on do-not-persist; a `pinned` provenance attachment
+// survives). textContent follows the honesty floor (NULL on low-confidence). Written ONLY when
+// CHAT_COPILOT_ENABLED is ON (default OFF). No DB FK (app-layer isolation, codebase convention).
+export const chatAttachments = mysqlTable(
+  'chat_attachments',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    conversationId: char('conversationId', { length: 36 }).notNull(),
+    filename: varchar('filename', { length: 512 }),
+    mimeType: varchar('mimeType', { length: 128 }),
+    fileSize: int('fileSize'),
+    storageKey: varchar('storageKey', { length: 512 }),
+    // contentHash: SHA-256 of the uploaded bytes — cross-matter duplicate detection (Q3). NOT NPI.
+    contentHash: varchar('contentHash', { length: 64 }),
+    textContent: mediumtext('textContent'),
+    extractionStatus: mysqlEnum('extractionStatus', EXTRACTION_STATUS_VALUES).notNull(),
+    extractionError: text('extractionError'),
+    // ocrQuality: { meanConfidence, perPageConfidence, warnings, dangerousMiddleFieldTypes, ... } — labels
+    // + confidences ONLY, never the field values (no NPI).
+    ocrQuality: json('ocrQuality'),
+    holdFlag: mysqlEnum('holdFlag', CHAT_HOLD_FLAG_VALUES).notNull().default('none'),
+    acceptedWithWarning: boolean('acceptedWithWarning').notNull().default(false),
+    pinned: boolean('pinned').notNull().default(false),
+    savedMaterialId: char('savedMaterialId', { length: 36 }),
+    seq: int('seq').notNull().default(0),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxChatAttachmentsConversation: index('idx_chat_attachments_conversation').on(table.conversationId, table.seq),
+    idxChatAttachmentsMatter: index('idx_chat_attachments_matter').on(table.matterId, table.userId),
+    // Cross-matter duplicate lookup (Q3): owner-scoped by content hash.
+    idxChatAttachmentsHash: index('idx_chat_attachments_hash').on(table.userId, table.contentHash),
+  }),
+);
+export type ChatAttachment = typeof chatAttachments.$inferSelect;
+export type NewChatAttachment = typeof chatAttachments.$inferInsert;
+
+// CHAT-COPILOT-2 A2 — optional party attribution captured at save-to-matter (Q3): which matter party a
+// document belongs to, so role-based intra-matter exclusion is enforceable rather than aspirational.
+export const chatAttachmentParty = mysqlTable(
+  'chat_attachment_party',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    attachmentId: char('attachmentId', { length: 36 }).notNull(),
+    partyId: char('partyId', { length: 36 }),
+    partyRole: varchar('partyRole', { length: 64 }),
+    attribution: mysqlEnum('attribution', CHAT_ATTACHMENT_ATTRIBUTION_VALUES).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxChatAttachmentPartyAttachment: index('idx_chat_attachment_party_attachment').on(table.attachmentId),
+    idxChatAttachmentPartyMatter: index('idx_chat_attachment_party_matter').on(table.matterId, table.userId),
+  }),
+);
+export type ChatAttachmentPartyRowDb = typeof chatAttachmentParty.$inferSelect;
+export type NewChatAttachmentParty = typeof chatAttachmentParty.$inferInsert;
