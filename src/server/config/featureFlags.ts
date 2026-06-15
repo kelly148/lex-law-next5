@@ -385,3 +385,19 @@ export function isMatterDeliverableEnabled(): boolean {
 export function isSupervisionViewEnabled(): boolean {
   return process.env['SUPERVISION_VIEW_ENABLED'] === 'true';
 }
+
+/**
+ * Document-type structured extraction (FOLD-PM-2). DEFAULT OFF.
+ *
+ * The PURE, no-egress document-type parsers (title commitment / deed / survey /
+ * settlement statement) over a material's already-extracted text, persisted to
+ * material_extraction. When OFF (default), the materialExtraction procedures refuse
+ * with PRECONDITION_FAILED and the extraction panel does not render — zero new
+ * behavior. The extraction is deterministic + attorney-facing only (never an egress
+ * contract); low-confidence fields are withheld at the data layer (honesty floor).
+ * Additive + reversible; the material_extraction table (migration 0037) must be
+ * applied BEFORE flipping this.
+ */
+export function isDocumentExtractionEnabled(): boolean {
+  return process.env['DOCUMENT_EXTRACTION_ENABLED'] === 'true';
+}

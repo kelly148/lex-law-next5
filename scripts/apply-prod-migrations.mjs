@@ -109,8 +109,13 @@ const MIGRATIONS = [
   // MATTER_DELIVERABLE_ENABLED is ON (default OFF); apply BEFORE flipping the flag. Default-safe. No new
   // env var beyond the flag.
   '0036_fold_pm_4_matter_deliverable.sql',
+  // FOLD-PM-2 — additive material_extraction (CREATE TABLE IF NOT EXISTS, idempotent, NO FK — isolation
+  // app-layer). One latest document-type structured extraction per material. Written/read ONLY when
+  // DOCUMENT_EXTRACTION_ENABLED is ON (default OFF); apply BEFORE flipping the flag. Default-safe. No new
+  // env var beyond the flag.
+  '0037_fold_pm_2_material_extraction.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
