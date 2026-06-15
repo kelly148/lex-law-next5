@@ -317,3 +317,123 @@ export const ChatAttachmentPartyRowSchema = z.object({
   createdAt: z.date(),
 });
 export type ChatAttachmentPartyRow = z.infer<typeof ChatAttachmentPartyRowSchema>;
+
+// ── CHAT-COPILOT-2 Increment B: multi-model review panel (chat_review_runs / _raw_outputs / _items) ────
+
+/**
+ * Run-level lifecycle. `prepared` = the attorney panel-confirmed the post-minimization/post-hold bundle
+ * and reviewer set, persisted, NOT yet dispatched; `running` = reviewer lanes in flight; `complete` = all
+ * lanes terminal and the dispositioner resolved (or explicitly skipped); `failed` = run-level abort.
+ */
+export const CHAT_REVIEW_RUN_STATUS_VALUES = ['prepared', 'running', 'complete', 'failed'] as const;
+export const ChatReviewRunStatusSchema = z.enum(CHAT_REVIEW_RUN_STATUS_VALUES);
+export type ChatReviewRunStatus = (typeof CHAT_REVIEW_RUN_STATUS_VALUES)[number];
+
+/**
+ * The PRIMARY (Claude) dispositioner lane status. `skipped` = zero reviewers succeeded, so there was
+ * nothing to disposition; `failed` = the dispositioner errored / was off-allowlist — the raw reviewer
+ * suggestions are shown explicitly marked "not yet synthesized", never as vetted.
+ */
+export const CHAT_REVIEW_DISPOSITIONER_STATUS_VALUES = ['pending', 'success', 'failed', 'skipped'] as const;
+export const ChatReviewDispositionerStatusSchema = z.enum(CHAT_REVIEW_DISPOSITIONER_STATUS_VALUES);
+export type ChatReviewDispositionerStatus = (typeof CHAT_REVIEW_DISPOSITIONER_STATUS_VALUES)[number];
+
+/** Per-reviewer-lane dispatch status (mirrors the egress lifecycle for one panel reviewer send). */
+export const CHAT_REVIEW_LANE_STATUS_VALUES = ['pending', 'success', 'failed', 'blocked', 'timeout'] as const;
+export const ChatReviewLaneStatusSchema = z.enum(CHAT_REVIEW_LANE_STATUS_VALUES);
+export type ChatReviewLaneStatus = (typeof CHAT_REVIEW_LANE_STATUS_VALUES)[number];
+
+/** The PRIMARY's disposition of ONE reviewer suggestion. Advisory — nothing auto-applies. */
+export const CHAT_REVIEW_DISPOSITION_VALUES = ['adopt', 'reject', 'modify_and_adopt'] as const;
+export const ChatReviewDispositionSchema = z.enum(CHAT_REVIEW_DISPOSITION_VALUES);
+export type ChatReviewDisposition = (typeof CHAT_REVIEW_DISPOSITION_VALUES)[number];
+
+/**
+ * Whether a reviewer-cited source is present in the panel bundle. `in_bundle` = cited a source that WAS
+ * transmitted; `unverified` = cited a source NOT in the bundle — FLAGGED "unverified against bundle", NOT
+ * auto-rejected (a reviewer may correctly cite a real authority outside the bundle).
+ */
+export const CHAT_REVIEW_CITATION_STATUS_VALUES = ['in_bundle', 'unverified'] as const;
+export const ChatReviewCitationStatusSchema = z.enum(CHAT_REVIEW_CITATION_STATUS_VALUES);
+export type ChatReviewCitationStatus = (typeof CHAT_REVIEW_CITATION_STATUS_VALUES)[number];
+
+/** The attorney's FINAL per-suggestion decision (the backstop; nothing auto-applies). `pending` until set. */
+export const CHAT_REVIEW_ATTORNEY_DECISION_VALUES = ['pending', 'accept', 'override'] as const;
+export const ChatReviewAttorneyDecisionSchema = z.enum(CHAT_REVIEW_ATTORNEY_DECISION_VALUES);
+export type ChatReviewAttorneyDecision = (typeof CHAT_REVIEW_ATTORNEY_DECISION_VALUES)[number];
+
+/**
+ * chat_review_runs — one on-demand panel review of a chat work product. Owner + matter scoped. Records
+ * the panel-confirmed reviewer set + the provenance hashes (the work product reviewed + the minimized,
+ * hold-filtered bundle that actually transmitted). Work-product (purges WITH the matter).
+ */
+export const ChatReviewRunRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  // The assistant message (chat work product) under review; nullable if reviewing free-standing text.
+  messageId: z.string().uuid().nullable(),
+  // Hash of the chat work product under review (stable provenance of WHAT was reviewed).
+  workProductHash: z.string(),
+  // Hash of the minimized, hold-filtered bundle that actually transmits (the post-filter reality).
+  bundleHash: z.string(),
+  // The attorney-selected reviewer model keys for this run (e.g. ['gpt','gemini']); NEVER 'claude'.
+  reviewerModels: z.array(z.string()),
+  status: ChatReviewRunStatusSchema,
+  dispositionerStatus: ChatReviewDispositionerStatusSchema,
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type ChatReviewRunRow = z.infer<typeof ChatReviewRunRowSchema>;
+
+/**
+ * chat_review_raw_outputs — the VERBATIM raw reviewer output, stored BY-REFERENCE and DISTINCT from the
+ * itemized suggestions (synthesis fidelity: persisted or it didn't happen). One row per reviewer lane.
+ * Owner + matter scoped; work-product (purges WITH the matter).
+ */
+export const ChatReviewRawOutputRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  runId: z.string().uuid(),
+  reviewerModel: z.string(),
+  // The verbatim raw model output for this lane. NULL when the lane failed/blocked (no output produced).
+  rawText: z.string().nullable(),
+  laneStatus: ChatReviewLaneStatusSchema,
+  laneFailureReason: z.string().nullable(),
+  // The chat_egress_events id for this lane's send (audit back-link — every lane is its own logged egress).
+  egressEventId: z.string().uuid().nullable(),
+  createdAt: z.date(),
+});
+export type ChatReviewRawOutputRow = z.infer<typeof ChatReviewRawOutputRowSchema>;
+
+/**
+ * chat_review_items — ONE itemized reviewer suggestion and its PRIMARY disposition. 1:1 traceability:
+ * every reviewer suggestion maps to exactly one item (no silent merge/drop), each carries a suggestion
+ * hash and a by-reference link to the verbatim raw output. Owner + matter scoped; work-product.
+ */
+export const ChatReviewItemRowSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  matterId: z.string().uuid(),
+  runId: z.string().uuid(),
+  reviewerModel: z.string(),
+  // By-reference link to the verbatim raw reviewer output this suggestion was itemized from.
+  rawOutputRef: z.string().uuid().nullable(),
+  // Hash of the reviewer suggestion text — the 1:1 traceability key.
+  suggestionHash: z.string(),
+  suggestion: z.string(),
+  // The PRIMARY (Claude) disposition + reasoning. NULL until dispositioned (degraded: "not yet synthesized").
+  primaryDisposition: ChatReviewDispositionSchema.nullable(),
+  primaryReasoning: z.string().nullable(),
+  // Whether the suggestion's cited source is present in the bundle (flag-not-reject).
+  citationStatus: ChatReviewCitationStatusSchema.nullable(),
+  // The attorney's FINAL decision (the backstop). Nothing auto-applies.
+  attorneyDecision: ChatReviewAttorneyDecisionSchema,
+  attorneyOverrideReason: z.string().nullable(),
+  laneStatus: ChatReviewLaneStatusSchema,
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type ChatReviewItemRow = z.infer<typeof ChatReviewItemRowSchema>;

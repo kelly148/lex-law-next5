@@ -43,6 +43,7 @@ import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
+import { chatReviewPanelRouter } from './procedures/chatReviewPanel.js';
 import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
 import { supervisionRouter } from './procedures/supervision.js';
 import { materialExtractionRouter } from './procedures/materialExtraction.js';
@@ -104,6 +105,11 @@ export const appRouter = router({
   // legal-hold/marks/export), gated behind CHAT_COPILOT_ENABLED (default OFF, refuses when OFF).
   // Store-by-reference + isolation-guarded; the per-turn persistence path lands in Inc 2.
   chatCopilot: chatCopilotRouter,
+  // CHAT-COPILOT-2 Increment B — on-demand multi-model review panel (prepareReview/runReview/
+  // listReviews/recordAttorneyDecision), gated behind CHAT_REVIEW_PANEL_ENABLED (default OFF, refuses
+  // with PRECONDITION_FAILED when OFF). Internal work product only; every panel send routes through the
+  // egress broker; the primary (Claude) dispositions; the attorney decides. No send/finalize/promote path.
+  chatReviewPanel: chatReviewPanelRouter,
   // FOLD-PM-4 — ongoing-matters + to-do list. Owner+matter-scoped deliverable CRUD +
   // a cross-matter portfolio read, gated behind MATTER_DELIVERABLE_ENABLED (default OFF,
   // refuses with PRECONDITION_FAILED when OFF). Additive; no egress; surfaces only.

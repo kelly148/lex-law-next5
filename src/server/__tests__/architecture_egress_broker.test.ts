@@ -62,7 +62,7 @@ const REGISTRY_ALLOWED = ['db/canonicalMutation.ts', 'procedures/reviewSession.t
 const LLMFETCH_ALLOWED = ['llm/anthropic.ts', 'llm/openai.ts', 'llm/google.ts', 'llm/xai.ts', 'llm/llmFetch.ts'];
 const ADAPTER_ALLOWED = ['llm/registry.ts'];
 
-const COPILOT_SURFACE = ['server/procedures/chatCopilot.ts', 'server/procedures/chatDispatch.ts'];
+const COPILOT_SURFACE = ['server/procedures/chatCopilot.ts', 'server/procedures/chatDispatch.ts', 'server/procedures/chatReviewPanel.ts'];
 
 describe('CHAT-COPILOT-2 A1 — egress broker architecture guard', () => {
   const files = walk(SRC_DIR);

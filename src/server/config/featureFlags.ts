@@ -343,6 +343,23 @@ export function isChatCopilotEnabled(): boolean {
 }
 
 /**
+ * CHAT-COPILOT-2 Increment B — the on-demand MULTI-MODEL REVIEW PANEL. DEFAULT OFF, fail-closed, layered
+ * ABOVE CHAT_COPILOT_ENABLED. When OFF (the default) the review-panel surface is entirely absent: the
+ * panel procedures refuse (PRECONDITION_FAILED), no chat_review_* row is read or written, the panel UI is
+ * not mounted, and the rest of the copilot is BYTE-FOR-BYTE the Increment-A behavior with ZERO extra reads.
+ *
+ * When exactly "true", the attorney can request a panel of OTHER models (GPT/Gemini/Grok) to review the
+ * current chat work product; the primary (Claude) dispositions each suggestion ADOPT/REJECT/
+ * MODIFY_AND_ADOPT; the attorney makes the final call. INTERNAL WORK PRODUCT ONLY — no send/finalize/
+ * promote/draft path. Activation ALSO requires the operator adding the panel providers to
+ * GROUNDED_CHAT_PROVIDERS (the fail-closed egress allowlist) — until then the panel is structurally dark
+ * even with this flag on. Operator-gated; not deployed by this build.
+ */
+export function isChatReviewPanelEnabled(): boolean {
+  return process.env['CHAT_REVIEW_PANEL_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is

@@ -51,6 +51,13 @@ import {
   CHAT_EGRESS_STATUS_VALUES,
   // CHAT-COPILOT-2 A2 (ephemeral attachments): party-attribution kind.
   CHAT_ATTACHMENT_ATTRIBUTION_VALUES,
+  // CHAT-COPILOT-2 Increment B (multi-model review panel): run/lane/disposition vocabularies.
+  CHAT_REVIEW_RUN_STATUS_VALUES,
+  CHAT_REVIEW_DISPOSITIONER_STATUS_VALUES,
+  CHAT_REVIEW_LANE_STATUS_VALUES,
+  CHAT_REVIEW_DISPOSITION_VALUES,
+  CHAT_REVIEW_CITATION_STATUS_VALUES,
+  CHAT_REVIEW_ATTORNEY_DECISION_VALUES,
 } from '../../shared/schemas/chatCopilot.js';
 // FOLD-PM-4: single source of the matter-deliverable status vocabulary (kept in sync with the Zod Wall).
 import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDeliverables.js';
@@ -2924,6 +2931,98 @@ export const chatAttachmentParty = mysqlTable(
 );
 export type ChatAttachmentPartyRowDb = typeof chatAttachmentParty.$inferSelect;
 export type NewChatAttachmentParty = typeof chatAttachmentParty.$inferInsert;
+
+// CHAT-COPILOT-2 Increment B — multi-model review panel. THREE additive, owner+matter-scoped tables
+// (migration 0040). WORK-PRODUCT: they purge WITH the matter (NOT in EVERYDAY_DELETE_PRESERVE). Written
+// ONLY when CHAT_REVIEW_PANEL_ENABLED is ON (default OFF). No DB FK (app-layer ownerScope isolation).
+//
+// chat_review_runs — one on-demand panel review of a chat work product: the panel-confirmed reviewer set
+// + the provenance hashes (the work product reviewed + the minimized, hold-filtered bundle that actually
+// transmitted). The row id IS the panelConfirmId.
+export const chatReviewRuns = mysqlTable(
+  'chat_review_runs',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    conversationId: char('conversationId', { length: 36 }).notNull(),
+    messageId: char('messageId', { length: 36 }),
+    workProductHash: varchar('workProductHash', { length: 128 }).notNull(),
+    bundleHash: varchar('bundleHash', { length: 128 }).notNull(),
+    // The attorney-selected reviewer model keys (e.g. ['gpt','gemini']); NEVER 'claude' (self-review).
+    reviewerModels: json('reviewerModels').notNull(),
+    status: mysqlEnum('status', CHAT_REVIEW_RUN_STATUS_VALUES).notNull().default('prepared'),
+    dispositionerStatus: mysqlEnum('dispositionerStatus', CHAT_REVIEW_DISPOSITIONER_STATUS_VALUES)
+      .notNull()
+      .default('pending'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxChatReviewRunsConversation: index('idx_chat_review_runs_conversation').on(table.conversationId, table.createdAt),
+    idxChatReviewRunsMatter: index('idx_chat_review_runs_matter').on(table.matterId, table.userId),
+  }),
+);
+export type ChatReviewRunRowDb = typeof chatReviewRuns.$inferSelect;
+export type NewChatReviewRun = typeof chatReviewRuns.$inferInsert;
+
+// chat_review_raw_outputs — the VERBATIM raw reviewer output, BY-REFERENCE and DISTINCT from the itemized
+// suggestions (synthesis fidelity). One row per reviewer lane; carries the per-lane status + the egress
+// back-link (every lane is its own logged egress event).
+export const chatReviewRawOutputs = mysqlTable(
+  'chat_review_raw_outputs',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    runId: char('runId', { length: 36 }).notNull(),
+    reviewerModel: varchar('reviewerModel', { length: 64 }).notNull(),
+    rawText: mediumtext('rawText'),
+    laneStatus: mysqlEnum('laneStatus', CHAT_REVIEW_LANE_STATUS_VALUES).notNull().default('pending'),
+    laneFailureReason: varchar('laneFailureReason', { length: 255 }),
+    egressEventId: char('egressEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxChatReviewRawRun: index('idx_chat_review_raw_run').on(table.runId),
+    idxChatReviewRawMatter: index('idx_chat_review_raw_matter').on(table.matterId, table.userId),
+  }),
+);
+export type ChatReviewRawOutputRowDb = typeof chatReviewRawOutputs.$inferSelect;
+export type NewChatReviewRawOutput = typeof chatReviewRawOutputs.$inferInsert;
+
+// chat_review_items — ONE itemized reviewer suggestion + its PRIMARY disposition. 1:1 traceability (every
+// reviewer suggestion -> exactly one item; suggestionHash is the key), by-reference link to the raw
+// output, the flag-not-reject citation status, and the attorney's FINAL decision (nothing auto-applies).
+export const chatReviewItems = mysqlTable(
+  'chat_review_items',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    runId: char('runId', { length: 36 }).notNull(),
+    reviewerModel: varchar('reviewerModel', { length: 64 }).notNull(),
+    rawOutputRef: char('rawOutputRef', { length: 36 }),
+    suggestionHash: varchar('suggestionHash', { length: 128 }).notNull(),
+    suggestion: mediumtext('suggestion').notNull(),
+    primaryDisposition: mysqlEnum('primaryDisposition', CHAT_REVIEW_DISPOSITION_VALUES),
+    primaryReasoning: mediumtext('primaryReasoning'),
+    citationStatus: mysqlEnum('citationStatus', CHAT_REVIEW_CITATION_STATUS_VALUES),
+    attorneyDecision: mysqlEnum('attorneyDecision', CHAT_REVIEW_ATTORNEY_DECISION_VALUES)
+      .notNull()
+      .default('pending'),
+    attorneyOverrideReason: text('attorneyOverrideReason'),
+    laneStatus: mysqlEnum('laneStatus', CHAT_REVIEW_LANE_STATUS_VALUES).notNull().default('success'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxChatReviewItemsRun: index('idx_chat_review_items_run').on(table.runId),
+    idxChatReviewItemsMatter: index('idx_chat_review_items_matter').on(table.matterId, table.userId),
+  }),
+);
+export type ChatReviewItemRowDb = typeof chatReviewItems.$inferSelect;
+export type NewChatReviewItem = typeof chatReviewItems.$inferInsert;
 
 // ============================================================
 // FOLD-PM-4 — matter_deliverable (ongoing-matters / to-do list)
