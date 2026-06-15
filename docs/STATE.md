@@ -4,6 +4,28 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-15a (MONSTER-2026-06-14b batch — FOLD-PM-4 + SUPERVISION-VIEW-1 + FOLD-PM-2 + KB-PROVENANCE-1 merged; CC-DBFK-1 skipped; all flags OFF / additive+dark, nothing deployed)
+
+**Disposition.** `run batch MONSTER-2026-06-14b` (operator pre-authorized the reversible build-and-PR lane + auto-merge on green CI). Four engagements built sequentially — each its own branch off the then-current `origin/main`, own PR, multi-dimension adversarial review (find → adversarially verify), green **Linux CI**, squash **auto-merge** (Rule 15), remote branch deleted — and one skipped. **`origin/main` = `5a05883`** (stacked on the pre-batch head `ea8cb34` / #306). STEP-0: A3 was already merged before the batch. **NOTHING deployed.**
+
+**(1) FOLD-PM-4 — ongoing matters + to-do list (PR #307 squash `43c9ec8`).** Additive `matter_deliverable` table (migration **0036**); owner+matter-scoped CRUD (create/listForMatter/update/complete) + a portfolio query; `/overview` page (matters with open deliverables, inline add/complete; flag-gated nav link). Behind **`MATTER_DELIVERABLE_ENABLED`** (default OFF). Wired into `matterPurge`. 7 behavioral + 3 render tests; adversarial review 0 blocker/major.
+
+**(2) SUPERVISION-VIEW-1 — read-only egress supervision (PR #308 squash `5ebea58`).** Read-only owner-scoped dashboard over the A1 `chat_egress_events` audit log (GLBA vendor-oversight): filter by provider/matter/date-range/kind/decision + aggregates; `/supervision` page. **No migration, no mutation** (append-only log untouched), **no new egress**. Behind **`SUPERVISION_VIEW_ENABLED`** (default OFF). 10 behavioral + 3 render tests; adversarial review 0 blocker/major.
+
+**(3) FOLD-PM-2 — PDF document-type extraction (PR #309 squash `a7ecd79`).** The PDF/OCR/text pipeline already existed; this adds the **pure, no-egress document-type parsers** (title commitment / deed / survey / settlement statement) over the already-extracted text, with per-field confidence + an honesty floor (heuristic-only values withheld), persisted to additive `material_extraction` (migration **0037**); `DocumentExtractionPanel` in the materials drawer. Behind **`DOCUMENT_EXTRACTION_ENABLED`** (default OFF). Wired into `matterPurge`. engine 8 + procedure 6 + render 3 tests; **adversarial review found + fixed 1 MAJOR** (survey `platReference` regex wrong-capture silently dropped the field) + 6 nits.
+
+**(4) KB-PROVENANCE-1 — additive KB-provenance schema (PR #310 squash `5a05883`).** Triad-signed `WHEREAS_KB_CONSTITUTION` §8 (no re-triad). MIG1 **0038**: nullable `practice_memos` cols `effectiveDate` / `reviewBy` / `authoritySnapshotId` / `negativeTreatmentFlag` (`verified_date` omitted — duplicates `verifiedThroughDate` / `lastVerifiedAt`; `supersedes_id` deferred per §8). MIG2 **0039**: new firm/jurisdiction `authority_source` registry (owner-scoped, **no `matterId`** → durable, not matter-purged; deliberately distinct from the matter-scoped `source_authority`) + optional `lawReliedOn[].authoritySourceId` link. Pure additive schema (no procedure/UI/flag). 9 tests; adversarial review 0 blocker/major (3 cosmetic nits). As-built field names in PR #310.
+
+**Skipped — CC-DBFK-1 (DB-FK isolation hardening).** Skip-if-risky (operator pre-authorized). Investigation found: RESTRICT FKs would regress the **live `matter.delete` path** (CI-invisible — no DB in CI) + break `matterPurge` ordering; `ADD CONSTRAINT FK` is non-idempotent on the additive pre-deploy runner and the reversible `DROP FOREIGN KEY` trips the destructive guard → **manual prod schema mutation = HARD STOP**; TiDB FK enforcement is version-unpinned; first FK in a 40+ table no-FK schema = load-bearing precedent. **Recommended as a separate operator-gated engagement** (see `recommended_followups`). No code written.
+
+**Operator apply items (additive, on the pre-deploy allowlist; NOT applied):** migrations **0036**, **0037**, **0038**, **0039** — apply each before flipping its feature flag (KB-PROVENANCE-1 has no flag). No destructive/non-additive migrations.
+
+**Local-vs-CI.** Every PR was Linux-CI-green. Local Windows shows 11 pre-existing env-only test failures + 5 OCR-dep `tsc` errors (`tesseract.js` / `pngjs` / `@hyzyla/pdfium` in `package.json` but absent from local `node_modules`) — confirmed identical on a clean `origin/main` worktree; **zero new failures from this batch**.
+
+**Note.** `in_progress_engagement` (CHAT-COPILOT-1) is a separate pre-existing operator-flagged acceptance call, untouched by this batch. This Rule-16 upkeep is on a fresh tracker branch `lex-next/state-monster-batch` off `origin/main` `5a05883` (operator-approved).
+
+---
+
 ## 2026-06-14f (CHAT-COPILOT-2 **Increment A COMPLETE** — A3 context/UX/provenance merged; the batch's STOP-after-build point; flag OFF, nothing deployed)
 
 **Disposition.** `run batch CHAT-COPILOT-2 Increment A` — the **final** sub-increment **A3** (context assembly + UX + provenance, the **exit gate**) **auto-merged on green CI** per operator pre-authorization. PR **#305** squash **01d7473**; `origin/main` = **01d7473**. **CHAT-COPILOT-2 Increment A is now COMPLETE** through A1 + A2 + A3. Behind **`CHAT_COPILOT_ENABLED` (default OFF)**. **Nothing deploys.**
