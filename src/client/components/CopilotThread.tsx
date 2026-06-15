@@ -258,12 +258,23 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                   {m.content != null ? m.content : <em className="text-ink-hint">(redacted — not persisted)</em>}
                 </p>
                 {m.citations != null && m.citations.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {m.citations.map((c, i) => (
-                      <span key={i} data-testid="copilot-citation" className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-hint">
-                        cite: {c.sourceId}{c.locator ? ` · ${c.locator}` : ''}
-                      </span>
-                    ))}
+                  <div className="mt-1 flex flex-col gap-1">
+                    {/* CHAT-COPILOT-2 Q4: a citation proves the source was PRESENT IN THE BUNDLE sent to the
+                        model — it shows grounding, NOT legal correctness. The chip language is deliberately
+                        framed as "present in the bundle" and never overstates the citation as vetted. */}
+                    <span className="text-[11px] text-ink-hint">Sources present in the bundle (grounding, not legal correctness):</span>
+                    <div className="flex flex-wrap gap-1">
+                      {m.citations.map((c, i) => (
+                        <span
+                          key={i}
+                          data-testid="copilot-citation"
+                          title="Source present in the bundle sent to the model — this shows grounding, not legal correctness."
+                          className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-hint"
+                        >
+                          in bundle: {c.sourceId}{c.locator ? ` · ${c.locator}` : ''}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {m.content != null && (

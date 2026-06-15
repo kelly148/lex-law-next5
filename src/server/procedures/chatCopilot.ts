@@ -36,6 +36,7 @@ import {
 // dispatch). It does NOT import executeCanonicalMutation / resolveAdapter / any adapter directly —
 // enforced by src/server/__tests__/architecture_egress_broker.test.ts.
 import { egressClient } from '../llm/egressClient.js';
+import { computeEgressIndicator } from '../llm/chatEgressIndicator.js';
 import { PRIMARY_DRAFTER_MODEL, parseModelString } from '../llm/config.js';
 import { resolveChatMaster, CHAT_MASTER_UI_NOTICE } from '../llm/chatMasterComposition.js';
 import { CHAT_TURN_SYSTEM_PROMPT } from './chatDispatch.js';
@@ -104,6 +105,8 @@ export const chatCopilotRouter = router({
         // material selection (overrides the default NPI category-level withhold for those materials).
         mode: z.string().max(32).optional(),
         selectedMaterialIds: z.array(z.string().uuid()).max(50).optional(),
+        // A3: the attorney's affirmative per-turn EPHEMERAL chat-attachment selection.
+        selectedAttachmentIds: z.array(z.string().uuid()).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -180,9 +183,11 @@ export const chatCopilotRouter = router({
             documentId: conv.documentId,
             mode: input.mode ?? null,
             selectedMaterialIds: input.selectedMaterialIds ?? [],
+            attachmentIds: input.selectedAttachmentIds ?? [],
           })
         : null;
       const groundedSourceIds = new Set<string>(grounding?.sourceIds ?? []);
+      const includedAttachmentIds = grounding?.includedAttachmentIds ?? [];
 
       // Persist the attorney turn by-reference (store-by-reference + per-turn do-not-persist honored).
       await appendChatMessage({
@@ -225,7 +230,9 @@ export const chatCopilotRouter = router({
           minimizationApplied: grounding !== null,
           minimizationProfile: grounding !== null ? 'npi_category_default' : null,
           npiWithheldCount: grounding?.npiWithheldCount ?? 0,
-          includedAttachmentCount: 0, // ephemeral chat attachments arrive in Increment A2
+          // A3: the ephemeral attachments actually grounded into this send (audit + Q7 supervision volume).
+          ...(includedAttachmentIds.length > 0 ? { attachmentIds: includedAttachmentIds } : {}),
+          includedAttachmentCount: includedAttachmentIds.length,
           // Q1 hash-at-gate: the copilot-composed outbound bundle (system + any layered master + grounded
           // context + windowed history + turn). Text-only by construction (G4). The platform's downstream
           // matter-state metadata block is NOT part of this hash — see the EgressAuditContext note.
@@ -254,6 +261,15 @@ export const chatCopilotRouter = router({
         },
       });
       const result = egress.result;
+
+      // A3 PROVENANCE-SUFFICIENCY EXIT GATE (Q6): run AFTER a SUCCESSFUL egress (a blocked/failed send
+      // threw above, so this never runs and the attachment stays ephemeral). An attachment that ACTUALLY
+      // grounded this send must remain defensibly recoverable — pin it so the conversation-end /
+      // do-not-persist ephemeral purge does NOT remove it, and a later promote-to-draft chain never points
+      // at a purged object.
+      for (const attId of includedAttachmentIds) {
+        await pinAttachment(attId, ctx.userId, true);
+      }
 
       // CITATION FIDELITY: validate the model's [[cite:...]] markers against the assembled sourceId set —
       // a cited sourceId not present is a hallucination and is REJECTED (dropped, not rendered/persisted).
@@ -308,7 +324,23 @@ export const chatCopilotRouter = router({
           omittedCount: grounding?.omittedCount ?? 0,
           truncated: grounding?.truncated ?? false,
           npiWithheldCount: grounding?.npiWithheldCount ?? 0,
+          // A3: the ephemeral attachments grounded into this turn (the per-send provenance set, now pinned).
+          includedAttachmentIds,
         },
+        // A3 Q4: the per-send provenance for the assistant message's provenance chip ("sent to <provider>:
+        // this turn + N attachment(s)"). egressEventId links the message to its append-only audit row.
+        provenance: {
+          provider,
+          egressEventId: egress.egressEventId,
+          includedAttachmentCount: includedAttachmentIds.length,
+        },
+        // A3 Q4: the egress indicator (the UX face of the fail-closed posture) for this turn.
+        egressIndicator: computeEgressIndicator({
+          provider,
+          holdFlag: conv.holdFlag,
+          excludeFromGrounding: conv.excludeFromGrounding === true,
+          hasSelection: (input.selectedMaterialIds?.length ?? 0) > 0 || (input.selectedAttachmentIds?.length ?? 0) > 0,
+        }),
       };
     }),
 
