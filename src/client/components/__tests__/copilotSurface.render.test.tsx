@@ -40,6 +40,8 @@ vi.mock('../../trpc.js', async () => {
         list: { useQuery: () => { React.useRef(null); return { data: h.conversations, isLoading: false, isError: false }; } },
         messages: { useQuery: () => { React.useRef(null); return { data: h.messages, isLoading: false, isError: false }; } },
       },
+      // CHAT-COPILOT-2-INCB wiring added a flag read in CopilotThread; provide it (panel OFF here).
+      chatReviewPanel: { isPanelEnabled: { useQuery: () => { React.useRef(null); return { data: { enabled: false }, isLoading: false }; } } },
       useUtils: () => ({
         chatCopilot: { list: { invalidate: () => {} }, messages: { invalidate: () => {} } },
         client: { chatCopilot: {

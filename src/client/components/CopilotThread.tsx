@@ -18,8 +18,9 @@
  * like ChatComposer, so it is render-test-clean (no QueryClient at render).
  */
 import React, { useRef, useState } from 'react';
-import { ShieldAlert, Lock, Download, Trash2, EyeOff, Ban } from 'lucide-react';
+import { ShieldAlert, Lock, Download, Trash2, EyeOff, Ban, Users } from 'lucide-react';
 import { trpc } from '../trpc.js';
+import ChatReviewPanel from './ChatReviewPanel.js';
 
 export interface CopilotConversation {
   id: string;
@@ -109,6 +110,13 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
   const conversationId = conversation.id;
   const messagesQuery = trpc.chatCopilot.messages.useQuery({ conversationId, matterId });
   const messages = (messagesQuery.data ?? []) as ThreadMessage[];
+  // CHAT-COPILOT-2-INCB: the multi-model panel-review affordance is mounted ONLY when its flag is ON.
+  // Flag OFF -> the affordance is entirely absent and this thread is otherwise unchanged. (Hook above any
+  // early return — but this component has none; kept grouped with the other top-level hooks.)
+  const panelFlagQuery = trpc.chatReviewPanel.isPanelEnabled.useQuery();
+  const panelEnabled = panelFlagQuery.data?.enabled === true;
+  // The assistant message currently open for panel review (null = none open).
+  const [panelMessageId, setPanelMessageId] = useState<string | null>(null);
 
   const [turnText, setTurnText] = useState('');
   const [pending, setPending] = useState(false);
@@ -295,7 +303,25 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                     >
                       {m.excludeFromGrounding ? 'Re-include in grounding' : 'Exclude from grounding'}
                     </button>
+                    {/* CHAT-COPILOT-2-INCB: panel review on an ASSISTANT message (the work product). Flag-gated. */}
+                    {panelEnabled && m.role === 'assistant' && (
+                      <button
+                        data-testid="copilot-panel-review"
+                        type="button"
+                        onClick={() => setPanelMessageId((cur) => (cur === m.id ? null : m.id))}
+                        className="flex items-center gap-1 text-xs text-ink-hint underline-offset-2 hover:underline"
+                      >
+                        <Users className="h-3 w-3" /> {panelMessageId === m.id ? 'Hide panel review' : 'Panel review'}
+                      </button>
+                    )}
                   </div>
+                )}
+                {panelEnabled && m.role === 'assistant' && panelMessageId === m.id && (
+                  <ChatReviewPanel
+                    conversation={{ id: conversationId, matterId }}
+                    message={{ id: m.id, content: m.content }}
+                    onClose={() => setPanelMessageId(null)}
+                  />
                 )}
               </div>
             ))}

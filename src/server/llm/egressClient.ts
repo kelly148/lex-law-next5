@@ -32,7 +32,7 @@ import {
 import { parseModelString } from './config.js';
 import { isGroundedChatProviderAllowed, parseGroundedChatProviders } from './chatCopilotConfig.js';
 import { recordEgressDecision, completeEgressEvent, type EgressCompletionPatch } from '../db/queries/chatEgress.js';
-import type { ChatEgressKind, ChatEgressStatus, ChatHoldFlag } from '../../shared/schemas/chatCopilot.js';
+import type { ChatEgressKind, ChatEgressStatus, ChatHoldFlag, ChatEgressAuthBasis } from '../../shared/schemas/chatCopilot.js';
 import type { NewChatEgressEvent } from '../db/schema.js';
 
 // Keying salt for the input-bundle hash. The hash is over the WHOLE minimized payload (high entropy), so
@@ -86,8 +86,14 @@ export interface EgressAuditContext {
   conversationId?: string | null;
   messageId?: string | null;
   gateDecisionId?: string | null;
-  /** The conversation's external-egress hold (G2). 'no_external' blocks primary + grounding egress. */
+  /** The conversation's external-egress hold (G2). 'no_external' blocks primary + grounding egress;
+   *  'no_panel' blocks the Increment-B review panel (kind 'chat_panel') for this conversation. */
   holdFlag: ChatHoldFlag;
+  /** CHAT-COPILOT-2 Increment B: what authorized this send. Defaults to 'config_allowlist' (the primary +
+   *  grounding path); the review panel sets 'panel_confirm' (the attorney's deliberate panel-confirm act).
+   *  This does NOT relax the gate — the provider allowlist + holds + image guard still apply; it only
+   *  records, on the audit row, which basis authorized the send so supervision can distinguish them. */
+  authorizationBasis?: ChatEgressAuthBasis;
   minimizationApplied?: boolean;
   minimizationProfile?: string | null;
   npiCategoriesIncluded?: readonly string[] | null;
@@ -143,6 +149,9 @@ async function send(req: EgressSendRequest): Promise<EgressSendResult> {
   // ── GATE (fail-closed; runs once, before any retry inside the canonical dispatch) ──
   const blockReasons: string[] = [];
   if (audit.holdFlag === 'no_external') blockReasons.push('hold_no_external');
+  // CHAT-COPILOT-2 Increment B (G2): a 'no_panel' hold blocks the review-panel egress for this
+  // conversation (it does NOT block the primary/grounding send — those are gated by 'no_external').
+  if (audit.holdFlag === 'no_panel' && audit.kind === 'chat_panel') blockReasons.push('hold_no_panel');
   if (audit.carriesImageEgress === true) blockReasons.push('image_egress_forbidden');
   if (!isGroundedChatProviderAllowed(provider)) blockReasons.push('provider_not_allowlisted');
   const decision: 'allowed' | 'blocked' = blockReasons.length === 0 ? 'allowed' : 'blocked';
@@ -161,7 +170,7 @@ async function send(req: EgressSendRequest): Promise<EgressSendResult> {
     decision,
     blockReason,
     allowlistVersion: allowlistFingerprint(),
-    authorizationBasis: 'config_allowlist',
+    authorizationBasis: audit.authorizationBasis ?? 'config_allowlist',
     provider,
     model: canonical.modelString,
     minimizationApplied: audit.minimizationApplied ?? false,

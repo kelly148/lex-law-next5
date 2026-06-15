@@ -82,6 +82,9 @@ import {
   chatEgressEvents,
   chatAttachments,
   chatAttachmentParty,
+  chatReviewItems,
+  chatReviewRawOutputs,
+  chatReviewRuns,
   matterDeliverable,
   materialExtraction,
 } from '../schema.js';
@@ -236,6 +239,13 @@ export async function cascadeDeleteMatterChildren(
   // operator-gated matter purge overrides provenance-pinning, exactly as it overrides the chat tables.
   await step('chatAttachmentParty', chatAttachmentParty, byMatter(chatAttachmentParty));
   await step('chatAttachments', chatAttachments, byMatter(chatAttachments));
+  // CHAT-COPILOT-2 Increment B: the matter's multi-model review panel WORK-PRODUCT — itemized
+  // suggestions, then the by-reference raw reviewer outputs, then the runs (children-first). Purged WITH
+  // the matter like the other chat work-product tables (the egress AUDIT of each panel send is the
+  // permanent record and lives separately in chat_egress_events).
+  await step('chatReviewItems', chatReviewItems, byMatter(chatReviewItems));
+  await step('chatReviewRawOutputs', chatReviewRawOutputs, byMatter(chatReviewRawOutputs));
+  await step('chatReviewRuns', chatReviewRuns, byMatter(chatReviewRuns));
   // DOC-CLIENT-TARGET-1: document_party bindings (a child of documents; also carries matterId). Delete
   // before documents so no binding row is orphaned by the purge.
   await step('documentParty', documentParty, byMatter(documentParty));
