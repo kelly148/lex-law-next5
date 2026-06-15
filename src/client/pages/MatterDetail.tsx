@@ -19,7 +19,7 @@
  */
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -444,6 +444,10 @@ export default function MatterDetail(): React.ReactElement {
   // the entry link below renders only when the flag reports enabled.
   const { data: chatUiFlag } = trpc.chatUi.isEnabled.useQuery();
   const chatEnabled = chatUiFlag?.enabled === true;
+  // MATTER-COPILOT-ENTRYPOINT-1: the matter-scoped copilot entry obeys CHAT_COPILOT_ENABLED (distinct
+  // from the CHAT-UI-1 conversation surface). Fail-closed: the button is absent until enabled === true.
+  const { data: copilotFlag } = trpc.chatCopilot.isEnabled.useQuery();
+  const copilotEnabled = copilotFlag?.enabled === true;
 
   if (!matterId) return <div className="p-6 text-red-600">Invalid matter ID.</div>;
 
@@ -512,6 +516,17 @@ export default function MatterDetail(): React.ReactElement {
             >
               <MessageSquare className="w-4 h-4" />
               Conversation
+            </Link>
+          )}
+          {/* MATTER-COPILOT-ENTRYPOINT-1 — flag-gated entry to the matter-scoped Copilot. Absent when
+              CHAT_COPILOT_ENABLED is OFF (matches the Overview/Supervision NavLink fail-closed pattern). */}
+          {copilotEnabled && (
+            <Link
+              to={`/matters/${matterId}/copilot`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+            >
+              <Bot className="w-4 h-4" />
+              Copilot
             </Link>
           )}
           <button
