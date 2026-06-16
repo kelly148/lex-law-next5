@@ -342,6 +342,78 @@ describe('CHAT-COPILOT-2-INCB — review panel (behavioral)', () => {
     expect(run.dispositionerStatus).toBe('skipped');
   });
 
+  // ── CHAT-PANEL-DISPOSITIONER-ROBUSTNESS-1 ─────────────────────────────────────────────────────────────
+  it('DISPOSITIONER-ROBUSTNESS-1: synthesis fails once (parse_error) then RETRIES and succeeds → full dispositions render', async () => {
+    let dispCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        // dispositioner (PRIMARY): fail the first attempt with a non-strict-JSON parse_error, then succeed.
+        dispCalls += 1;
+        if (dispCalls === 1) return Promise.reject(new LlmProviderError('parse_error', 'Claude returned non-strict JSON'));
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'sound.' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(2); // synthesis retried exactly once
+    expect(run.dispositionerStatus).toBe('success'); // recovered on the retry — full synthesis renders
+    expect(run.items).toHaveLength(1);
+    expect(run.items[0]!.primaryDisposition).toBe('adopt');
+    expect(run.items[0]!.primaryReasoning).toBeTruthy();
+    // the retry is its OWN logged egress: two anthropic chat_panel events (1 failed, 1 success)
+    const dispEvents = (await listEgressEvents(U1, { matterId: MATTER_A })).filter((e) => e.provider === 'anthropic' && e.kind === 'chat_panel');
+    expect(dispEvents).toHaveLength(2);
+  });
+
+  it('DISPOSITIONER-ROBUSTNESS-1: a malformed (miscounted) disposition set also RETRIES, then renders on a well-formed retry', async () => {
+    let dispCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          // one reviewer, TWO suggestions -> 2 items the dispositioner must answer 1:1
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }, { title: 'B', body: 'b', severity: 'major' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        dispCalls += 1;
+        if (dispCalls === 1) {
+          // egress SUCCEEDS but the set is miscounted (index 1 missing) -> wellFormed false -> retry
+          return Promise.resolve({ content: JSON.stringify({ dispositions: [{ index: 0, disposition: 'adopt', reasoning: 'r' }] }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'reject', reasoning: 'r' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(2); // miscounted set on attempt 1 -> retried
+    expect(run.dispositionerStatus).toBe('success'); // well-formed on the retry
+    expect(run.items).toHaveLength(2);
+    expect(run.items.every((i) => i.primaryDisposition === 'reject')).toBe(true);
+  });
+
+  it('DISPOSITIONER-ROBUSTNESS-1: synthesis fails twice → honest "not yet synthesized", raw kept, NO fabricated dispositions', async () => {
+    let dispCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        dispCalls += 1; // dispositioner fails on BOTH attempts
+        return Promise.reject(new LlmProviderError('parse_error', 'Claude returned non-strict JSON'));
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(2); // tried once, retried once, then gave up
+    expect(run.dispositionerStatus).toBe('failed'); // honest degraded state PRESERVED as the final fallback
+    expect(run.items).toHaveLength(1); // raw reviewer suggestion KEPT, not dropped
+    expect(run.items[0]!.primaryDisposition).toBeNull(); // "not yet synthesized" — no fabricated disposition
+    expect(run.items[0]!.primaryReasoning).toBeNull();
+  });
+
   it('attorney-final: recordAttorneyDecision persists an override; nothing auto-applied', async () => {
     const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
     const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
