@@ -19,6 +19,8 @@
  *   This supports deploy scenarios where e.g. Grok's key is not yet configured.
  */
 
+import { getModelCapability } from './modelCapabilities.js';
+
 // ============================================================
 // Timeout constant (Ch 22.4)
 // Every LLM fetch uses AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS).
@@ -46,12 +48,16 @@ export const LLM_FETCH_TIMEOUT_MS = DEFAULT_LLM_FETCH_TIMEOUT_MS;
 // Adding a new model requires adding the corresponding provider
 // capability to the provider module AND updating this list.
 // ============================================================
+// REVIEWER-MODEL-VALIDATION-FIX-1 (2026-06-15): refreshed off the stale pre-modernization ids
+// (openai:gpt-5 / google:gemini-2.5-pro / xai:grok-4) to the current GA ids, so the drafter/evaluator
+// whitelist is no longer contradictory with the modernized reviewer tracks. The drafter/evaluator
+// default to anthropic:claude-opus-4-5 (kept first so the WhitelistedModel type still covers the default).
 export const WHITELISTED_MODELS = [
   'anthropic:claude-opus-4-5', // default for drafter and evaluator (decision #41)
   'anthropic:claude-sonnet-4-5',
-  'openai:gpt-5',
-  'google:gemini-2.5-pro',
-  'xai:grok-4',
+  'openai:gpt-5.5',
+  'google:gemini-3.1-pro-preview',
+  'xai:grok-4.3',
 ] as const;
 
 export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
@@ -68,11 +74,17 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 // GA Gemini "Pro" — gemini-3.1-pro-preview is the recommended Pro slug (preview-tier; operator-accepted).
 // Each id below has a matching entry in modelCapabilities.ts (Gemini keeps its calibrated 32768 ceiling).
 // ============================================================
+// REVIEWER-MODEL-VALIDATION-FIX-1: the three modernized full-reviewer slugs below are
+// OPERATOR-PENDING-PROVIDER-CONFIRMATION — they have MODEL_CAPABILITIES entries (so they pass boot
+// validation and resolve a calibrated ceiling) but have NOT been verified against live provider model
+// lists. A wrong slug now fails fast at BOOT (validateReviewerModels) instead of at a user's review,
+// but code cannot prove a slug is real — the operator must confirm gpt-5.5 / gemini-3.1-pro-preview /
+// grok-4.3 against provider docs.
 export const REVIEWER_MODELS = {
   claude: 'anthropic:claude-opus-4-5',
-  gpt: 'openai:gpt-5.5',
-  gemini: 'google:gemini-3.1-pro-preview',
-  grok: 'xai:grok-4.3',
+  gpt: 'openai:gpt-5.5', // operator-pending-provider-confirmation
+  gemini: 'google:gemini-3.1-pro-preview', // operator-pending-provider-confirmation (preview-tier)
+  grok: 'xai:grok-4.3', // operator-pending-provider-confirmation
 } as const;
 
 export type ReviewerKey = keyof typeof REVIEWER_MODELS;
@@ -94,11 +106,18 @@ function resolveLiteModel(envVar: string, defaultModel: string): string {
 // claude_lite unchanged. grok-3-mini was RETIRED with no GA Grok "mini", so the lite Grok track reuses
 // the fast GA flagship grok-4.3 (deliberate operator choice — the full and lite Grok ids are intentionally
 // the same until a distinct GA Grok mini exists).
+// REVIEWER-MODEL-VALIDATION-FIX-1 (CR-2): the gpt_lite DEFAULT was 'openai:gpt-5.4-mini', an
+// unverified/unavailable slug that 404'd on every GPT-Lite review (confirmed live 2026-06-15). Pinned
+// to 'openai:gpt-4.1-mini' — a known-good, already-registered lite id (also the LITE_GENERATION
+// default). The LITE_OPENAI_REVIEWER_MODEL env override is PRESERVED, so an operator can still point it
+// elsewhere (the prod mitigation set it to openai:gpt-4.1-mini; this makes that the durable default).
+// gemini_lite ('gemini-3.5-flash') and grok_lite ('grok-4.3') remain OPERATOR-PENDING-PROVIDER-
+// CONFIRMATION — registered (boot-valid) but not verified against live provider docs.
 export const LITE_REVIEWER_MODELS = {
   claude_lite: resolveLiteModel('LITE_ANTHROPIC_REVIEWER_MODEL', 'anthropic:claude-sonnet-4-5'),
-  gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-5.4-mini'),
-  gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-3.5-flash'),
-  grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-4.3'),
+  gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-4.1-mini'),
+  gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-3.5-flash'), // operator-pending-provider-confirmation
+  grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-4.3'), // operator-pending-provider-confirmation
 } as const;
 
 export type LiteReviewerKey = keyof typeof LITE_REVIEWER_MODELS;
@@ -196,6 +215,42 @@ export function validateLlmConfig(): void {
         `Must be one of: ${WHITELISTED_MODELS.join(', ')}`,
     );
   }
+
+  // REVIEWER-MODEL-VALIDATION-FIX-1 (CR-1): validate the reviewer + lite-reviewer ids at boot.
+  validateReviewerModels(REVIEWER_MODELS, LITE_REVIEWER_MODELS);
+}
+
+/**
+ * REVIEWER-MODEL-VALIDATION-FIX-1 (CR-1): assert that every reviewer + lite-reviewer model id is a
+ * RECOGNIZED model — i.e. has an entry in MODEL_CAPABILITIES (modelCapabilities.ts is the single
+ * source of model truth, already consumed by the reviewer dispatch for the per-model ceiling). The
+ * maps passed in are the RESOLVED values: LITE_REVIEWER_MODELS has its env overrides (LITE_*_REVIEWER_
+ * MODEL) applied at module load, so this checks the post-override ids. Before this, validateLlmConfig
+ * checked ONLY the drafter + evaluator, so a typo'd / retired / unregistered reviewer id deployed
+ * clean and failed only at a user's review (e.g. gpt_lite='openai:gpt-5.4-mini' 404'ing every call,
+ * 2026-06-15), leaving the session wedged. Now such an id throws LOUDLY at BOOT, naming the offending
+ * key + id, before the server accepts connections. (This validates STRUCTURE — that the id is known —
+ * not that a provider actually serves the slug; a registered-but-unverified slug, see the operator-
+ * pending-provider-confirmation comments above, still requires operator confirmation against provider
+ * docs. No secrets are read or logged here.)
+ */
+export function validateReviewerModels(
+  reviewerModels: Record<string, string>,
+  liteReviewerModels: Record<string, string>,
+): void {
+  const entries: Array<[string, string]> = [
+    ...Object.entries(reviewerModels),
+    ...Object.entries(liteReviewerModels),
+  ];
+  for (const [key, modelString] of entries) {
+    if (!getModelCapability(modelString)) {
+      throw new Error(
+        `Invalid reviewer model for "${key}": "${modelString}" is not a recognized model id ` +
+          `(no MODEL_CAPABILITIES entry in modelCapabilities.ts). Correct the id or its env override, ` +
+          `or register the model in modelCapabilities.ts before deploying.`,
+      );
+    }
+  }
 }
 
 // ============================================================
@@ -205,8 +260,15 @@ export function validateLlmConfig(): void {
 // (REVIEWER_LATENCY_TUNING_ENABLED, default OFF) — when the flag is OFF this resolver returns
 // null and the adapters add nothing, so every request stays byte-identical to today.
 //
-// Scope (Step 2a): jobType 'reviewer_feedback' on openai:gpt-5 only. The drafter, the evaluator,
-// the lite/other reviewer models, and every non-OpenAI provider resolve to null → unchanged.
+// Scope (Step 2a): jobType 'reviewer_feedback' on the active full GPT reviewer only. The drafter, the
+// evaluator, the lite/other reviewer models, and every non-OpenAI provider resolve to null → unchanged.
+//
+// REVIEWER-MODEL-VALIDATION-FIX-1 (HI-1): the tuned model id is no longer a single hardcoded string
+// (which silently no-op'd when REVIEWER-MODEL-MODERNIZATION-1 moved the GPT reviewer gpt-5 -> gpt-5.5,
+// reintroducing the latency/timeout risk this tuning was built to prevent). It now tracks
+// REVIEWER_MODELS.gpt (the active full GPT reviewer) AND keeps the legacy 'openai:gpt-5' so historical
+// gpt-5 jobs still tune. The lite GPT reviewer (gpt-5.4-mini) is intentionally excluded — same scope
+// as Step 2a (full GPT reviewer only).
 //
 // API surface: the OpenAI adapter uses the Chat Completions API (/v1/chat/completions). There,
 // reasoning_effort and service_tier are BOTH top-level request fields (NOT the Responses-API
@@ -222,8 +284,13 @@ export interface ReviewerLatencyTuning {
   serviceTier?: string;
 }
 
-/** The gpt-5 reviewer model string this tuning targets in Step 2a. */
-const TUNED_REVIEWER_MODEL = 'openai:gpt-5';
+/**
+ * The GPT reviewer model strings this tuning targets. Tracks REVIEWER_MODELS.gpt (the active full GPT
+ * reviewer — currently openai:gpt-5.5) so a future model modernization carries the tuning with it
+ * instead of silently no-op'ing (HI-1), plus the legacy 'openai:gpt-5' for historical jobs. The lite
+ * GPT reviewer is deliberately NOT included.
+ */
+const TUNED_REVIEWER_MODELS = new Set<string>([REVIEWER_MODELS.gpt, 'openai:gpt-5']);
 
 function envOr(envVar: string, fallback: string): string {
   const v = process.env[envVar];
@@ -233,10 +300,11 @@ function envOr(envVar: string, fallback: string): string {
 
 /**
  * Resolve the reviewer-lane latency tuning for a dispatch, or null when nothing should change.
- * Returns non-null ONLY when: the flag is ON, the job is a reviewer_feedback job, and the model is
- * openai:gpt-5. Any other (jobType, model) — including the drafter, the evaluator, and every other
- * provider/model — resolves to null, so the caller adds no request params and the request is
- * byte-identical to today. Env overrides: REVIEWER_GPT5_REASONING_EFFORT, REVIEWER_GPT5_SERVICE_TIER.
+ * Returns non-null ONLY when: the flag is ON, the job is a reviewer_feedback job, and the model is the
+ * active full GPT reviewer (REVIEWER_MODELS.gpt) or the legacy openai:gpt-5. Any other (jobType, model)
+ * — including the drafter, the evaluator, the lite GPT reviewer, and every other provider/model —
+ * resolves to null, so the caller adds no request params and the request is byte-identical to today.
+ * Env overrides: REVIEWER_GPT5_REASONING_EFFORT, REVIEWER_GPT5_SERVICE_TIER.
  */
 export function resolveReviewerLatencyTuning(
   jobType: string,
@@ -244,7 +312,7 @@ export function resolveReviewerLatencyTuning(
 ): ReviewerLatencyTuning | null {
   if (!isReviewerLatencyTuningEnabled()) return null;
   if (jobType !== 'reviewer_feedback') return null;
-  if (modelString !== TUNED_REVIEWER_MODEL) return null;
+  if (!TUNED_REVIEWER_MODELS.has(modelString)) return null;
   return {
     reasoningEffort: envOr('REVIEWER_GPT5_REASONING_EFFORT', 'low'),
     serviceTier: envOr('REVIEWER_GPT5_SERVICE_TIER', 'priority'),
