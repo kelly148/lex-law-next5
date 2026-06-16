@@ -1150,6 +1150,10 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         // Stop polling jobs once a terminal state is reached.
         return hasTerminal ? false : 3000;
       },
+      // ASYNC-LANE-LIVE-REFRESH-1: keep this failure-detection poll firing while the pane is open even
+      // when the tab is blurred/backgrounded (react-query v5 gates interval refetches behind tab focus
+      // unless refetchIntervalInBackground is set) — aligned with the reviewSession.get poll below.
+      refetchIntervalInBackground: true,
     },
   );
 
@@ -1169,6 +1173,14 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       const completionState = deriveCompletionState(d.feedback ?? [], jobs);
       return completionState === 'pending_or_running' ? 3000 : false;
     },
+    // ASYNC-LANE-LIVE-REFRESH-1: keep the 3s poll firing while the pane is OPEN even when the tab is
+    // blurred/backgrounded. react-query v5 gates interval refetches behind focusManager.isFocused()
+    // UNLESS refetchIntervalInBackground is set; combined with the global staleTime:30s an unfocused
+    // async pane otherwise froze on the first 'Queued' snapshot until a manual reload even though the
+    // lanes kept transitioning server-side. Bounded — refetchInterval returns false once allTerminal,
+    // so polling self-terminates; the SYNC path (data.lanes===null) keeps its deriveCompletionState
+    // gate and, being already complete when the pane loads, does not poll.
+    refetchIntervalInBackground: true,
   });
 
   const regenerateMutation = useGuardedMutation(
