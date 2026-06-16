@@ -24,7 +24,7 @@ import { getConversationInContext, listMessages } from '../db/queries/chatCopilo
 import { assembleGroundedChatContext } from '../llm/chatGrounding.js';
 import { egressClient, EgressBlockedError } from '../llm/egressClient.js';
 import { PRIMARY_DRAFTER_MODEL, resolveReviewerModel } from '../llm/config.js';
-import { getReviewerCeiling } from '../llm/modelCapabilities.js';
+import { getReviewerCeiling, getModelCapability } from '../llm/modelCapabilities.js';
 import {
   buildReviewerReviewPrompt,
   buildDispositionerPrompt,
@@ -98,15 +98,17 @@ function panelFailureReason(err: PanelLaneError): string {
 }
 
 /** CHAT-PANEL-REVIEWER-FIX-1 (A3): retry a reviewer lane EXACTLY once on a parse_error (e.g. a model that
- *  omitted the required severity enum). The canonical layer never retries parse_error (a re-roll is a
- *  separate decision), so this narrow lane-level re-ask gives a flaky reviewer one more chance before the
- *  lane is recorded as labeled malformed output. NEVER fabricates a missing field. Other failure classes
- *  (api_error, timeout, blocked) are not retried here. */
+ *  omitted the required severity enum) OR a rate_limited (a transient 429 that can legitimately succeed on
+ *  a re-ask). The canonical layer never retries parse_error (a re-roll is a separate decision), so this
+ *  narrow lane-level re-ask gives a flaky/throttled reviewer one more chance before the lane is recorded as
+ *  labeled malformed output. NEVER fabricates a missing field. Other failure classes (a plain api_error
+ *  including a truncation — already mitigated by the per-model reviewerCeiling — timeout, blocked) are not
+ *  retried here. */
 async function sendWithParseRetry<T>(send: () => Promise<T>): Promise<T> {
   try {
     return await send();
   } catch (err) {
-    if (err instanceof PanelLaneError && err.errorClass === 'parse_error') {
+    if (err instanceof PanelLaneError && (err.errorClass === 'parse_error' || err.errorClass === 'rate_limited')) {
       return await send();
     }
     throw err;
@@ -158,6 +160,7 @@ async function panelSend(params: {
   serializedPayload: string;
   npiWithheldCount: number;
   attachmentIds: string[];
+  maxTokensOverride?: number;
 }): Promise<{ egressEventId: string; rawOutput: string; jobId: string }> {
   let captured = '';
   const egress = await egressClient.send({
@@ -192,7 +195,7 @@ async function panelSend(params: {
         // CHAT-PANEL-REVIEWER-FIX-1 (A1): per-model reviewer ceiling (reused from the legacy reviewer
         // path) instead of a flat 2048 — 2048 truncated a thinking model's output (Gemini emits no text
         // before the budget is spent) into an api_error.
-        maxTokens: getReviewerCeiling(params.modelString),
+        maxTokens: params.maxTokensOverride ?? getReviewerCeiling(params.modelString),
         structuredOutputSchema: params.schema,
       }),
       txn2Commit: ({ output }) => {
@@ -450,8 +453,17 @@ export const chatReviewPanelRouter = router({
           bundleContextText: bundle.grounding.contextText,
           suggestions: flat.map((f) => ({ index: f.index, reviewerModel: f.reviewerModel, suggestion: f.suggestion })),
         });
-        const attemptSynthesis = async (): Promise<
-          { ok: true; dispositions: ReturnType<typeof parseDispositions> } | { ok: false; retryable: boolean }
+        // CHAT-PANEL-DISPOSITIONER-CEILING-1: the dispositioner synthesis is the most output-heavy panel
+        // call (one disposition+reasoning per suggestion across ALL reviewers) and can truncate at the
+        // shared 16384 reviewer ceiling. On a TRUNCATION it retries ONCE with the model's full provider
+        // headroom (Opus providerMax 32000) — the raised budget is the lever (a same-budget re-ask would
+        // just truncate again). The FIRST attempt stays at the reviewer ceiling so the common case is
+        // unchanged (Opus inflates output when over-budgeted), and the honest fallback is preserved.
+        const dispositionerRetryBudget =
+          getModelCapability(PRIMARY_DRAFTER_MODEL)?.providerMaxOutputTokens ??
+          getReviewerCeiling(PRIMARY_DRAFTER_MODEL);
+        const attemptSynthesis = async (maxTokens: number): Promise<
+          { ok: true; dispositions: ReturnType<typeof parseDispositions> } | { ok: false; retryable: boolean; truncated: boolean }
         > => {
           let rawOutput: string;
           try {
@@ -465,6 +477,7 @@ export const chatReviewPanelRouter = router({
               messageId: run.messageId,
               holdFlag: liveConv.holdFlag,
               modelString: PRIMARY_DRAFTER_MODEL,
+              maxTokensOverride: maxTokens,
               systemPrompt: dprompt.systemPrompt,
               userPrompt: dprompt.userPrompt,
               schema: DispositionsSchema,
@@ -474,10 +487,16 @@ export const chatReviewPanelRouter = router({
             });
             rawOutput = sent.rawOutput;
           } catch (err) {
-            // Retry only a parse_error (the observed Claude non-strict-JSON flake). A timeout already spent
-            // its full budget; a non-transient api_error / a blocked hold won't improve on a re-ask.
-            const retryable = err instanceof PanelLaneError && err.errorClass === 'parse_error';
-            return { ok: false, retryable };
+            // A truncation api_error (Anthropic stop_reason 'max_tokens') is retryable WITH a raised budget;
+            // a parse_error is retryable at the same budget (the observed non-strict-JSON flake). A plain
+            // api_error / timeout / blocked hold is NOT retried (a re-ask won't improve it).
+            const truncated =
+              err instanceof PanelLaneError &&
+              err.errorClass === 'api_error' &&
+              /max_tokens|truncat/i.test(err.providerMessage);
+            const retryable =
+              truncated || (err instanceof PanelLaneError && err.errorClass === 'parse_error');
+            return { ok: false, retryable, truncated };
           }
           const dispositions = parseDispositions(rawOutput);
           const indices = dispositions.map((d) => d.index);
@@ -489,12 +508,15 @@ export const chatReviewPanelRouter = router({
             new Set(indices).size === indices.length &&
             inRangeUnique.size === flat.length;
           // A miscounted/malformed set (egress succeeded, content unusable) is a retryable synthesis failure.
-          return wellFormed ? { ok: true, dispositions } : { ok: false, retryable: true };
+          return wellFormed ? { ok: true, dispositions } : { ok: false, retryable: true, truncated: false };
         };
 
-        let synth = await attemptSynthesis();
+        let synth = await attemptSynthesis(getReviewerCeiling(PRIMARY_DRAFTER_MODEL));
         if (!synth.ok && synth.retryable) {
-          synth = await attemptSynthesis(); // retry exactly once
+          // A truncation retries with the RAISED budget (more output room); a parse_error/miscount retries
+          // at the SAME default budget (budget was not the problem). Exactly once either way.
+          const retryBudget = synth.truncated ? dispositionerRetryBudget : getReviewerCeiling(PRIMARY_DRAFTER_MODEL);
+          synth = await attemptSynthesis(retryBudget);
         }
         if (!synth.ok) {
           // Honest degraded state PRESERVED (final fallback): raw reviewer suggestions are kept

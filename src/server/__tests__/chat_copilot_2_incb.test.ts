@@ -31,7 +31,7 @@ import { setJobWriteFunctions, setMatterStateProvider, setPaProfileProvider, set
 import { appRouter } from '../router.js';
 import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from '../llm/types.js';
 import { PanelReviewerOutputSchema } from '../llm/chatReviewPanelEngine.js';
-import { getReviewerCeiling } from '../llm/modelCapabilities.js';
+import { getReviewerCeiling, getModelCapability } from '../llm/modelCapabilities.js';
 import type { MatterRow } from '../../shared/schemas/matters.js';
 import type { ChatConversationRow, ChatMessageRow } from '../../shared/schemas/chatCopilot.js';
 
@@ -412,6 +412,131 @@ describe('CHAT-COPILOT-2-INCB — review panel (behavioral)', () => {
     expect(run.items).toHaveLength(1); // raw reviewer suggestion KEPT, not dropped
     expect(run.items[0]!.primaryDisposition).toBeNull(); // "not yet synthesized" — no fabricated disposition
     expect(run.items[0]!.primaryReasoning).toBeNull();
+  });
+
+  // ── CHAT-PANEL-DISPOSITIONER-CEILING-1 ────────────────────────────────────────────────────────────────
+  it('CEILING-1: truncation api_error retries once with a RAISED budget then renders full dispositions', async () => {
+    let dispCalls = 0;
+    const dispMaxTokens: number[] = [];
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        // dispositioner (PRIMARY): truncation api_error on attempt 1 (Anthropic stop_reason max_tokens), succeed on 2.
+        dispCalls += 1;
+        dispMaxTokens.push(params.maxTokens ?? -1);
+        if (dispCalls === 1) {
+          return Promise.reject(new LlmProviderError('api_error', 'Anthropic structured output was truncated (stop_reason: max_tokens) before valid JSON could be produced.'));
+        }
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'sound.' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(2); // truncation -> retried exactly once
+    expect(run.dispositionerStatus).toBe('success'); // recovered on the raised-budget retry
+    expect(run.items).toHaveLength(1);
+    expect(run.items[0]!.primaryDisposition).toBe('adopt'); // full disposition rendered
+    // First attempt at the reviewer ceiling (16384); the retry at the model's full provider headroom (32000).
+    expect(dispMaxTokens[0]!).toBe(getReviewerCeiling('anthropic:claude-opus-4-5'));
+    expect(dispMaxTokens[1]!).toBe(getModelCapability('anthropic:claude-opus-4-5')!.providerMaxOutputTokens);
+    expect(dispMaxTokens[1]!).toBeGreaterThan(dispMaxTokens[0]!);
+    // each attempt is its own logged egress: two anthropic chat_panel events (1 failed, 1 success)
+    const dispEvents = (await listEgressEvents(U1, { matterId: MATTER_A })).filter((e) => e.provider === 'anthropic' && e.kind === 'chat_panel');
+    expect(dispEvents).toHaveLength(2);
+  });
+
+  it('CEILING-1: truncation on BOTH attempts -> honest not-yet-synthesized, raw kept, no fabrication', async () => {
+    let dispCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        dispCalls += 1; // dispositioner truncates on BOTH attempts (even the raised-budget retry)
+        return Promise.reject(new LlmProviderError('api_error', 'Anthropic structured output was truncated (stop_reason: max_tokens) before valid JSON could be produced.'));
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(2); // tried once, retried once at the raised budget, then gave up
+    expect(run.dispositionerStatus).toBe('failed'); // honest degraded state PRESERVED
+    expect(run.items).toHaveLength(1); // raw reviewer suggestion KEPT
+    expect(run.items[0]!.primaryDisposition).toBeNull(); // no fabricated disposition
+    expect(run.items[0]!.primaryReasoning).toBeNull();
+  });
+
+  it('CEILING-1: the first synthesis attempt still uses 16384 on the happy path', async () => {
+    let dispCalls = 0;
+    const dispMaxTokens: number[] = [];
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        dispCalls += 1;
+        dispMaxTokens.push(params.maxTokens ?? -1);
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'r' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(dispCalls).toBe(1); // no retry needed on the happy path
+    expect(dispMaxTokens[0]!).toBe(getReviewerCeiling('anthropic:claude-opus-4-5')); // first attempt = reviewer ceiling (16384)
+    expect(run.dispositionerStatus).toBe('success');
+  });
+
+  it('CEILING-1: a NON-truncation dispositioner api_error (e.g. 500) is NOT retried at a RAISED budget', async () => {
+    const dispMaxTokens: number[] = [];
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          return Promise.resolve({ content: JSON.stringify([{ title: 'A', body: 'a', severity: 'minor' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        // plain api_error (no max_tokens/truncated substring): the dispositioner's truncation/raised-budget
+        // retry must NOT fire. (The canonical layer may itself retry a transient api_error internally, but
+        // every such dispatch stays at the FIRST-attempt ceiling — the raised budget is never reached.)
+        dispMaxTokens.push(params.maxTokens ?? -1);
+        return Promise.reject(new LlmProviderError('api_error', 'Anthropic API error 500: server error'));
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    const ceiling = getReviewerCeiling('anthropic:claude-opus-4-5');
+    expect(dispMaxTokens.length).toBeGreaterThan(0);
+    expect(dispMaxTokens.every((m) => m === ceiling)).toBe(true); // never escalated to the raised budget
+    const raisedBudget = getModelCapability('anthropic:claude-opus-4-5')!.providerMaxOutputTokens;
+    expect(dispMaxTokens).not.toContain(raisedBudget); // the truncation-retry budget was never used
+    expect(run.dispositionerStatus).toBe('failed');
+    expect(run.items[0]!.primaryDisposition).toBeNull();
+  });
+
+  it('CEILING-1 (STEP 4 pair): a reviewer-lane rate_limited retries once then succeeds', async () => {
+    let reviewerCalls = 0;
+    setTestLlmAdapter({
+      generate: (params) => {
+        if (params.systemPrompt.includes('INDEPENDENT reviewer')) {
+          reviewerCalls += 1;
+          if (reviewerCalls === 1) {
+            // transient 429 on the first attempt -> the lane retries once
+            return Promise.reject(new LlmProviderError('rate_limited', '429 too many requests'));
+          }
+          return Promise.resolve({ content: JSON.stringify([{ title: 'Tax deadline', body: 'Add the recording deadline', severity: 'major' }]), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+        }
+        const idxs = [...params.userPrompt.matchAll(/\[(\d+)\] \(from/g)].map((mm) => Number(mm[1]));
+        return Promise.resolve({ content: JSON.stringify({ dispositions: idxs.map((index) => ({ index, disposition: 'adopt', reasoning: 'r' })) }), tokensPrompt: 1, tokensCompletion: 1, providerMetadata: {} } as LlmGenerateResult);
+      },
+    });
+    const prep = await caller(U1).chatReviewPanel.prepareReview({ conversationId: CONV_A, matterId: MATTER_A, messageId: MSG_A, reviewerModels: ['gpt'] });
+    const run = await caller(U1).chatReviewPanel.runReview({ panelConfirmId: prep.panelConfirmId, matterId: MATTER_A });
+    expect(reviewerCalls).toBe(2); // throttled once, retried exactly once
+    const raws = await listReviewRawOutputsForRun(prep.panelConfirmId, U1);
+    expect(raws[0]!.laneStatus).toBe('success'); // recovered on the retry
+    expect(run.items).toHaveLength(1);
+    expect(run.items[0]!.suggestion).toContain('Tax deadline');
   });
 
   it('attorney-final: recordAttorneyDecision persists an override; nothing auto-applied', async () => {
