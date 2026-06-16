@@ -42,7 +42,7 @@
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
 import { llmFetch } from './llmFetch.js';
-import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
+import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 
 // xAI uses OpenAI-compatible API shape
 interface XaiMessage {
@@ -83,17 +83,8 @@ interface XaiResponse {
 
 const XAI_API_URL = 'https://api.x.ai/v1/chat/completions';
 
-// Known wrapper key names used by Grok json_object mode when the expected
-// schema is a bare array. Tried in order when the single-key check does not
-// match (MR-LLM-LITE-2 extension for grok-3-mini multi-key wrappers).
-const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
-
-// MR-LLM-LITE-3: Outer wrapper keys that Grok Lite may use to wrap a nested object
-// containing the actual array (e.g. { "review": { "feedback": [...] } }).
-const KNOWN_OUTER_WRAPPER_KEYS = ['review', 'output', 'response', 'result', 'data'] as const;
-
-// MR-LLM-LITE-3: Inner array keys expected inside a nested object wrapper.
-const KNOWN_INNER_ARRAY_KEYS = ['feedback', 'suggestions', 'items', 'issues'] as const;
+// HI-5b: the wrapper-key constants + Rules 1-5 now live in the SHARED structuredOutputNormalize module
+// (normalizeStructuredOutput). normalizeGrokStructuredOutput is a thin alias kept for existing callers.
 
 /**
  * MR-LLM-LITE-3: Return a safe diagnostic shape descriptor for a parsed value.
@@ -166,65 +157,7 @@ export function sanitizeShapeForDiagnostic(value: unknown): Record<string, unkno
  * provider output before validation, not weakening the schema.
  */
 export function normalizeGrokStructuredOutput(parsed: unknown): unknown {
-  // Rule 1: Direct array
-  if (Array.isArray(parsed)) {
-    return parsed;
-  }
-  if (
-    parsed !== null &&
-    typeof parsed === 'object' &&
-    !Array.isArray(parsed)
-  ) {
-    const obj = parsed as Record<string, unknown>;
-    const keys = Object.keys(obj);
-
-    // Rule 2: Exactly one property whose value is an array
-    if (keys.length === 1) {
-      const value = obj[keys[0]!];
-      if (Array.isArray(value)) {
-        return value;
-      }
-    }
-
-    // Rule 3: Multi-key object — try known wrapper key names in priority order
-    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
-      if (knownKey in obj && Array.isArray(obj[knownKey])) {
-        return obj[knownKey];
-      }
-    }
-
-    // Rule 4 (MR-LLM-LITE-3): Nested object wrapper — e.g. { "review": { "feedback": [...] } }
-    // Collect all unambiguous nested array candidates across known outer keys.
-    const nestedCandidates: unknown[] = [];
-    for (const outerKey of KNOWN_OUTER_WRAPPER_KEYS) {
-      if (!(outerKey in obj)) continue;
-      const outerVal = obj[outerKey];
-      if (outerVal === null || typeof outerVal !== 'object' || Array.isArray(outerVal)) continue;
-      const innerObj = outerVal as Record<string, unknown>;
-      for (const innerKey of KNOWN_INNER_ARRAY_KEYS) {
-        if (innerKey in innerObj && Array.isArray(innerObj[innerKey])) {
-          nestedCandidates.push(innerObj[innerKey]);
-        }
-      }
-    }
-    if (nestedCandidates.length === 1) {
-      // Exactly one unambiguous nested array found — extract it
-      return nestedCandidates[0];
-    }
-    // If nestedCandidates.length > 1 → ambiguous; fall through to Rule 5
-
-    // Rule 5 (MR-LLM-LITE-5): Singleton feedback item — test whether [obj] validates
-    // against the canonical reviewer-feedback array schema. If yes, return [obj].
-    // This handles the live-confirmed case where Grok Lite returns a single
-    // feedback item object instead of an array.
-    const singletonCandidate = RawSuggestionsArraySchema.safeParse([obj]);
-    if (singletonCandidate.success) {
-      return [obj];
-    }
-    // Rule 5 failed — arbitrary object, leave unchanged; Zod will reject with parse_error
-  }
-  // Rule 6: All other cases
-  return parsed;
+  return normalizeStructuredOutput(parsed);
 }
 
 export class XaiAdapter implements LlmClient {

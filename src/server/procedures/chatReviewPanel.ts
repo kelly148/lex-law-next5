@@ -514,10 +514,19 @@ export const chatReviewPanelRouter = router({
               }
             }
             dispositionerStatus = 'success';
-          } catch {
-            // A DB write failure while applying dispositions degrades to the honest fallback (mirrors the
-            // prior outer-catch behavior) rather than failing the whole run.
+          } catch (dbErr) {
+            // ME-7 (REVIEWER-ROBUSTNESS-1): this branch is reached ONLY after synthesis SUCCEEDED — so a
+            // throw here is an INFRASTRUCTURE failure (the disposition DB write), NOT a model-quality
+            // problem. The honest degraded client state (dispositionerStatus='failed' -> "not yet
+            // synthesized") is preserved, but we now LOG the real error distinctly instead of swallowing
+            // it, so an infra failure is not silently misread as a reviewer/synthesis-quality outcome.
+            // NPI-safe: only the error is logged, never document/feedback content.
             dispositionerStatus = 'failed';
+            console.error(
+              '[chat-review-panel] disposition DB write FAILED after a successful synthesis ' +
+                '(infrastructure failure, not model-quality; surfaced as the honest degraded state):',
+              dbErr instanceof Error ? `${dbErr.name}: ${dbErr.message}` : String(dbErr),
+            );
           }
         }
       }

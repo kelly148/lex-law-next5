@@ -20,15 +20,33 @@ import { getIronSession, type IronSession } from 'iron-session';
 import type { Request, Response } from 'express';
 import { SessionDataSchema, type SessionData } from '../../shared/schemas/users.js';
 
-if (!process.env['SESSION_SECRET']) {
-  throw new Error(
-    'SESSION_SECRET environment variable is required. ' +
-    'Must be at least 32 characters. See .env.example.'
-  );
+/**
+ * HI-6 (REVIEWER-ROBUSTNESS-1): iron-session requires the password to be at least 32 characters.
+ * The prior check tested presence ONLY, so a short secret passed startup and then threw deep at the
+ * first request (or weakened cookie signing). Validate both presence AND length at boot so the
+ * failure is loud and immediate. Returns the validated secret. The secret VALUE is never logged —
+ * only its length is named in the length error.
+ */
+export function assertSessionSecret(secret: string | undefined): string {
+  if (!secret) {
+    throw new Error(
+      'SESSION_SECRET environment variable is required. ' +
+      'Must be at least 32 characters. See .env.example.'
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `SESSION_SECRET must be at least 32 characters (got ${secret.length}). ` +
+      'iron-session requires a >=32-character password. See .env.example.'
+    );
+  }
+  return secret;
 }
 
+const SESSION_SECRET = assertSessionSecret(process.env['SESSION_SECRET']);
+
 export const sessionOptions = {
-  password: process.env['SESSION_SECRET'],
+  password: SESSION_SECRET,
   cookieName: 'lex_session',
   cookieOptions: {
     secure: process.env['NODE_ENV'] === 'production',
