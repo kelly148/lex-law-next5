@@ -87,6 +87,8 @@ import {
   chatReviewRuns,
   matterDeliverable,
   materialExtraction,
+  egressEvents,
+  egressHold,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -235,6 +237,13 @@ export async function cascadeDeleteMatterChildren(
   // survival of an operator-gated full-matter purge, exactly as auditEvents / postureProvenance / chat
   // tables above. Purged WITH the matter so an (operator-gated, synthetic/test) purge leaves no orphan.
   await step('chatEgressEvents', chatEgressEvents, byMatter(chatEgressEvents));
+  // EGRESS-CONTROL-PLANE-1: the matter's generalized egress audit ledger (document + future surfaces) and
+  // its scoped holds. egress_events mirrors chat_egress_events — a GLBA audit log: purged WITH the matter by
+  // the operator-gated purge, but PRESERVED by the everyday delete (EVERYDAY_DELETE_PRESERVE below).
+  // egress_hold matter/conversation-scoped rows purge byMatter; a firm-level global hold (matterId NULL) is
+  // retained (byMatter never matches a NULL matterId), like authority_source.
+  await step('egressEvents', egressEvents, byMatter(egressEvents));
+  await step('egressHold', egressHold, byMatter(egressHold));
   // CHAT-COPILOT-2 A2: the matter's ephemeral chat attachments + their party attributions. A full
   // operator-gated matter purge overrides provenance-pinning, exactly as it overrides the chat tables.
   await step('chatAttachmentParty', chatAttachmentParty, byMatter(chatAttachmentParty));
@@ -304,6 +313,11 @@ export const EVERYDAY_DELETE_PRESERVE: ReadonlySet<string> = new Set([
   'auditEvents',
   'postureProvenance',
   'chatEgressEvents',
+  // EGRESS-CONTROL-PLANE-1: the generalized egress audit ledger — GLBA vendor-oversight evidence, preserved
+  // exactly like chat_egress_events; only the operator-gated purge removes it. (egress_hold is operational
+  // hold state, NOT a permanent record, so it is purged by the everyday delete too; global holds — matterId
+  // NULL — survive regardless via byMatter.)
+  'egressEvents',
 ]);
 
 /**

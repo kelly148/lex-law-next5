@@ -21,6 +21,7 @@ import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EGRESS_SURFACE_VALUES } from '../../shared/schemas/egress.js';
 
 const SRC_DIR = fileURLToPath(new URL('../../', import.meta.url)); // .../src/
 
@@ -54,11 +55,15 @@ const FORBIDDEN_SDK_SPECIFIERS = [
 ];
 
 // Provider-reaching primitives -> the ONLY non-test files allowed to import them (verified against the
-// tree). A new entrant here is a deliberate, reviewed change, not an accident.
+// tree). A new entrant here is a deliberate, reviewed change, not an accident. This is the SHRINKING
+// raw-access allowlist: EGRESS-CONTROL-PLANE-1 ONBOARDED the sendability classifier — it removed
+// 'procedures/reviewSession.ts' (which no longer reaches a provider raw; sendability now routes through the
+// egress plane) and added the new document egress chokepoint 'egress/documentEgress.ts'. Any NEW raw
+// provider importer outside these chokepoints fails this guard (the ME-1 structural lock).
 const REGISTRY_RE = /\/llm\/registry(\.js)?$/; // resolveAdapter / setTestLlmAdapter
 const LLMFETCH_RE = /\/llm\/llmFetch(\.js)?$/;
 const ADAPTER_RE = /\/llm\/(anthropic|openai|google|xai)(\.js)?$/;
-const REGISTRY_ALLOWED = ['db/canonicalMutation.ts', 'procedures/reviewSession.ts', 'llm/registry.ts'];
+const REGISTRY_ALLOWED = ['db/canonicalMutation.ts', 'egress/documentEgress.ts', 'llm/registry.ts'];
 const LLMFETCH_ALLOWED = ['llm/anthropic.ts', 'llm/openai.ts', 'llm/google.ts', 'llm/xai.ts', 'llm/llmFetch.ts'];
 const ADAPTER_ALLOWED = ['llm/registry.ts'];
 
@@ -111,5 +116,64 @@ describe('CHAT-COPILOT-2 A1 — egress broker architecture guard', () => {
     const specs = importedSpecifiers(readFileSync(file, 'utf8'));
     expect(specs.some((s) => s.includes('db/canonicalMutation'))).toBe(true);
     expect(specs.some((s) => s.includes('db/queries/chatEgress'))).toBe(true);
+  });
+});
+
+// EGRESS-CONTROL-PLANE-1 — the document-side surfaces NOT YET routed through the egress control plane. They
+// reach a provider through the JOB plane (executeCanonicalMutation -> runJob -> llmFetch), which the triad
+// disposition found is NOT control-equivalent (no audit row, no hold). Each onboards in a later increment by
+// routing through egress/documentEgress (the egress plane). This is the explicit SHRINKING checklist — delete
+// an entry when its surface onboards (the list shrinks to empty). Sendability (the increment-1 pilot) is
+// already onboarded and is therefore NOT in this list. Routing reviewer/drafter through the broker is the
+// increment-2 architectural decision (route-through-broker vs gate-inside-canonicalMutation) and carries a
+// fail-closed-allowlist prod risk, so it is operator-gated.
+const EGRESS_ONBOARDING_TODO: readonly string[] = ['reviewer', 'drafter', 'evaluator', 'outline', 'intake', 'information_request'];
+
+describe('EGRESS-CONTROL-PLANE-1 — egress control plane architecture guard', () => {
+  const files = walk(SRC_DIR);
+  const specsOf = (suffix: string): string[] => {
+    const file = files.find((f) => rel(f).endsWith(suffix));
+    expect(file, `module not found: ${suffix}`).toBeTruthy();
+    return importedSpecifiers(readFileSync(file!, 'utf8'));
+  };
+
+  it('the shared egress PRIMITIVE is provider-agnostic (imports NO provider primitive, NO canonical dispatch)', () => {
+    const specs = specsOf('server/egress/auditedEgress.ts');
+    expect(specs.some((s) => REGISTRY_RE.test(s)), 'auditedEgress must not import the registry').toBe(false);
+    expect(specs.some((s) => LLMFETCH_RE.test(s)), 'auditedEgress must not import llmFetch').toBe(false);
+    expect(specs.some((s) => ADAPTER_RE.test(s)), 'auditedEgress must not import a provider adapter').toBe(false);
+    expect(specs.some((s) => s.includes('db/canonicalMutation')), 'auditedEgress wraps an opaque dispatch — no canonical import').toBe(false);
+  });
+
+  it('the DOCUMENT egress adapter is a chokepoint: reaches the provider via the registry AND records via egress_events, over the primitive', () => {
+    const specs = specsOf('server/egress/documentEgress.ts');
+    expect(specs.some((s) => REGISTRY_RE.test(s)), 'documentEgress reaches the provider via the registry (the approved chokepoint)').toBe(true);
+    expect(specs.some((s) => /(^|\/)auditedEgress(\.js)?$/.test(s)), 'documentEgress dispatches through the shared primitive').toBe(true);
+    expect(specs.some((s) => s.includes('db/queries/egressEvents')), 'documentEgress writes the egress_events audit row').toBe(true);
+    expect(specs.some((s) => s.includes('db/queries/egressHold')), 'documentEgress checks the scoped hold').toBe(true);
+  });
+
+  it('SENDABILITY is onboarded: reviewSession reaches a provider ONLY through the egress plane (the raw-access allowlist shrank)', () => {
+    const specs = specsOf('server/procedures/reviewSession.ts');
+    // The shrink: reviewSession no longer imports a provider primitive (it was on REGISTRY_ALLOWED only for
+    // the raw sendability adapter.generate). It still imports canonicalMutation for the reviewer JOB-plane
+    // dispatch (not yet onboarded — that is increment 2); the guard only bans RAW provider access.
+    expect(specs.some((s) => REGISTRY_RE.test(s)), 'reviewSession must NOT import the registry — sendability now routes through documentEgress').toBe(false);
+    expect(specs.some((s) => LLMFETCH_RE.test(s)), 'reviewSession must NOT import llmFetch').toBe(false);
+    expect(specs.some((s) => ADAPTER_RE.test(s)), 'reviewSession must NOT import a provider adapter').toBe(false);
+    expect(specs.some((s) => s.includes('egress/documentEgress')), 'reviewSession routes sendability through the document egress plane').toBe(true);
+  });
+
+  it('the onboarding inventory is the shrinking checklist (each not-yet-onboarded surface is a known ledger surface)', () => {
+    // Every surface still on the job plane is a valid egress_events surface, so it can be recorded the moment
+    // it onboards. As a surface routes through documentEgress, remove it here — the list shrinks to empty.
+    for (const surface of EGRESS_ONBOARDING_TODO) {
+      expect(
+        (EGRESS_SURFACE_VALUES as readonly string[]).includes(surface),
+        `onboarding-target surface '${surface}' must be a declared egress_events surface`,
+      ).toBe(true);
+    }
+    // Sendability is NOT in the inventory (already onboarded in increment 1).
+    expect(EGRESS_ONBOARDING_TODO.includes('sendability')).toBe(false);
   });
 });

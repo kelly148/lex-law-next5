@@ -128,8 +128,15 @@ const MIGRATIONS = [
   // Written/read ONLY when CHAT_REVIEW_PANEL_ENABLED is ON (default OFF); apply BEFORE flipping the flag.
   // Activation ALSO requires adding panel providers to GROUNDED_CHAT_PROVIDERS. Default-safe.
   '0040_chat_copilot_2_incb_review_panel.sql',
+  // EGRESS-CONTROL-PLANE-1 (Increment 1) — additive egress_events (surface-agnostic audit ledger) +
+  // egress_hold (scoped no_external hold: matter/global). Two CREATE TABLE IF NOT EXISTS, idempotent, NO
+  // FK — isolation app-layer. chat_egress_events is UNTOUCHED (chat keeps writing there). Operator-apply;
+  // default-safe (the document egress path is the only writer; sendability degrades to unavailable under
+  // a hold or audit-write failure).
+  '0041_egress_control_plane_1_egress_events.sql',
+  '0042_egress_control_plane_1_egress_hold.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping

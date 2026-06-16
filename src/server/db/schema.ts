@@ -39,6 +39,15 @@ import {
 import { sql } from 'drizzle-orm';
 // REVIEWER-ASYNC-DISPLAY-1 (Component C): single source of the reviewer-lane status vocabulary.
 import { REVIEWER_LANE_STATUS_VALUES } from '../../shared/schemas/reviewerLaneState.js';
+// EGRESS-CONTROL-PLANE-1: surface-agnostic egress ledger + scoped-hold enum vocabularies (Zod Wall sync).
+import {
+  EGRESS_SURFACE_VALUES,
+  EGRESS_SUBJECT_TYPE_VALUES,
+  EGRESS_HOLD_SCOPE_VALUES,
+  EGRESS_HOLD_FLAG_VALUES,
+  EGRESS_DECISION_VALUES,
+  EGRESS_STATUS_VALUES,
+} from '../../shared/schemas/egress.js';
 // CHAT-COPILOT-1 (Inc 1): single source of the chat-copilot enum vocabularies (kept in sync with the Zod Wall).
 import {
   CHAT_CONVERSATION_RETENTION_CLASS_VALUES,
@@ -2866,6 +2875,74 @@ export const chatEgressEvents = mysqlTable(
 );
 export type ChatEgressEvent = typeof chatEgressEvents.$inferSelect;
 export type NewChatEgressEvent = typeof chatEgressEvents.$inferInsert;
+
+// EGRESS-CONTROL-PLANE-1 (Increment 1) — the surface-agnostic egress audit ledger. Every external-model
+// send of client/matter content writes ONE durable decision row here BEFORE dispatch (allowed OR blocked +
+// reason). Store-by-reference: inputBundleHash is a salted/keyed hash over the minimized payload — NEVER
+// the draft text. chat_egress_events is untouched; the DOCUMENT egress path (sendability pilot) writes here.
+export const egressEvents = mysqlTable(
+  'egress_events',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    surface: mysqlEnum('surface', EGRESS_SURFACE_VALUES).notNull(),
+    subjectType: mysqlEnum('subjectType', EGRESS_SUBJECT_TYPE_VALUES).notNull(),
+    // Polymorphic subject scope (nullable per type). A document send leaves conversationId NULL.
+    conversationId: char('conversationId', { length: 36 }),
+    documentId: char('documentId', { length: 36 }),
+    documentVersionId: char('documentVersionId', { length: 36 }),
+    jobId: char('jobId', { length: 36 }),
+    holdScope: mysqlEnum('holdScope', EGRESS_HOLD_SCOPE_VALUES),
+    decision: mysqlEnum('decision', EGRESS_DECISION_VALUES).notNull(),
+    blockReason: varchar('blockReason', { length: 128 }),
+    provider: varchar('provider', { length: 64 }).notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    policyVersion: varchar('policyVersion', { length: 128 }),
+    inputBundleHash: varchar('inputBundleHash', { length: 128 }),
+    correlationId: char('correlationId', { length: 36 }).notNull(),
+    status: mysqlEnum('status', EGRESS_STATUS_VALUES).notNull().default('pending'),
+    failureReason: varchar('failureReason', { length: 255 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    completedAt: timestamp('completedAt'),
+  },
+  (table) => ({
+    idxEgressEventsMatter: index('idx_egress_events_matter').on(table.matterId, table.userId, table.createdAt),
+    idxEgressEventsSurface: index('idx_egress_events_surface').on(table.surface, table.createdAt),
+    idxEgressEventsDocument: index('idx_egress_events_document').on(table.documentId, table.createdAt),
+    idxEgressEventsDecision: index('idx_egress_events_decision').on(table.decision, table.matterId, table.userId),
+  }),
+);
+export type EgressEvent = typeof egressEvents.$inferSelect;
+export type NewEgressEvent = typeof egressEvents.$inferInsert;
+
+// EGRESS-CONTROL-PLANE-1 (Increment 1) — a scoped external-egress hold (matter/global; conversation.holdFlag
+// covers chat). subjectId = conversationId | matterId (NULL for scope='global'). matterId is set for
+// conversation/matter scope (purges WITH the matter); NULL for a firm-level global hold (retained across
+// matter purge). Release is audit-preserving (active=false + releasedAt; no in-operation row delete).
+export const egressHold = mysqlTable(
+  'egress_hold',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    scope: mysqlEnum('scope', EGRESS_HOLD_SCOPE_VALUES).notNull(),
+    subjectId: char('subjectId', { length: 36 }),
+    matterId: char('matterId', { length: 36 }),
+    holdFlag: mysqlEnum('holdFlag', EGRESS_HOLD_FLAG_VALUES).notNull().default('no_external'),
+    reason: text('reason'),
+    active: boolean('active').notNull().default(true),
+    createdByUserId: char('createdByUserId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    releasedAt: timestamp('releasedAt'),
+  },
+  (table) => ({
+    uniqEgressHoldScopeSubject: uniqueIndex('uniq_egress_hold_scope_subject').on(table.userId, table.scope, table.subjectId),
+    idxEgressHoldMatter: index('idx_egress_hold_matter').on(table.matterId, table.userId),
+    idxEgressHoldActive: index('idx_egress_hold_active').on(table.userId, table.active, table.scope),
+  }),
+);
+export type EgressHold = typeof egressHold.$inferSelect;
+export type NewEgressHold = typeof egressHold.$inferInsert;
 
 // CHAT-COPILOT-2 A2 — ephemeral chat attachments. Store BY-REFERENCE (extracted text + metadata, NOT raw
 // file bytes — storageKey is a placeholder like matter_materials), conversation-scoped, EPHEMERAL by

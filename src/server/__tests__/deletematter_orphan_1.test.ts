@@ -131,7 +131,9 @@ const name = (t: unknown) => getTableName(t as Parameters<typeof getTableName>[0
 describe('DELETEMATTER-ORPHAN-1 — EVERYDAY_DELETE_PRESERVE', () => {
   it('preserves exactly the permanent audit/posture Matter Record + the GLBA egress log', () => {
     expect([...EVERYDAY_DELETE_PRESERVE].sort()).toEqual(
-      ['auditEvents', 'chatEgressEvents', 'postureProvenance'],
+      // EGRESS-CONTROL-PLANE-1: egress_events is a GLBA egress audit log, preserved by the everyday delete
+      // exactly like chat_egress_events (only the operator-gated purge removes it).
+      ['auditEvents', 'chatEgressEvents', 'egressEvents', 'postureProvenance'],
     );
   });
 
