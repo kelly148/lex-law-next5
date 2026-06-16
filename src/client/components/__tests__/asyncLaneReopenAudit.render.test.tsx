@@ -42,20 +42,23 @@ function lane(role: string, status: ReviewerLaneStatus, count: number | null = n
 afterEach(() => cleanup());
 
 describe('condition 7 — late reopen is strictly additive (no clobber/reorder/re-derive)', () => {
-  it('a newly-arrived lane preserves the already-shown suggestions verbatim', () => {
-    const claudeFb = { reviewerRole: 'claude', reviewerTitle: 'Claude', suggestions: [{ suggestionId: 'c1', title: 'Adopted issue', body: 'keep me' }] };
+  it('a newly-arrived lane is strictly additive in the header strip (no reset / reorder / re-derive)', () => {
+    // ASYNC-LANE-DISPLAY-PARITY-1: the lane HEADER now owns the additive reopen signal (the per-lane strip +
+    // honest N-of-M); the arrived suggestions render via the shared SuggestionCard list in ReviewPane (the
+    // content-additivity is covered in reviewPaneAsyncParity.render.test.tsx). condition 7 is preserved: a
+    // late arrival never resets or reorders what was already shown.
     const partial = buildReviewerLanesContract([lane('claude', 'completed_with_feedback', 1), lane('gpt', 'running')]);
-    const { rerender } = render(<AsyncLaneReviewView lanes={partial} feedback={[claudeFb]} onClose={() => {}} />);
-    expect(screen.getByTestId('suggestions-claude').textContent).toContain('keep me');
+    const { rerender } = render(<AsyncLaneReviewView lanes={partial} />);
+    expect(screen.getByTestId('async-lane-header').textContent).toMatch(/1 of 2 reviewers returned/);
+    expect(screen.getByTestId('lane-claude').getAttribute('data-status')).toBe('completed_with_feedback');
+    expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('running');
 
-    // gpt's late result arrives — the pane "reopens" with the larger set.
-    const gptFb = { reviewerRole: 'gpt', reviewerTitle: 'GPT', suggestions: [{ suggestionId: 'g1', body: 'newly arrived' }] };
+    // gpt's late result arrives — the pane "reopens" with the larger set; claude's lane is UNCHANGED.
     const complete = buildReviewerLanesContract([lane('claude', 'completed_with_feedback', 1), lane('gpt', 'completed_with_feedback', 1)]);
-    rerender(<AsyncLaneReviewView lanes={complete} feedback={[claudeFb, gptFb]} onClose={() => {}} />);
-
-    // claude's original content is UNCHANGED (additive); gpt's is appended.
-    expect(screen.getByTestId('suggestions-claude').textContent).toContain('keep me');
-    expect(screen.getByTestId('suggestions-gpt').textContent).toContain('newly arrived');
+    rerender(<AsyncLaneReviewView lanes={complete} />);
+    expect(screen.getByTestId('async-lane-header').textContent).toMatch(/All 2 reviewers returned/);
+    expect(screen.getByTestId('lane-claude').getAttribute('data-status')).toBe('completed_with_feedback'); // additive — unchanged
+    expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('completed_with_feedback');
   });
 
   it('the async view is display-only — it never writes selections (cannot clobber adopt/modify/pass)', () => {
