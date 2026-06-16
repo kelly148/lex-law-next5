@@ -799,13 +799,17 @@ export function SendabilitySection({ documentId }: SendabilitySectionProps): Rea
       {data && data.available === true && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
+            {/* ME-5 (LEAK-PARITY-SWEEP-1): this is an ADVISORY check, not a send-clearance. Per the
+                product's no-green-as-safe convention, the "no blockers" state uses a NEUTRAL info icon
+                (not a success-green check) and copy that names it as the advisory check's finding, so it
+                never reads as affirmative authorization to send. */}
             {data.verdict.sendable ? (
-              <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+              <Info className="w-3.5 h-3.5 text-gray-400" />
             ) : (
               <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
             )}
             <span className="text-xs font-medium text-gray-800">
-              {data.verdict.sendable ? 'No blockers detected' : 'Potential blockers — review before sending'}
+              {data.verdict.sendable ? 'No blockers detected by the advisory check' : 'Potential blockers — review before sending'}
             </span>
           </div>
           {data.verdict.blockers.length > 0 && (
@@ -974,7 +978,11 @@ function HistorySection({ documentId, currentIterationNumber }: HistorySectionPr
                                 {selection ? 'selected' : 'not selected'}
                               </span>
                             </div>
-                            <p className="text-xs text-gray-600 mt-0.5">{s.body}</p>
+                            {/* CR-3 (LEAK-PARITY-SWEEP-1): the history body is the legacy suggestion
+                                body that carries the embedded STRUCTURED_FEEDBACK_CARDS JSON. Render only
+                                the clean narrative — same sanitizer the live/async lanes use — so the raw
+                                internal plumbing never leaks into the Prior-Feedback overlay. */}
+                            <p className="text-xs text-gray-600 mt-0.5">{stripEmbeddedCardsJson(s.body)}</p>
                             <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-gray-400">
                               <span>Severity: {s.severity ?? 'unspecified'}</span>
                               <span>Suggestion ID: {s.suggestionId}</span>
@@ -1731,7 +1739,9 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       )}
       {activeOverlay === 'history' && (
         <ReviewToolOverlay title="Prior feedback" onClose={closeOverlay}>
-          <HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} />
+          {/* ME-6 (LEAK-PARITY-SWEEP-1): wrap the Prior-Feedback overlay in PanelErrorBoundary like its
+              sibling overlays (provenance, LOI-diff, convergence) so a render fault here is contained. */}
+          <PanelErrorBoundary label="Prior feedback"><HistorySection documentId={documentId} currentIterationNumber={session.iterationNumber} /></PanelErrorBoundary>
         </ReviewToolOverlay>
       )}
       {activeOverlay === 'convergence' && (
