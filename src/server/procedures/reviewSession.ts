@@ -48,6 +48,7 @@ import { pollJobs } from '../db/queries/jobs.js';
 import {
   insertReviewerLanes,
   markReviewerLaneTerminal,
+  markReviewerLaneRunning,
   markReviewerLaneDispatchFailed,
   listReviewerLanesForSession,
 } from '../db/queries/reviewerLaneState.js';
@@ -408,6 +409,17 @@ export const reviewSessionRouter = router({
             // byte-identical. The drafter/evaluator never reach this reviewer buildLlmParams.
             ...(resolveReviewerLatencyTuning('reviewer_feedback', modelString) ?? {}),
           }),
+          ...(reviewerAsync
+            ? {
+                onRunning: async () => {
+                  // DOC-PANE-LANE-RUNNING-1: flip this reviewer's lane pending->running the instant the LLM
+                  // call starts, so the async strip shows 'Running…' instead of 'Queued' for the whole run.
+                  // Best-effort + guarded to non-terminal (never clobbers a terminal). Async-gated, so the
+                  // SYNC path (no lanes) is byte-for-byte unchanged.
+                  await markReviewerLaneRunning(sessionId, reviewerRole, userId);
+                },
+              }
+            : {}),
           // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
           // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default
           // is insufficient. 300 000 ms (5 min) gives a safe margin for all four

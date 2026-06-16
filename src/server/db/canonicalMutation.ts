@@ -261,6 +261,13 @@ export interface CanonicalMutationParams {
    */
   buildLlmParams: (jobId: string) => Omit<LlmGenerateParams, 'signal'>;
   /**
+   * Best-effort lifecycle hook fired ONCE immediately after the atomic queued->running claim succeeds,
+   * before the LLM call (DOC-PANE-LANE-RUNNING-1). The reviewer path supplies a closure that flips its
+   * reviewer_lane to 'running'. Optional/undefined for every non-reviewer caller, so they are byte-for-byte
+   * unchanged. A throw here must never break the job (the runJob invocation void/catches it).
+   */
+  onRunning?: (jobId: string) => void | Promise<void>;
+  /**
    * Transaction 2 — success path: write output, advance document state.
    * Called inside a DB transaction after the LLM call succeeds.
    */
@@ -469,6 +476,17 @@ async function runJob(
     { jobType, providerId, modelId, promptVersion },
     { ...telemetryCtx, jobId },
   );
+
+  // DOC-PANE-LANE-RUNNING-1: fire the running hook ONCE, after the job is genuinely claimed (the
+  // rowsAffected===0 early-return above precedes this, so a cancel/double-claim never flips a lane to
+  // running). Best-effort / void-catch — a lane-write failure must never break the model call. Both the
+  // dispatcher-off (executeCanonicalMutation) and dispatcher-on (runDeferredCanonicalJob) paths reach this
+  // single line because both run the job through runJob.
+  if (params.onRunning) {
+    void Promise.resolve()
+      .then(() => params.onRunning!(jobId))
+      .catch((e) => console.error(`[canonicalMutation] onRunning hook failed for job ${jobId}:`, e));
+  }
 
   // ──────────────────────────────────────────────────────────
   // Between transactions: LLM call

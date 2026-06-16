@@ -59,3 +59,65 @@ describe('LANE-OVERWRITE-GUARD-1 — markReviewerLaneTerminal wiring (source aud
     expect(src).toContain('.where(and(...conditions));');
   });
 });
+
+describe('DOC-PANE-LANE-RUNNING-1 — markReviewerLaneRunning', () => {
+  const laneStateSrc = readFileSync(
+    resolve(__dirname, '../../..', 'src/server/db/queries/reviewerLaneState.ts'),
+    'utf8',
+  );
+  const canonicalSrc = readFileSync(
+    resolve(__dirname, '../../..', 'src/server/db/canonicalMutation.ts'),
+    'utf8',
+  );
+  const reviewSessionSrc = readFileSync(
+    resolve(__dirname, '../../..', 'src/server/procedures/reviewSession.ts'),
+    'utf8',
+  );
+
+  // (a) source audit of the new writer — guarded to non-terminal, owner-scoped via ownerScope, NEVER eq(userId), NOT a terminal write.
+  it('markReviewerLaneRunning is a guarded, owner-scoped, non-terminal write (source audit)', () => {
+    expect(laneStateSrc).toContain('export async function markReviewerLaneRunning(');
+    expect(laneStateSrc).toContain("status: 'running'");
+    expect(laneStateSrc).toContain('inArray(reviewerLanes.status, NON_TERMINAL_LANE_STATUSES)');
+    expect(laneStateSrc).toContain('ownerScope(reviewerLanes.userId, userId)');
+    // the two CI ratchets forbid the raw eq(userId) form anywhere in this file
+    expect(laneStateSrc).not.toMatch(/eq\(reviewerLanes\.userId/);
+
+    // scope to the function body: from its declaration to the next `export async function` after it
+    const startIdx = laneStateSrc.indexOf('export async function markReviewerLaneRunning(');
+    expect(startIdx).toBeGreaterThan(-1);
+    const afterStart = startIdx + 'export async function markReviewerLaneRunning('.length;
+    const nextExportRel = laneStateSrc.slice(afterStart).indexOf('export async function');
+    const endIdx = nextExportRel === -1 ? laneStateSrc.length : afterStart + nextExportRel;
+    const body = laneStateSrc.slice(startIdx, endIdx);
+    // 'running' is NON-terminal: the running write must NOT set terminalizedAt
+    expect(body).not.toContain('terminalizedAt');
+  });
+
+  // (b) pure cross-check: no terminal status overlaps the running-write's matchable (non-terminal) set,
+  // proving a running write can never land on a terminal lane.
+  it('no TERMINAL status is in the running-write match set [pending,dispatched,running]', () => {
+    const nonTerminalMatchSet = ['pending', 'dispatched', 'running'];
+    for (const s of TERMINAL_LANE_STATUSES) {
+      expect(nonTerminalMatchSet, `${s} must not be matchable by the running write`).not.toContain(s);
+    }
+  });
+
+  // (c) source audit of canonicalMutation — optional onRunning hook, invoked best-effort AFTER job_started.
+  it('canonicalMutation exposes onRunning and fires it best-effort after job_started (source audit)', () => {
+    expect(canonicalSrc).toContain('onRunning?:');
+    expect(canonicalSrc).toContain('params.onRunning');
+    expect(canonicalSrc).toContain('onRunning!(jobId)');
+    expect(canonicalSrc).toContain('.catch(');
+    // the hook must fire AFTER the job is genuinely claimed/started
+    expect(canonicalSrc.indexOf('params.onRunning')).toBeGreaterThan(canonicalSrc.indexOf("'job_started'"));
+  });
+
+  // (d) source audit of reviewSession — onRunning wiring gated on reviewerAsync.
+  it('reviewSession wires onRunning -> markReviewerLaneRunning gated on reviewerAsync (source audit)', () => {
+    expect(reviewSessionSrc).toContain('markReviewerLaneRunning(sessionId, reviewerRole, userId)');
+    expect(reviewSessionSrc).toContain('onRunning:');
+    expect(reviewSessionSrc).toContain('markReviewerLaneRunning(');
+    expect(reviewSessionSrc).toContain('reviewerAsync');
+  });
+});

@@ -150,6 +150,35 @@ export async function markReviewerLaneTerminal(
     .where(and(...conditions));
 }
 
+/**
+ * Mark a lane as actively RUNNING the reviewer LLM call (DOC-PANE-LANE-RUNNING-1). A non-terminal lane
+ * (pending/dispatched/running) transitions to 'running' the moment the reviewer_feedback job starts its
+ * model call, so the async lane strip shows 'Running…' instead of 'Queued' for the whole multi-minute run.
+ * GUARDED to NON-terminal lanes (inArray NON_TERMINAL_LANE_STATUSES) so it can NEVER revert a terminal lane
+ * back to running — preserving the HI-3 (LANE-OVERWRITE-GUARD-1) feedback-bearing-terminal-wins invariant by
+ * construction (a terminal row matches zero rows). Idempotent (re-calling on an already-running lane is a
+ * same-value no-op). 'running' is NON-terminal: this does NOT set terminalizedAt. Best-effort: callers
+ * void-catch so a lane-write failure can never break the model call.
+ */
+export async function markReviewerLaneRunning(
+  reviewSessionId: string,
+  reviewerRole: string,
+  userId: string,
+): Promise<void> {
+  const now = new Date();
+  await db
+    .update(reviewerLanes)
+    .set({ status: 'running', updatedAt: now })
+    .where(
+      and(
+        eq(reviewerLanes.reviewSessionId, reviewSessionId),
+        eq(reviewerLanes.reviewerRole, reviewerRole),
+        ownerScope(reviewerLanes.userId, userId),
+        inArray(reviewerLanes.status, NON_TERMINAL_LANE_STATUSES),
+      ),
+    );
+}
+
 /** The enqueue itself failed (no job ever ran) → terminal 'dispatch_failed' (only if not already terminal). */
 export async function markReviewerLaneDispatchFailed(
   reviewSessionId: string,
