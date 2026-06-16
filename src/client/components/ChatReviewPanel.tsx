@@ -28,6 +28,7 @@
 import React, { useState } from 'react';
 import { X, ShieldCheck, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { trpc } from '../trpc.js';
+import { stripEmbeddedCardsJson } from '../utils/feedbackCardDisplay.js';
 
 // ── Server-contract shapes (mirror the chatReviewPanel router return types) ─────────────────────────
 type Disposition = 'adopt' | 'reject' | 'modify_and_adopt';
@@ -374,7 +375,11 @@ export default function ChatReviewPanel({ conversation, message, onClose }: Chat
                       </span>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap text-xs text-ink">{item.suggestion}</p>
+                  {/* HI-4 (LEAK-PARITY-SWEEP-1): item.suggestion can be raw LLM text on a JSON-parse
+                      failure (chatReviewPanelEngine returns rawText verbatim). Sanitize through the same
+                      display helper the document lanes use so any embedded STRUCTURED_FEEDBACK_CARDS /
+                      internal scaffolding never reaches the attorney on the primary suggestion line. */}
+                  <p className="whitespace-pre-wrap text-xs text-ink">{stripEmbeddedCardsJson(item.suggestion)}</p>
                   {item.primaryReasoning !== null && item.primaryReasoning.trim().length > 0 && (
                     <p data-testid="chat-review-reasoning" className="mt-1 whitespace-pre-wrap text-xs text-ink-secondary">
                       <span className="text-ink-hint">Primary reasoning: </span>
