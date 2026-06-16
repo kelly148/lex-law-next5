@@ -24,11 +24,25 @@ import { ownerScope } from '../ownerScope.js';
 import { emitTelemetry, type TelemetryContext } from '../../telemetry/emitTelemetry.js';
 import {
   ReviewerLaneRowSchema,
+  FAILURE_LANE_STATUSES,
   type ReviewerLaneRow,
   type ReviewerLaneStatus,
 } from '../../../shared/schemas/reviewerLaneState.js';
 
 const NON_TERMINAL_LANE_STATUSES: ReviewerLaneStatus[] = ['pending', 'dispatched', 'running'];
+
+/**
+ * HI-3 (LANE-OVERWRITE-GUARD-1): decide whether a terminal write must be RESTRICTED to non-terminal
+ * lanes. A FAILURE-class terminal (failed / timed_out / dispatch_failed / orphaned_reaped / canceled)
+ * must NOT clobber an existing terminal lane — a late/duplicate revert firing AFTER a real commit would
+ * otherwise flip completed_with_feedback to failed and null feedbackRowId, so the async UI shows a
+ * failed lane while real feedback rows exist. A SUCCESS/feedback terminal stays UNCONDITIONAL so a
+ * legitimate late retry still supersedes an earlier orphaned_reaped (the "latest feedback wins"
+ * reopen semantics the lane-state contract relies on).
+ */
+export function terminalWriteRestrictedToNonTerminal(status: ReviewerLaneStatus): boolean {
+  return FAILURE_LANE_STATUSES.has(status);
+}
 
 function parseRow(raw: unknown, ctx: { userId: string }): ReviewerLaneRow {
   try {
@@ -93,7 +107,13 @@ export async function insertReviewerLanes(
 
 /**
  * Terminalize a lane from job completion/recovery (condition 3 — NOT from reviewSession.get).
- * UNCONDITIONAL on the unique (session, reviewer) row so the LATEST terminal wins (condition 1).
+ *
+ * A SUCCESS/feedback terminal (completed_with_feedback / completed_without_feedback) is written
+ * UNCONDITIONALLY on the unique (session, reviewer) row, so the LATEST feedback wins (condition 1 —
+ * e.g. a late retry that supersedes an earlier orphaned_reaped). HI-3 (LANE-OVERWRITE-GUARD-1): a
+ * FAILURE-class terminal is restricted to NON-terminal lanes (mirrors markReviewerLaneDispatchFailed /
+ * reapStaleLanes), so a late/duplicate failure/timeout/cancel can NEVER overwrite a real terminal — in
+ * particular it can never flip completed_with_feedback to failed and null its feedbackRowId.
  */
 export async function markReviewerLaneTerminal(
   reviewSessionId: string,
@@ -107,6 +127,16 @@ export async function markReviewerLaneTerminal(
   },
 ): Promise<void> {
   const now = new Date();
+  const conditions = [
+    eq(reviewerLanes.reviewSessionId, reviewSessionId),
+    eq(reviewerLanes.reviewerRole, reviewerRole),
+    ownerScope(reviewerLanes.userId, userId),
+  ];
+  // HI-3: a failure-class terminal only applies to a still-non-terminal lane (feedback-bearing-
+  // terminal-wins). A success/feedback terminal stays unconditional (latest feedback wins).
+  if (terminalWriteRestrictedToNonTerminal(fields.status)) {
+    conditions.push(inArray(reviewerLanes.status, NON_TERMINAL_LANE_STATUSES));
+  }
   await db
     .update(reviewerLanes)
     .set({
@@ -117,13 +147,7 @@ export async function markReviewerLaneTerminal(
       terminalizedAt: now,
       updatedAt: now,
     })
-    .where(
-      and(
-        eq(reviewerLanes.reviewSessionId, reviewSessionId),
-        eq(reviewerLanes.reviewerRole, reviewerRole),
-        ownerScope(reviewerLanes.userId, userId),
-      ),
-    );
+    .where(and(...conditions));
 }
 
 /** The enqueue itself failed (no job ever ran) → terminal 'dispatch_failed' (only if not already terminal). */
