@@ -161,7 +161,12 @@ describe('UAT row 6 — stuck-session recovery (current behavior; CR-4 is a sepa
 // ── Row 7: copilot panel dispositioner — retry once + honest degraded fallback (never fabricated) ────
 describe('UAT row 7 — dispositioner retries once then degrades honestly', () => {
   it('synthesis retries exactly once on a retryable malformed set, then preserves the honest fallback', () => {
-    expect(chatReviewPanelProc).toContain('await attemptSynthesis(); // retry exactly once');
+    // CHAT-PANEL-DISPOSITIONER-CEILING-1 parameterized attemptSynthesis with a per-attempt budget;
+    // pin the single guarded-retry INTENT (retries at most once) rather than the brittle arg-less
+    // call spelling, so a behavior-preserving refactor doesn't false-fail this UAT row.
+    expect(chatReviewPanelProc).toMatch(/if \(!synth\.ok && synth\.retryable\)/);
+    expect(chatReviewPanelProc).toMatch(/synth = await attemptSynthesis\([^)]*\);/);
+    expect(chatReviewPanelProc).toMatch(/[Ee]xactly once/);
     // degraded => suggestions kept with primaryDisposition null ("not yet synthesized"), never fabricated
     expect(chatReviewPanelProc).toContain("dispositionerStatus = 'failed'");
     expect(chatReviewPanelProc).toMatch(/NEVER fabricate/i);
