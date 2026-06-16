@@ -114,8 +114,17 @@ describe('MR-CAL-8B query wiring (source audit)', () => {
 
   it('runs the classifier via the adapter with an explicit 300s timeout (no job/persistence)', () => {
     const idx = src.indexOf('checkSendability: protectedProcedure');
-    const block = src.slice(idx, idx + 2600);
-    expect(block).toContain('resolveAdapter(EVALUATOR_MODEL)');
+    // Window widened (2600 -> 3400) so it captures the documentEgressSend call: EGRESS-CONTROL-PLANE-1
+    // added the egressSubject + routing block ahead of the provider call. Still within checkSendability
+    // (the executeCanonicalMutation exclusion below holds — the document egress path uses no canonical job).
+    const block = src.slice(idx, idx + 3400);
+    // EGRESS-CONTROL-PLANE-1: the classifier now runs via the DOCUMENT egress control plane (was a raw
+    // resolveAdapter(EVALUATOR_MODEL).generate — that bypass is exactly what this engagement removed). It
+    // still runs the EVALUATOR_MODEL with the explicit 300s timeout + the structured-output schema, with no
+    // canonical job / persistence.
+    expect(block).toContain('documentEgressSend(');
+    expect(block).toContain("surface: 'sendability'");
+    expect(block).toContain('modelString: EVALUATOR_MODEL');
     expect(block).toContain('AbortSignal.timeout(300_000)');
     expect(block).toContain('structuredOutputSchema: SendabilityVerdictSchema');
     expect(block).not.toContain('executeCanonicalMutation');

@@ -35,7 +35,11 @@ import { EvaluatorOutputSchema, SendabilityVerdictSchema } from '../../shared/sc
 import { extractEmbeddedFeedbackCards } from '../llm/parsers/embeddedFeedbackCards.js';
 import { buildSendabilitySystemPrompt, buildSendabilityUserPrompt } from '../llm/prompts/sendabilityPrompt.js';
 import { parseSendabilityOutput } from '../llm/parsers/sendabilityOutputParse.js';
-import { resolveAdapter } from '../llm/registry.js';
+// EGRESS-CONTROL-PLANE-1: checkSendability now routes through the DOCUMENT egress control plane (was a raw
+// resolveAdapter(...).generate — see egress/documentEgress.ts), so reviewSession.ts no longer reaches a
+// provider primitive directly (removed from the architecture guard's REGISTRY_ALLOWED).
+import { documentEgressSend } from '../egress/documentEgress.js';
+import type { EgressSubject } from '../../shared/schemas/egress.js';
 import {
   isMultiReviewerEnabled,
   isReviewerSelectionCountAllowed,
@@ -357,6 +361,12 @@ export const reviewSessionRouter = router({
           })),
         );
       }
+      // TODO(CR-4): mid-fan-out hold-enforcement seam — STUCK-SESSION-RECOVERY-1 (its own triad disposition).
+      // This is the dispatch loop where a no_external hold (or a broker block) landing AFTER some reviewers
+      // were already dispatched must block the NOT-YET-SENT reviewers WITHOUT wedging the session (no stuck
+      // 'active' session), and be itself audited as blocked. EGRESS-CONTROL-PLANE-1 places the hold-aware
+      // egress plane on this path; CR-4 wires the session-lifecycle fix here. Do NOT change session-lifecycle
+      // behavior in this increment — this marker only reserves the integration point.
       for (const reviewerRole of input.selectedReviewers) {
         const modelString = resolveReviewerModel(reviewerRole);
         if (!modelString) {
@@ -1453,16 +1463,35 @@ export const reviewSessionRouter = router({
       // DEGRADE-TO-UNAVAILABLE: wrap the whole LLM call + parse so nothing throws to
       // the client. Advisory-only; failure must never affect finalize/export.
       try {
-        const adapter = resolveAdapter(EVALUATOR_MODEL);
         // MR-CAL-5D lesson: set an explicit 300s timeout (do not inherit the 120s default).
         const signal = AbortSignal.timeout(300_000);
-        const llmResult = await adapter.generate({
-          systemPrompt,
-          userPrompt,
-          temperature: 0.2,
-          maxTokens: 4096,
-          structuredOutputSchema: SendabilityVerdictSchema,
-          signal,
+        // EGRESS-CONTROL-PLANE-1: route the sendability classifier through the DOCUMENT egress control plane
+        // — a SYNCHRONOUS pre-dispatch decision row + the matter/global no_external hold check + the EXISTING
+        // degrade-to-unavailable. NO synthetic conversationId (the subject is the document/version); the row
+        // stores a HASH of the prompt bundle, never the draft text. Under a hold (a BLOCKED row is recorded
+        // first), an audit-write failure, or a hold-check that is uncertain, documentEgressSend throws and we
+        // degrade to CLASSIFIER_UNAVAILABLE in the catch — never an unlogged send of full client document text.
+        const subject: EgressSubject = {
+          type: 'document',
+          subjectId: currentVersion.id,
+          matterId: doc.matterId,
+          userId,
+          documentId: input.documentId,
+          documentVersionId: currentVersion.id,
+        };
+        const llmResult = await documentEgressSend({
+          subject,
+          surface: 'sendability',
+          modelString: EVALUATOR_MODEL,
+          llmParams: {
+            systemPrompt,
+            userPrompt,
+            temperature: 0.2,
+            maxTokens: 4096,
+            structuredOutputSchema: SendabilityVerdictSchema,
+            signal,
+          },
+          serializedPayload: `${systemPrompt}\n\n${userPrompt}`,
         });
         const verdict = parseSendabilityOutput(llmResult.content);
         void emitTelemetry(

@@ -34,6 +34,8 @@ import { isGroundedChatProviderAllowed, parseGroundedChatProviders } from './cha
 import { recordEgressDecision, completeEgressEvent, type EgressCompletionPatch } from '../db/queries/chatEgress.js';
 import type { ChatEgressKind, ChatEgressStatus, ChatHoldFlag, ChatEgressAuthBasis } from '../../shared/schemas/chatCopilot.js';
 import type { NewChatEgressEvent } from '../db/schema.js';
+// EGRESS-CONTROL-PLANE-1: the shared surface-agnostic egress primitive — egressClient is the CHAT adapter over it.
+import { auditedEgress, type AuditedEgressDecision } from '../egress/auditedEgress.js';
 
 // Keying salt for the input-bundle hash. The hash is over the WHOLE minimized payload (high entropy), so
 // it is one-way regardless; the keyed HMAC is belt-and-suspenders so a low-entropy field (an SSN) cannot
@@ -163,73 +165,82 @@ export class EgressBlockedError extends TRPCError {
 async function send(req: EgressSendRequest): Promise<EgressSendResult> {
   const { audit, canonical } = req;
   const provider = parseModelString(canonical.modelString).providerId;
-
-  // ── GATE (fail-closed; runs once, before any retry inside the canonical dispatch) ──
-  const blockReasons: string[] = [];
-  if (audit.holdFlag === 'no_external') blockReasons.push('hold_no_external');
-  // CHAT-COPILOT-2 Increment B (G2): a 'no_panel' hold blocks the review-panel egress for this
-  // conversation (it does NOT block the primary/grounding send — those are gated by 'no_external').
-  if (audit.holdFlag === 'no_panel' && audit.kind === 'chat_panel') blockReasons.push('hold_no_panel');
-  if (audit.carriesImageEgress === true) blockReasons.push('image_egress_forbidden');
-  if (!isGroundedChatProviderAllowed(provider)) blockReasons.push('provider_not_allowlisted');
-  const decision: 'allowed' | 'blocked' = blockReasons.length === 0 ? 'allowed' : 'blocked';
-  const blockReason = blockReasons.length > 0 ? blockReasons.join('+') : null;
-
-  // ── LOG the decision (before dispatch — a send cannot leave without a logged row) ──
   const eventId = uuidv4();
-  const row: NewChatEgressEvent = {
-    id: eventId,
-    userId: canonical.userId,
-    matterId: audit.matterId,
-    conversationId: audit.conversationId ?? null,
-    messageId: audit.messageId ?? null,
-    gateDecisionId: audit.gateDecisionId ?? null,
-    kind: audit.kind,
-    decision,
-    blockReason,
-    allowlistVersion: allowlistFingerprint(),
-    authorizationBasis: audit.authorizationBasis ?? 'config_allowlist',
-    provider,
-    model: canonical.modelString,
-    minimizationApplied: audit.minimizationApplied ?? false,
-    minimizationProfile: audit.minimizationProfile ?? null,
-    npiCategoriesIncluded: audit.npiCategoriesIncluded ? [...audit.npiCategoriesIncluded] : null,
-    npiCategoriesWithheld: audit.npiCategoriesWithheld ? [...audit.npiCategoriesWithheld] : null,
-    holdHonored: audit.holdFlag === 'no_external',
-    holdExcludedAttachmentIds: audit.holdExcludedAttachmentIds ? [...audit.holdExcludedAttachmentIds] : null,
-    inputBundleHash: bundleHash(audit.serializedPayload),
-    attachmentIds: audit.attachmentIds ? [...audit.attachmentIds] : null,
-    region: audit.region ?? null,
-    correlationId: uuidv4(),
-    requestId: audit.requestId ?? null,
-    status: decision === 'blocked' ? 'blocked' : 'pending',
-    failureReason: null,
-    includedAttachmentCount: audit.includedAttachmentCount ?? 0,
-    npiWithheldCount: audit.npiWithheldCount ?? 0,
-  };
-  await recordEgressDecision(row);
 
-  if (decision === 'blocked') {
-    // Fail-closed: nothing is dispatched. The blocked decision is already on the audit log.
-    throw new EgressBlockedError(blockReason ?? 'blocked', eventId);
-  }
-
-  // ── DISPATCH (only path to a provider; no silent fallback) ──
-  let result: CanonicalMutationResult;
-  try {
-    result = await executeCanonicalMutation(canonical);
-  } catch (err) {
-    await safeComplete(eventId, canonical.userId, {
-      status: 'failed',
-      failureReason: errMessage(err),
-      completedAt: new Date(),
-    });
-    throw err;
-  }
-  await safeComplete(eventId, canonical.userId, {
-    status: mapStatus(result.status),
-    failureReason: result.status === 'completed' ? null : failureReasonFromResult(result),
-    completedAt: new Date(),
+  // EGRESS-CONTROL-PLANE-1: egressClient is the CHAT ADAPTER over the shared auditedEgress primitive. The
+  // chat hold rules + the chat_egress_events row + the chatEgress writer are bound here; the
+  // gate → SYNCHRONOUS pre-dispatch record → fail-closed throw → dispatch → complete ORDERING (and thus chat
+  // behavior) is UNCHANGED — it now lives in auditedEgress(). The public exports are untouched, and
+  // egressClient still imports canonicalMutation + chatEgress (the architecture guard).
+  const { result } = await auditedEgress<CanonicalMutationResult>({
+    eventId,
+    // ── GATE (fail-closed; the same four chat rules, evaluated once before dispatch) ──
+    evaluateHold: (): AuditedEgressDecision => {
+      const blockReasons: string[] = [];
+      if (audit.holdFlag === 'no_external') blockReasons.push('hold_no_external');
+      // CHAT-COPILOT-2 Increment B (G2): a 'no_panel' hold blocks the review-panel egress for this
+      // conversation (it does NOT block the primary/grounding send — those are gated by 'no_external').
+      if (audit.holdFlag === 'no_panel' && audit.kind === 'chat_panel') blockReasons.push('hold_no_panel');
+      if (audit.carriesImageEgress === true) blockReasons.push('image_egress_forbidden');
+      if (!isGroundedChatProviderAllowed(provider)) blockReasons.push('provider_not_allowlisted');
+      return {
+        decision: blockReasons.length === 0 ? 'allowed' : 'blocked',
+        blockReason: blockReasons.length > 0 ? blockReasons.join('+') : null,
+      };
+    },
+    // ── LOG the decision (before dispatch — a send cannot leave without a logged row); blocked rows too ──
+    recordDecision: async (d) => {
+      const row: NewChatEgressEvent = {
+        id: eventId,
+        userId: canonical.userId,
+        matterId: audit.matterId,
+        conversationId: audit.conversationId ?? null,
+        messageId: audit.messageId ?? null,
+        gateDecisionId: audit.gateDecisionId ?? null,
+        kind: audit.kind,
+        decision: d.decision,
+        blockReason: d.blockReason,
+        allowlistVersion: allowlistFingerprint(),
+        authorizationBasis: audit.authorizationBasis ?? 'config_allowlist',
+        provider,
+        model: canonical.modelString,
+        minimizationApplied: audit.minimizationApplied ?? false,
+        minimizationProfile: audit.minimizationProfile ?? null,
+        npiCategoriesIncluded: audit.npiCategoriesIncluded ? [...audit.npiCategoriesIncluded] : null,
+        npiCategoriesWithheld: audit.npiCategoriesWithheld ? [...audit.npiCategoriesWithheld] : null,
+        holdHonored: audit.holdFlag === 'no_external',
+        holdExcludedAttachmentIds: audit.holdExcludedAttachmentIds ? [...audit.holdExcludedAttachmentIds] : null,
+        inputBundleHash: bundleHash(audit.serializedPayload),
+        attachmentIds: audit.attachmentIds ? [...audit.attachmentIds] : null,
+        region: audit.region ?? null,
+        correlationId: uuidv4(),
+        requestId: audit.requestId ?? null,
+        status: d.decision === 'blocked' ? 'blocked' : 'pending',
+        failureReason: null,
+        includedAttachmentCount: audit.includedAttachmentCount ?? 0,
+        npiWithheldCount: audit.npiWithheldCount ?? 0,
+      };
+      await recordEgressDecision(row);
+    },
+    onBlocked: (blockReason) => new EgressBlockedError(blockReason, eventId),
+    // ── DISPATCH (only path to a provider; no silent fallback) ──
+    dispatch: () => executeCanonicalMutation(canonical),
+    // ── COMPLETE the audit row with the outcome (best-effort; the primitive also swallows a failed update) ──
+    completeDecision: async (outcome) => {
+      if (outcome.ok) {
+        await safeComplete(eventId, canonical.userId, {
+          status: mapStatus(outcome.result.status),
+          failureReason: outcome.result.status === 'completed' ? null : failureReasonFromResult(outcome.result),
+          completedAt: new Date(),
+        });
+      } else {
+        await safeComplete(eventId, canonical.userId, {
+          status: 'failed',
+          failureReason: errMessage(outcome.error),
+          completedAt: new Date(),
+        });
+      }
+    },
   });
   return { egressEventId: eventId, result };
 }
