@@ -104,6 +104,14 @@ const DISPOSITIONER_SYSTEM = [
   'reason), or "modify_and_adopt" (you partly agree — adopt with a stated modification). Give concise',
   'reasoning for every suggestion. Disposition EVERY index exactly once; do not merge, drop, or invent',
   'suggestions. Nothing you return is applied automatically — these are advisory dispositions for the attorney.',
+  // CHAT-PANEL-DISPOSITIONER-ROBUSTNESS-1 (B): an EXPLICIT JSON output contract (with the literal word
+  // "JSON" and the exact object shape) so the synthesis returns strict, parseable JSON — Claude can
+  // intermittently emit non-strict JSON otherwise. The lane retries once on a parse failure; this reduces
+  // how often it has to.
+  'OUTPUT CONTRACT: Return ONLY a JSON object (no preamble, no prose, nothing outside it) of EXACTLY this',
+  'shape: { "dispositions": [ { "index": <the suggestion number>, "disposition": "adopt" | "reject" |',
+  '"modify_and_adopt", "reasoning": "<concise reasoning>" } ] }. Include EXACTLY ONE entry per numbered',
+  'suggestion — every index appears exactly once, with no gaps, no duplicates, and no out-of-range indices.',
 ].join('\n');
 
 export function buildDispositionerPrompt(
@@ -115,7 +123,8 @@ export function buildDispositionerPrompt(
     .join('\n');
   const userPrompt =
     `${ctx}[WORK PRODUCT (yours, under panel review)]\n${args.workProduct}\n\n` +
-    `[PANEL SUGGESTIONS — disposition each index exactly once]\n${numbered}`;
+    `[PANEL SUGGESTIONS — disposition each index exactly once]\n${numbered}\n\n` +
+    'Return the JSON object of dispositions specified above — exactly one entry per index.';
   return { systemPrompt: DISPOSITIONER_SYSTEM, userPrompt };
 }
 

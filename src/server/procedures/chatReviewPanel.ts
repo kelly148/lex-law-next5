@@ -439,42 +439,71 @@ export const chatReviewPanelRouter = router({
       if (!anyReviewerSucceeded) {
         dispositionerStatus = 'skipped'; // zero reviewers available — never render an empty "agreement".
       } else {
-        try {
-          const dprompt = buildDispositionerPrompt({
-            workProduct,
-            bundleContextText: bundle.grounding.contextText,
-            suggestions: flat.map((f) => ({ index: f.index, reviewerModel: f.reviewerModel, suggestion: f.suggestion })),
-          });
-          const liveConv = await getConversationInContext(run.conversationId, cctx);
-          const { rawOutput } = await panelSend({
-            userId: ctx.userId,
-            matterId: input.matterId,
-            conversationId: run.conversationId,
-            messageId: run.messageId,
-            holdFlag: liveConv.holdFlag,
-            modelString: PRIMARY_DRAFTER_MODEL,
-            systemPrompt: dprompt.systemPrompt,
-            userPrompt: dprompt.userPrompt,
-            schema: DispositionsSchema,
-            serializedPayload: [dprompt.systemPrompt, dprompt.userPrompt].join('\n\n'),
-            npiWithheldCount,
-            attachmentIds,
-          });
+        // CHAT-PANEL-DISPOSITIONER-ROBUSTNESS-1 (A): the PRIMARY synthesis is the dispositioner analogue of
+        // a reviewer lane — Claude can intermittently return non-strict JSON (or a miscounted set). Mirror
+        // the A3 reviewer retry: attempt synthesis, and on a RETRYABLE failure (a parse_error egress, or a
+        // malformed/miscounted disposition set) retry EXACTLY ONCE before the honest "not yet synthesized"
+        // fallback. A timeout / non-transient api_error / a blocked hold is NOT retried (a re-ask won't
+        // improve it). Each attempt is its own logged egress (parity with the A3 reviewer retry).
+        const dprompt = buildDispositionerPrompt({
+          workProduct,
+          bundleContextText: bundle.grounding.contextText,
+          suggestions: flat.map((f) => ({ index: f.index, reviewerModel: f.reviewerModel, suggestion: f.suggestion })),
+        });
+        const attemptSynthesis = async (): Promise<
+          { ok: true; dispositions: ReturnType<typeof parseDispositions> } | { ok: false; retryable: boolean }
+        > => {
+          let rawOutput: string;
+          try {
+            // Re-read the LIVE hold before each attempt (fail-closed mid-run; a hold set between attempts
+            // blocks the retry).
+            const liveConv = await getConversationInContext(run.conversationId, cctx);
+            const sent = await panelSend({
+              userId: ctx.userId,
+              matterId: input.matterId,
+              conversationId: run.conversationId,
+              messageId: run.messageId,
+              holdFlag: liveConv.holdFlag,
+              modelString: PRIMARY_DRAFTER_MODEL,
+              systemPrompt: dprompt.systemPrompt,
+              userPrompt: dprompt.userPrompt,
+              schema: DispositionsSchema,
+              serializedPayload: [dprompt.systemPrompt, dprompt.userPrompt].join('\n\n'),
+              npiWithheldCount,
+              attachmentIds,
+            });
+            rawOutput = sent.rawOutput;
+          } catch (err) {
+            // Retry only a parse_error (the observed Claude non-strict-JSON flake). A timeout already spent
+            // its full budget; a non-transient api_error / a blocked hold won't improve on a re-ask.
+            const retryable = err instanceof PanelLaneError && err.errorClass === 'parse_error';
+            return { ok: false, retryable };
+          }
           const dispositions = parseDispositions(rawOutput);
           const indices = dispositions.map((d) => d.index);
           const inRangeUnique = new Set(indices.filter((i) => i >= 0 && i < flat.length));
           // The dispositioner must answer EVERY item index exactly once (no gaps, no duplicates, no
-          // out-of-range). A malformed / miscounted dispositioner is treated as a FAILED synthesis — items
-          // stay null ("not yet synthesized") and the UX flags it — rather than silently applying a
-          // partial or last-write-wins-overwritten mapping that could read as fully vetted.
+          // out-of-range) — else the synthesis is unusable and must NOT be applied as if fully vetted.
           const wellFormed =
             indices.length === flat.length &&
             new Set(indices).size === indices.length &&
             inRangeUnique.size === flat.length;
-          if (!wellFormed) {
-            dispositionerStatus = 'failed';
-          } else {
-            const byIndex = new Map(dispositions.map((d) => [d.index, d]));
+          // A miscounted/malformed set (egress succeeded, content unusable) is a retryable synthesis failure.
+          return wellFormed ? { ok: true, dispositions } : { ok: false, retryable: true };
+        };
+
+        let synth = await attemptSynthesis();
+        if (!synth.ok && synth.retryable) {
+          synth = await attemptSynthesis(); // retry exactly once
+        }
+        if (!synth.ok) {
+          // Honest degraded state PRESERVED (final fallback): raw reviewer suggestions are kept
+          // (primaryDisposition null), shown explicitly "not yet synthesized". NEVER fabricate a
+          // disposition or reasoning.
+          dispositionerStatus = 'failed';
+        } else {
+          try {
+            const byIndex = new Map(synth.dispositions.map((d) => [d.index, d]));
             for (const f of flat) {
               const d = byIndex.get(f.index);
               if (d) {
@@ -485,11 +514,11 @@ export const chatReviewPanelRouter = router({
               }
             }
             dispositionerStatus = 'success';
+          } catch {
+            // A DB write failure while applying dispositions degrades to the honest fallback (mirrors the
+            // prior outer-catch behavior) rather than failing the whole run.
+            dispositionerStatus = 'failed';
           }
-        } catch {
-          // Dispositioner down / off-allowlist: the raw reviewer suggestions are kept (primaryDisposition
-          // null), shown explicitly "not yet synthesized" — never raw third-party text presented as vetted.
-          dispositionerStatus = 'failed';
         }
       }
 
