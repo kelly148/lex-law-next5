@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
- * REVIEWER-ASYNC-DISPLAY-1 (Component C, C-3) — AsyncLaneReviewView render tests.
+ * REVIEWER-ASYNC-DISPLAY-1 (Component C, C-3) + ASYNC-LANE-DISPLAY-PARITY-1 — AsyncLaneReviewView (the lane
+ * HEADER) render tests.
  *
- * Mount-without-throw (#310 guard) + the trustworthy-display behavior: the 06-09 repro RENDERS every
- * returned reviewer's substantive suggestions (never a hidden "no suggestions"), N-of-M is honest, the
- * client never invents completion (incomplete banner past the window), and "no suggestions" only when
- * all terminal AND total == 0.
+ * After ASYNC-LANE-DISPLAY-PARITY-1 the component is the lane HEADER only: the honest N-of-M state, the
+ * per-lane status strip, and the "incomplete — send blocked" banner (the client never invents completion).
+ * The arrived reviewers' suggestions now render via the SHARED SuggestionCard list in ReviewPane — the
+ * clean-card + controls + regenerate coverage lives in reviewPaneAsyncParity.render.test.tsx.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, act } from '@testing-library/react';
@@ -35,38 +36,24 @@ function lane(role: string, status: ReviewerLaneStatus, count: number | null = n
 
 afterEach(() => cleanup());
 
-describe('AsyncLaneReviewView', () => {
-  it('the 06-09 repro RENDERS every returned reviewer\'s suggestions (no hidden content)', () => {
+describe('AsyncLaneReviewView (lane header)', () => {
+  it('honest N-of-M: all returned → the header states it, with the per-lane strip + counts', () => {
     const lanes = buildReviewerLanesContract([
       lane('claude', 'completed_with_feedback', 10),
       lane('gemini', 'completed_with_feedback', 5),
       lane('gpt', 'completed_with_feedback', 11),
       lane('grok', 'completed_without_feedback', 0),
     ]);
-    const feedback = [
-      {
-        reviewerRole: 'gpt',
-        reviewerTitle: 'GPT-5',
-        suggestions: Array.from({ length: 11 }, (_, i) => ({ suggestionId: `g${i}`, title: `Issue ${i}`, body: `body ${i}` })),
-      },
-      { reviewerRole: 'grok', reviewerTitle: 'Grok', suggestions: [] },
-    ];
-    render(<AsyncLaneReviewView lanes={lanes} feedback={feedback} onClose={() => {}} />);
-    // GPT-5's 11 issues are SHOWN — the operator can never conclude "review found nothing"
-    expect(screen.getByTestId('suggestions-gpt')).toBeTruthy();
+    render(<AsyncLaneReviewView lanes={lanes} />);
     expect(screen.getByTestId('async-lane-header').textContent).toContain('All 4 reviewers returned');
-    expect(screen.queryByTestId('async-lane-no-suggestions')).toBeNull();
+    // the per-lane strip surfaces each reviewer's status + count (gpt returned 11).
+    expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('completed_with_feedback');
+    expect(screen.getByTestId('lane-gpt').textContent).toContain('(11)');
   });
 
   it('partial: honest N-of-M while reviewers are still pending; lane status surfaced', () => {
     const lanes = buildReviewerLanesContract([lane('claude', 'completed_with_feedback', 3), lane('gpt', 'running')]);
-    render(
-      <AsyncLaneReviewView
-        lanes={lanes}
-        feedback={[{ reviewerRole: 'claude', reviewerTitle: 'Claude', suggestions: [{ suggestionId: 'c1', body: 'x' }] }]}
-        onClose={() => {}}
-      />,
-    );
+    render(<AsyncLaneReviewView lanes={lanes} />);
     expect(screen.getByTestId('async-lane-header').textContent).toMatch(/1 of 2 reviewers returned/);
     expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('running');
   });
@@ -75,7 +62,7 @@ describe('AsyncLaneReviewView', () => {
     vi.useFakeTimers();
     try {
       const lanes = buildReviewerLanesContract([lane('claude', 'completed_with_feedback', 2), lane('gpt', 'running')]);
-      render(<AsyncLaneReviewView lanes={lanes} feedback={[]} onClose={() => {}} />);
+      render(<AsyncLaneReviewView lanes={lanes} />);
       expect(screen.queryByTestId('async-lane-incomplete')).toBeNull();
       act(() => {
         vi.advanceTimersByTime(6 * 60 * 1000);
@@ -86,24 +73,18 @@ describe('AsyncLaneReviewView', () => {
     }
   });
 
-  it('"no suggestions" ONLY when all terminal AND total == 0', () => {
+  it('"no suggestions" displayState: the header says all returned with none raised (all terminal AND total == 0)', () => {
     const lanes = buildReviewerLanesContract([
       lane('claude', 'completed_without_feedback', 0),
       lane('gpt', 'completed_without_feedback', 0),
     ]);
-    render(<AsyncLaneReviewView lanes={lanes} feedback={[]} onClose={() => {}} />);
-    expect(screen.getByTestId('async-lane-no-suggestions')).toBeTruthy();
+    render(<AsyncLaneReviewView lanes={lanes} />);
+    expect(screen.getByTestId('async-lane-header').textContent).toMatch(/none raised any suggestions/);
   });
 
   it('complete_with_failures: a failed lane is shown, not masked by a succeeding sibling', () => {
     const lanes = buildReviewerLanesContract([lane('claude', 'completed_with_feedback', 4), lane('gpt', 'failed')]);
-    render(
-      <AsyncLaneReviewView
-        lanes={lanes}
-        feedback={[{ reviewerRole: 'claude', reviewerTitle: 'Claude', suggestions: [{ suggestionId: 'c1', body: 'x' }] }]}
-        onClose={() => {}}
-      />,
-    );
+    render(<AsyncLaneReviewView lanes={lanes} />);
     expect(screen.getByTestId('async-lane-header').textContent).toMatch(/did not respond/);
     expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('failed');
   });

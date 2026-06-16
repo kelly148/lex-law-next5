@@ -1307,14 +1307,13 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
 
   const { session, feedback, evaluation } = data;
 
-  // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-3): when the server provides the per-reviewer lane contract
-  // (async path only), render off it and STOP using deriveCompletionState — the contract is the single
-  // source of truth for render + "keep polling?" (condition 1). When data.lanes is null (sync /
-  // REVIEWER_ASYNC_ENABLED OFF), fall through to the BYTE-FOR-BYTE unchanged sync display below (GUARD).
-  // This sits after every hook + the loading/error early returns, so hook order is preserved (no #310).
-  if (data.lanes) {
-    return <AsyncLaneReviewView lanes={data.lanes} feedback={feedback} onClose={onClose} />;
-  }
+  // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-3) + ASYNC-LANE-DISPLAY-PARITY-1: when the server provides the
+  // per-reviewer lane contract (async path only), render off it and STOP using deriveCompletionState — the
+  // contract is the single source of truth for render + "keep polling?" (condition 1). When data.lanes is
+  // null (sync / REVIEWER_ASYNC_ENABLED OFF), the BYTE-FOR-BYTE unchanged sync display below renders (GUARD).
+  // The async early-return is now MOVED below the shared setup (it sits just before the sync return) so the
+  // async branch can REUSE the same SuggestionCard list + regenerate footer — see `if (data.lanes)` there.
+  // Both returns sit after every hook + the loading/error early returns, so hook order is preserved (no #310).
 
   const evalDispositions = evaluation?.dispositions ?? null;
 
@@ -1424,6 +1423,131 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     { key: 'convergence', label: 'Reviewer convergence', icon: <Users className="w-4 h-4" />, show: multiReviewer },
   ];
 
+  // ── ASYNC-LANE-DISPLAY-PARITY-1: shared render pieces, reused by BOTH the sync return below AND the async
+  //    branch — the per-suggestion workspace (clean SuggestionCard list + bulk actions + locked strip) and
+  //    the apply/regenerate footer. Sharing them brings the async lane to parity WITHOUT forking the
+  //    card/selection/regenerate logic; the sync render output is unchanged (reviewUxRedesign1.render.test.tsx
+  //    is the byte-for-byte guard). These are plain closures (NOT hooks), defined after every hook, so the
+  //    #310 hook-order invariant is unaffected. ──
+  const renderSuggestionWorkspace = (): React.ReactNode => (
+    <>
+      {/* Bulk actions — useful at 5–8 suggestions. */}
+      {suggestionItems.length >= 2 && (
+        <div className="flex items-center justify-between gap-2 px-1">
+          <span className="text-[11px] text-ink-hint">{suggestionItems.length} suggestions</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={acceptAll}
+              disabled={bulkSelectionMutation.isPending}
+              className="text-[11px] px-2 py-1 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
+            >
+              Accept all
+            </button>
+            <button
+              onClick={declineRemaining}
+              className="text-[11px] px-2 py-1 rounded-lg border border-line text-ink-secondary hover:bg-surface-2"
+            >
+              Decline remaining
+            </button>
+          </div>
+        </div>
+      )}
+      {suggestionItems.map((it) => {
+        const ev = evalDispositions?.find((e) => e.suggestionId === it.suggestion.suggestionId);
+        return (
+          <SuggestionCard
+            key={it.key}
+            suggestion={it.suggestion}
+            reviewerLabel={multiReviewer ? it.reviewerLabel : ''}
+            sessionId={sessionId}
+            documentId={documentId}
+            selections={session.selections}
+            locked={lockedSuggestionIds.has(it.suggestion.suggestionId)}
+            declined={declinedThisIteration.has(it.suggestion.suggestionId)}
+            onToggleDecline={toggleDecline}
+            onRefresh={() => void refetch()}
+            {...(ev ? { evalDisposition: ev } : {})}
+          />
+        );
+      })}
+      {/* Compact locked-decisions strip — opens the management overlay. */}
+      {activeLockedCount > 0 && (
+        <button
+          onClick={() => setActiveOverlay('locked')}
+          className="w-full flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-left hover:bg-surface"
+        >
+          <Lock className="w-3.5 h-3.5 text-ink-hint flex-shrink-0" />
+          <span className="text-xs text-ink">
+            <span className="font-medium">Locked decisions ({activeLockedCount})</span>
+          </span>
+          <span className="ml-auto text-[11px] text-accent">View / unlock</span>
+        </button>
+      )}
+    </>
+  );
+
+  const renderApplyFooter = (): React.ReactNode =>
+    session.state === 'active' ? (
+      <div className="px-4 py-3 border-t border-line bg-surface-2 flex flex-col gap-2 flex-shrink-0">
+        {regenError && <p className="text-danger text-sm">{regenError}</p>}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-ink-secondary">{acceptedCount} accepted · {declinedCount} declined</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => abandonMutation.mutate({ sessionId })}
+              disabled={abandonMutation.isPending}
+              className="px-3 py-2 text-sm rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
+            >
+              Close session
+            </button>
+            <button
+              onClick={() => {
+                setRegenError(null);
+                regenerateMutation.mutate({ sessionId });
+              }}
+              disabled={regenerateMutation.isPending}
+              data-testid="apply-accepted"
+              className="px-4 py-2 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-50"
+            >
+              {regenerateMutation.isPending ? 'Generating…' : applyLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  // ── ASYNC-LANE-DISPLAY-PARITY-1: the async branch — the lane HEADER (honest N-of-M + per-lane status strip
+  //    + incomplete/send-blocked banner, owned by AsyncLaneReviewView) ABOVE the SHARED SuggestionCard list
+  //    + regenerate footer. Sits here (after the setup + every hook) so it reuses the same pieces as the sync
+  //    return; the SYNC path (data.lanes null) falls through to the BYTE-FOR-BYTE unchanged return below
+  //    (GUARD). The incomplete/send-blocked banner stays visible while the run is partial — the regenerate
+  //    affordance never reads as "the run is complete" (the banner + honest N-of-M are the gate). ──
+  if (data.lanes) {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        <AsyncLaneReviewView lanes={data.lanes} />
+        <div className="flex-1 min-h-0 overflow-y-auto" data-testid="review-scroll-body">
+          <div className="p-4 space-y-3">
+            {renderSuggestionWorkspace()}
+            {data.lanes.allTerminal && data.lanes.aggregate.returned > 0 && data.lanes.totalSuggestions === 0 && (
+              <p className="text-sm text-ink-secondary" data-testid="async-lane-no-suggestions">
+                No reviewer raised any suggestions.
+              </p>
+            )}
+          </div>
+          <div aria-hidden="true" className="h-20" />
+        </div>
+        {renderApplyFooter()}
+        {/* The one overlay reachable from the async branch's controls (the locked-decisions strip). */}
+        {activeOverlay === 'locked' && (
+          <ReviewToolOverlay title="Locked decisions" onClose={closeOverlay}>
+            <LockedDecisionsSection documentId={documentId} />
+          </ReviewToolOverlay>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header — humanized status line + on-demand reference-tool icons (REVIEW-UX-REDESIGN-1).
@@ -1527,62 +1651,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
             </div>
           )}
 
-          {completionState === 'completed_with_feedback' && (
-            <>
-              {/* Bulk actions — useful at 5–8 suggestions. */}
-              {suggestionItems.length >= 2 && (
-                <div className="flex items-center justify-between gap-2 px-1">
-                  <span className="text-[11px] text-ink-hint">{suggestionItems.length} suggestions</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={acceptAll}
-                      disabled={bulkSelectionMutation.isPending}
-                      className="text-[11px] px-2 py-1 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
-                    >
-                      Accept all
-                    </button>
-                    <button
-                      onClick={declineRemaining}
-                      className="text-[11px] px-2 py-1 rounded-lg border border-line text-ink-secondary hover:bg-surface-2"
-                    >
-                      Decline remaining
-                    </button>
-                  </div>
-                </div>
-              )}
-              {suggestionItems.map((it) => {
-                const ev = evalDispositions?.find((e) => e.suggestionId === it.suggestion.suggestionId);
-                return (
-                  <SuggestionCard
-                    key={it.key}
-                    suggestion={it.suggestion}
-                    reviewerLabel={multiReviewer ? it.reviewerLabel : ''}
-                    sessionId={sessionId}
-                    documentId={documentId}
-                    selections={session.selections}
-                    locked={lockedSuggestionIds.has(it.suggestion.suggestionId)}
-                    declined={declinedThisIteration.has(it.suggestion.suggestionId)}
-                    onToggleDecline={toggleDecline}
-                    onRefresh={() => void refetch()}
-                    {...(ev ? { evalDisposition: ev } : {})}
-                  />
-                );
-              })}
-              {/* Compact locked-decisions strip — opens the management overlay. */}
-              {activeLockedCount > 0 && (
-                <button
-                  onClick={() => setActiveOverlay('locked')}
-                  className="w-full flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-left hover:bg-surface"
-                >
-                  <Lock className="w-3.5 h-3.5 text-ink-hint flex-shrink-0" />
-                  <span className="text-xs text-ink">
-                    <span className="font-medium">Locked decisions ({activeLockedCount})</span>
-                  </span>
-                  <span className="ml-auto text-[11px] text-accent">View / unlock</span>
-                </button>
-              )}
-            </>
-          )}
+          {completionState === 'completed_with_feedback' && renderSuggestionWorkspace()}
 
           {completionState === 'completed_without_feedback' && (
             <CompletedWithoutFeedbackView
@@ -1613,37 +1682,10 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
         <div aria-hidden="true" className="h-20" />
       </div>
 
-      {/* Footer — fixed apply strip. Apply = solid oxblood primary (always enabled; at zero accepted
-          it starts a fresh iteration); Close session = oxblood outline (destructive-secondary). No
-          "Regenerate" / "Abandon" / "selected" wording. Keyboard order: Apply follows the card list. */}
-      {session.state === 'active' && (
-        <div className="px-4 py-3 border-t border-line bg-surface-2 flex flex-col gap-2 flex-shrink-0">
-          {regenError && <p className="text-danger text-sm">{regenError}</p>}
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-ink-secondary">{acceptedCount} accepted · {declinedCount} declined</span>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={() => abandonMutation.mutate({ sessionId })}
-                disabled={abandonMutation.isPending}
-                className="px-3 py-2 text-sm rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
-              >
-                Close session
-              </button>
-              <button
-                onClick={() => {
-                  setRegenError(null);
-                  regenerateMutation.mutate({ sessionId });
-                }}
-                disabled={regenerateMutation.isPending}
-                data-testid="apply-accepted"
-                className="px-4 py-2 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-50"
-              >
-                {regenerateMutation.isPending ? 'Generating…' : applyLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Footer — fixed apply strip (shared with the async branch via renderApplyFooter). Apply = solid
+          oxblood primary (always enabled; at zero accepted it starts a fresh iteration); Close session =
+          oxblood outline (destructive-secondary). Keyboard order: Apply follows the card list. */}
+      {renderApplyFooter()}
 
       {/* On-demand reference-tool overlays — float over the pane, zero docked width (disposition §G). */}
       {activeOverlay === 'instructions' && (

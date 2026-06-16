@@ -16,10 +16,15 @@ const reviewPane = read('src/client/components/ReviewPane.tsx');
 const reviewState = read('src/client/utils/reviewState.ts');
 
 describe('C-3 — async renders/gates off the contract; sync byte-for-byte (GUARD)', () => {
-  it('mounts the async lane view when the server provides lanes', () => {
+  it('mounts the async lane HEADER + the SHARED suggestion workspace/footer when the server provides lanes', () => {
     expect(reviewPane).toContain("import { AsyncLaneReviewView } from './AsyncLaneReviewView.js';");
     expect(reviewPane).toContain('if (data.lanes) {');
-    expect(reviewPane).toContain('return <AsyncLaneReviewView lanes={data.lanes} feedback={feedback} onClose={onClose} />;');
+    // ASYNC-LANE-DISPLAY-PARITY-1: the async branch renders the lane HEADER (AsyncLaneReviewView) ABOVE the
+    // SHARED SuggestionCard list + regenerate footer (renderSuggestionWorkspace / renderApplyFooter) —
+    // clean cards + per-suggestion controls + regenerate, not a raw-body terminal view.
+    expect(reviewPane).toContain('<AsyncLaneReviewView lanes={data.lanes} />');
+    expect(reviewPane).toContain('renderSuggestionWorkspace()');
+    expect(reviewPane).toContain('renderApplyFooter()');
   });
   it('polling gates off the lane contract for async (poll until ALL lanes terminal)', () => {
     expect(reviewPane).toContain('if (d.lanes) {');
