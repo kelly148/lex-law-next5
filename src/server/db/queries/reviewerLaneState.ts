@@ -82,6 +82,9 @@ export async function insertReviewerLanes(
     reviewerTitle: string;
     terminalDeadlineAt: Date;
   }>,
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): pass a Drizzle `tx` to enlist the lane inserts in the
+  // SAME transaction as the session + reviewer jobs (atomic commit). Defaults to the pooled `db`.
+  executor: Pick<typeof db, 'insert'> = db,
 ): Promise<void> {
   if (lanes.length === 0) return;
   const rows: NewReviewerLane[] = lanes.map((l) => ({
@@ -102,7 +105,7 @@ export async function insertReviewerLanes(
     terminalDeadlineAt: l.terminalDeadlineAt,
     terminalizedAt: null,
   }));
-  await db.insert(reviewerLanes).values(rows);
+  await executor.insert(reviewerLanes).values(rows);
 }
 
 /**
@@ -190,6 +193,35 @@ export async function markReviewerLaneDispatchFailed(
   await db
     .update(reviewerLanes)
     .set({ status: 'dispatch_failed', failureReason, terminalizedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(reviewerLanes.reviewSessionId, reviewSessionId),
+        eq(reviewerLanes.reviewerRole, reviewerRole),
+        ownerScope(reviewerLanes.userId, userId),
+        inArray(reviewerLanes.status, NON_TERMINAL_LANE_STATUSES),
+      ),
+    );
+}
+
+/**
+ * EGRESS-CONTROL-PLANE-1: the per-reviewer egress gate (Increment 3) blocked this lane's transmit under
+ * a no_external hold -> terminal 'blocked_by_hold'. DEFINED + classified in Inc 2 (set by Inc 3's gate;
+ * also exercised by Inc-2 tests). Guarded to NON-terminal lanes — identical HI-3 (LANE-OVERWRITE-GUARD-1)
+ * posture as markReviewerLaneDispatchFailed: a late hold-block can NEVER clobber a real terminal (e.g. an
+ * already-completed reviewer that was sent before the hold landed — already-sent reviewers can't be
+ * un-sent). NOT a FAILURE class — the session is classified partial-by-HOLD (deriveSessionPartialReason),
+ * which Inc 3's send gate requires a recorded attorney acknowledgment to clear.
+ */
+export async function markReviewerLaneBlockedByHold(
+  reviewSessionId: string,
+  reviewerRole: string,
+  userId: string,
+  reason: string,
+): Promise<void> {
+  const now = new Date();
+  await db
+    .update(reviewerLanes)
+    .set({ status: 'blocked_by_hold', failureReason: reason, terminalizedAt: now, updatedAt: now })
     .where(
       and(
         eq(reviewerLanes.reviewSessionId, reviewSessionId),

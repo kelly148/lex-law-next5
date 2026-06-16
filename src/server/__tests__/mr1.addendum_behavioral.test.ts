@@ -34,6 +34,16 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
     listManualSelectionsForSession: vi.fn(),
+    // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): create now finalizes the session lifecycle and
+    // (sync path) records the settled partial-reason, and the demoted recovery uses the audited
+    // single-flight abandon + CAS. These are new dependencies of create; stub them so the
+    // behavioral chain runs without a real DB. The recovery path is inert here
+    // (getActiveReviewSessionForDocument mocked to null), but the sync finalizer
+    // (setReviewSessionSettled) IS reached, so it must resolve.
+    setReviewSessionSettled: vi.fn(),
+    updateReviewSessionLifecyclePhase: vi.fn(),
+    abandonReviewSessionAudited: vi.fn().mockResolvedValue(1),
+    updateReviewSessionStateCas: vi.fn().mockResolvedValue(1),
   };
 });
 
@@ -67,6 +77,26 @@ vi.mock('../db/queries/matters.js', async (importOriginal) => {
     ...actual,
     getMatterById: vi.fn(),
   };
+});
+
+// EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): reviewSession.create now commits the
+// session + lanes + reviewer jobs ATOMICALLY via a real db.transaction(...) (was a bare
+// insertReviewSession before the refactor). Without a DB stub the transaction opens a real
+// mysql2 pool connection and the call dies with a 'net'/connection error before the behavioral
+// chain runs. Stub db so the transaction callback receives a no-op executor and resolves; the
+// reviewer execution chain itself does NOT touch this db (it runs through the injected
+// setJobWriteFunctions mocks + the mock LLM adapter), so the behavioral assertions are unaffected.
+vi.mock('../db/connection.js', () => {
+  const noop = {
+    values: () => Promise.resolve([{ affectedRows: 1 }]),
+    set() { return noop; },
+    where: () => Promise.resolve([]),
+    from() { return noop; },
+    limit: () => Promise.resolve([]),
+    orderBy() { return noop; },
+  };
+  const exec = { insert: () => noop, update: () => noop, select: () => noop, delete: () => noop };
+  return { db: { ...exec, transaction: (cb: (tx: typeof exec) => unknown) => Promise.resolve(cb(exec)) } };
 });
 
 // We need to mock the jobs dispatcher so it doesn't try to run the job in the background asynchronously

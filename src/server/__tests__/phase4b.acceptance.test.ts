@@ -89,10 +89,15 @@ describe('Item 3: Evaluator conditional — code path audit', () => {
   });
 
   it('one reviewer job per selectedReviewer: fan-out loop iterates over selectedReviewers', () => {
-    // The reviewer loop must iterate over input.selectedReviewers
-    expect(reviewSessionFile).toContain('for (const reviewerRole of input.selectedReviewers)');
-    // And push to reviewerJobIds
-    expect(reviewSessionFile).toContain('reviewerJobIds.push(reviewerResult.jobId)');
+    // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): the reviewer fan-out is now a
+    // `.map` over input.selectedReviewers that builds the per-reviewer durable input
+    // array (reviewers[]); each entry becomes one queued reviewer job committed in the
+    // atomic outbox transaction. Intent preserved: one job per selectedReviewer.
+    expect(reviewSessionFile).toContain('input.selectedReviewers.map((reviewerRole) =>');
+    expect(reviewSessionFile).toContain('const reviewers: ReviewerDurableInput[] = input.selectedReviewers.map');
+    // And push each successfully-completed reviewer's jobId to reviewerJobIds.
+    // The loop variable is now `r` (the durable-input entry), so the push reads r.jobId.
+    expect(reviewSessionFile).toContain('reviewerJobIds.push(r.jobId)');
   });
 });
 
@@ -109,9 +114,14 @@ describe('Item 4: EVALUATOR_MODEL is env-only, never attorney-selectable', () =>
   );
 
   it('EVALUATOR_MODEL is resolved from process.env in llm/config.ts', () => {
-    // resolveModel reads from process.env[envVar]
-    expect(configFile).toContain("resolveModel(\n  'EVALUATOR_MODEL'");
-    expect(configFile).toContain('process.env[envVar]');
+    // resolveModel reads from process.env[envVar].
+    // EGRESS-CONTROL-PLANE-1 Inc 2 added Lite-model config to this file and the editor
+    // rewrote it with CRLF line endings; normalize to LF so this source audit asserts the
+    // intent (EVALUATOR_MODEL is env-resolved via resolveModel(...)) independent of the
+    // checkout's line-ending style — it passes identically on Windows (CRLF) and CI (LF).
+    const configFileLf = configFile.replace(/\r\n/g, '\n');
+    expect(configFileLf).toContain("resolveModel(\n  'EVALUATOR_MODEL'");
+    expect(configFileLf).toContain('process.env[envVar]');
   });
 
   it('EVALUATOR_MODEL is imported as a constant, not passed in procedure input', () => {

@@ -78,6 +78,29 @@ export const JobInputSchema = z.object({
     .default([]),
   // Role-specific metadata (e.g., templateId for draft_generation, reviewSessionId for review)
   roleMetadata: z.record(z.unknown()).optional().default({}),
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): everything the post-commit dispatcher needs to
+  // RECONSTRUCT and re-transmit a committed-but-not-yet-run reviewer_feedback job after a process restart
+  // (closing the in-memory-continuation strand). Present ONLY on reviewer_feedback jobs; CLEARED (input
+  // reset to {}) when the job reaches a terminal state so the prompt text is never retained as a second
+  // lingering copy of client content. systemPrompt/userPrompt (above) carry the frozen-at-enqueue prompt;
+  // this carries the structural params (the output schema + latency knobs are re-derived from jobType +
+  // modelString, so they are intentionally NOT stored).
+  reviewerReconstruction: z
+    .object({
+      reviewSessionId: z.string().uuid(),
+      reviewerRole: z.string(),
+      reviewerTitle: z.string(),
+      modelString: z.string(),
+      iterationNumber: z.number().int().nonnegative(),
+      matterId: z.string().uuid(),
+      documentId: z.string().uuid(),
+      documentVersionId: z.string().uuid(),
+      temperature: z.number(),
+      maxTokens: z.number().int().positive(),
+      timeoutMs: z.number().int().positive(),
+      async: z.boolean(),
+    })
+    .optional(),
 });
 
 export type JobInput = z.infer<typeof JobInputSchema>;
@@ -119,6 +142,9 @@ export const JobRowSchema = z.object({
   userId: z.string().uuid(),
   matterId: z.string().uuid().nullable(),
   documentId: z.string().uuid().nullable(),
+  // EGRESS-CONTROL-PLANE-1 Inc 2: per-(session,lane) durable-outbox idempotency key on reviewer jobs;
+  // NULL for every other job type. .nullable().optional() so pre-migration rows + legacy fixtures parse.
+  idempotencyKey: z.string().nullable().optional(),
   jobType: z.enum(JOB_TYPE_VALUES),
   providerId: z.string().min(1).max(32),
   modelId: z.string().min(1).max(64),
@@ -156,6 +182,8 @@ export const PublicJobSchema = z.object({
   userId: z.string().uuid(),
   matterId: z.string().uuid().nullable(),
   documentId: z.string().uuid().nullable(),
+  // EGRESS-CONTROL-PLANE-1 Inc 2: per-(session,lane) durable-outbox idempotency key (reviewer jobs only).
+  idempotencyKey: z.string().nullable().optional(),
   jobType: z.enum(JOB_TYPE_VALUES),
   providerId: z.string(),
   modelId: z.string(),

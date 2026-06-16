@@ -22,6 +22,11 @@ const read = (p: string) => readFileSync(resolve(repoRoot, p), 'utf8');
 const reviewSession = read('src/server/procedures/reviewSession.ts');
 const phase4b = read('src/server/db/queries/phase4b.ts');
 const reviewPane = read('src/client/components/ReviewPane.tsx');
+// EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): the reviewer prompt parse + the txn2Commit
+// insertFeedback persistence MOVED OUT of reviewSession.create INTO this reusable factory module.
+// The server-computed iteration is threaded through ReviewerDurableInput into the factory, so the
+// feedback-side half of this audit now reads here (the session-side insert stays in reviewSession.ts).
+const reviewerJobFactory = read('src/server/jobs/reviewerJobFactory.ts');
 
 describe('MR-CAL-3E server-side review iteration computation', () => {
   it('reviewSession.create imports and uses getNextIterationNumberForDocument', () => {
@@ -39,11 +44,21 @@ describe('MR-CAL-3E server-side review iteration computation', () => {
 
   it('persists the server-computed iteration on both the session and feedback', () => {
     // Single iterationNumber variable (server-computed) feeds insertReviewSession
-    // and the txn2Commit insertFeedback, so feedback shares the session iteration.
-    expect(reviewSession).toContain('insertReviewSession({');
-    expect(reviewSession).toContain('insertFeedback({');
-    // both insert calls reference the iterationNumber identifier
+    // (session side, still in reviewSession.create's atomic outbox commit) AND the
+    // factory's txn2Commit insertFeedback (feedback side, relocated to
+    // reviewerJobFactory by EGRESS-CONTROL-PLANE-1 Inc 2), so feedback shares the
+    // session iteration. Intent preserved: ONE server-computed iterationNumber feeds
+    // both inserts — the assertion is split across the two files the logic now spans.
+    //
+    // Session side: insertReviewSession is now called multi-line inside the outbox
+    // transaction (`insertReviewSession(\n  {...`) rather than `insertReviewSession({`,
+    // and the iterationNumber identifier is passed into it.
+    expect(reviewSession).toContain('insertReviewSession(');
     expect(reviewSession).toContain('iterationNumber,');
+    // Feedback side: the txn2Commit insertFeedback (now in the factory) is fed the SAME
+    // server-computed iterationNumber threaded through ReviewerDurableInput.
+    expect(reviewerJobFactory).toContain('insertFeedback({');
+    expect(reviewerJobFactory).toContain('iterationNumber,');
   });
 });
 

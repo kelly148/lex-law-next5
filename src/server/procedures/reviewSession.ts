@@ -23,12 +23,21 @@ import { router, protectedProcedure } from '../trpc.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import {
   executeCanonicalMutation,
-  enqueueCanonicalJobForDispatcher,
-  type CanonicalMutationParams,
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): register an already-committed reviewer continuation
+  // and run it via the SAME deferred path (sync inline + async background); the atomic claim dedupes.
+  registerDeferredContinuation,
+  runDeferredCanonicalJob,
 } from '../db/canonicalMutation.js';
-import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, resolveReviewerLatencyTuning, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
+import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
 import { getReviewerCeiling } from '../llm/modelCapabilities.js';
-import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
+// EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): the reusable reviewer-job factory (build the queued job
+// row + the canonical-mutation closures from durable input) — shared with the dispatcher's reconstruction.
+// The reviewer prompt parse/feedback persistence now lives INSIDE the factory.
+import {
+  buildReviewerJobRow,
+  buildReviewerCanonicalParams,
+  type ReviewerDurableInput,
+} from '../jobs/reviewerJobFactory.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
 import { parseEvaluatorOutputFull } from '../llm/parsers/evaluatorOutputParse.js';
 import { EvaluatorOutputSchema, SendabilityVerdictSchema } from '../../shared/schemas/phase4b.js';
@@ -45,15 +54,12 @@ import {
   isReviewerSelectionCountAllowed,
   isEvaluatorEnabled,
   isReviewerAsyncEnabled,
-  isJobDispatcherEnabled,
-  isJobReaperEnabled,
 } from '../config/featureFlags.js';
-import { pollJobs } from '../db/queries/jobs.js';
+import { insertJob } from '../db/queries/jobs.js';
+import { db } from '../db/connection.js';
+import { v4 as uuidv4 } from 'uuid';
 import {
   insertReviewerLanes,
-  markReviewerLaneTerminal,
-  markReviewerLaneRunning,
-  markReviewerLaneDispatchFailed,
   listReviewerLanesForSession,
 } from '../db/queries/reviewerLaneState.js';
 import {
@@ -68,6 +74,12 @@ import {
 // reviewer is never reaped before it can finish; the lane sweep terminalizes anything still pending
 // past this as orphaned_reaped.
 const REVIEWER_LANE_TERMINAL_DEADLINE_MS = 15 * 60 * 1000; // 15 minutes
+// EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): the recovery AGE-WINDOW. A session younger than this is
+// CATEGORICALLY un-abandonable by the demoted recovery (decision #2: the age gate is the real safety,
+// not the lane read alone). Set well above the lane terminal-deadline (15 min) AND the async reviewer
+// budget (12 min), so a momentarily-stale lane read on a legitimately-in-flight session — or a just-
+// committed / 'dispatching' / mid-sync session — can NEVER cause a false abandon.
+const MAX_DISPATCH_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 import { buildReviewerSystemPrompt } from '../llm/prompts/reviewerPrompts.js';
 import { getUserPreferences } from '../db/queries/userPreferences.js';
 import { getDocumentById, updateDocumentCurrentVersion } from '../db/queries/documents.js';
@@ -80,6 +92,11 @@ import {
   getActiveReviewSessionForDocument,
   insertReviewSession,
   updateReviewSessionState,
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): companion lifecycle-phase setter, the settled-finalizer, and the
+  // SOFT + fail-closed-AUDITED single-flight abandon (CAS + audit row in one tx).
+  updateReviewSessionLifecyclePhase,
+  setReviewSessionSettled,
+  abandonReviewSessionAudited,
   updateReviewSessionSelections,
   updateReviewSessionGlobalInstructions,
   listFeedbackForSession,
@@ -89,7 +106,6 @@ import {
   listManualSelectionsForDocument,
   getEvaluationForIteration,
   insertManualSelection,
-  insertFeedback,
   getNextIterationNumberForDocument,
   insertLockedDecision,
   listLockedDecisionsForDocument,
@@ -116,6 +132,17 @@ function assertSessionActive(state: string, procedureName: string): void {
       message: `SESSION_NOT_ACTIVE: ${procedureName} requires state='active', got '${state}'`,
     });
   }
+}
+
+/**
+ * EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): true for a MySQL/TiDB duplicate-key error. The atomic
+ * outbox commit hits this when a concurrent FRESH create races on the activeSessionKey unique index — one
+ * wins, the loser's WHOLE transaction rolls back (nothing persisted, no stuck-active wedge) — so the loser
+ * is translated to a resumable SESSION_ALREADY_EXISTS rather than a 500.
+ */
+function isDuplicateKeyError(err: unknown): boolean {
+  const e = err as { code?: string; errno?: number } | null;
+  return !!e && (e.code === 'ER_DUP_ENTRY' || e.errno === 1062);
 }
 
 // ─── router ───────────────────────────────────────────────────────────────────
@@ -206,38 +233,75 @@ export const reviewSessionRouter = router({
         }
       }
 
-      // Check for existing active session (R10 — also enforced at DB level)
+      // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — DEMOTED, GUARDED stuck-session recovery. The old P1
+      // (unconditional auto-abandon of any active session with no in-flight reviewer JOB, keyed on
+      // documentId) was REJECTED by the triad: it races a legitimate mid-dispatch session and could
+      // launder a no_external hold around the gate by recreating the session. This is now a NARROW
+      // legacy/stale-orphan fallback ONLY, and create's correctness no longer depends on JOB_REAPER_ENABLED.
+      //
+      // The live session (state='active') is resolved by documentId, but in-flight detection is SESSION-ID
+      // keyed via the lane contract (R1: documentId-keyed job polling is too blunt across historical /
+      // abandoned / partial / retried sessions for one document). Recovery REFUSES unless EVERY guard clears:
+      //   - a HOLD lifecyclePhase (held / blocked_by_hold / partial_blocked_by_hold) -> NEVER recover (a
+      //     no_external hold is deliberate; clearing it is a privileged Inc-3 act, never an auto-abandon);
+      //   - any non-terminal lane (in-flight) -> refuse (the session-ID-keyed lane read);
+      //   - age <= MAX_DISPATCH_WINDOW (young) -> refuse (THE real safety: a momentarily-stale lane read on
+      //     a young session can never cause a false abandon — covers a just-committed / 'dispatching'
+      //     session and a sync session still blocking inside create);
+      //   - the session has produced viewable feedback -> refuse (never clobber a real, resumable review).
+      // Only an OLD, not-in-flight, no-hold, no-feedback session is a genuine orphan; abandon it via a
+      // single-flight CAS + FAIL-CLOSED audit (abandonReviewSessionAudited), then proceed. Otherwise return
+      // the resumable id (the frontend resumes the existing session instead of a dead-end error).
       const existingSession = await getActiveReviewSessionForDocument(input.documentId, userId);
       if (existingSession) {
-        // JOB-RECOVERY-1 (B-3): a failed/empty/orphaned reviewer can leave the session 'active'
-        // forever, wedging every future create with SESSION_ALREADY_EXISTS. When the reaper is ON,
-        // self-heal: if NO reviewer job for this document is still in flight (queued/running), the
-        // existing session is stuck — recover it (abandon; migration-free, releases the active-session
-        // unique index) and proceed instead of throwing. Owner-scoped (pollJobs + updateReviewSessionState
-        // both filter by userId), so cross-owner sessions/jobs are never touched. Flag OFF = throws as today.
+        const phase = existingSession.lifecyclePhase ?? null;
+        const isHoldPhase =
+          phase === 'held' || phase === 'blocked_by_hold' || phase === 'partial_blocked_by_hold';
+        let attemptedAbandon = false;
         let recovered = false;
-        if (isJobReaperEnabled()) {
-          const liveJobs = await pollJobs(userId, {
-            documentId: input.documentId,
-            statuses: ['queued', 'running'],
-          });
-          const liveReviewers = liveJobs.filter((j) => j.jobType === 'reviewer_feedback');
-          if (liveReviewers.length === 0) {
-            await updateReviewSessionState(existingSession.id, userId, 'abandoned');
-            console.log(
-              `[JOB-RECOVERY-1] Recovered stuck-active review session ${existingSession.id} ` +
-                `(document ${input.documentId}, iteration ${existingSession.iterationNumber}): ` +
-                `no in-flight reviewer — abandoned to unblock create.`,
-            );
-            recovered = true;
+        if (!isHoldPhase) {
+          const existingLanes = await listReviewerLanesForSession(existingSession.id, userId);
+          const inFlight = existingLanes.some((l) => !isTerminalLaneStatus(l.status));
+          const ageMs = Date.now() - existingSession.createdAt.getTime();
+          if (!inFlight && ageMs > MAX_DISPATCH_WINDOW_MS) {
+            const existingFeedback = await listFeedbackForSession(existingSession.id, userId);
+            if (existingFeedback.length === 0) {
+              attemptedAbandon = true;
+              const rows = await abandonReviewSessionAudited({
+                sessionId: existingSession.id,
+                userId,
+                matterId: doc.matterId,
+                documentId: input.documentId,
+                reason: 'auto_recovery',
+                fromLifecyclePhase: phase,
+                summary:
+                  `Auto-recovered stale orphan review session ${existingSession.id} ` +
+                  `(document ${input.documentId}, iteration ${existingSession.iterationNumber}): no in-flight ` +
+                  `reviewer, no feedback, age ${Math.round(ageMs / 1000)}s > dispatch window.`,
+              });
+              if (rows === 1) {
+                console.log(
+                  `[CR-4] Recovered stale orphan review session ${existingSession.id} ` +
+                    `(document ${input.documentId}, iteration ${existingSession.iterationNumber}).`,
+                );
+                recovered = true;
+              }
+              // rows === 0 -> another concurrent recovery won the single-flight CAS; fall through to re-resolve.
+            }
           }
         }
         if (!recovered) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            // Include sessionId so the frontend can resume the existing session instead of showing a dead-end error.
-            message: `SESSION_ALREADY_EXISTS:${existingSession.id}: an active review session already exists for this document at iteration ${existingSession.iterationNumber}`,
-          });
+          // A live session blocks create. If we attempted recovery but lost the single-flight race
+          // (rows===0), the winner already abandoned it — re-resolve to see if create may now proceed.
+          const stillLive = attemptedAbandon
+            ? await getActiveReviewSessionForDocument(input.documentId, userId)
+            : existingSession;
+          if (stillLive) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: `SESSION_ALREADY_EXISTS:${stillLive.id}: an active review session already exists for this document at iteration ${stillLive.iterationNumber}`,
+            });
+          }
         }
       }
 
@@ -249,13 +313,11 @@ export const reviewSessionRouter = router({
       // sequential-comparison view reachable (prior iterations < current exist).
       const iterationNumber = await getNextIterationNumberForDocument(input.documentId);
 
-      // Insert the review session row
-      const sessionId = await insertReviewSession({
-        userId,
-        documentId: input.documentId,
-        iterationNumber,
-        selectedReviewers: input.selectedReviewers,
-      });
+      // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): pre-generate the session id so the reviewer prompts,
+      // lanes, and job rows can all reference it and commit ATOMICALLY below. The session row is NO LONGER
+      // inserted here — it is inserted inside the outbox transaction (together with the lanes + jobs), so a
+      // pre-queue throw rolls everything back and the active-with-zero-jobs wedge becomes unreachable.
+      const sessionId = uuidv4();
 
       // S1a (MR-1): Fetch current document version for reviewer prompt content
       if (!doc.currentVersionId) {
@@ -334,40 +396,20 @@ export const reviewSessionRouter = router({
         ].filter((s) => s !== '').join('\n');
       }
 
-      // Fan out one reviewer job per selectedReviewer (R4: via executeCanonicalMutation).
-      // REVIEWER-ASYNC-FANOUT-1 Inc 1: when async is enabled, fire each reviewer in the BACKGROUND
-      // (concurrent, not awaited) so create returns { sessionId } immediately and the operator is
-      // never blocked; otherwise keep the established inline + sequential path.
+      // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox) — UNIFIED execution model. The pre-Inc-2 path
+      // forked three ways (inline-sync / dispatcher / fire-and-forget); the fragile fire-and-forget is
+      // RETIRED. Now create ALWAYS commits session(active) + lanes + ALL reviewer jobs(queued, with the
+      // frozen prompt + reconstruction params in jobs.input) ATOMICALLY in ONE transaction; the LLM
+      // dispatch happens POST-COMMIT, outside the tx. The reviewer runtime contract (txn2Commit/Revert/
+      // buildLlmParams/onRunning) lives in the reusable factory (reviewerJobFactory) so the dispatcher can
+      // reconstruct + re-transmit a queued job after a restart — the TRUE durable outbox.
       const reviewerAsync = isReviewerAsyncEnabled();
       const reviewerJobIds: string[] = [];
-      // REVIEWER-ASYNC-DISPLAY-1 (Component C, C-1): persist the IMMUTABLE EXPECTED lane set (condition 2)
-      // BEFORE dispatch — one 'pending' lane per selected reviewer, keyed by (session, reviewerRole), each
-      // stamped with Component C's own terminal-deadline (condition 4). Async path ONLY, so the SYNC path
-      // is byte-for-byte unchanged (no lane rows written). The async pane reads this set the instant
-      // create returns, before any reviewer has finished.
-      if (reviewerAsync) {
-        const laneDeadlineAt = new Date(Date.now() + REVIEWER_LANE_TERMINAL_DEADLINE_MS);
-        await insertReviewerLanes(
-          input.selectedReviewers.map((role) => ({
-            userId,
-            matterId: doc.matterId,
-            documentId: input.documentId,
-            versionId: doc.currentVersionId!,
-            reviewSessionId: sessionId,
-            iterationNumber,
-            reviewerRole: role,
-            reviewerTitle: REVIEWER_TITLES[role as ReviewerKey | LiteReviewerKey] ?? role,
-            terminalDeadlineAt: laneDeadlineAt,
-          })),
-        );
-      }
-      // TODO(CR-4): mid-fan-out hold-enforcement seam — STUCK-SESSION-RECOVERY-1 (its own triad disposition).
-      // This is the dispatch loop where a no_external hold (or a broker block) landing AFTER some reviewers
-      // were already dispatched must block the NOT-YET-SENT reviewers WITHOUT wedging the session (no stuck
-      // 'active' session), and be itself audited as blocked. EGRESS-CONTROL-PLANE-1 places the hold-aware
-      // egress plane on this path; CR-4 wires the session-lifecycle fix here. Do NOT change session-lifecycle
-      // behavior in this increment — this marker only reserves the integration point.
-      for (const reviewerRole of input.selectedReviewers) {
+
+      // Build the per-reviewer durable input (the frozen prompt + reconstruction params). The prompt
+      // assembly is byte-identical to the pre-outbox path; the result is what the factory transmits and
+      // what survives a restart in jobs.input.
+      const reviewers: ReviewerDurableInput[] = input.selectedReviewers.map((reviewerRole) => {
         const modelString = resolveReviewerModel(reviewerRole);
         if (!modelString) {
           throw new TRPCError({
@@ -375,181 +417,139 @@ export const reviewSessionRouter = router({
             message: `REVIEWER_NOT_ENABLED: '${reviewerRole}' is not a valid reviewer identifier`,
           });
         }
-        // MR-CAL-2: Calibrated four-track prompt while preserving the active legacy parser wrapper.
-        // Legacy wrapper keys remain "title", "body", and "severity" for RawSuggestionsArraySchema.
+        // MR-CAL-2: calibrated four-track prompt; legacy wrapper keys ("title"/"body"/"severity") preserved.
         const systemPrompt = buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey);
-        // S1a (MR-1): Include full document content in the userPrompt.
-        // MR-CAL-6B: append the active locked-decisions section (empty string when
-        // there are none, so default behavior is unchanged).
+        // S1a (MR-1) full document content; MR-CAL-6B locked-decisions section; MR-CAL-7B adopted section.
+        // Both sections are '' when empty, so the prompt is byte-identical to the pre-6B/7B behavior.
         const userPrompt = [
           `Review session ${sessionId}, iteration ${iterationNumber}.`,
           `Document title: ${doc.title}`,
           '',
           '## Document Content',
           currentVersion.content,
-          // Only present when there are active locked decisions; otherwise omitted
-          // entirely so the prompt is byte-identical to pre-6B behavior.
           ...(lockedDecisionsSection ? [lockedDecisionsSection] : []),
-          // MR-CAL-7B: only present when the adopt ledger has carryforward entries;
-          // otherwise omitted entirely so the prompt is byte-identical to pre-7B.
           ...(previouslyAdoptedSection ? [previouslyAdoptedSection] : []),
         ].join('\n');
         const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
-        const reviewerParams: CanonicalMutationParams = {
+        return {
+          jobId: uuidv4(),
           userId,
-          jobType: 'reviewer_feedback',
-          modelString,
           matterId: doc.matterId,
           documentId: input.documentId,
-          txn1Enqueue: async (jobId) => {
-            return { jobId, preEnqueueState: doc.workflowState };
-          },
-          buildLlmParams: (_jobId) => ({
-            systemPrompt,
-            userPrompt,
-            temperature: 0.4,
-            structuredOutputSchema: RawSuggestionsArraySchema,
-            // GEMINI-BUDGET-CAL-1 Inc 2: per-model calibrated reviewer ceiling from the
-            // model-capability registry (single source of truth). Gemini-2.5-pro -> 32768
-            // (measured); Claude/GPT-5/Grok/lites -> 16384 floor. Supersedes the global 16384.
-            maxTokens: getReviewerCeiling(modelString),
-            // REVIEWER-LATENCY-1 Step 2a: flag-gated reviewer-lane speed knobs. The resolver returns
-            // null (and this spread adds NOTHING) unless REVIEWER_LATENCY_TUNING_ENABLED is on AND
-            // this is the openai:gpt-5 reviewer lane — so flag-OFF and every non-gpt-5 reviewer stay
-            // byte-identical. The drafter/evaluator never reach this reviewer buildLlmParams.
-            ...(resolveReviewerLatencyTuning('reviewer_feedback', modelString) ?? {}),
-          }),
-          ...(reviewerAsync
-            ? {
-                onRunning: async () => {
-                  // DOC-PANE-LANE-RUNNING-1: flip this reviewer's lane pending->running the instant the LLM
-                  // call starts, so the async strip shows 'Running…' instead of 'Queued' for the whole run.
-                  // Best-effort + guarded to non-terminal (never clobbers a terminal). Async-gated, so the
-                  // SYNC path (no lanes) is byte-for-byte unchanged.
-                  await markReviewerLaneRunning(sessionId, reviewerRole, userId);
-                },
-              }
-            : {}),
-          // MR-LLM-GPT-1: reviewer_feedback jobs use a 300 000 ms timeout.
-          // GPT-5 has a TTFT of ~83 s at high load; the global 120 000 ms default
-          // is insufficient. 300 000 ms (5 min) gives a safe margin for all four
-          // reviewer adapters (Claude, GPT, Gemini, Grok) at any document size.
-          // Non-reviewer jobs continue to use the global 120 000 ms default.
-          // REVIEWER-ASYNC-FANOUT-1 Inc 2: in async mode the reviewer runs in the BACKGROUND, so
-          // raise the envelope to 720 000 ms (12 min) — big-doc GPT-5 needs ~11 min at full effort
-          // (measured), and llmFetch raises undici's internal timeout above this so the per-call
-          // AbortSignal governs. The SYNC path keeps 300 000 ms (a 720s SYNC block is exactly what
-          // the operator rejected).
+          documentVersionId: doc.currentVersionId!,
+          reviewSessionId: sessionId,
+          iterationNumber,
+          reviewerRole,
+          reviewerTitle,
+          modelString,
+          systemPrompt,
+          userPrompt,
+          // MR-CAL-2 reviewer temperature; GEMINI-BUDGET-CAL-1 per-model ceiling; MR-LLM-GPT-1 / REVIEWER-
+          // ASYNC-FANOUT-1 timeout (720 000 ms async background vs 300 000 ms sync). Frozen at enqueue.
+          temperature: 0.4,
+          maxTokens: getReviewerCeiling(modelString),
           timeoutMs: reviewerAsync ? 720_000 : 300_000,
-          // S3b (MR-1): Parse LLM output and persist to feedback table
-          txn2Commit: async ({ jobId, output }) => {
-            const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);
-            // MR-CAL-2G: capture the raw reviewer output for calibration auditability
-            // BEFORE the parse can throw. The P8-T1 GPT failure is a PARSE_FAILURE, so
-            // parsing defensively here is the only way to preserve the raw artifact that
-            // MR-CAL-2F found was being lost. Parse-failure behavior is otherwise
-            // unchanged: the error is re-thrown below so the job still fails and reverts.
-            let parsedSuggestions: ReturnType<typeof parseFeedbackOutput> | null = null;
-            let parseError: unknown = null;
-            try {
-              parsedSuggestions = parseFeedbackOutput(rawOutput);
-            } catch (err) {
-              parseError = err;
-            }
-            void emitTelemetry(
-              'reviewer_output_captured',
-              {
-                jobId,
-                reviewerRole,
-                reviewerModel: modelString,
-                iterationNumber,
-                rawOutput,
-                rawOutputLength: rawOutput.length,
-                parseOk: parseError === null,
-                parsedSuggestionCount: parsedSuggestions ? parsedSuggestions.length : null,
-              },
-              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
-            );
-            if (parseError !== null) {
-              throw parseError;
-            }
-            // parsedSuggestions is non-null here: it is only null when parseError
-            // was set, and that path threw above.
-            const suggestions = parsedSuggestions!;
-            const feedbackRowId = await insertFeedback({
+          async: reviewerAsync,
+        };
+      });
+
+      // ── ATOMIC OUTBOX COMMIT ──────────────────────────────────────────────────────────────────────
+      // session(active) + ALL lanes (async only) + ALL reviewer jobs(queued, input populated) commit in
+      // ONE transaction; NO external dispatch inside the tx. A throw anywhere here rolls EVERYTHING back,
+      // so the "active session with zero jobs" wedge is UNREACHABLE (root-cause fix). A concurrent FRESH
+      // create racing on the activeSessionKey unique index fails the insert -> caught below as a resumable
+      // SESSION_ALREADY_EXISTS. The lanes are written async-only (the SYNC path keeps no lane rows, so its
+      // display path is byte-for-byte unchanged); the jobs are committed in BOTH modes (the durable outbox).
+      const laneDeadlineAt = new Date(Date.now() + REVIEWER_LANE_TERMINAL_DEADLINE_MS);
+      // The session id create returns is the one insertReviewSession reports — in production it ECHOES the
+      // pre-generated `sessionId` (insertReviewSession returns data.id), so this is identical to returning
+      // `sessionId`; capturing it through the tx keeps the established create contract (the returned session
+      // id comes from the insert) intact for callers.
+      let committedSessionId = sessionId;
+      try {
+        committedSessionId = await db.transaction(async (tx) => {
+          const insertedSessionId = await insertReviewSession(
+            {
+              id: sessionId,
               userId,
               documentId: input.documentId,
-              versionId: doc.currentVersionId!,
               iterationNumber,
-              reviewSessionId: sessionId,
-              jobId,
-              reviewerRole,
-              reviewerModel: modelString,
-              reviewerTitle,
-              suggestions,
-            });
-            // REVIEWER-ASYNC-DISPLAY-1 (C-1): terminalize this reviewer's lane from job completion
-            // (condition 3) — AFTER insertFeedback succeeds (condition 10: never display-terminal with
-            // no row). Affirmative zero-result -> completed_without_feedback (condition 5). Best-effort:
-            // a lane-write failure must not break feedback persistence; the deadline sweep backstops.
-            if (reviewerAsync) {
-              void markReviewerLaneTerminal(sessionId, reviewerRole, userId, {
-                status: suggestions.length > 0 ? 'completed_with_feedback' : 'completed_without_feedback',
-                suggestionCount: suggestions.length,
-                feedbackRowId,
-              }).catch((e) => console.error(`[reviewer-async] lane commit-update failed (${reviewerRole}):`, e));
-            }
-            void emitTelemetry(
-              'generation_completed',
-              { jobId, operation: 'reviewer_feedback', newVersionNumber: iterationNumber },
-              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
+              selectedReviewers: input.selectedReviewers,
+            },
+            tx,
+          );
+          if (reviewerAsync) {
+            await insertReviewerLanes(
+              reviewers.map((r) => ({
+                userId,
+                matterId: doc.matterId,
+                documentId: input.documentId,
+                versionId: doc.currentVersionId!,
+                reviewSessionId: sessionId,
+                iterationNumber,
+                reviewerRole: r.reviewerRole,
+                reviewerTitle: r.reviewerTitle,
+                terminalDeadlineAt: laneDeadlineAt,
+              })),
+              tx,
             );
-          },
-          txn2Revert: async ({ jobId, errorClass }) => {
-            void emitTelemetry(
-              'generation_reset',
-              { jobId, operation: 'reviewer_feedback', reason: errorClass === 'timeout' ? 'timeout' : 'failure' },
-              { userId, matterId: doc.matterId, documentId: input.documentId, jobId },
-            );
-            // REVIEWER-ASYNC-DISPLAY-1 (C-1): terminalize the lane as failed/timed_out from the failure
-            // path (condition 4). Best-effort (H3: a throw here must not wedge the revert). Async only.
-            if (reviewerAsync) {
-              void markReviewerLaneTerminal(sessionId, reviewerRole, userId, {
-                status: errorClass === 'timeout' ? 'timed_out' : 'failed',
-                failureReason: errorClass,
-              }).catch((e) => console.error(`[reviewer-async] lane revert-update failed (${reviewerRole}):`, e));
-            }
-          },
-          telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-        };
-        if (reviewerAsync && isJobDispatcherEnabled()) {
-          // DISPATCHER-COMPLETE-1 D-4: leave the job 'queued' for the durable dispatcher to claim
-          // and run, so the reviewer survives as a real recoverable DB row instead of an in-process
-          // fire-and-forget promise. Still flag-gated (JOB_DISPATCHER_ENABLED) and OFF by default.
-          // REVIEWER-ASYNC-DISPLAY-1 (C-1): if the ENQUEUE itself fails, terminalize the lane as
-          // dispatch_failed (condition 4 — never dropped from the denominator) and continue the run
-          // PARTIAL (operator decision: never atomic-fail the whole run).
-          try {
-            await enqueueCanonicalJobForDispatcher(reviewerParams);
-          } catch (enqueueErr) {
-            console.error(`[reviewer-async] enqueue failed for ${reviewerRole} (session ${sessionId}):`, enqueueErr);
-            void markReviewerLaneDispatchFailed(sessionId, reviewerRole, userId, String(enqueueErr)).catch(() => {});
           }
-        } else if (reviewerAsync) {
-          // Fire-and-forget (JOB_DISPATCHER_ENABLED OFF) — BYTE-IDENTICAL to the established async
-          // path: the reviewer runs in the BACKGROUND and persists its feedback on completion
-          // (txn2Commit); the frontend's existing polling surfaces it progressively and the operator
-          // is not blocked. executeCanonicalMutation marks the job failed INTERNALLY on any LLM
-          // error, so a rejection here is only an unexpected error — log it, never surface it.
-          const reviewerResultPromise = executeCanonicalMutation(reviewerParams);
-          void reviewerResultPromise.catch((err) => {
-            // eslint-disable-next-line no-console
-            console.error(`[reviewer-async] unexpected background reviewer error (session ${sessionId}):`, err);
+          for (const r of reviewers) {
+            await insertJob(buildReviewerJobRow(r), tx);
+          }
+          return insertedSessionId;
+        });
+      } catch (err) {
+        if (isDuplicateKeyError(err)) {
+          // A concurrent FRESH create won the activeSessionKey (or idempotency) slot; THIS whole tx rolled
+          // back (nothing persisted — no stuck active). Return the resumable id of the session that won.
+          const winner = await getActiveReviewSessionForDocument(input.documentId, userId);
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `SESSION_ALREADY_EXISTS:${winner?.id ?? 'unknown'}: an active review session already exists for this document`,
           });
-        } else {
-          const reviewerResult = await executeCanonicalMutation(reviewerParams);
-          reviewerJobIds.push(reviewerResult.jobId);
         }
+        throw err; // any other failure: the tx already rolled back -> no session, no orphan job, no wedge.
+      }
+
+      // ── POST-COMMIT TRANSMIT (outside the tx) ─────────────────────────────────────────────────────
+      // The session is committed 'active' + jobs 'queued' (+ lanes async). Transmit each reviewer via the
+      // SAME runJob half (the factory params), so a lost in-process run is recoverable from jobs.input.
+      if (reviewerAsync) {
+        // 'dispatching' marks the brief commit->handoff window (recovery refuses a young 'dispatching'
+        // session via the age guard). Register each continuation + kick a BACKGROUND run for immediacy; the
+        // durable poll loop (reconstruct-from-input) is the restart backstop and runJob's atomic claim
+        // dedupes. Flip back to idle in a finally — the background reviewers then run under 'active' +
+        // in-flight lanes (recovery refuses via the lane read), and the existing #328 client live-refresh
+        // surfaces each lane Queued->Running->Returned with no reload.
+        await updateReviewSessionLifecyclePhase(sessionId, userId, 'dispatching');
+        try {
+          for (const r of reviewers) {
+            registerDeferredContinuation(r.jobId, buildReviewerCanonicalParams(r));
+          }
+          for (const r of reviewers) {
+            void runDeferredCanonicalJob(r.jobId).catch((e) =>
+              // eslint-disable-next-line no-console
+              console.error(`[reviewer-outbox] background reviewer run failed (session ${sessionId}, ${r.reviewerRole}):`, e),
+            );
+          }
+        } finally {
+          await updateReviewSessionLifecyclePhase(sessionId, userId, null);
+        }
+      } else {
+        // SYNC inline path (prod default): run each reviewer to terminal, BLOCKING, exactly as the
+        // established sync card view — but the job row was committed FIRST (atomic outbox), so the session
+        // can never be left active-with-zero-jobs. Each reviewer's feedback is persisted by the factory's
+        // txn2Commit before create returns, just like before.
+        for (const r of reviewers) {
+          registerDeferredContinuation(r.jobId, buildReviewerCanonicalParams(r));
+          const result = await runDeferredCanonicalJob(r.jobId);
+          if (result?.status === 'completed') reviewerJobIds.push(r.jobId);
+        }
+        // SYNC has no lanes; record the session-level partial reason from the reviewer outcomes (the Inc-2
+        // data foundation). Inc-2 sync has no hold gate, so a partial here is always non-response.
+        const anyFailed = reviewerJobIds.length < reviewers.length;
+        await setReviewSessionSettled(sessionId, userId, anyFailed ? 'non_response' : null);
       }
 
       // EVALUATOR PATH — MR-CAL-5C (advisory output contract; default OFF)
@@ -644,7 +644,7 @@ export const reviewSessionRouter = router({
         { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
       );
 
-      return { sessionId };
+      return { sessionId: committedSessionId };
     }),
 
   // ============================================================
@@ -1202,7 +1202,22 @@ export const reviewSessionRouter = router({
       const doc = await getDocumentById(session.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
 
-      const updatedSession = await updateReviewSessionState(input.sessionId, userId, 'abandoned');
+      // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): SOFT + fail-closed-AUDITED abandon. assertSessionActive above
+      // guarantees state='active', so the single-flight CAS transitions it (rows===1) unless a concurrent
+      // op already moved it. The CAS + the append-only audit row commit in ONE tx — a failed audit write
+      // rolls the abandon back (no silent / un-audited abandon). NO destructive cascade: feedback / lanes /
+      // locks / ledger are all retained (the review stays in document history).
+      await abandonReviewSessionAudited({
+        sessionId: input.sessionId,
+        userId,
+        matterId: doc.matterId,
+        documentId: session.documentId,
+        reason: 'attorney',
+        fromLifecyclePhase: session.lifecyclePhase ?? null,
+        summary:
+          `Attorney abandoned review session ${input.sessionId} ` +
+          `(document ${session.documentId}, iteration ${session.iterationNumber}).`,
+      });
 
       void emitTelemetry(
         'review_session_abandoned',
@@ -1210,6 +1225,9 @@ export const reviewSessionRouter = router({
         { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
       );
 
+      // Return the post-abandon row (state='abandoned'). The prior code returned the void result of
+      // updateReviewSessionState, so this is a strict, additive improvement to the response shape.
+      const updatedSession = await getReviewSessionById(input.sessionId, userId);
       return { session: updatedSession };
     }),
 

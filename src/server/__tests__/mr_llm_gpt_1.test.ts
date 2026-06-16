@@ -59,6 +59,12 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
     listManualSelectionsForSession: vi.fn(),
+    // EGRESS-CONTROL-PLANE-1 Inc 2: create's outbox post-commit sets the companion lifecycle phase +
+    // settled partial-reason; stub them so the test never hits the real db.update.
+    setReviewSessionSettled: vi.fn(),
+    updateReviewSessionLifecyclePhase: vi.fn(),
+    abandonReviewSessionAudited: vi.fn().mockResolvedValue(1),
+    updateReviewSessionStateCas: vi.fn().mockResolvedValue(1),
   };
 });
 vi.mock('../db/queries/documents.js', async (importOriginal) => {
@@ -76,6 +82,27 @@ vi.mock('../db/queries/userPreferences.js', async (importOriginal) => {
 vi.mock('../db/queries/matters.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../db/queries/matters.js')>();
   return { ...actual, getMatterById: vi.fn() };
+});
+// EGRESS-CONTROL-PLANE-1 Inc 2: create now commits the durable outbox in db.transaction. Run the callback
+// with a no-op chainable fake tx (the job-write functions are stubbed via setJobWriteFunctions), so the
+// outbox commit + sync transmit run without a live database.
+vi.mock('../db/connection.js', () => {
+  const noop = {
+    values: () => Promise.resolve([{ affectedRows: 1 }]),
+    set() {
+      return noop;
+    },
+    where: () => Promise.resolve([]),
+    from() {
+      return noop;
+    },
+    limit: () => Promise.resolve([]),
+    orderBy() {
+      return noop;
+    },
+  };
+  const exec = { insert: () => noop, update: () => noop, select: () => noop, delete: () => noop };
+  return { db: { ...exec, transaction: (cb: (tx: typeof exec) => unknown) => Promise.resolve(cb(exec)) } };
 });
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

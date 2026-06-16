@@ -15,6 +15,13 @@ const reviewSessionSource = fs.readFileSync(
   path.join(repoRoot, 'src/server/procedures/reviewSession.ts'),
   'utf8',
 );
+// EGRESS-CONTROL-PLANE-1 Increment 2 relocated the reviewer EXECUTION logic
+// (the legacy array-wrapper parser contract) out of reviewSession.ts into the
+// reviewer job factory. The parser contract is preserved, now in the factory.
+const reviewerJobFactorySource = fs.readFileSync(
+  path.join(repoRoot, 'src/server/jobs/reviewerJobFactory.ts'),
+  'utf8',
+);
 
 const fullToLitePairs: readonly [AnyReviewerKey, AnyReviewerKey][] = [
   ['gpt', 'gpt_lite'],
@@ -123,7 +130,7 @@ describe('MR-CAL-2A business-decision calibration', () => {
     expect(parsed[0]?.body).toContain('Path A recourse with senior-debt cap');
     expect(parsed[0]?.body).toContain('Path B non-recourse');
     expect(reviewSessionSource).toContain('buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey)');
-    expect(reviewSessionSource).toContain('parseFeedbackOutput');
-    expect(reviewSessionSource).toContain('RawSuggestionsArraySchema');
+    expect(reviewerJobFactorySource).toContain('parseFeedbackOutput');
+    expect(reviewerJobFactorySource).toContain('RawSuggestionsArraySchema');
   });
 });

@@ -213,6 +213,11 @@ export const jobs = mysqlTable(
     // matterId and documentId are nullable — some job types may not be tied to a document
     matterId: char('matterId', { length: 36 }),
     documentId: char('documentId', { length: 36 }),
+    // idempotencyKey: EGRESS-CONTROL-PLANE-1 Inc 2 durable-outbox key per (session, lane) on reviewer
+    // dispatch = `${reviewSessionId}:${reviewerRole}`; NULL for every other job type (the unique index
+    // permits multiple NULLs). Dedupes a resume / recovered re-dispatch so confidential content can never
+    // double-transmit; the per-reviewer egress dedup is enforced fully in Increment 3.
+    idempotencyKey: varchar('idempotencyKey', { length: 128 }),
     // jobType: one of the v1 active job types (Ch 8.2) plus the reserved context_summary_generation (Ch 8.3)
     jobType: varchar('jobType', { length: 64 }).notNull(),
     // providerId: e.g. 'anthropic', 'openai', 'google', 'xai'
@@ -265,6 +270,9 @@ export const jobs = mysqlTable(
     ),
     // Per-matter job list: "what jobs are running in this matter?"
     idxJobsMatter: index('idx_jobs_matter').on(table.matterId, table.status),
+    // EGRESS-CONTROL-PLANE-1 Inc 2: at most one reviewer job per (session, lane). NULLs (every
+    // non-reviewer job) are exempt — MySQL/TiDB unique indexes permit multiple NULL values.
+    uniqJobsIdempotencyKey: uniqueIndex('uniq_jobs_idempotency_key').on(table.idempotencyKey),
   }),
 );
 
@@ -1097,6 +1105,18 @@ export const reviewSessions = mysqlTable(
     selectedReviewers: json('selectedReviewers').notNull().default(sql`(JSON_ARRAY())`),
     globalInstructions: text('globalInstructions').notNull().default(''),
     lastAutosavedAt: timestamp('lastAutosavedAt'),
+    // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — the lifecycle SUB-state machine, a COMPANION to `state`
+    // (which is unchanged: migration 0043 — `state` is locked by the activeSessionKey generated column,
+    // so the new phases live here). NULL = idle/active-normal (created, reviewers running, or the
+    // attorney reviewing/selecting); 'dispatching' = the brief post-commit transmit handoff window
+    // (recovery-refusal marker); 'completed' = all expected lanes terminal; 'held' / 'blocked_by_hold' /
+    // 'partial_blocked_by_hold' are SET by the egress gate in Increment 3 (recovery already refuses them).
+    // The Zod Wall reads it .nullable().optional().
+    lifecyclePhase: varchar('lifecyclePhase', { length: 32 }),
+    // partialReason: 'non_response' (some reviewers failed/timed-out — informational) vs 'blocked_by_hold'
+    // (a no_external hold blocked reviewers — Inc 3's send gate requires the recorded one-click attorney
+    // acknowledgment). NULL = clean / not partial. The Inc-2 data foundation for the Inc-3 send gate.
+    partialReason: varchar('partialReason', { length: 32 }),
     // -----------------------------------------------------------------------
     // D.1.2 — GENERATED column (raw SQL migration, not drizzle builder API)
     // This is a GENERATED column in the database.
@@ -1373,6 +1393,10 @@ export const AUDIT_EVENT_TYPE_VALUES = [
   // FOLD-PM-1 Inc 3 — deadline engine system events (audited DISTINCTLY from attorney disposition).
   'deadline_fired', // the system surfaced a tickler/deadline (system actor; not an acknowledgment)
   'deadline_acknowledged', // the attorney acknowledged a fired tickler (distinct from the firing)
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): a review-session lifecycle transition (auto-recovery /
+  // attorney-initiated / hold-frozen — the reason is in the audit payload). Durable + append-only so a
+  // silent abandon can never occur (spoliation / incomplete-production exposure under long retention).
+  'review_session_transition',
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPE_VALUES)[number];
 
