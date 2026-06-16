@@ -146,14 +146,40 @@ describe('UAT row 4 — clean cards on every display path (no raw STRUCTURED_FEE
   });
 });
 
-// ── Row 6: stuck-session recovery behavior (current, reaper-gated) ───────────────────────────────────
-describe('UAT row 6 — stuck-session recovery (current behavior; CR-4 is a separate FIRE proposal)', () => {
-  it('create self-heals a stuck-active session when no reviewer job is in flight (reaper-gated)', () => {
-    // The "no in-flight reviewer => abandon and proceed" recovery exists and is owner-scoped.
-    expect(reviewSessionProc).toContain("statuses: ['queued', 'running']");
-    expect(reviewSessionProc).toContain('liveReviewers.length === 0');
-    expect(reviewSessionProc).toContain("updateReviewSessionState(existingSession.id, userId, 'abandoned')");
-    // Honest dead-end avoidance: the throw carries the sessionId so the client can resume, not just error.
+// ── Row 6: stuck-session recovery behavior (current — CR-4 DEMOTED, GUARDED recovery) ────────────────
+describe('UAT row 6 — stuck-session recovery (current behavior; EGRESS-CONTROL-PLANE-1 Inc 2 / CR-4)', () => {
+  it('create recovers a stale orphan session only behind every CR-4 guard (no false-abandon, no hold-launder)', () => {
+    // CR-4 REJECTED the old unconditional, documentId-keyed, reaper-gated P1 self-heal (it raced a
+    // legitimate mid-dispatch session and could launder a no_external hold by recreating the session) and
+    // DEMOTED it to a narrow stale-orphan fallback. The original row-6 intent — "recover a wedged session,
+    // owner-scoped, and hand the client a resumable id rather than a dead-end error" — is preserved here,
+    // relocated to the demoted recovery's new shape and strengthened with its guards.
+
+    // Intent (1) recovery EXISTS, but is now SESSION-ID keyed via the lane contract (not the old blunt
+    // documentId-keyed job poll) and gated on the recovery AGE-WINDOW — the real false-abandon safety.
+    expect(reviewSessionProc).toContain('await listReviewerLanesForSession(existingSession.id, userId)');
+    expect(reviewSessionProc).toContain('existingLanes.some((l) => !isTerminalLaneStatus(l.status))');
+    expect(reviewSessionProc).toContain('ageMs > MAX_DISPATCH_WINDOW_MS');
+    // No-feedback guard: never clobber a real, resumable review that already produced viewable feedback.
+    expect(reviewSessionProc).toContain('existingFeedback.length === 0');
+    // Hold-phase refusal: a deliberate no_external hold is NEVER auto-abandoned (anti-launder guard).
+    expect(reviewSessionProc).toContain(
+      "phase === 'held' || phase === 'blocked_by_hold' || phase === 'partial_blocked_by_hold'",
+    );
+
+    // Intent (2) the recovery still abandons + is owner-scoped — now via the single-flight CAS + fail-closed
+    // AUDITED abandon (reason auto_recovery), replacing the old updateReviewSessionState(..., 'abandoned').
+    expect(reviewSessionProc).toContain('abandonReviewSessionAudited({');
+    expect(reviewSessionProc).toContain("reason: 'auto_recovery'");
+
+    // create no longer depends on the reaper flag (the old gate is RETIRED): no live JOB_REAPER_ENABLED
+    // gate, no documentId-keyed pollJobs, no liveReviewers count, no bare updateReviewSessionState abandon.
+    expect(reviewSessionProc).not.toContain('isJobReaperEnabled()');
+    expect(reviewSessionProc).not.toContain('await pollJobs(userId, {');
+    expect(reviewSessionProc).not.toContain('liveReviewers.length === 0');
+    expect(reviewSessionProc).not.toContain("updateReviewSessionState(existingSession.id, userId, 'abandoned')");
+
+    // Intent (3) honest dead-end avoidance preserved: the throw carries the sessionId so the client resumes.
     expect(reviewSessionProc).toContain('SESSION_ALREADY_EXISTS:');
   });
 });

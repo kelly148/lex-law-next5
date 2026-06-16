@@ -30,6 +30,10 @@ export const AuditEventRowSchema = z.object({
     // FOLD-PM-1 Inc 3: deadline engine system events, audited distinctly from attorney disposition.
     'deadline_fired',
     'deadline_acknowledged',
+    // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): a review-session lifecycle transition (auto-recovery /
+    // attorney-initiated / hold-frozen — the reason is in the payload). Kept in sync with schema.ts
+    // AUDIT_EVENT_TYPE_VALUES (Drizzle column enum).
+    'review_session_transition',
   ]),
   actor: z.enum(['model', 'attorney', 'system']),
   actorModel: z.string().nullable(),

@@ -78,6 +78,15 @@ const reviewSessionFile = fs.readFileSync(
   'utf-8',
 );
 
+// EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox + CR-4): the reviewer EXECUTION logic
+// (txn2Commit parse + feedback persistence) was refactored OUT of reviewSession.ts INTO
+// the reusable reviewerJobFactory module, so the dispatcher can reconstruct + re-transmit
+// a queued reviewer job after a restart. S6h audits that logic where it now lives.
+const reviewerJobFactoryFile = fs.readFileSync(
+  path.resolve(process.cwd(), 'src/server/jobs/reviewerJobFactory.ts'),
+  'utf-8',
+);
+
 const reviewPaneFile = fs.readFileSync(
   path.resolve(process.cwd(), 'src/client/components/ReviewPane.tsx'),
   'utf-8',
@@ -103,11 +112,16 @@ describe('S6f–S6j: reviewSession.ts code-path audit (MR-1)', () => {
     expect(reviewSessionFile).not.toContain('"suggestion": string, "rationale": string');
   });
 
-  it('S6h: S3b — txn2Commit calls parseFeedbackOutput and insertFeedback', () => {
-    expect(reviewSessionFile).toContain('parseFeedbackOutput');
-    expect(reviewSessionFile).toContain('insertFeedback');
-    // The output parameter is destructured in txn2Commit
-    expect(reviewSessionFile).toContain('{ jobId, output }');
+  it('S6h: S3b — reviewer txn2Commit calls parseFeedbackOutput and insertFeedback (now in reviewerJobFactory.ts)', () => {
+    // EGRESS-CONTROL-PLANE-1 Inc 2: the reviewer txn2Commit (parse + feedback persistence) was
+    // refactored OUT of reviewSession.ts INTO reviewerJobFactory.ts (buildReviewerCanonicalParams)
+    // so a committed-but-unrun reviewer job survives a restart. The S6h invariant — the reviewer
+    // commit path parses the raw output and persists the feedback — is unchanged; only its location
+    // moved. Audit it where it now lives.
+    expect(reviewerJobFactoryFile).toContain('parseFeedbackOutput');
+    expect(reviewerJobFactoryFile).toContain('insertFeedback');
+    // The output parameter is destructured in the reviewer txn2Commit.
+    expect(reviewerJobFactoryFile).toContain('txn2Commit: async ({ jobId, output }) =>');
   });
 
   it('S6i: S3c — REVIEWER_TITLES imported and used for reviewerTitle', () => {

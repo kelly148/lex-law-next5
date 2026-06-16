@@ -16,6 +16,14 @@ const reviewSessionSource = fs.readFileSync(
   path.join(repoRoot, 'src/server/procedures/reviewSession.ts'),
   'utf8',
 );
+// EGRESS-CONTROL-PLANE-1 Increment 2 moved reviewer EXECUTION (the
+// parseFeedbackOutput legacy-parser path) out of reviewSession.ts into the
+// durable reviewer job factory. reviewSession.ts still builds the prompt; the
+// factory now runs the parse.
+const reviewerJobFactorySource = fs.readFileSync(
+  path.join(repoRoot, 'src/server/jobs/reviewerJobFactory.ts'),
+  'utf8',
+);
 
 const fullToLitePairs: readonly [AnyReviewerKey, AnyReviewerKey][] = [
   ['gpt', 'gpt_lite'],
@@ -181,7 +189,9 @@ describe('MR-CAL-2 calibrated reviewer prompts', () => {
       severity: 'major',
     });
     expect(reviewSessionSource).toContain('buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey)');
-    expect(reviewSessionSource).toContain('parseFeedbackOutput');
+    // The legacy-parser wiring now lives in the durable reviewer job factory
+    // (EGRESS-CONTROL-PLANE-1 Inc 2). Assert the active path still calls it there.
+    expect(reviewerJobFactorySource).toContain('parseFeedbackOutput');
   });
 
   it('T-CAL2-10 avoids hard-coded model specialization while allowing construction style differences', () => {

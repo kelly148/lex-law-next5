@@ -17,8 +17,11 @@ import { resolve } from 'node:path';
 import type { TelemetryPayload, TelemetryEventName } from '../../shared/types/telemetry.js';
 
 const repoRoot = resolve(__dirname, '../../..');
-const reviewSessionSrc = readFileSync(
-  resolve(repoRoot, 'src/server/procedures/reviewSession.ts'),
+// EGRESS-CONTROL-PLANE-1 Increment 2 relocated the reviewer-output capture wiring out of
+// reviewSession.ts and into the durable-outbox reviewer job factory. The capture-before-parse
+// property now lives in buildReviewerCanonicalParams' txn2Commit closure in reviewerJobFactory.ts.
+const reviewerJobFactorySrc = readFileSync(
+  resolve(repoRoot, 'src/server/jobs/reviewerJobFactory.ts'),
   'utf8',
 );
 const telemetrySrc = readFileSync(
@@ -53,17 +56,17 @@ describe('MR-CAL-2G telemetry catalog', () => {
   });
 });
 
-describe('MR-CAL-2G reviewer-output capture wiring (reviewSession.ts)', () => {
+describe('MR-CAL-2G reviewer-output capture wiring (reviewerJobFactory.ts)', () => {
   it('emits reviewer_output_captured with the raw output', () => {
-    expect(reviewSessionSrc).toContain("'reviewer_output_captured'");
-    expect(reviewSessionSrc).toContain('rawOutput,');
-    expect(reviewSessionSrc).toContain('rawOutputLength: rawOutput.length');
+    expect(reviewerJobFactorySrc).toContain("'reviewer_output_captured'");
+    expect(reviewerJobFactorySrc).toContain('rawOutput,');
+    expect(reviewerJobFactorySrc).toContain('rawOutputLength: rawOutput.length');
   });
 
   it('parses defensively (try/catch) so a parse failure does not skip the capture', () => {
-    const captureIdx = reviewSessionSrc.indexOf("'reviewer_output_captured'");
-    const parseIdx = reviewSessionSrc.indexOf('parseFeedbackOutput(rawOutput)');
-    const catchIdx = reviewSessionSrc.indexOf('parseError = err');
+    const captureIdx = reviewerJobFactorySrc.indexOf("'reviewer_output_captured'");
+    const parseIdx = reviewerJobFactorySrc.indexOf('parseFeedbackOutput(rawOutput)');
+    const catchIdx = reviewerJobFactorySrc.indexOf('parseError = err');
     expect(parseIdx).toBeGreaterThan(-1);
     expect(catchIdx).toBeGreaterThan(-1);
     expect(captureIdx).toBeGreaterThan(-1);
@@ -72,8 +75,8 @@ describe('MR-CAL-2G reviewer-output capture wiring (reviewSession.ts)', () => {
   });
 
   it('captures the raw output BEFORE re-throwing a parse failure (the P8-T1 case)', () => {
-    const captureIdx = reviewSessionSrc.indexOf("'reviewer_output_captured'");
-    const rethrowIdx = reviewSessionSrc.indexOf('throw parseError');
+    const captureIdx = reviewerJobFactorySrc.indexOf("'reviewer_output_captured'");
+    const rethrowIdx = reviewerJobFactorySrc.indexOf('throw parseError');
     expect(captureIdx).toBeGreaterThan(-1);
     expect(rethrowIdx).toBeGreaterThan(-1);
     // Capture must happen before the failure is re-thrown, or the raw artifact is lost.
@@ -81,7 +84,7 @@ describe('MR-CAL-2G reviewer-output capture wiring (reviewSession.ts)', () => {
   });
 
   it('preserves fail-loud behavior: a parse failure is still re-thrown', () => {
-    expect(reviewSessionSrc).toContain('if (parseError !== null) {');
-    expect(reviewSessionSrc).toContain('throw parseError;');
+    expect(reviewerJobFactorySrc).toContain('if (parseError !== null)');
+    expect(reviewerJobFactorySrc).toContain('throw parseError;');
   });
 });

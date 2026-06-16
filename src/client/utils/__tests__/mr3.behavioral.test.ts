@@ -309,9 +309,15 @@ describe('§S6g: regression preservation — MR-1 deliverables', () => {
     expect(reviewSession).toContain('insertFeedback');
   });
 
-  it('MR-1: feedbackParser is used in reviewSession.ts', () => {
+  it('MR-1: feedbackParser is wired into the reviewer path (now the durable reviewer-job factory)', () => {
+    // EGRESS-CONTROL-PLANE-1 Inc 2 relocated the reviewer parse + feedback persistence from an inline
+    // closure in reviewSession.ts into the reusable factory (so the dispatcher can reconstruct + re-transmit
+    // a queued reviewer job after a restart). The MR-1 deliverable — the feedback parser is wired into the
+    // reviewer path — is PRESERVED, just at its new home; reviewSession delegates via the factory.
+    const factory = readSrc('server/jobs/reviewerJobFactory.ts');
+    expect(factory).toContain('feedbackParser');
     const reviewSession = readSrc('server/procedures/reviewSession.ts');
-    expect(reviewSession).toContain('feedbackParser');
+    expect(reviewSession).toContain('buildReviewerCanonicalParams');
   });
 
   it('MR-1: document content is included in reviewer prompt', () => {

@@ -8,7 +8,7 @@
  * All rows pass through the corresponding Zod schema before returning.
  * JSON columns are parsed strictly.
  */
-import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, inArray, or } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import {
@@ -49,12 +49,17 @@ import {
   type FeedbackEvaluationRow,
   type FeedbackManualSelectionRow,
   type ReviewSessionRow,
+  type ReviewSessionLifecyclePhase,
+  type SessionPartialReasonValue,
   type LockedDecisionRow,
   type AdoptLedgerRow,
 } from '../../../shared/schemas/phase4b.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { ownerScope } from '../ownerScope.js';
 import { v4 as uuidv4 } from 'uuid';
+// EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): the FAIL-VISIBLY audit writer (throws on failure), enlisted in the
+// SAME tx as the CAS abandon so a silent / un-audited abandon can never occur.
+import { insertAuditEvent } from './auditEvents.js';
 
 // ============================================================
 // Parse helpers
@@ -778,16 +783,21 @@ export async function listReviewSessionsForDocument(
   return rows.map((r) => parseReviewSessionRow(r, { userId }));
 }
 
-export async function insertReviewSession(data: {
-  id?: string;
-  userId: string;
-  documentId: string;
-  iterationNumber: number;
-  selectedReviewers: string[];
-  globalInstructions?: string;
-}): Promise<string> {
+export async function insertReviewSession(
+  data: {
+    id?: string;
+    userId: string;
+    documentId: string;
+    iterationNumber: number;
+    selectedReviewers: string[];
+    globalInstructions?: string;
+  },
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): pass a Drizzle `tx` to commit the session row in the
+  // SAME transaction as the lanes + reviewer jobs (atomic). Defaults to the pooled `db`.
+  executor: Pick<typeof db, 'insert'> = db,
+): Promise<string> {
   const id = data.id ?? uuidv4();
-  await db.insert(reviewSessions).values({
+  await executor.insert(reviewSessions).values({
     id,
     userId: data.userId,
     documentId: data.documentId,
@@ -811,6 +821,132 @@ export async function updateReviewSessionState(
     .where(
       and(eq(reviewSessions.id, id), eq(reviewSessions.userId, userId)),
     );
+}
+
+/**
+ * EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — COMPARE-AND-SET the session state. Conditional UPDATE that only
+ * transitions a row whose state is still `fromState`. Returns the rows actually transitioned (mysql2
+ * affectedRows): 1 = THIS caller won the transition; 0 = it lost (another op already moved the row). This
+ * is the single-flight lock the demoted recovery serializes on — two concurrent recoveries can never both
+ * abandon the same session, and the activeSessionKey unique index backstops the create that follows.
+ */
+export async function updateReviewSessionStateCas(
+  id: string,
+  userId: string,
+  fromState: 'active' | 'regenerated' | 'abandoned',
+  toState: 'active' | 'regenerated' | 'abandoned',
+  executor: Pick<typeof db, 'update'> = db,
+): Promise<number> {
+  const res = await executor
+    .update(reviewSessions)
+    .set({ state: toState })
+    .where(
+      and(
+        eq(reviewSessions.id, id),
+        ownerScope(reviewSessions.userId, userId),
+        eq(reviewSessions.state, fromState),
+      ),
+    );
+  // mysql2 ResultSetHeader.affectedRows = rows the WHERE actually transitioned (the DB serializes
+  // concurrent UPDATEs, so only the first sees state=fromState). MySQL has no .returning().
+  const header = res[0] as { affectedRows?: number } | undefined;
+  return header?.affectedRows ?? 0;
+}
+
+/**
+ * Set the CR-4 lifecycle SUB-state phase (companion to `state`; migration 0043). NULL = idle/active-
+ * normal. Unconditional owner-scoped write — callers (create's 'dispatching' marker + its flip back to
+ * NULL) own the session they just made. Inc 3's egress gate uses this to set 'held' / 'blocked_by_hold'.
+ */
+export async function updateReviewSessionLifecyclePhase(
+  id: string,
+  userId: string,
+  phase: ReviewSessionLifecyclePhase | null,
+): Promise<void> {
+  await db
+    .update(reviewSessions)
+    .set({ lifecyclePhase: phase })
+    .where(and(eq(reviewSessions.id, id), ownerScope(reviewSessions.userId, userId)));
+}
+
+/**
+ * Mark the session 'completed' (companion phase) + record the partial-fan-out reason once ALL expected
+ * lanes are terminal (the Inc-2 data foundation the Inc-3 send gate reads). GUARDED: only transitions
+ * from an idle (NULL) / 'dispatching' / already-'completed' phase, so it NEVER overwrites a hold phase
+ * ('held' / 'blocked_by_hold' / 'partial_blocked_by_hold') the egress gate set — a settled-completed must
+ * not silently clear a deliberate no_external hold. Owner-scoped; idempotent (same-value re-run).
+ */
+export async function setReviewSessionSettled(
+  id: string,
+  userId: string,
+  partialReason: SessionPartialReasonValue | null,
+): Promise<void> {
+  await db
+    .update(reviewSessions)
+    .set({ lifecyclePhase: 'completed', partialReason })
+    .where(
+      and(
+        eq(reviewSessions.id, id),
+        ownerScope(reviewSessions.userId, userId),
+        eq(reviewSessions.state, 'active'),
+        or(
+          isNull(reviewSessions.lifecyclePhase),
+          eq(reviewSessions.lifecyclePhase, 'dispatching'),
+          eq(reviewSessions.lifecyclePhase, 'completed'),
+        ),
+      ),
+    );
+}
+
+/**
+ * EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — SOFT, FAIL-CLOSED-AUDITED session abandon. The CAS abandon
+ * (active->abandoned; NO destructive cascade — feedback / lanes / locks / ledger are all retained) and its
+ * append-only audit row commit in ONE transaction: if the audit write fails the tx ROLLS BACK and the
+ * abandon is undone, so a silent / un-audited abandon can NEVER occur (spoliation / incomplete-production
+ * exposure under long transactional retention). The CAS is the single-flight lock. `reason` distinguishes
+ * auto-recovery (system actor) from an attorney-initiated abandon. Returns rows transitioned (1 = won).
+ */
+export async function abandonReviewSessionAudited(params: {
+  sessionId: string;
+  userId: string;
+  matterId: string;
+  documentId: string;
+  reason: 'auto_recovery' | 'attorney';
+  fromLifecyclePhase: string | null;
+  summary: string;
+}): Promise<number> {
+  return db.transaction(async (tx) => {
+    const rows = await updateReviewSessionStateCas(
+      params.sessionId,
+      params.userId,
+      'active',
+      'abandoned',
+      tx,
+    );
+    if (rows === 1) {
+      // FAIL-VISIBLY (throws on failure -> tx rollback -> abandon undone). NOT recordAuditEvent (which
+      // swallows). The reason code makes auto-recovery vs attorney reconstructable under discovery.
+      await insertAuditEvent(
+        {
+          userId: params.userId,
+          matterId: params.matterId,
+          documentId: params.documentId,
+          eventType: 'review_session_transition',
+          actor: params.reason === 'auto_recovery' ? 'system' : 'attorney',
+          summary: params.summary,
+          payload: {
+            fromState: 'active',
+            toState: 'abandoned',
+            reason: params.reason,
+            fromLifecyclePhase: params.fromLifecyclePhase,
+          },
+          reviewSessionId: params.sessionId,
+        },
+        tx,
+      );
+    }
+    return rows;
+  });
 }
 
 export async function updateReviewSessionSelections(

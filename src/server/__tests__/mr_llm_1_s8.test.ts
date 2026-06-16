@@ -45,6 +45,13 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     listFeedbackForSession: vi.fn(),
     getEvaluationForIteration: vi.fn(),
     listManualSelectionsForSession: vi.fn(),
+    // EGRESS-CONTROL-PLANE-1 Inc 2: reviewSession.create's recovery/lifecycle path now
+    // calls these new phase4b lifecycle writers. Stub them so the create flow reaches the
+    // reviewer-job execution that the api_error -> markJobFailed assertions exercise.
+    setReviewSessionSettled: vi.fn(),
+    updateReviewSessionLifecyclePhase: vi.fn(),
+    abandonReviewSessionAudited: vi.fn().mockResolvedValue(1),
+    updateReviewSessionStateCas: vi.fn().mockResolvedValue(1),
   };
 });
 
@@ -78,6 +85,24 @@ vi.mock('../db/queries/matters.js', async (importOriginal) => {
     ...actual,
     getMatterById: vi.fn(),
   };
+});
+
+// EGRESS-CONTROL-PLANE-1 Inc 2: reviewSession.create now opens a real db.transaction
+// (the atomic outbox commit) before any reviewer job runs. Without the live DB this throws a
+// 'net'/connection error before markJobFailed can ever be reached. Stub the connection so the
+// transaction resolves in-process, preserving the create -> reviewer-job execution path the
+// api_error assertions below depend on.
+vi.mock('../db/connection.js', () => {
+  const noop = {
+    values: () => Promise.resolve([{ affectedRows: 1 }]),
+    set() { return noop; },
+    where: () => Promise.resolve([]),
+    from() { return noop; },
+    limit: () => Promise.resolve([]),
+    orderBy() { return noop; },
+  };
+  const exec = { insert: () => noop, update: () => noop, select: () => noop, delete: () => noop };
+  return { db: { ...exec, transaction: (cb: (tx: typeof exec) => unknown) => Promise.resolve(cb(exec)) } };
 });
 
 const createCaller = (userId: string) => {

@@ -307,6 +307,26 @@ export type FeedbackManualSelectionRow = z.infer<typeof FeedbackManualSelectionR
 // review_sessions (Ch 4.8)
 // ============================================================
 
+// EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): the lifecycle SUB-state machine, a COMPANION to `state`
+// (which stays 'active' | 'regenerated' | 'abandoned' — migration 0043 leaves it untouched because it
+// is locked by the activeSessionKey generated column). NULL = idle/active-normal. 'dispatching' = the
+// brief post-commit transmit handoff (recovery-refusal marker). 'completed' = all expected lanes
+// terminal. 'held' / 'blocked_by_hold' / 'partial_blocked_by_hold' are SET by the egress gate in
+// Increment 3 (recovery already refuses them).
+export const REVIEW_SESSION_LIFECYCLE_PHASE_VALUES = [
+  'dispatching',
+  'held',
+  'blocked_by_hold',
+  'partial_blocked_by_hold',
+  'completed',
+] as const;
+export type ReviewSessionLifecyclePhase =
+  (typeof REVIEW_SESSION_LIFECYCLE_PHASE_VALUES)[number];
+
+// The session-level partial-fan-out reason (Inc-2 data foundation for the Inc-3 send gate).
+export const SESSION_PARTIAL_REASON_VALUES = ['non_response', 'blocked_by_hold'] as const;
+export type SessionPartialReasonValue = (typeof SESSION_PARTIAL_REASON_VALUES)[number];
+
 export const ReviewSessionRowSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -319,6 +339,11 @@ export const ReviewSessionRowSchema = z.object({
   lastAutosavedAt: z.date().nullable(),
   // activeSessionKey is a GENERATED column — present on reads, never written (D.1.2, R10)
   activeSessionKey: z.string().nullable(),
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — companion lifecycle phase + partial reason (migration 0043).
+  // .nullable().optional() so a post-migration row (key present, value null), a pre-migration read, and
+  // a legacy test fixture (key absent) all parse — mirrors the FOLD-L1-1 disposition-field pattern.
+  lifecyclePhase: z.enum(REVIEW_SESSION_LIFECYCLE_PHASE_VALUES).nullable().optional(),
+  partialReason: z.enum(SESSION_PARTIAL_REASON_VALUES).nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

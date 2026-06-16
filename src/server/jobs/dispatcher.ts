@@ -51,11 +51,19 @@ import {
   markJobTimedOut,
   getStaleRunningJobs,
   setJobDispatchAttempts,
+  getJobById,
 } from '../db/queries/jobs.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { isTransientDbError, isConditionallyRetriedCode } from '../db/transientDbError.js';
 import { isJobDispatcherEnabled, isJobReaperEnabled, isReviewerAsyncEnabled } from '../config/featureFlags.js';
-import { runDeferredCanonicalJob, hasDeferredContinuation } from '../db/canonicalMutation.js';
+import {
+  runDeferredCanonicalJob,
+  hasDeferredContinuation,
+  registerDeferredContinuation,
+} from '../db/canonicalMutation.js';
+// EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): rebuild a reviewer continuation from the committed
+// jobs.input after a restart, so a continuation-less queued reviewer job re-transmits instead of stranding.
+import { reconstructReviewerParamsFromJob } from './reviewerJobFactory.js';
 import { reapStaleLanes } from '../db/queries/reviewerLaneState.js';
 import { parseEnvInt } from '../config/parseEnvInt.js';
 
@@ -189,11 +197,34 @@ function readDurableDispatchAttempts(job: DispatchableJob): number {
  * registered (D-1/D-4); a job with no continuation (post-restart) is left 'queued' for Component B.
  */
 export function registerDefaultJobHandlers(): void {
-  if (!isJobDispatcherEnabled()) return;
-  registerJobHandler('reviewer_feedback', async (jobId, _userId) => {
+  // EGRESS-CONTROL-PLANE-1 Inc 2: register the reviewer handler whenever the durable dispatcher OR the
+  // async reviewer lane is enabled. Async no longer relies on a fire-and-forget in-process promise — the
+  // committed job row + the durable poll loop (with reconstruct-from-input below) own it, so a restart can
+  // no longer strand an in-flight reviewer. When BOTH flags are OFF (prod's sync inline path) this
+  // registers NOTHING: byte-for-byte unchanged — no handler, the dispatcher stays a no-op, reviewers run
+  // inline in the request.
+  if (!isJobDispatcherEnabled() && !isReviewerAsyncEnabled()) return;
+  registerJobHandler('reviewer_feedback', async (jobId, userId) => {
     if (!hasDeferredContinuation(jobId)) {
-      _skipNoContinuation.add(jobId);
-      return;
+      // RECONSTRUCT-AFTER-RESTART (the TRUE durable outbox): the in-memory continuation was lost to a
+      // process restart, but the committed job row carries everything in jobs.input. Rebuild the params
+      // and register them so the SAME runDeferredCanonicalJob path runs it; the atomic queued->running
+      // claim dedupes against any racer.
+      try {
+        const job = await getJobById(jobId, userId);
+        const params = job ? reconstructReviewerParamsFromJob(job) : null;
+        if (!params) {
+          // Not reconstructable — input was CLEARED on terminal, or it is a non-reviewer / orphaned row.
+          // Leave it 'queued' and skip so it does not busy-poll (a true orphan stays for inspection).
+          _skipNoContinuation.add(jobId);
+          return;
+        }
+        registerDeferredContinuation(jobId, params);
+      } catch (err) {
+        console.error(`[Dispatcher] reviewer reconstruct-from-input failed for jobId="${jobId}":`, err);
+        _skipNoContinuation.add(jobId);
+        return;
+      }
     }
     await runDeferredCanonicalJob(jobId);
   });

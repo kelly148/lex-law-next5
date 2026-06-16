@@ -69,8 +69,10 @@ describe('DOC-PANE-LANE-RUNNING-1 — markReviewerLaneRunning', () => {
     resolve(__dirname, '../../..', 'src/server/db/canonicalMutation.ts'),
     'utf8',
   );
-  const reviewSessionSrc = readFileSync(
-    resolve(__dirname, '../../..', 'src/server/procedures/reviewSession.ts'),
+  // EGRESS-CONTROL-PLANE-1 Inc 2: reviewer EXECUTION (incl. the onRunning hook ->
+  // markReviewerLaneRunning) moved OUT of reviewSession.ts INTO reviewerJobFactory.ts.
+  const reviewerJobFactorySrc = readFileSync(
+    resolve(__dirname, '../../..', 'src/server/jobs/reviewerJobFactory.ts'),
     'utf8',
   );
 
@@ -113,11 +115,13 @@ describe('DOC-PANE-LANE-RUNNING-1 — markReviewerLaneRunning', () => {
     expect(canonicalSrc.indexOf('params.onRunning')).toBeGreaterThan(canonicalSrc.indexOf("'job_started'"));
   });
 
-  // (d) source audit of reviewSession — onRunning wiring gated on reviewerAsync.
-  it('reviewSession wires onRunning -> markReviewerLaneRunning gated on reviewerAsync (source audit)', () => {
-    expect(reviewSessionSrc).toContain('markReviewerLaneRunning(sessionId, reviewerRole, userId)');
-    expect(reviewSessionSrc).toContain('onRunning:');
-    expect(reviewSessionSrc).toContain('markReviewerLaneRunning(');
-    expect(reviewSessionSrc).toContain('reviewerAsync');
+  // (d) source audit — onRunning wiring gated on the async flag. The reviewer execution closures
+  // (incl. onRunning) moved into reviewerJobFactory.ts (Inc 2 durable outbox); there the gate is the
+  // factory's `isAsync` param and the lane writer takes `reviewSessionId` (was `sessionId` inline).
+  it('reviewerJobFactory wires onRunning -> markReviewerLaneRunning gated on isAsync (source audit)', () => {
+    expect(reviewerJobFactorySrc).toContain('markReviewerLaneRunning(reviewSessionId, reviewerRole, userId)');
+    expect(reviewerJobFactorySrc).toContain('onRunning:');
+    expect(reviewerJobFactorySrc).toContain('markReviewerLaneRunning(');
+    expect(reviewerJobFactorySrc).toContain('isAsync');
   });
 });

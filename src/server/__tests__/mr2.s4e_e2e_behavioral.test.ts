@@ -66,6 +66,12 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     insertManualSelection: vi.fn(),
     updateReviewSessionState: vi.fn(),
     updateReviewSessionSelections: vi.fn(),
+    // EGRESS-CONTROL-PLANE-1 Inc 2: create's outbox post-commit sets the companion lifecycle phase +
+    // settled partial-reason; stub them so the cross-iteration chain never hits the real db.update.
+    setReviewSessionSettled: vi.fn(),
+    updateReviewSessionLifecyclePhase: vi.fn(),
+    abandonReviewSessionAudited: vi.fn().mockResolvedValue(1),
+    updateReviewSessionStateCas: vi.fn().mockResolvedValue(1),
   };
 });
 
@@ -102,6 +108,28 @@ vi.mock('../db/queries/matters.js', async (importOriginal) => {
     ...actual,
     getMatterById: vi.fn(),
   };
+});
+// EGRESS-CONTROL-PLANE-1 Inc 2: create now commits the durable outbox in db.transaction. Run the callback
+// with a no-op chainable fake tx (the job-write functions are stubbed via setJobWriteFunctions), so the
+// outbox commit + the inline reviewer transmit run without a live database — executeCanonicalMutation /
+// runJob / parseFeedbackOutput still run as production code, so the cross-iteration assertions hold.
+vi.mock('../db/connection.js', () => {
+  const noop = {
+    values: () => Promise.resolve([{ affectedRows: 1 }]),
+    set() {
+      return noop;
+    },
+    where: () => Promise.resolve([]),
+    from() {
+      return noop;
+    },
+    limit: () => Promise.resolve([]),
+    orderBy() {
+      return noop;
+    },
+  };
+  const exec = { insert: () => noop, update: () => noop, select: () => noop, delete: () => noop };
+  return { db: { ...exec, transaction: (cb: (tx: typeof exec) => unknown) => Promise.resolve(cb(exec)) } };
 });
 
 // ── Imports (after all vi.mock declarations) ──────────────────────────────────

@@ -960,6 +960,17 @@ export async function enqueueCanonicalJobForDispatcher(
 }
 
 /**
+ * EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): register an already-committed job's continuation for the
+ * in-process runner WITHOUT re-enqueuing. The job ROW was inserted atomically in the outbox commit tx (by
+ * reviewSession.create), or RECONSTRUCTED from jobs.input by the dispatcher after a restart. The atomic
+ * claim in runJob (markJobRunning, queued->running) dedupes if two runners race, so registering a
+ * continuation + a background kick is safe alongside the durable poll loop — at most one actually runs it.
+ */
+export function registerDeferredContinuation(jobId: string, params: CanonicalMutationParams): void {
+  _deferredJobParams.set(jobId, params);
+}
+
+/**
  * True if an in-memory continuation exists for jobId. The dispatcher checks this so it never
  * claims a job whose continuation was lost to a restart — that job is left 'queued' for
  * JOB-RECOVERY-1 (Component B) to reap/reconstruct.

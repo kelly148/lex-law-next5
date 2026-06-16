@@ -26,6 +26,9 @@ export const REVIEWER_LANE_STATUS_VALUES = [
   'dispatch_failed', // the enqueue itself failed — never dropped from the denominator (operator decision)
   'orphaned_reaped', // C's per-lane deadline reaped it (crash/restart orphan; defense-in-depth)
   'canceled',
+  // EGRESS-CONTROL-PLANE-1 Inc 2: the per-reviewer egress gate (Inc 3) blocked this lane under a
+  // no_external hold. Terminal, but NOT a FAILURE class — a deliberate withhold, not a reviewer failure.
+  'blocked_by_hold',
 ] as const;
 export type ReviewerLaneStatus = (typeof REVIEWER_LANE_STATUS_VALUES)[number];
 
@@ -37,6 +40,8 @@ export const TERMINAL_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
   'dispatch_failed',
   'orphaned_reaped',
   'canceled',
+  // EGRESS-CONTROL-PLANE-1 Inc 2: terminal, but NOT a failure (see HOLD_BLOCKED_LANE_STATUSES below).
+  'blocked_by_hold',
 ]);
 
 /** Terminal statuses that represent a FAILURE (no usable feedback from this lane). */
@@ -47,6 +52,23 @@ export const FAILURE_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
   'orphaned_reaped',
   'canceled',
 ]);
+
+/**
+ * EGRESS-CONTROL-PLANE-1 Inc 2: terminal statuses where the lane was BLOCKED by a no_external hold
+ * (Inc 3's per-reviewer egress gate sets it; Inc 2 classifies it). Deliberately DISTINCT from a FAILURE
+ * class — a hold-block is an intentional "don't transmit" act, NOT a reviewer that failed to respond.
+ */
+export const HOLD_BLOCKED_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set(['blocked_by_hold']);
+
+/**
+ * WHY a (terminal) reviewer set is partial — the Inc-2 data foundation for the Inc-3 send gate.
+ *   'blocked_by_hold' — a no_external hold blocked >=1 reviewer; Inc 3 requires the recorded one-click
+ *     attorney acknowledgment before the review is send-ready (a hold must never be silently overridden).
+ *     Takes precedence over a co-occurring non-response.
+ *   'non_response'    — >=1 reviewer failed/timed-out/dispatch-failed/orphaned; informational only.
+ *   null              — no blocked and no failed lane (clean, or not yet terminal).
+ */
+export type SessionPartialReason = 'blocked_by_hold' | 'non_response' | null;
 
 export function isTerminalLaneStatus(s: ReviewerLaneStatus): boolean {
   return TERMINAL_LANE_STATUSES.has(s);
@@ -119,6 +141,10 @@ export interface ReviewerLanesContract {
   totalSuggestions: number; // across completed_with_feedback lanes
   /** condition 8: the set the (any) consolidation ran over reads honestly off this. */
   incomplete: boolean; // !allTerminal OR aggregate.failed > 0
+  /** EGRESS-CONTROL-PLANE-1 Inc 2: WHY the terminal set is partial (hold-block vs non-response), or null
+   *  when not partial / not yet terminal. Inc 3's send gate requires an attorney acknowledgment when this
+   *  is 'blocked_by_hold'. Surfaced through the EXISTING reviewSession.get path (no new plumbing). */
+  partialReason: SessionPartialReason;
 }
 
 /**
@@ -166,6 +192,23 @@ export function deriveLaneDisplayState(lanes: ReviewerLaneView[]): {
   return { displayState, aggregate, allTerminal, totalSuggestions };
 }
 
+/**
+ * EGRESS-CONTROL-PLANE-1 Inc 2: classify WHY a reviewer set is partial (the Inc-2 data foundation for
+ * the Inc-3 send gate). Hold-block takes precedence over non-response — a deliberate "don't transmit"
+ * must be acknowledged even alongside an unrelated reviewer failure. Pure; null when no blocked/failed lane.
+ */
+export function deriveSessionPartialReason(lanes: ReviewerLaneView[]): SessionPartialReason {
+  let holdBlocked = false;
+  let failed = false;
+  for (const lane of lanes) {
+    if (HOLD_BLOCKED_LANE_STATUSES.has(lane.status)) holdBlocked = true;
+    else if (FAILURE_LANE_STATUSES.has(lane.status)) failed = true;
+  }
+  if (holdBlocked) return 'blocked_by_hold';
+  if (failed) return 'non_response';
+  return null;
+}
+
 /** Build the full contract from the expected lane views (the single read-side surface). */
 export function buildReviewerLanesContract(lanes: ReviewerLaneView[]): ReviewerLanesContract {
   const { displayState, aggregate, allTerminal, totalSuggestions } = deriveLaneDisplayState(lanes);
@@ -176,5 +219,6 @@ export function buildReviewerLanesContract(lanes: ReviewerLaneView[]): ReviewerL
     allTerminal,
     totalSuggestions,
     incomplete: !allTerminal || aggregate.failed > 0,
+    partialReason: deriveSessionPartialReason(lanes),
   };
 }

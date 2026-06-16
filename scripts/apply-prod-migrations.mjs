@@ -135,6 +135,13 @@ const MIGRATIONS = [
   // a hold or audit-write failure).
   '0041_egress_control_plane_1_egress_events.sql',
   '0042_egress_control_plane_1_egress_hold.sql',
+  // EGRESS-CONTROL-PLANE-1 (Increment 2 — durable outbox + CR-4) — ADDITIVE: review_sessions
+  // lifecyclePhase + partialReason (companion sub-state machine; state UNCHANGED so the
+  // activeSessionKey generated-column guard is untouched), reviewer_lanes.status += blocked_by_hold,
+  // jobs.idempotencyKey + unique index, audit_events.eventType += review_session_transition. All
+  // ADD COLUMN/INDEX IF NOT EXISTS + ENUM-value MODIFY (trailing-append); no generated column is
+  // touched; idempotent. Apply BEFORE the Inc-2 code serves (reads/writes reference the columns).
+  '0043_egress_control_plane_1_inc2_outbox.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];

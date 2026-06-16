@@ -179,8 +179,13 @@ export async function pollJobs(
  */
 export async function insertJob(
   newJob: NewJob,
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): pass a Drizzle `tx` to enlist the job insert in the
+  // SAME transaction as the session + lanes, so session(active) + lanes + ALL reviewer jobs(queued)
+  // commit ATOMICALLY (a pre-queue throw rolls everything back -> the active-with-zero-jobs wedge is
+  // unreachable). Defaults to the pooled `db` (byte-for-byte unchanged for every existing caller).
+  executor: Pick<typeof db, 'insert'> = db,
 ): Promise<string> {
-  await db.insert(jobs).values(newJob);
+  await executor.insert(jobs).values(newJob);
   return newJob.id;
 }
 
@@ -194,7 +199,15 @@ export async function markJobRunning(
   userId: string,
 ): Promise<number> {
   const now = new Date();
-  await db
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (idempotency / no-double-transmit): the atomic claim must be a TRUE
+  // single-winner. Return the conditional UPDATE's OWN affectedRows — the rows THIS statement actually
+  // transitioned queued->running — NOT a post-hoc `SELECT ... WHERE status='running'`. The old SELECT
+  // returned 1 to EVERY concurrent caller once ANY of them flipped the row, so two runners (e.g. a
+  // background kick AND the durable dispatcher poll claiming the same committed reviewer job) would BOTH
+  // pass the rowsAffected===0 guard in runJob and BOTH call adapter.generate -> a double transmit of
+  // confidential reviewer content. affectedRows is single-winner regardless of the CLIENT_FOUND_ROWS flag:
+  // the loser's WHERE (status='queued') matches zero rows once the winner has flipped it, so it gets 0.
+  const res = await db
     .update(jobs)
     .set({
       status: 'running',
@@ -206,16 +219,11 @@ export async function markJobRunning(
       and(
         eq(jobs.id, jobId),
         eq(jobs.userId, userId),
-        eq(jobs.status, 'queued'), // conditional UPDATE (Ch 23.2)
+        eq(jobs.status, 'queued'), // conditional UPDATE (Ch 23.2) — the single-winner claim
       ),
     );
-  // MySQL does not support .returning(); verify the update took effect with a SELECT.
-  const check = await db
-    .select({ id: jobs.id })
-    .from(jobs)
-    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'running')))
-    .limit(1);
-  return check.length;
+  const header = res[0] as { affectedRows?: number } | undefined;
+  return header?.affectedRows ?? 0;
 }
 
 /**
@@ -270,6 +278,10 @@ export async function markJobCompleted(
       tokensPrompt,
       tokensCompletion,
       tokensReasoning,
+      // EGRESS-CONTROL-PLANE-1 Inc 2: clear the durable-outbox reconstruction payload (prompt text) on
+      // terminal — input is consumed BEFORE this write, and must not linger as a second copy of client
+      // content (decision #1). input is .notNull(), so reset to {} (never SQL NULL).
+      input: {} as Record<string, unknown>,
       updatedAt: now,
     })
     .where(
@@ -307,6 +319,9 @@ export async function markJobFailed(
       lastHeartbeatAt: now,
       errorClass,
       errorMessage,
+      // EGRESS-CONTROL-PLANE-1 Inc 2: clear the durable-outbox reconstruction payload on terminal (no
+      // lingering copy of client content). input is .notNull(), so reset to {} (never SQL NULL).
+      input: {} as Record<string, unknown>,
       updatedAt: now,
     })
     .where(
@@ -336,6 +351,8 @@ export async function markJobTimedOut(
       lastHeartbeatAt: now,
       errorClass: 'timeout',
       errorMessage,
+      // EGRESS-CONTROL-PLANE-1 Inc 2: clear the durable-outbox reconstruction payload on terminal.
+      input: {} as Record<string, unknown>,
       updatedAt: now,
     })
     .where(
@@ -365,6 +382,8 @@ export async function markJobCancelled(
       lastHeartbeatAt: now,
       errorClass: 'other',
       errorMessage: 'Cancelled by attorney',
+      // EGRESS-CONTROL-PLANE-1 Inc 2: clear the durable-outbox reconstruction payload on terminal.
+      input: {} as Record<string, unknown>,
       updatedAt: now,
     })
     .where(

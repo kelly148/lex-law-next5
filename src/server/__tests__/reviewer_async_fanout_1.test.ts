@@ -40,27 +40,30 @@ describe('isReviewerAsyncEnabled — default-OFF env flag', () => {
 describe('reviewSession.create async dispatch wiring (source audit)', () => {
   const src = readFileSync(resolve('src/server/procedures/reviewSession.ts'), 'utf8');
 
-  it('reads the async flag before the reviewer fan-out loop', () => {
+  // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox) SUPERSEDED the original three-way fork (inline /
+  // dispatcher / fire-and-forget). create now commits session + lanes + ALL reviewer jobs(queued, with
+  // reconstruction input) ATOMICALLY, then transmits post-commit via the reusable factory through the
+  // SAME deferred runner; the fragile fire-and-forget path is RETIRED. Assertions updated to the new
+  // wiring; the async-vs-sync intent is preserved.
+  it('reads the async flag before the reviewer fan-out', () => {
     expect(src).toContain('const reviewerAsync = isReviewerAsyncEnabled();');
   });
-  // DISPATCHER-COMPLETE-1 D-4: the params are extracted once, then dispatched by mode
-  // (durable dispatcher when JOB_DISPATCHER_ENABLED; otherwise the established fire-and-forget /
-  // sequential paths, byte-for-byte). Assertions updated for the new wiring; intent preserved.
-  it('extracts the reviewer mutation params once, then dispatches by mode', () => {
-    expect(src).toContain('const reviewerParams: CanonicalMutationParams = {');
+  it('builds per-reviewer durable input (frozen prompt + reconstruction params) for the outbox', () => {
+    expect(src).toContain('const reviewers: ReviewerDurableInput[] = input.selectedReviewers.map((reviewerRole) => {');
+    expect(src).toContain('jobId: uuidv4(),');
   });
-  it('routes async reviewers through the durable dispatcher when JOB_DISPATCHER_ENABLED', () => {
-    expect(src).toContain('reviewerAsync && isJobDispatcherEnabled()');
-    expect(src).toContain('await enqueueCanonicalJobForDispatcher(reviewerParams);');
+  it('commits the outbox atomically (session + lanes + jobs in one transaction)', () => {
+    expect(src).toContain('await db.transaction(async (tx) => {');
+    expect(src).toContain('await insertJob(buildReviewerJobRow(r), tx);');
   });
-  it('launches an un-awaited promise (fire-and-forget) when async is ON and the dispatcher is OFF', () => {
-    expect(src).toContain('} else if (reviewerAsync) {');
-    expect(src).toContain('const reviewerResultPromise = executeCanonicalMutation(reviewerParams);');
-    expect(src).toContain('void reviewerResultPromise.catch(');
+  it('async transmit registers the continuation + kicks a background deferred run (durable; no fire-and-forget)', () => {
+    expect(src).toContain('registerDeferredContinuation(r.jobId, buildReviewerCanonicalParams(r));');
+    expect(src).toContain('void runDeferredCanonicalJob(r.jobId)');
+    expect(src).not.toContain('const reviewerResultPromise = executeCanonicalMutation(reviewerParams);');
   });
-  it('preserves the inline + sequential path when async is OFF', () => {
-    expect(src).toContain('const reviewerResult = await executeCanonicalMutation(reviewerParams);');
-    expect(src).toContain('reviewerJobIds.push(reviewerResult.jobId);');
+  it('preserves the inline + sequential SYNC path (awaited deferred run) when async is OFF', () => {
+    expect(src).toContain('const result = await runDeferredCanonicalJob(r.jobId);');
+    expect(src).toContain('reviewerJobIds.push(r.jobId);');
   });
   it('skips the advisory evaluator in async mode (it needs all reviewer feedback first)', () => {
     expect(src).toContain('!reviewerAsync && isEvaluatorEnabled() && input.selectedReviewers.length > 1');
