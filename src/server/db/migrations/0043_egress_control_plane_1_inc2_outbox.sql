@@ -71,8 +71,7 @@ ALTER TABLE `reviewer_lanes`
 ALTER TABLE `jobs`
   ADD COLUMN IF NOT EXISTS `idempotencyKey` VARCHAR(128) NULL DEFAULT NULL;
 
-ALTER TABLE `jobs`
-  ADD UNIQUE INDEX IF NOT EXISTS `uniq_jobs_idempotency_key` (`idempotencyKey`);
+CREATE UNIQUE INDEX IF NOT EXISTS `uniq_jobs_idempotency_key` ON `jobs` (`idempotencyKey`);
 
 -- -----------------------------------------------------------------------------
 -- audit_events: durable session-transition audit event type (additive ENUM value
