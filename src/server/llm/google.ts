@@ -30,6 +30,7 @@
 import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
 import { llmFetch } from './llmFetch.js';
+import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 
 interface GeminiContent {
   role: 'user' | 'model';
@@ -94,9 +95,6 @@ const SAFETY_SETTINGS = [
 // single, clear, correctly-classified error.
 // ============================================================
 
-// Known wrapper key names for Gemini structured-output normalization (parity with siblings).
-const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
-
 /**
  * Strip a whole-response ```json ... ``` code fence. Gemini may fence its JSON despite
  * responseMimeType: application/json. If the response is not a whole-response fence it is
@@ -112,28 +110,14 @@ export function stripJsonCodeFenceIfWholeResponse(text: string): string {
 }
 
 /**
- * Normalize a Gemini structured-output value when the expected schema is a bare array.
- * Only used as a FALLBACK after direct validation fails, so object-shaped schemas pass
- * untouched (same ordering the Anthropic adapter uses, MR-CAL-5D).
- *   1. already an array            → unchanged
- *   2. single-key object {k: [...]}→ extract the array
- *   3. known wrapper key with array→ extract the array
- *   4. otherwise                   → unchanged (Zod rejects with parse_error)
+ * Normalize a Gemini structured-output value when the expected schema is a bare array. Only used as a
+ * FALLBACK after direct validation fails, so object-shaped schemas pass untouched. HI-5b: delegates to
+ * the SHARED normalizeStructuredOutput so the Gemini lane now has the SAME recovery as OpenAI/xAI —
+ * including the nested-wrapper (Rule 4) and singleton-item (Rule 5) rules it previously lacked. Purely
+ * additive: it only recovers shapes that previously fell through to parse_error.
  */
 export function normalizeGoogleStructuredOutput(value: unknown): unknown {
-  if (Array.isArray(value)) return value;
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const inner = obj[keys[0]!];
-      if (Array.isArray(inner)) return inner;
-    }
-    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
-      if (knownKey in obj && Array.isArray(obj[knownKey])) return obj[knownKey];
-    }
-  }
-  return value;
+  return normalizeStructuredOutput(value);
 }
 
 /**

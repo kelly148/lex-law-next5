@@ -40,6 +40,7 @@ import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
 import { llmFetch } from './llmFetch.js';
 import { LLM_FETCH_TIMEOUT_MS } from './config.js';
+import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 
 // Anthropic Messages API types (minimal — we only use what v1 needs)
 interface AnthropicMessage {
@@ -71,8 +72,6 @@ interface AnthropicResponse {
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
 
-// Known wrapper key names for Anthropic structured output normalization.
-const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
 
 // ============================================================
 // MR-LLM-LITE-2: Anthropic structured-output helpers
@@ -98,37 +97,15 @@ export function stripJsonCodeFenceIfWholeResponse(text: string): string {
 }
 
 /**
- * Normalize the parsed value from an Anthropic structured-output response
- * when the expected schema is a bare array (e.g. RawSuggestionsArraySchema).
- *
- * Normalization rules (identical to OpenAI/xAI adapters, MR-LLM-LITE-2):
- *   1. If the value is already an array → return as-is.
- *   2. If the value is a plain object with exactly one property whose value
- *      is an array → extract and return that array.
- *   3. If the value is a plain object with multiple properties, and one of
- *      the known wrapper key names contains an array → return that array.
- *   4. All other cases → return unchanged; Zod will reject with parse_error.
+ * Normalize the parsed value from an Anthropic structured-output response when the expected schema is
+ * a bare array. HI-5b: delegates to the SHARED normalizeStructuredOutput so the Anthropic lane now has
+ * the SAME recovery as OpenAI/xAI — including the nested-wrapper (Rule 4) and singleton-item (Rule 5)
+ * rules it previously lacked (Claude was prone to those un-recovered shapes). Purely additive: it only
+ * recovers shapes that previously fell through to parse_error; a value the schema already accepts is
+ * unchanged.
  */
 export function normalizeAnthropicStructuredOutput(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const inner = obj[keys[0]!];
-      if (Array.isArray(inner)) {
-        return inner;
-      }
-    }
-    for (const knownKey of KNOWN_ARRAY_WRAPPER_KEYS) {
-      if (knownKey in obj && Array.isArray(obj[knownKey])) {
-        return obj[knownKey];
-      }
-    }
-  }
-  return value;
+  return normalizeStructuredOutput(value);
 }
 
 export class AnthropicAdapter implements LlmClient {
