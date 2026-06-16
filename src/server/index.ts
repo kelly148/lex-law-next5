@@ -28,6 +28,7 @@ import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.j
 import { db } from './db/connection.js';
 import { telemetryEvents } from './db/schema.js';
 import { validateLlmConfig } from './llm/config.js';
+import { parseEnvInt } from './config/parseEnvInt.js';
 import { groundedChatStatusLine } from './llm/chatCopilotConfig.js';
 import { loadPromptAssets } from './llm/promptAssets.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
@@ -67,7 +68,9 @@ console.log(`[startup] ${groundedChatStatusLine()}`);
 loadPromptAssets();
 
 const app = express();
-const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
+// CONFIG-VALIDATION-HARDENING-1: guard against a malformed PORT becoming NaN (Node would then bind a
+// random port silently). An invalid value falls back to the documented 3001 default.
+const PORT = parseEnvInt(process.env['PORT'], 3001);
 
 // ============================================================
 // Telemetry database writer — wired up at server start

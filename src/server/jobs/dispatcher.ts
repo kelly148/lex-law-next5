@@ -57,6 +57,7 @@ import { isTransientDbError, isConditionallyRetriedCode } from '../db/transientD
 import { isJobDispatcherEnabled, isJobReaperEnabled, isReviewerAsyncEnabled } from '../config/featureFlags.js';
 import { runDeferredCanonicalJob, hasDeferredContinuation } from '../db/canonicalMutation.js';
 import { reapStaleLanes } from '../db/queries/reviewerLaneState.js';
+import { parseEnvInt } from '../config/parseEnvInt.js';
 
 // ============================================================
 // Dispatcher state
@@ -305,10 +306,10 @@ function scheduleLaneReaperSweep(): void {
 // Poll loop
 // ============================================================
 
-const POLL_INTERVAL_MS = parseInt(
-  process.env['DISPATCHER_POLL_INTERVAL_MS'] ?? '2000',
-  10,
-);
+// CONFIG-VALIDATION-HARDENING-1: guard against a malformed interval becoming NaN. A NaN here would
+// flow into jitteredInterval() -> setTimeout(NaN), which Node treats as 0 — a CPU-spinning poll loop.
+// An invalid/non-positive value falls back to the documented 2000ms default.
+const POLL_INTERVAL_MS = parseEnvInt(process.env['DISPATCHER_POLL_INTERVAL_MS'], 2000);
 
 // Jitter: ±20% of poll interval to prevent thundering-herd
 function jitteredInterval(): number {
