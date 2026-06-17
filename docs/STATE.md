@@ -4,6 +4,36 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-17 (Overnight reversible batch rev.3 — STRIP-CLEANUP + CHANGEPW-UI + R3-compare + FOLD-PM-3 + FOLD-NOTIFY-1 merged; R1 held as green PR; MATTERSTATE-BADGE skipped; all new flags OFF / additive, nothing deployed)
+
+**Disposition.** Operator authorized "Run full batch now" for the rev.3 overnight reversible build batch. Seven items processed strictly serially, each in its own isolated worktree off the then-current `origin/main`, own PR, Linux-CI-green, squash **auto-merge** on green (Rule 15) for the clean reversible items. Preceded by two operator-directed commits earlier the same session: the **0043 TiDB index hotfix** (`ALTER … ADD UNIQUE INDEX` → `CREATE UNIQUE INDEX … ON …`; PR #332 squash `c8e55e1`, deploy-unblock for EGRESS Inc 2) and the **Cowork docs housekeeping** (10 review/engagement docs; PR #333 squash `4a4526d`). **`origin/main` = `32a392b`. NOTHING deployed; no migration applied to prod; no flag flipped.**
+
+**(1) MATTERSTATE-BADGE-1 — SKIPPED (already merged).** A cherry-pick came up empty: the "Sendability:" relabel + render test were already on `main` via PR #279 (`244cedc`). The unmerged parallel branch `lex-next/matterstate-badge-1` (`e50051b`, worktree `lln-badge-1`) is a redundant duplicate.
+
+**(2) RELAYOUT-2-STRIP-CLEANUP — PR #334 squash `307828b`.** Deleted dead `MatterReadinessStrip.tsx` + its render test + the two `r2_cta_oxblood.source.test.ts` references (RELAYOUT-2 replaced it with `MatterRecitalBand`). No live import existed. The cross-engagement assertion-test edit was surfaced in the PR (intended cleanup, not a weakening). No migration.
+
+**(3) FOLD-AUTH-CHANGEPW — PR #335 squash `fb57640`.** A "Change Password" section added to the existing `SettingsPage`, wired to the already-shipped `auth.changePassword` procedure (UI half only; procedure untouched, not run vs any live DB). Light client guards mirror the server; `useGuardedMutation`; rendered independent of `settings.get`. 5 render tests. No migration.
+
+**(4) REVIEW-LOOP-UX-1 / R3 — PR #336 squash `4643f67`.** Document version-history + compare overlay in the review pane via a new READ-ONLY owner-scoped `version.compare` tRPC query, reusing the LDD compare engine (`listLddKeyTermsForVersion`/`compareKeyTerms`) + version model. **Design note (flagged):** the "diff" is a key-term **dictionary** diff (spec said reuse the LDD engine), not a raw text line-diff — easily layered on later. No schema change.
+
+**(5) REVIEW-LOOP-UX-1 / R1 — OPEN PR #337 (CI GREEN, HELD for `operator approve accept:`).** Inline adopt/reject/defer per suggestion + the FOLD-ORCH-1 convergent bulk-adopt scroll-ack gate. Reject/defer record via the EXISTING `audit_events` `'disposition'` event; adopt rides the EXISTING select→regenerate ledger path. No new table/migration; owner-scoped like `lockDecision`; Inc-2 dispatch untouched; 8 existing tests got additive mock-stubs only (no assertion changes). **NOT auto-merged — 3 UX decisions need your call:** (a) "adopt reflects immediately" is via the existing select→regenerate flow + badges, NOT an instant per-click committed ledger write (that would need a new mutation, no new table); (b) reject reuses the existing "Decline" control; (c) defer is a new button. Decide → I finish per your choice.
+
+**(6) FOLD-PM-3 — PR #338 squash `981f58a` — the centerpiece.** Additive party/entity/contact data model: migration **0044** (`matter_entity` + `matter_entity_contact`, two `CREATE TABLE IF NOT EXISTS`, inline indexes, registered in the pre-deploy allowlist + purge cascade). Owner-scoped via `ownerScope`; **within-matter only — cross-matter identity resolution DEFERRED** (`externalIdentityKey` is a forward-safe grouping hook, never matched/joined now). Behind **`PARTY_MODEL_ENABLED`** (default OFF). `matter_parties`/`conflict_checks` untouched (optional same-matter `partyRef` soft link). Unblocks FOLD-DEED-1.
+
+**(7) FOLD-NOTIFY-1 — PR #339 squash `32a392b` — optional/last.** In-app notification CORE (scaffolding tier): migration **0045** (dedicated `notifications` table, additive, inline indexes, allowlist + purge cascade), owner-scoped read/mark-seen procedures, bell + unread badge + per-matter "ready" badge in `AppShell` + 60s poll. Behind **`NOTIFICATIONS_ENABLED`** (default OFF). **Dedicated-table approach — the Inc-2 jobs path was NOT touched.** Informational only; **producers (outbox-emit) + hold/ack types DEFERRED to after EGRESS Inc 3b** (table sits empty until producers land).
+
+**Operator apply items (additive, on the pre-deploy allowlist; NOT applied):** migrations **0044**, **0045** — apply each (additive, idempotent) before flipping its flag (`PARTY_MODEL_ENABLED`, `NOTIFICATIONS_ENABLED`). No destructive/non-additive migrations. (0043 + Inc 2: operator was to re-run that deploy/migration; status to confirm.)
+
+**Index syntax (rule 2a honored).** Every new table (0044, 0045) declares indexes **INLINE inside `CREATE TABLE IF NOT EXISTS`** (TiDB-safe, idempotent at table level); there is **zero `ALTER TABLE … ADD INDEX`** anywhere — the 0043 trap is fully avoided.
+
+**In-batch CI fixes (all trivial, by me).** Item 5: `fireEvent` imported from `vitest` → `@testing-library/react`. Item 6: the migration-guard test scanned its own header comment (which names the ALTER-ADD-INDEX trap) → made it strip `--`/`/* */` comments before the destructive-DDL regexes. Item 7: a Write-tool glitch appended a stray `</content></invoke>` to every new file → stripped.
+
+**New default-OFF flags:** `PARTY_MODEL_ENABLED`, `NOTIFICATIONS_ENABLED` (both operator-gated to flip). **Inc-2 reviewer-dispatch/outbox path never touched** across the whole batch (verified per item).
+
+**Open items.** R1 PR #337 awaits `operator approve accept:` (3 UX decisions above). Redundant PR #331 (`railway/fix-deploy-3a018f`, an auto-generated duplicate of the 0043 fix already merged via #332) can be closed. Several leftover batch worktrees on disk couldn't be `git worktree remove`'d (Windows file-lock) — harmless; prune when unlocked.
+
+---
+
 ## 2026-06-15a (MONSTER-2026-06-14b batch — FOLD-PM-4 + SUPERVISION-VIEW-1 + FOLD-PM-2 + KB-PROVENANCE-1 merged; CC-DBFK-1 skipped; all flags OFF / additive+dark, nothing deployed)
 
 **Disposition.** `run batch MONSTER-2026-06-14b` (operator pre-authorized the reversible build-and-PR lane + auto-merge on green CI). Four engagements built sequentially — each its own branch off the then-current `origin/main`, own PR, multi-dimension adversarial review (find → adversarially verify), green **Linux CI**, squash **auto-merge** (Rule 15), remote branch deleted — and one skipped. **`origin/main` = `5a05883`** (stacked on the pre-batch head `ea8cb34` / #306). STEP-0: A3 was already merged before the batch. **NOTHING deployed.**
