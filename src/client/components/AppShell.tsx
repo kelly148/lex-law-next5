@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck } from 'lucide-react';
+import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -36,6 +36,16 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   const deliverableFlag = trpc.matterDeliverable.isEnabled.useQuery();
   // SUPERVISION-VIEW-1 — show the Supervision nav link only when enabled (default OFF -> hidden).
   const supervisionFlag = trpc.supervision.isEnabled.useQuery();
+  // FOLD-NOTIFY-1 — probe the notifications flag (default OFF -> bell hidden, no poll).
+  const notificationsFlag = trpc.notifications.isEnabled.useQuery();
+  const notificationsEnabled = notificationsFlag.data?.enabled === true;
+  // Lightweight poll: ONLY enabled when the flag is ON (so flag-OFF makes ZERO extra
+  // requests). One owner-scoped read powers the unread badge; refetch every 60s.
+  const notificationsQuery = trpc.notifications.list.useQuery(undefined, {
+    enabled: notificationsEnabled,
+    refetchInterval: notificationsEnabled ? 60_000 : false,
+  });
+  const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
 
   const logoutMutation = useGuardedMutation(
     () => utils.client.auth.logout.mutate(),
@@ -105,6 +115,35 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             <Settings className="w-4 h-4 flex-shrink-0" />
             <span data-rail-label>Settings</span>
           </NavLink>
+          {/* FOLD-NOTIFY-1 — bell + unread badge. Rendered only when NOTIFICATIONS_ENABLED
+              is ON (default OFF -> absent). INFORMATIONAL: the badge surfaces a count; it
+              never acts. The dot/count appears only when there are unread notices. */}
+          {notificationsEnabled && (
+            <div
+              data-testid="notifications-bell"
+              className={clsx(
+                'flex items-center gap-2 px-3 py-2 rounded text-sm font-medium',
+                'text-ink-secondary'
+              )}
+            >
+              <span className="relative flex-shrink-0">
+                <Bell className="w-4 h-4" aria-hidden />
+                {unreadCount > 0 && (
+                  <span
+                    data-testid="notifications-badge"
+                    aria-label={`${unreadCount} unread notifications`}
+                    className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] leading-4 text-center"
+                  >
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </span>
+              <span data-rail-label>
+                Notifications
+                {unreadCount > 0 ? ` (${unreadCount > 99 ? '99+' : unreadCount})` : ''}
+              </span>
+            </div>
+          )}
         </nav>
 
         {/* Logout */}

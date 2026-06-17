@@ -142,8 +142,22 @@ const MIGRATIONS = [
   // ADD COLUMN/INDEX IF NOT EXISTS + ENUM-value MODIFY (trailing-append); no generated column is
   // touched; idempotent. Apply BEFORE the Inc-2 code serves (reads/writes reference the columns).
   '0043_egress_control_plane_1_inc2_outbox.sql',
+  // FOLD-PM-3 — additive party/entity/contact data model (within-matter; owner-scoped).
+  // Two CREATE TABLE IF NOT EXISTS (matter_entity, matter_entity_contact); idempotent;
+  // NO existing table altered; NO DB FK (app-layer ownerScope). Indexes are INLINE in
+  // CREATE TABLE (NOT `ALTER TABLE ... ADD INDEX IF NOT EXISTS`, which TiDB rejects).
+  // Written/read ONLY when PARTY_MODEL_ENABLED is ON (default OFF); apply BEFORE flipping
+  // the flag. Default-safe; on the additive pre-deploy path. No new env var beyond the flag.
+  '0044_fold_pm_3_party_model.sql',
+  // FOLD-NOTIFY-1 — additive notifications (in-app notification core; owner-scoped).
+  // Single CREATE TABLE IF NOT EXISTS; idempotent; NO existing table altered; NO DB FK
+  // (app-layer ownerScope). Indexes are INLINE in CREATE TABLE (NOT `ALTER TABLE ... ADD
+  // INDEX IF NOT EXISTS`, which TiDB rejects). Written/read ONLY when NOTIFICATIONS_ENABLED
+  // is ON (default OFF); apply BEFORE flipping the flag. Default-safe; on the additive
+  // pre-deploy path. No new env var beyond the flag.
+  '0045_fold_notify_1_notifications.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping

@@ -74,6 +74,13 @@ import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDel
 import { DOCUMENT_TYPE_VALUES } from '../../shared/schemas/documentExtraction.js';
 // KB-PROVENANCE-1: single source of the legal-authority-type vocabulary (kept in sync with the Zod Wall).
 import { AUTHORITY_TYPE_VALUES } from '../../shared/schemas/authoritySource.js';
+// FOLD-PM-3: single source of the entity-kind + contact-type vocabularies (kept in sync with the Zod Wall).
+import {
+  MATTER_ENTITY_KIND_VALUES,
+  MATTER_ENTITY_CONTACT_TYPE_VALUES,
+} from '../../shared/schemas/partyModel.js';
+// FOLD-NOTIFY-1: single source of the notification-type vocabulary (kept in sync with the Zod Wall).
+import { NOTIFICATION_TYPE_VALUES } from '../../shared/schemas/notifications.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -3239,3 +3246,143 @@ export const authoritySource = mysqlTable(
 );
 export type AuthoritySource = typeof authoritySource.$inferSelect;
 export type NewAuthoritySource = typeof authoritySource.$inferInsert;
+
+// ============================================================
+// FOLD-PM-3 — party / entity / contact data model (within-matter; owner-scoped)
+// ============================================================
+// An ADDITIVE, owner+matter-scoped entity/contact model that underpins conflicts +
+// persistent reference and unblocks FOLD-DEED-1. It does NOT alter or replace
+// matter_parties (the thin conflicts party, FOLD-L0-1): a matter_entity is a richer
+// record that may OPTIONALLY reference a matter_parties row WITHIN THE SAME MATTER via
+// `partyRef` (nullable; a same-matter soft link, NOT a DB FK). matter_entity_contact
+// rows hang off a matter_entity (one entity, many contact points). No DB FK by
+// convention — owner + matter isolation is enforced in the app layer (ownerScope).
+// Behind PARTY_MODEL_ENABLED (default OFF).
+//
+// SCOPE FENCE: WITHIN-MATTER only. externalIdentityKey is a stable owner-scoped opaque
+// grouping string DEFINED so a FUTURE cross-matter identity resolver CAN group entities
+// later — NO cross-matter read/match/join is written in FOLD-PM-3. The enums are the
+// single source from src/shared/schemas/partyModel.ts.
+
+export const matterEntity = mysqlTable(
+  'matter_entity',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    entityKind: mysqlEnum('entityKind', MATTER_ENTITY_KIND_VALUES).notNull().default('unknown'),
+    displayName: varchar('displayName', { length: 256 }).notNull(),
+    // normalizedName: lower/trim/collapse-ws/strip-punct — the WITHIN-MATTER lookup key
+    // (same normalizeName() the conflicts engine uses).
+    normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
+    legalName: varchar('legalName', { length: 256 }),
+    // partyRef: OPTIONAL same-matter soft link to matter_parties.id. Nullable; NOT a DB
+    // FK; NEVER cross-matter.
+    partyRef: char('partyRef', { length: 36 }),
+    // externalIdentityKey: forward-safe (nullable) hook for a FUTURE cross-matter identity
+    // resolver to group on. DEFINED, never matched/joined in FOLD-PM-3.
+    externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
+    notes: text('notes'),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // The within-matter entity list read (owner + matter). Leading userId keeps it owner-scoped.
+    idxMatterEntityMatter: index('idx_matter_entity_matter').on(table.userId, table.matterId),
+    // Within-matter name lookup (owner + matter + normalized name).
+    idxMatterEntityNorm: index('idx_matter_entity_norm').on(
+      table.userId,
+      table.matterId,
+      table.normalizedName,
+    ),
+  }),
+);
+export type MatterEntity = typeof matterEntity.$inferSelect;
+export type NewMatterEntity = typeof matterEntity.$inferInsert;
+
+export const matterEntityContact = mysqlTable(
+  'matter_entity_contact',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // entityId binds a contact point to its matter_entity (same owner + same matter).
+    entityId: char('entityId', { length: 36 }).notNull(),
+    contactType: mysqlEnum('contactType', MATTER_ENTITY_CONTACT_TYPE_VALUES).notNull(),
+    label: varchar('label', { length: 128 }),
+    value: varchar('value', { length: 1024 }).notNull(),
+    isPrimary: boolean('isPrimary').notNull().default(false),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // Contacts for one entity (owner + entity). Leading userId keeps it owner-scoped.
+    idxMatterEntityContactEntity: index('idx_matter_entity_contact_entity').on(
+      table.userId,
+      table.entityId,
+    ),
+    // Owner + matter sweep (all contacts in a matter).
+    idxMatterEntityContactMatter: index('idx_matter_entity_contact_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+export type MatterEntityContact = typeof matterEntityContact.$inferSelect;
+export type NewMatterEntityContact = typeof matterEntityContact.$inferInsert;
+
+// ============================================================
+// FOLD-NOTIFY-1 — in-app notification core (store + read + display; owner-scoped)
+// ============================================================
+// An ADDITIVE, OWNER-scoped in-app notification record. One row is one informational
+// notice for ONE attorney, OPTIONALLY about one matter (matterId is nullable — a matter-
+// less owner-level notice is valid). readAt is the per-user "seen" marker (null = unread).
+// INFORMATIONAL ONLY: nothing here auto-adopts, auto-sends, or decides. No DB FK by
+// convention — owner isolation is enforced in the app layer (ownerScope). Behind
+// NOTIFICATIONS_ENABLED (default OFF). The type enum is the single source from
+// src/shared/schemas/notifications.ts.
+//
+// SCOPE FENCE (FOLD-NOTIFY-1): this is the STORE + READ + DISPLAY tier ONLY. The OUTBOX-
+// EMIT WIRING (producers that create notifications) and the hold/ack types are DEFERRED to
+// after EGRESS Inc 3b — no producer is wired now, so the table may sit empty until then.
+//
+// PURGE: matterId-bearing rows purge WITH the matter (matterPurge.ts cascade); a matter-
+// less (NULL matterId) owner-level notice is retained by byMatter (never matches NULL).
+
+export const notifications = mysqlTable(
+  'notifications',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // matterId: OPTIONAL — a matter-scoped notice (drives the per-matter "ready" badge) or
+    // a matter-less owner-level notice. Nullable; NOT a DB FK; NEVER cross-owner.
+    matterId: char('matterId', { length: 36 }),
+    type: mysqlEnum('type', NOTIFICATION_TYPE_VALUES).notNull().default('generic'),
+    title: varchar('title', { length: 256 }).notNull(),
+    body: text('body'),
+    // readAt: the per-user "seen" marker. null = unread; a timestamp = seen by the owner.
+    readAt: timestamp('readAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // The owner notification feed (newest-first list + unread count). Leading userId keeps
+    // it owner-scoped; createdAt orders the feed.
+    idxNotificationsOwner: index('idx_notifications_owner').on(table.userId, table.createdAt),
+    // Per-matter "ready" badge lookup (owner + matter). Leading userId keeps it owner-scoped.
+    idxNotificationsMatter: index('idx_notifications_matter').on(table.userId, table.matterId),
+  }),
+);
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;

@@ -418,3 +418,41 @@ export function isSupervisionViewEnabled(): boolean {
 export function isDocumentExtractionEnabled(): boolean {
   return process.env['DOCUMENT_EXTRACTION_ENABLED'] === 'true';
 }
+
+/**
+ * Party / entity / contact data model (FOLD-PM-3). DEFAULT OFF.
+ *
+ * An ADDITIVE, owner+matter-scoped entity/contact model (matter_entity +
+ * matter_entity_contact) that underpins conflicts + persistent reference and unblocks
+ * FOLD-DEED-1. When OFF (default), the matterEntity procedures refuse with
+ * PRECONDITION_FAILED (except the ungated isEnabled probe) — zero new behavior. It does
+ * NOT alter matter_parties (the thin conflicts party); a matter_entity may OPTIONALLY
+ * reference a party WITHIN THE SAME MATTER via partyRef. WITHIN-MATTER only: no
+ * cross-matter identity resolution is implemented (externalIdentityKey is a forward-safe
+ * grouping hook, never matched/joined now). Additive + reversible; the matter_entity /
+ * matter_entity_contact tables (migration 0044) must be applied BEFORE flipping this.
+ */
+export function isPartyModelEnabled(): boolean {
+  return process.env['PARTY_MODEL_ENABLED'] === 'true';
+}
+
+/**
+ * In-app notification core — store + read + display (FOLD-NOTIFY-1). DEFAULT OFF.
+ *
+ * An ADDITIVE, owner-scoped in-app notification model (a dedicated `notifications`
+ * table) plus the bell/unread-badge + per-matter "ready" badge in the app shell and a
+ * lightweight poll. INFORMATIONAL ONLY — it NEVER auto-adopts, auto-sends, or makes any
+ * decision. When OFF (default), the notification procedures refuse with
+ * PRECONDITION_FAILED (except the ungated isEnabled probe), the bell/badge do NOT render,
+ * and the client does NOT poll — zero new behavior. When exactly "true", the bell + unread
+ * badge surface and the poll runs.
+ *
+ * This is the STORE + READ + DISPLAY tier ONLY. The OUTBOX-EMIT WIRING (producers that
+ * create notifications) and the hold/ack notification types are DEFERRED to after EGRESS
+ * Inc 3b — no producer is wired here, so the table may legitimately sit empty until
+ * producers land. Additive + reversible; the notifications table (migration 0045) must be
+ * applied BEFORE flipping the flag. No new env var beyond the flag.
+ */
+export function isNotificationsEnabled(): boolean {
+  return process.env['NOTIFICATIONS_ENABLED'] === 'true';
+}
