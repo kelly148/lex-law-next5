@@ -74,6 +74,11 @@ import { MATTER_DELIVERABLE_STATUS_VALUES } from '../../shared/schemas/matterDel
 import { DOCUMENT_TYPE_VALUES } from '../../shared/schemas/documentExtraction.js';
 // KB-PROVENANCE-1: single source of the legal-authority-type vocabulary (kept in sync with the Zod Wall).
 import { AUTHORITY_TYPE_VALUES } from '../../shared/schemas/authoritySource.js';
+// FOLD-PM-3: single source of the entity-kind + contact-type vocabularies (kept in sync with the Zod Wall).
+import {
+  MATTER_ENTITY_KIND_VALUES,
+  MATTER_ENTITY_CONTACT_TYPE_VALUES,
+} from '../../shared/schemas/partyModel.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -3239,3 +3244,95 @@ export const authoritySource = mysqlTable(
 );
 export type AuthoritySource = typeof authoritySource.$inferSelect;
 export type NewAuthoritySource = typeof authoritySource.$inferInsert;
+
+// ============================================================
+// FOLD-PM-3 — party / entity / contact data model (within-matter; owner-scoped)
+// ============================================================
+// An ADDITIVE, owner+matter-scoped entity/contact model that underpins conflicts +
+// persistent reference and unblocks FOLD-DEED-1. It does NOT alter or replace
+// matter_parties (the thin conflicts party, FOLD-L0-1): a matter_entity is a richer
+// record that may OPTIONALLY reference a matter_parties row WITHIN THE SAME MATTER via
+// `partyRef` (nullable; a same-matter soft link, NOT a DB FK). matter_entity_contact
+// rows hang off a matter_entity (one entity, many contact points). No DB FK by
+// convention — owner + matter isolation is enforced in the app layer (ownerScope).
+// Behind PARTY_MODEL_ENABLED (default OFF).
+//
+// SCOPE FENCE: WITHIN-MATTER only. externalIdentityKey is a stable owner-scoped opaque
+// grouping string DEFINED so a FUTURE cross-matter identity resolver CAN group entities
+// later — NO cross-matter read/match/join is written in FOLD-PM-3. The enums are the
+// single source from src/shared/schemas/partyModel.ts.
+
+export const matterEntity = mysqlTable(
+  'matter_entity',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    entityKind: mysqlEnum('entityKind', MATTER_ENTITY_KIND_VALUES).notNull().default('unknown'),
+    displayName: varchar('displayName', { length: 256 }).notNull(),
+    // normalizedName: lower/trim/collapse-ws/strip-punct — the WITHIN-MATTER lookup key
+    // (same normalizeName() the conflicts engine uses).
+    normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
+    legalName: varchar('legalName', { length: 256 }),
+    // partyRef: OPTIONAL same-matter soft link to matter_parties.id. Nullable; NOT a DB
+    // FK; NEVER cross-matter.
+    partyRef: char('partyRef', { length: 36 }),
+    // externalIdentityKey: forward-safe (nullable) hook for a FUTURE cross-matter identity
+    // resolver to group on. DEFINED, never matched/joined in FOLD-PM-3.
+    externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
+    notes: text('notes'),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // The within-matter entity list read (owner + matter). Leading userId keeps it owner-scoped.
+    idxMatterEntityMatter: index('idx_matter_entity_matter').on(table.userId, table.matterId),
+    // Within-matter name lookup (owner + matter + normalized name).
+    idxMatterEntityNorm: index('idx_matter_entity_norm').on(
+      table.userId,
+      table.matterId,
+      table.normalizedName,
+    ),
+  }),
+);
+export type MatterEntity = typeof matterEntity.$inferSelect;
+export type NewMatterEntity = typeof matterEntity.$inferInsert;
+
+export const matterEntityContact = mysqlTable(
+  'matter_entity_contact',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // entityId binds a contact point to its matter_entity (same owner + same matter).
+    entityId: char('entityId', { length: 36 }).notNull(),
+    contactType: mysqlEnum('contactType', MATTER_ENTITY_CONTACT_TYPE_VALUES).notNull(),
+    label: varchar('label', { length: 128 }),
+    value: varchar('value', { length: 1024 }).notNull(),
+    isPrimary: boolean('isPrimary').notNull().default(false),
+    deletedAt: timestamp('deletedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // Contacts for one entity (owner + entity). Leading userId keeps it owner-scoped.
+    idxMatterEntityContactEntity: index('idx_matter_entity_contact_entity').on(
+      table.userId,
+      table.entityId,
+    ),
+    // Owner + matter sweep (all contacts in a matter).
+    idxMatterEntityContactMatter: index('idx_matter_entity_contact_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+export type MatterEntityContact = typeof matterEntityContact.$inferSelect;
+export type NewMatterEntityContact = typeof matterEntityContact.$inferInsert;

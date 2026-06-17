@@ -47,6 +47,7 @@ import { chatReviewPanelRouter } from './procedures/chatReviewPanel.js';
 import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
 import { supervisionRouter } from './procedures/supervision.js';
 import { materialExtractionRouter } from './procedures/materialExtraction.js';
+import { matterEntityRouter } from './procedures/matterEntity.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -122,6 +123,12 @@ export const appRouter = router({
   // over a material's already-extracted text, gated behind DOCUMENT_EXTRACTION_ENABLED
   // (default OFF, refuses with PRECONDITION_FAILED when OFF). Additive; no egress.
   materialExtraction: materialExtractionRouter,
+  // FOLD-PM-3 — party/entity/contact data model (within-matter; owner-scoped). Richer
+  // entity + contact CRUD that underpins conflicts + persistent reference and unblocks
+  // FOLD-DEED-1, gated behind PARTY_MODEL_ENABLED (default OFF, refuses with
+  // PRECONDITION_FAILED when OFF). Additive; no egress; WITHIN-MATTER only (no
+  // cross-matter identity resolution).
+  matterEntity: matterEntityRouter,
 });
 
 export type AppRouter = typeof appRouter;
