@@ -139,6 +139,8 @@ function defaultFor(path: string): unknown {
       return { lockedDecisions: [] };
     case 'reviewSession.listAdoptLedger':
       return { adoptLedger: [] };
+    case 'reviewSession.listSuggestionDispositions':
+      return { dispositions: [] };
     case 'reviewSession.checkSendability':
       return null;
     case 'reviewSession.getDocumentHistory':

@@ -105,6 +105,7 @@ vi.mock('../../trpc.js', async () => {
         },
         listLockedDecisions: { useQuery: q({ lockedDecisions: [] }) },
         listAdoptLedger: { useQuery: q({ adoptLedger: [] }) },
+        listSuggestionDispositions: { useQuery: q({ dispositions: [] }) },
         checkSendability: { useQuery: q(null) },
         getDocumentHistory: { useQuery: q({ feedback: [], sessions: [], selections: [] }) },
       },

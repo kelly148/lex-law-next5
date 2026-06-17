@@ -86,6 +86,8 @@ type ReviewPaneEvent =
   | 'adopt_ledger_entry_created'
   | 'adopt_ledger_regeneration_applied'
   | 'adopt_ledger_status_overridden'
+  // REVIEW-LOOP-UX-1 / R1: per-suggestion reject/defer disposition recorded inline.
+  | 'review_suggestion_dispositioned'
   // MR-CAL-8B: advisory sendability classifier.
   | 'sendability_checked'
   | 'sendability_check_failed'
@@ -311,6 +313,12 @@ export interface TelemetryPayload {
   adopt_ledger_status_overridden: {
     adoptLedgerId: string;
     status: 'active' | 'superseded' | 'resolved' | 'unresolved';
+  };
+  // REVIEW-LOOP-UX-1 / R1: per-suggestion reject/defer disposition recorded inline.
+  review_suggestion_dispositioned: {
+    action: 'reject' | 'defer';
+    sourceSuggestionId: string;
+    iterationNumber: number;
   };
   // MR-CAL-8B: advisory sendability classifier.
   sendability_checked: {

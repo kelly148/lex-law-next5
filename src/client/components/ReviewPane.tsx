@@ -326,6 +326,12 @@ interface SuggestionCardProps {
   declined: boolean;
   onToggleDecline: (suggestionId: string) => void;
   onRefresh: () => void;
+  // REVIEW-LOOP-UX-1 / R1: the latest RECORDED reject/defer disposition for this suggestion (from the
+  // existing disposition audit stream), surfaced inline so the affordance reflects recorded state.
+  recordedDisposition?: { action: 'reject' | 'defer'; rationale: string | null } | undefined;
+  // REVIEW-LOOP-UX-1 / R1: whether this suggestion's adopted text is already in the cumulative
+  // adopt ledger (committed by a prior regeneration). Surfaces the running ledger state inline.
+  inLedger?: boolean;
 }
 
 // Severity chip palette — oxblood/neutral only (no green, no blue).
@@ -346,6 +352,8 @@ function SuggestionCard({
   declined,
   onToggleDecline,
   onRefresh,
+  recordedDisposition,
+  inLedger = false,
 }: SuggestionCardProps): React.ReactElement {
   const utils = trpc.useUtils();
   const selection = selections.find((s) => s.suggestionId === suggestion.suggestionId);
@@ -372,6 +380,20 @@ function SuggestionCard({
     {
       onSuccess: () => {
         void utils.reviewSession.listLockedDecisions.invalidate({ documentId });
+        onRefresh();
+      },
+    },
+  );
+
+  // REVIEW-LOOP-UX-1 / R1: record a reject/defer disposition on the EXISTING disposition audit
+  // stream (recorded + auditable). Reuses reviewSession.dispositionSuggestion; the inline pane
+  // re-reads listSuggestionDispositions on success so the recorded action reflects immediately.
+  const dispositionMutation = useGuardedMutation(
+    (input: { sessionId: string; suggestionId: string; action: 'reject' | 'defer'; rationale: string | null }) =>
+      utils.client.reviewSession.dispositionSuggestion.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.reviewSession.listSuggestionDispositions.invalidate({ documentId });
         onRefresh();
       },
     },
@@ -418,6 +440,16 @@ function SuggestionCard({
   const decline = (): void => {
     if (accepted) updateSelectionMutation.mutate({ sessionId, selections: others() });
     onToggleDecline(suggestion.suggestionId);
+    // REVIEW-LOOP-UX-1 / R1: a decline is a REJECT — record it on the disposition audit stream so it
+    // is auditable (the client-only mark above keeps the within-session UX; this makes it durable).
+    dispositionMutation.mutate({ sessionId, suggestionId: suggestion.suggestionId, action: 'reject', rationale: null });
+  };
+  // REVIEW-LOOP-UX-1 / R1: DEFER — "decide later". Records a defer disposition (auditable) and marks
+  // the card declined-this-iteration client-side (it is neither adopted nor a hard reject/lock).
+  const defer = (): void => {
+    if (accepted) updateSelectionMutation.mutate({ sessionId, selections: others() });
+    if (!declined) onToggleDecline(suggestion.suggestionId);
+    dispositionMutation.mutate({ sessionId, suggestionId: suggestion.suggestionId, action: 'defer', rationale: null });
   };
   const declineAndLock = (): void => {
     if (accepted) updateSelectionMutation.mutate({ sessionId, selections: others() });
@@ -478,8 +510,24 @@ function SuggestionCard({
             <Check className="w-4 h-4" /> Accepted for next draft
           </span>
         )}
-        {declined && !accepted && (
+        {!accepted && recordedDisposition && (
+          <span
+            data-testid="recorded-disposition"
+            data-action={recordedDisposition.action}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-ink-hint"
+          >
+            {recordedDisposition.action === 'reject' ? 'Rejected — recorded' : 'Deferred — recorded'}
+          </span>
+        )}
+        {!accepted && !recordedDisposition && declined && (
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-ink-hint">Declined this round</span>
+        )}
+        {/* REVIEW-LOOP-UX-1 / R1: inline running adopt-ledger state — this suggestion's adopted text
+            is already in the cumulative ledger (carried into later reviews as intended state). */}
+        {inLedger && (
+          <span data-testid="in-ledger-indicator" className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent-tint text-accent">
+            <CheckCircle className="w-3 h-3" /> In adopt ledger
+          </span>
         )}
       </div>
 
@@ -533,8 +581,12 @@ function SuggestionCard({
         )}
       </div>
 
-      {/* Decision controls — three states. */}
-      <div className="mt-4 flex items-center gap-2 flex-wrap">
+      {/* Decision controls — adopt / reject / defer (REVIEW-LOOP-UX-1 R1), plus decline-&-lock.
+          ADOPT writes the running adopt ledger via the existing selection→regenerate path (the
+          "Accepted for next draft" indicator + the In-adopt-ledger badge reflect it inline). REJECT
+          and DEFER record an auditable disposition on the existing disposition audit stream. The
+          attorney is the final decision-maker — these only record the decision. */}
+      <div className="mt-4 flex items-center gap-2 flex-wrap" data-testid="suggestion-disposition-controls">
         {accepted ? (
           <button
             onClick={removeAccept}
@@ -548,6 +600,7 @@ function SuggestionCard({
             onClick={acceptIntoNextDraft}
             disabled={updateSelectionMutation.isPending}
             data-testid="accept-into-next-draft"
+            title="Adopt: write this into the running adopt ledger and apply it on the next draft"
             className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"
           >
             <Check className="w-3.5 h-3.5" /> Accept into next draft
@@ -563,12 +616,23 @@ function SuggestionCard({
         ) : (
           <button
             onClick={decline}
-            disabled={updateSelectionMutation.isPending}
+            disabled={updateSelectionMutation.isPending || dispositionMutation.isPending}
+            data-testid="reject-suggestion"
+            title="Reject this suggestion for this iteration (recorded on the matter audit record)"
             className="text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
           >
             Decline
           </button>
         )}
+        <button
+          onClick={defer}
+          disabled={dispositionMutation.isPending}
+          data-testid="defer-suggestion"
+          title="Defer this suggestion (decide later) — recorded on the matter audit record"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+        >
+          <CircleDashed className="w-3.5 h-3.5" /> Defer
+        </button>
         <button
           onClick={declineAndLock}
           disabled={lockDecisionMutation.isPending}
@@ -1251,6 +1315,13 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // hooks MUST run before any early return.
   const { data: lockedData } = trpc.reviewSession.listLockedDecisions.useQuery({ documentId });
 
+  // REVIEW-LOOP-UX-1 / R1: the running adopt-ledger state (committed entries) + recorded reject/defer
+  // dispositions for THIS document — both surfaced inline on each card. HOISTED above the early returns
+  // with the other hooks (stable hook order, #310 discipline). Both reuse EXISTING read procedures
+  // (listAdoptLedger, and the new disposition projection over the existing audit stream).
+  const { data: adoptLedgerData } = trpc.reviewSession.listAdoptLedger.useQuery({ documentId });
+  const { data: dispositionData } = trpc.reviewSession.listSuggestionDispositions.useQuery({ documentId });
+
   // R2-2 Inc A: the honest N-of-M denominator is computed server-side and is reused here from the
   // orchestration consolidation (React Query dedupes it with the panel's identical query — one
   // fetch). Surfaced in the session strip so "how many reviewers actually returned" is visible
@@ -1343,6 +1414,23 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       .filter((d) => d.status === 'active' && d.sourceSuggestionId)
       .map((d) => d.sourceSuggestionId as string),
   );
+
+  // REVIEW-LOOP-UX-1 / R1: which suggestionIds are already in the cumulative adopt ledger (any
+  // non-resolved status) — surfaced inline as the "In adopt ledger" badge. Plain derived data, not a
+  // hook, computed after every hook + the early returns (no #310 risk).
+  const ledgeredSuggestionIds = new Set(
+    (adoptLedgerData?.adoptLedger ?? [])
+      .filter((e) => e.status !== 'resolved')
+      .map((e) => e.sourceSuggestionId),
+  );
+  // The latest recorded reject/defer disposition per suggestion (dispositions arrive newest-first;
+  // the first occurrence wins). Surfaced as the "Rejected/Deferred — recorded" indicator.
+  const dispositionBySuggestion = new Map<string, { action: 'reject' | 'defer'; rationale: string | null }>();
+  for (const d of dispositionData?.dispositions ?? []) {
+    if (!dispositionBySuggestion.has(d.suggestionId)) {
+      dispositionBySuggestion.set(d.suggestionId, { action: d.action, rationale: d.rationale });
+    }
+  }
 
   // MR-3 §S1a: Derive completion state from feedback rows + job status.
   const jobs = jobsData?.jobs ?? [];
@@ -1476,6 +1564,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       )}
       {suggestionItems.map((it) => {
         const ev = evalDispositions?.find((e) => e.suggestionId === it.suggestion.suggestionId);
+        const recorded = dispositionBySuggestion.get(it.suggestion.suggestionId);
         return (
           <SuggestionCard
             key={it.key}
@@ -1486,9 +1575,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
             selections={session.selections}
             locked={lockedSuggestionIds.has(it.suggestion.suggestionId)}
             declined={declinedThisIteration.has(it.suggestion.suggestionId)}
+            inLedger={ledgeredSuggestionIds.has(it.suggestion.suggestionId)}
             onToggleDecline={toggleDecline}
             onRefresh={() => void refetch()}
             {...(ev ? { evalDisposition: ev } : {})}
+            {...(recorded ? { recordedDisposition: recorded } : {})}
           />
         );
       })}
