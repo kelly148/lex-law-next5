@@ -17,8 +17,8 @@
  * counts behave like production; useGuardedMutation is mocked to capture which procedure fired.
  */
 import React from 'react';
-import { describe, it, expect, vi, afterEach, beforeEach, fireEvent } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 
 const { SESSION_ID, DOCUMENT_ID, MATTER_ID } = vi.hoisted(() => ({
   SESSION_ID: '11111111-1111-1111-1111-111111111111',
