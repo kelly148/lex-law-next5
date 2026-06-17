@@ -122,13 +122,15 @@ vi.mock('../../hooks/useGuardedMutation.js', () => ({
   useGuardedMutation: (fn: (input: unknown) => unknown) => ({
     mutate: (input: unknown) => {
       const src = String(fn);
-      const key = /dispositionSuggestion/.test(src)
-        ? 'dispositionSuggestion'
-        : /updateSelection/.test(src)
-          ? 'updateSelection'
-          : /lockDecision/.test(src)
-            ? 'lockDecision'
-            : 'other';
+      const key = /adoptSuggestion/.test(src)
+        ? 'adoptSuggestion'
+        : /dispositionSuggestion/.test(src)
+          ? 'dispositionSuggestion'
+          : /updateSelection/.test(src)
+            ? 'updateSelection'
+            : /lockDecision/.test(src)
+              ? 'lockDecision'
+              : 'other';
       mutationCalls.calls.push({ key, input });
     },
     isPending: false,
@@ -187,6 +189,19 @@ describe('REVIEW-LOOP-UX-1 R1 — adopt / reject / defer affordances', () => {
     mockState.dispositions = { dispositions: [{ auditEventId: 'e1', suggestionId: 's2', action: 'defer', rationale: null, documentId: DOCUMENT_ID, reviewSessionId: SESSION_ID, createdAt: new Date() }] };
     const { getByText } = render(<ActiveSessionView {...AV_PROPS} />);
     expect(getByText(/Deferred — recorded/)).toBeTruthy();
+  });
+
+  it('ADOPT fires reviewSession.adoptSuggestion (instant committed adopt-ledger write), not only a selection', () => {
+    // REVIEW-LOOP-UX-1 R1: a single Accept click commits the adopt-ledger row immediately via
+    // adoptSuggestion (in addition to keeping the selection list current via updateSelection).
+    const { getAllByTestId } = render(<ActiveSessionView {...AV_PROPS} />);
+    fireEvent.click(getAllByTestId('accept-into-next-draft')[0]!);
+    const adopt = mutationCalls.calls.find((c) => c.key === 'adoptSuggestion');
+    expect(adopt).toBeTruthy();
+    expect((adopt!.input as { suggestionId: string }).suggestionId).toBe('s1');
+    expect((adopt!.input as { sessionId: string }).sessionId).toBe(SESSION_ID);
+    // The selection list is still updated alongside (the regenerate input + "Accepted" UX).
+    expect(mutationCalls.calls.some((c) => c.key === 'updateSelection')).toBe(true);
   });
 });
 

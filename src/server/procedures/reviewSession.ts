@@ -123,6 +123,7 @@ import {
   listAdoptLedgerForDocument,
   listAdoptLedgerForPrompt,
   getAdoptLedgerEntryById,
+  getAdoptLedgerEntryForSuggestionVersion,
   updateAdoptLedgerStatus,
   applyRegenerationToAdoptLedger,
 } from '../db/queries/phase4b.js';
@@ -951,6 +952,17 @@ export const reviewSessionRouter = router({
       // (applyRegenerationToAdoptLedger flips it to active/superseded after commit).
       const selWithText = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string; confirmationMode?: ConfirmationMode }>;
       for (const sel of selWithText) {
+        // REVIEW-LOOP-UX-1 / R1: an instant ADOPT click already committed this selection's manual-
+        // selection + adopt-ledger rows at click time (same session, suggestion, and input version).
+        // Skip re-inserting both here — the unique keys uniq_manual_selections and
+        // uniq_adopt_ledger_session_suggestion would otherwise collide and fail the regeneration.
+        const existingLedger = await getAdoptLedgerEntryForSuggestionVersion(
+          input.sessionId,
+          sel.suggestionId,
+          adoptedIntoVersionId,
+          userId,
+        );
+        if (existingLedger) continue;
         await insertManualSelection({
           userId,
           documentId: session.documentId,
@@ -1116,6 +1128,17 @@ export const reviewSessionRouter = router({
       // MR-CAL-7B: additively record adopt_ledger entries (same path as regenerate).
       const selWithTextSingle = selections as Array<{ suggestionId: string; note: string | null; adoptedText?: string; confirmationMode?: ConfirmationMode }>;
       for (const sel of selWithTextSingle) {
+        // REVIEW-LOOP-UX-1 / R1: an instant ADOPT click already committed this selection's manual-
+        // selection + adopt-ledger rows at click time (same session, suggestion, and input version).
+        // Skip re-inserting both here — the unique keys uniq_manual_selections and
+        // uniq_adopt_ledger_session_suggestion would otherwise collide and fail the regeneration.
+        const existingLedgerSingle = await getAdoptLedgerEntryForSuggestionVersion(
+          input.sessionId,
+          sel.suggestionId,
+          adoptedIntoVersionIdSingle,
+          userId,
+        );
+        if (existingLedgerSingle) continue;
         await insertManualSelection({
           userId,
           documentId: session.documentId,
@@ -1493,6 +1516,124 @@ export const reviewSessionRouter = router({
       );
 
       return { suggestionId: input.suggestionId, action: input.action };
+    }),
+
+  // ============================================================
+  // REVIEW-LOOP-UX-1 / R1 — INSTANT, COMMITTED adopt (per-click adopt-ledger write)
+  //
+  // The operator decision: ADOPT must commit an adopt-ledger row on EACH click, not ride the
+  // select→regenerate path (where the row only landed at regenerate). The ledger row binds to
+  // doc.currentVersionId — the version CURRENTLY under review = the regeneration INPUT version —
+  // which already exists at click time, so no schema change / migration / nullable column is needed.
+  // This ALSO records the manual selection (same args shape the regenerate loop uses) so the adopted
+  // suggestion is still incorporated at the next regenerate. The regenerate paths now skip
+  // re-inserting any (session, suggestion, version) an instant adopt already committed, so there is
+  // no double-write and no unique-index collision (uniq_adopt_ledger_session_suggestion /
+  // uniq_manual_selections). Owner-scoping mirrors dispositionSuggestion EXACTLY: session by
+  // (sessionId, userId) → NOT_FOUND, then document by (session.documentId, userId) → NOT_FOUND, so a
+  // non-owner can never write or read another owner's data. Idempotent: a second identical click
+  // returns the existing row (no duplicate insert).
+  // ============================================================
+  adoptSuggestion: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        suggestionId: z.string().min(1),
+        adoptedText: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      const session = await getReviewSessionById(input.sessionId, userId);
+      if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Review session not found' });
+
+      const doc = await getDocumentById(session.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      assertNotComplete(doc.workflowState, 'reviewSession.adoptSuggestion');
+
+      // MR-CAL-7B: adopt_ledger anchors each adoption to the current (input) version (mirror regenerate).
+      if (!doc.currentVersionId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'NO_CURRENT_VERSION: document has no current version',
+        });
+      }
+      const adoptedIntoVersionId = doc.currentVersionId;
+
+      // Resolve reviewerRole + body for this suggestion the SAME way the regenerate path builds its map.
+      const allFeedbackForPrompt = await listFeedbackForSession(input.sessionId, userId);
+      const suggestionMap = new Map<string, { title: string; body: string; reviewerRole: string }>();
+      for (const feedbackRow of allFeedbackForPrompt) {
+        for (const suggestion of feedbackRow.suggestions) {
+          suggestionMap.set(suggestion.suggestionId, {
+            title: suggestion.title,
+            body: suggestion.body,
+            reviewerRole: feedbackRow.reviewerRole,
+          });
+        }
+      }
+      const s = suggestionMap.get(input.suggestionId);
+      if (!s) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `SUGGESTION_NOT_RESOLVED: selection references unknown suggestionId '${input.suggestionId}'`,
+        });
+      }
+
+      // IDEMPOTENCY: if an entry already exists for (session, suggestion, current version), return it.
+      const existing = await getAdoptLedgerEntryForSuggestionVersion(
+        input.sessionId,
+        input.suggestionId,
+        adoptedIntoVersionId,
+        userId,
+      );
+      if (existing) {
+        return { adoptLedgerId: existing.id, suggestionId: input.suggestionId, idempotent: true as const };
+      }
+
+      // Record the manual selection so the adopted suggestion is still incorporated at the next
+      // regenerate (same args shape the regenerate loop uses; the regenerate loop now skips this one).
+      await insertManualSelection({
+        userId,
+        documentId: session.documentId,
+        iterationNumber: session.iterationNumber,
+        reviewSessionId: input.sessionId,
+        suggestionId: input.suggestionId,
+        attorneyNote: null,
+      });
+
+      const edited =
+        input.adoptedText !== undefined && input.adoptedText.trim() !== '' && input.adoptedText !== s.body;
+      const adoptLedgerId = await insertAdoptLedgerEntry({
+        userId,
+        documentId: session.documentId,
+        matterId: doc.matterId,
+        sourceSuggestionId: input.suggestionId,
+        sourceReviewerRole: s.reviewerRole,
+        sourceIterationNumber: session.iterationNumber,
+        reviewSessionId: input.sessionId,
+        disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+        originalText: s.body,
+        adoptedText: edited ? input.adoptedText! : s.body,
+        adoptedIntoVersionId,
+        // FOLD-ORCH-1 Inc3c-2: an instant per-suggestion adopt is an INDIVIDUAL adoption (the same
+        // confirmationMode the regenerate/Inc3 path uses for a per-item adoption; never flattened).
+        confirmationMode: 'individually_adopted',
+      });
+
+      void emitTelemetry(
+        'adopt_ledger_entry_created',
+        {
+          adoptLedgerId,
+          sourceSuggestionId: input.suggestionId,
+          disposition: edited ? 'adopted_modified' : 'adopted_verbatim',
+          iterationNumber: session.iterationNumber,
+        },
+        { userId, matterId: doc.matterId, documentId: session.documentId, jobId: null },
+      );
+
+      return { adoptLedgerId, suggestionId: input.suggestionId, idempotent: false as const };
     }),
 
   // listSuggestionDispositions — reject/defer dispositions recorded for THIS document's suggestions,

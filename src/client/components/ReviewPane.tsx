@@ -399,6 +399,21 @@ function SuggestionCard({
     },
   );
 
+  // REVIEW-LOOP-UX-1 / R1: ADOPT is now an INSTANT, COMMITTED adopt-ledger write per click (it no
+  // longer waits for regenerate to land the row). Reuses reviewSession.adoptSuggestion; on success we
+  // invalidate listAdoptLedger so the inline "In adopt ledger" badge reflects IMMEDIATELY. The
+  // selection-side state (the "Accepted for next draft" indicator) is still driven by updateSelection.
+  const adoptSuggestionMutation = useGuardedMutation(
+    (input: { sessionId: string; suggestionId: string; adoptedText?: string }) =>
+      utils.client.reviewSession.adoptSuggestion.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.reviewSession.listAdoptLedger.invalidate({ documentId });
+        onRefresh();
+      },
+    },
+  );
+
   // Selections for every OTHER suggestion, verbatim (so a single-card change never drops them).
   const others = (): Array<{ suggestionId: string; note: string | null; adoptedText?: string }> =>
     selections
@@ -424,7 +439,15 @@ function SuggestionCard({
 
   const acceptIntoNextDraft = (): void => {
     if (declined) onToggleDecline(suggestion.suggestionId);
+    // Keep the selection list current (drives the "Accepted for next draft" UX + the regenerate input)…
     updateSelectionMutation.mutate({ sessionId, selections: [...others(), thisSelection()] });
+    // …AND commit the adopt-ledger row instantly (REVIEW-LOOP-UX-1 R1): one click = one durable adopt.
+    const pendingAdopted = adoptedInput !== null ? adoptedInput : selection?.adoptedText;
+    adoptSuggestionMutation.mutate(
+      pendingAdopted !== undefined && pendingAdopted !== ''
+        ? { sessionId, suggestionId: suggestion.suggestionId, adoptedText: pendingAdopted }
+        : { sessionId, suggestionId: suggestion.suggestionId },
+    );
   };
   const removeAccept = (): void => {
     updateSelectionMutation.mutate({ sessionId, selections: others() });
@@ -598,7 +621,7 @@ function SuggestionCard({
         ) : (
           <button
             onClick={acceptIntoNextDraft}
-            disabled={updateSelectionMutation.isPending}
+            disabled={updateSelectionMutation.isPending || adoptSuggestionMutation.isPending}
             data-testid="accept-into-next-draft"
             title="Adopt: write this into the running adopt ledger and apply it on the next draft"
             className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-accent text-accent hover:bg-accent-tint disabled:opacity-50"

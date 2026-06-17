@@ -96,9 +96,16 @@ describe('REVIEW-LOOP-UX-1 dispositionSuggestion procedure (source audit)', () =
     expect(block).toContain('getDocumentById(session.documentId, userId)');
   });
 
-  it('does NOT add a new adopt-ledger insert path (adopt stays the existing selection→regenerate path)', () => {
+  it('reject/defer (dispositionSuggestion) records NO adopt-ledger insert (that is the adopt path only)', () => {
+    // REVIEW-LOOP-UX-1 R1 (instant adopt): the NEW reviewSession.adoptSuggestion procedure legitimately
+    // calls insertAdoptLedgerEntry(. This audit is scoped PRECISELY to the dispositionSuggestion block
+    // (its bounds end where adoptSuggestion begins) so it keeps asserting that reject/defer never
+    // touches the adopt ledger — without falsely tripping on the sibling adopt procedure.
     const idx = src.indexOf('dispositionSuggestion: protectedProcedure');
-    const block = src.slice(idx, idx + 2000);
+    const end = src.indexOf('adoptSuggestion: protectedProcedure', idx);
+    expect(idx).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(idx);
+    const block = src.slice(idx, end);
     expect(block).not.toContain('insertAdoptLedgerEntry(');
   });
 });
