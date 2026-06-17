@@ -45,3 +45,17 @@ export type {
 // KB-PROVENANCE-1 — authority_source (firm/jurisdiction legal-authority registry)
 export { AUTHORITY_TYPE_VALUES, AuthoritySourceRowSchema } from './authoritySource.js';
 export type { AuthorityType, AuthoritySourceRow } from './authoritySource.js';
+
+// FOLD-PM-3 — party / entity / contact data model (within-matter; owner-scoped)
+export {
+  MATTER_ENTITY_KIND_VALUES,
+  MATTER_ENTITY_CONTACT_TYPE_VALUES,
+  MatterEntityRowSchema,
+  MatterEntityContactRowSchema,
+} from './partyModel.js';
+export type {
+  MatterEntityKind,
+  MatterEntityContactType,
+  MatterEntityRow,
+  MatterEntityContactRow,
+} from './partyModel.js';

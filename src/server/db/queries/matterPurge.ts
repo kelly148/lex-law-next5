@@ -87,6 +87,8 @@ import {
   chatReviewRuns,
   matterDeliverable,
   materialExtraction,
+  matterEntity,
+  matterEntityContact,
   egressEvents,
   egressHold,
 } from '../schema.js';
@@ -225,6 +227,11 @@ export async function cascadeDeleteMatterChildren(
   await step('matterDeliverable', matterDeliverable, byMatter(matterDeliverable));
   // FOLD-PM-2: the matter's document-type structured extractions (children of materials; carry matterId).
   await step('materialExtraction', materialExtraction, byMatter(materialExtraction));
+  // FOLD-PM-3: the matter's party/entity/contact model (within-matter). Contacts are children of
+  // entities (carry entityId + matterId), so purge contacts BEFORE entities. Both are owner+matter-
+  // scoped child data; purge WITH the matter so an (operator-gated, synthetic/test) purge leaves no orphan.
+  await step('matterEntityContact', matterEntityContact, byMatter(matterEntityContact));
+  await step('matterEntity', matterEntity, byMatter(matterEntity));
   // CHAT-COPILOT-1 (Inc 1): the matter's persisted chat copilot — messages + summaries (conversation
   // children, both carry matterId) before the conversations themselves. All purge WITH the matter (the
   // app-level cascade that stands in for a DB FK; an operator-gated full-matter purge overrides the
