@@ -48,6 +48,7 @@ import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
 import { supervisionRouter } from './procedures/supervision.js';
 import { materialExtractionRouter } from './procedures/materialExtraction.js';
 import { matterEntityRouter } from './procedures/matterEntity.js';
+import { notificationsRouter } from './procedures/notifications.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -129,6 +130,14 @@ export const appRouter = router({
   // PRECONDITION_FAILED when OFF). Additive; no egress; WITHIN-MATTER only (no
   // cross-matter identity resolution).
   matterEntity: matterEntityRouter,
+  // FOLD-NOTIFY-1 — in-app notification core (store + read + display). Owner-scoped
+  // feed + unread count + per-matter "ready" badge data + per-user "mark seen" cursor,
+  // gated behind NOTIFICATIONS_ENABLED (default OFF, refuses with PRECONDITION_FAILED
+  // when OFF; the ungated isEnabled probe lets the client decide whether to mount the
+  // bell + poll). Additive; no egress; INFORMATIONAL ONLY (never adopts/sends/decides).
+  // STORE + READ + DISPLAY tier only — the outbox-emit producers are DEFERRED to after
+  // EGRESS Inc 3b, so the table may legitimately sit empty until then.
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -79,6 +79,8 @@ import {
   MATTER_ENTITY_KIND_VALUES,
   MATTER_ENTITY_CONTACT_TYPE_VALUES,
 } from '../../shared/schemas/partyModel.js';
+// FOLD-NOTIFY-1: single source of the notification-type vocabulary (kept in sync with the Zod Wall).
+import { NOTIFICATION_TYPE_VALUES } from '../../shared/schemas/notifications.js';
 
 // ============================================================
 // Ch 4.2 — users
@@ -3336,3 +3338,51 @@ export const matterEntityContact = mysqlTable(
 );
 export type MatterEntityContact = typeof matterEntityContact.$inferSelect;
 export type NewMatterEntityContact = typeof matterEntityContact.$inferInsert;
+
+// ============================================================
+// FOLD-NOTIFY-1 — in-app notification core (store + read + display; owner-scoped)
+// ============================================================
+// An ADDITIVE, OWNER-scoped in-app notification record. One row is one informational
+// notice for ONE attorney, OPTIONALLY about one matter (matterId is nullable — a matter-
+// less owner-level notice is valid). readAt is the per-user "seen" marker (null = unread).
+// INFORMATIONAL ONLY: nothing here auto-adopts, auto-sends, or decides. No DB FK by
+// convention — owner isolation is enforced in the app layer (ownerScope). Behind
+// NOTIFICATIONS_ENABLED (default OFF). The type enum is the single source from
+// src/shared/schemas/notifications.ts.
+//
+// SCOPE FENCE (FOLD-NOTIFY-1): this is the STORE + READ + DISPLAY tier ONLY. The OUTBOX-
+// EMIT WIRING (producers that create notifications) and the hold/ack types are DEFERRED to
+// after EGRESS Inc 3b — no producer is wired now, so the table may sit empty until then.
+//
+// PURGE: matterId-bearing rows purge WITH the matter (matterPurge.ts cascade); a matter-
+// less (NULL matterId) owner-level notice is retained by byMatter (never matches NULL).
+
+export const notifications = mysqlTable(
+  'notifications',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    // matterId: OPTIONAL — a matter-scoped notice (drives the per-matter "ready" badge) or
+    // a matter-less owner-level notice. Nullable; NOT a DB FK; NEVER cross-owner.
+    matterId: char('matterId', { length: 36 }),
+    type: mysqlEnum('type', NOTIFICATION_TYPE_VALUES).notNull().default('generic'),
+    title: varchar('title', { length: 256 }).notNull(),
+    body: text('body'),
+    // readAt: the per-user "seen" marker. null = unread; a timestamp = seen by the owner.
+    readAt: timestamp('readAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    // The owner notification feed (newest-first list + unread count). Leading userId keeps
+    // it owner-scoped; createdAt orders the feed.
+    idxNotificationsOwner: index('idx_notifications_owner').on(table.userId, table.createdAt),
+    // Per-matter "ready" badge lookup (owner + matter). Leading userId keeps it owner-scoped.
+    idxNotificationsMatter: index('idx_notifications_matter').on(table.userId, table.matterId),
+  }),
+);
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;

@@ -28,8 +28,9 @@
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
  *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
  *     gateOverride (CONFLICT-GATE-OVERRIDE-1), promptSnapshots (INSTR-1A0), postureProvenance
- *     (CHAT-UI-1 W2), matterDeliverable (FOLD-PM-4), materialExtraction (FOLD-PM-2), documents — then
- *     the `matters` row itself.
+ *     (CHAT-UI-1 W2), matterDeliverable (FOLD-PM-4), materialExtraction (FOLD-PM-2), notifications
+ *     (FOLD-NOTIFY-1; matter-scoped rows only — a matter-less owner-level notice is retained), documents
+ *     — then the `matters` row itself.
  *
  * DELIBERATELY EXCLUDED (not matter-scoped): telemetry_events (analytics log; nullable matterId),
  * kb_events (KB-level, no matterId), templates / template_versions / template_variable_schemas
@@ -89,6 +90,7 @@ import {
   materialExtraction,
   matterEntity,
   matterEntityContact,
+  notifications,
   egressEvents,
   egressHold,
 } from '../schema.js';
@@ -232,6 +234,12 @@ export async function cascadeDeleteMatterChildren(
   // scoped child data; purge WITH the matter so an (operator-gated, synthetic/test) purge leaves no orphan.
   await step('matterEntityContact', matterEntityContact, byMatter(matterEntityContact));
   await step('matterEntity', matterEntity, byMatter(matterEntity));
+  // FOLD-NOTIFY-1: the matter's in-app notifications. matterId is NULLABLE — a matter-
+  // SCOPED notice purges WITH the matter (byMatter); a matter-LESS owner-level notice is
+  // retained (byMatter never matches a NULL matterId, like a firm-level egress_hold).
+  // Owner+matter-scoped child data; purge so an (operator-gated, synthetic/test) purge
+  // leaves no orphan.
+  await step('notifications', notifications, byMatter(notifications));
   // CHAT-COPILOT-1 (Inc 1): the matter's persisted chat copilot — messages + summaries (conversation
   // children, both carry matterId) before the conversations themselves. All purge WITH the matter (the
   // app-level cascade that stands in for a DB FK; an operator-gated full-matter purge overrides the
