@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-17b (REVIEW-LOOP-UX-1 / R1 accepted + merged — closes the rev.3 batch)
+
+**Disposition.** Operator returned the three R1 UX decisions: (1) **instant committed adopt** (per-click adopt-ledger write, not deferred to regenerate), (2) reject reuses the existing **Decline** control, (3) defer = badge. Implemented and merged via `operator approve accept:REVIEW-LOOP-UX-1-R1`. **PR #337 squash `f0a03a5`; `origin/main` = `f0a03a5`.**
+
+**What changed.** New owner-scoped `reviewSession.adoptSuggestion` mutation commits an `adopt_ledger` row on each click, anchored to `doc.currentVersionId` (the version under review = regeneration INPUT version, exists at click time → **no schema change/migration**); it also records the manual selection so the adoption still flows into the next regenerate, and the inline "In adopt ledger" badge reflects immediately (query invalidation). **Idempotent** (second click returns the existing row). The two regenerate paths now **skip** re-inserting any `(session, suggestion, version)` an instant adopt already committed — the guard sits ABOVE `insertManualSelection`, so neither unique key (`uniq_adopt_ledger_session_suggestion` / `uniq_manual_selections`) collides. Reject/Decline records a `disposition` audit event; defer too. `reviewSession.ts` change is purely additive — `create`/dispatcher/`reviewerJobFactory`/`jobs.ts` untouched; owner-scoped via `ownerScope`. NOT flag-gated (ships live to the review pane on deploy); records-bearing → it took the accept gate (Rule 15) rather than auto-merge. NO new table/migration. The R1 branch was brought up to date with `main` (PM-3 #338 + NOTIFY #339 + state) before merge so CI validated the integrated tree.
+
+**Batch now fully closed.** 6 merged (STRIP-CLEANUP `307828b`, CHANGEPW-UI `fb57640`, R3 `4643f67`, FOLD-PM-3 `981f58a`, FOLD-NOTIFY-1 `32a392b`, R1 `f0a03a5`) + MATTERSTATE-BADGE skipped (already on `main`). Still operator-gated: prod deploy; apply migrations **0044**/**0045** (additive, allowlisted) before flipping their flags; the two default-OFF flags `PARTY_MODEL_ENABLED` / `NOTIFICATIONS_ENABLED`; the still-pending 0043 + EGRESS Inc 2 deploy. Redundant PR #331 (auto-gen 0043 duplicate) can be closed.
+
+---
+
 ## 2026-06-17 (Overnight reversible batch rev.3 — STRIP-CLEANUP + CHANGEPW-UI + R3-compare + FOLD-PM-3 + FOLD-NOTIFY-1 merged; R1 held as green PR; MATTERSTATE-BADGE skipped; all new flags OFF / additive, nothing deployed)
 
 **Disposition.** Operator authorized "Run full batch now" for the rev.3 overnight reversible build batch. Seven items processed strictly serially, each in its own isolated worktree off the then-current `origin/main`, own PR, Linux-CI-green, squash **auto-merge** on green (Rule 15) for the clean reversible items. Preceded by two operator-directed commits earlier the same session: the **0043 TiDB index hotfix** (`ALTER … ADD UNIQUE INDEX` → `CREATE UNIQUE INDEX … ON …`; PR #332 squash `c8e55e1`, deploy-unblock for EGRESS Inc 2) and the **Cowork docs housekeeping** (10 review/engagement docs; PR #333 squash `4a4526d`). **`origin/main` = `32a392b`. NOTHING deployed; no migration applied to prod; no flag flipped.**
