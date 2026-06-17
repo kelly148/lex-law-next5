@@ -41,4 +41,3 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   INDEX `idx_notifications_owner` (`userId`, `createdAt`),
   INDEX `idx_notifications_matter` (`userId`, `matterId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-</content>

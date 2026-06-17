@@ -173,4 +173,3 @@ export async function markAllNotificationsSeen(userId: string): Promise<number> 
 export async function markNotificationSeen(id: string, userId: string): Promise<void> {
   return store().markSeen(id, userId, new Date());
 }
-</content>

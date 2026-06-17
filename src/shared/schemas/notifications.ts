@@ -43,5 +43,3 @@ export const NotificationRowSchema = z.object({
   updatedAt: z.date(),
 });
 export type NotificationRow = z.infer<typeof NotificationRowSchema>;
-</content>
-</invoke>

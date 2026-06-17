@@ -194,4 +194,3 @@ describe('FOLD-NOTIFY-1 — migration 0045 additive guards (CI-enforceable)', ()
     expect(runner).toContain("'notifications'");
   });
 });
-</content>
