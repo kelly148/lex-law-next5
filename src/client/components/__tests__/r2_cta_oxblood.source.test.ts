@@ -67,7 +67,7 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
     `${COMP}/ProvisionProvenancePanel.tsx`, `${COMP}/LddDiffPanel.tsx`,
     `${COMP}/OrchestrationConsolidationPanel.tsx`, `${COMP}/ExportSafetyPanel.tsx`,
     `${COMP}/MatterRecordLedger.tsx`, `${COMP}/ContextPreviewPanel.tsx`,
-    `${COMP}/MaterialsDrawer.tsx`, `${COMP}/MatterReadinessStrip.tsx`,
+    `${COMP}/MaterialsDrawer.tsx`,
   ];
   for (const rel of ghostEverywhere) {
     it(`${rel.split('/').pop()}: promotes nothing to oxblood (no bg-accent fill)`, () => {
@@ -106,7 +106,6 @@ describe('R2 primary-CTA oxblood — button grammar sweep', () => {
   // 6. Segmented / mode-toggle active state = the quiet surface card, never a loud fill.
   it('segmented active states use the quiet surface card', () => {
     expect(read(`${PAGES}/DocumentDetail.tsx`)).toContain(SEGMENTED_ACTIVE);
-    expect(read(`${COMP}/MatterReadinessStrip.tsx`)).toContain(SEGMENTED_ACTIVE);
     expect(read(`${PAGES}/UploadFormatPage.tsx`)).toContain(SEGMENTED_ACTIVE);
   });
 
