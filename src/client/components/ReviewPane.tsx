@@ -34,6 +34,7 @@ import { stripEmbeddedCardsJson, splitSuggestedRevisionPaths } from '../utils/fe
 import OrchestrationConsolidationPanel from './OrchestrationConsolidationPanel.js';
 import ProvisionProvenancePanel from './ProvisionProvenancePanel.js';
 import LddDiffPanel from './LddDiffPanel.js';
+import VersionComparePanel from './VersionComparePanel.js';
 import PanelErrorBoundary from './PanelErrorBoundary.js';
 import DocumentReferencePane from './DocumentReferencePane.js';
 import { AsyncLaneReviewView } from './AsyncLaneReviewView.js';
@@ -1129,7 +1130,7 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   // Which on-demand reference-tool overlay is open (null = none). Reference tools are NOT docked —
   // they float over the pane with zero permanent width (disposition §G).
   const [activeOverlay, setActiveOverlay] = useState<
-    null | 'instructions' | 'provenance' | 'ldd' | 'adopt' | 'history' | 'convergence' | 'locked'
+    null | 'instructions' | 'provenance' | 'ldd' | 'compare' | 'adopt' | 'history' | 'convergence' | 'locked'
   >(null);
 
   // MR-3 §S2a: Poll reviewer_feedback jobs for this document to detect FAILED state.
@@ -1434,10 +1435,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   const closeOverlay = (): void => setActiveOverlay(null);
 
   // Reference-tool header icon buttons (open floating overlays — zero docked width, disposition §G).
-  const toolButtons: Array<{ key: 'instructions' | 'provenance' | 'ldd' | 'adopt' | 'history' | 'convergence' | 'locked'; label: string; icon: React.ReactNode; show: boolean }> = [
+  const toolButtons: Array<{ key: 'instructions' | 'provenance' | 'ldd' | 'compare' | 'adopt' | 'history' | 'convergence' | 'locked'; label: string; icon: React.ReactNode; show: boolean }> = [
     { key: 'instructions', label: 'Reviewer instructions', icon: <Settings className="w-4 h-4" />, show: true },
     { key: 'provenance', label: 'Provision provenance', icon: <History className="w-4 h-4" />, show: true },
     { key: 'ldd', label: 'LOI vs draft', icon: <GitCompare className="w-4 h-4" />, show: true },
+    { key: 'compare', label: 'Version compare', icon: <GitCompare className="w-4 h-4" />, show: true },
     { key: 'adopt', label: 'Adopted changes', icon: <ListChecks className="w-4 h-4" />, show: true },
     { key: 'history', label: 'Prior feedback', icon: <Clock className="w-4 h-4" />, show: true },
     { key: 'convergence', label: 'Reviewer convergence', icon: <Users className="w-4 h-4" />, show: multiReviewer },
@@ -1742,6 +1744,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
       {activeOverlay === 'ldd' && (
         <ReviewToolOverlay title="LOI vs draft" onClose={closeOverlay}>
           <PanelErrorBoundary label="LOI-vs-draft check"><LddDiffPanel documentId={documentId} /></PanelErrorBoundary>
+        </ReviewToolOverlay>
+      )}
+      {activeOverlay === 'compare' && (
+        <ReviewToolOverlay title="Version compare" onClose={closeOverlay}>
+          <PanelErrorBoundary label="Version compare"><VersionComparePanel documentId={documentId} /></PanelErrorBoundary>
         </ReviewToolOverlay>
       )}
       {activeOverlay === 'adopt' && (
