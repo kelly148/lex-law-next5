@@ -55,6 +55,10 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     // MR-CAL-7B: create loads adopt-ledger carryforward; regenerate captures + applies it.
     listAdoptLedgerForPrompt: vi.fn().mockResolvedValue([]),
     insertAdoptLedgerEntry: vi.fn(),
+    // REVIEW-LOOP-UX-1 R1: regenerate now probes for an already-instant-adopted (session, suggestion,
+    // version) row before each insert. No instant adopt occurs in this e2e chain → return null so the
+    // regenerate insert path proceeds unchanged (new-signature stub, not an assertion change).
+    getAdoptLedgerEntryForSuggestionVersion: vi.fn().mockResolvedValue(null),
     applyRegenerationToAdoptLedger: vi.fn(),
     getReviewSessionById: vi.fn(),
     listFeedbackForSession: vi.fn(),

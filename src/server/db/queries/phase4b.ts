@@ -1225,6 +1225,37 @@ export async function getAdoptLedgerEntryById(
   return parseAdoptLedgerRow(rows[0]!, { userId });
 }
 
+/**
+ * REVIEW-LOOP-UX-1 / R1: owner-scoped existence read for the instant-adopt idempotency guard.
+ * Returns the ledger row for a specific (reviewSessionId, sourceSuggestionId, adoptedIntoVersionId)
+ * if owned by userId, else null. Mirrors the table's unique key
+ * `uniq_adopt_ledger_session_suggestion (reviewSessionId, sourceSuggestionId)` (within a session there
+ * is one current/input version, so adding adoptedIntoVersionId is defensive and consistent). Used so
+ * an instant adopt is idempotent (second click → no duplicate insert) AND so the later regenerate path
+ * SKIPS re-inserting a row a prior instant adopt already committed (avoids the unique-index collision).
+ */
+export async function getAdoptLedgerEntryForSuggestionVersion(
+  reviewSessionId: string,
+  sourceSuggestionId: string,
+  adoptedIntoVersionId: string,
+  userId: string,
+): Promise<AdoptLedgerRow | null> {
+  const rows = await db
+    .select()
+    .from(adoptLedger)
+    .where(
+      and(
+        ownerScope(adoptLedger.userId, userId),
+        eq(adoptLedger.reviewSessionId, reviewSessionId),
+        eq(adoptLedger.sourceSuggestionId, sourceSuggestionId),
+        eq(adoptLedger.adoptedIntoVersionId, adoptedIntoVersionId),
+      ),
+    )
+    .limit(1);
+  if (rows.length === 0) return null;
+  return parseAdoptLedgerRow(rows[0]!, { userId });
+}
+
 /** All ledger entries for a document (any status), newest first (UI). */
 export async function listAdoptLedgerForDocument(
   documentId: string,

@@ -31,6 +31,12 @@ export default function OrchestrationConsolidationPanel({
 }: OrchestrationConsolidationPanelProps): React.ReactElement | null {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // REVIEW-LOOP-UX-1 / R1: a convergent-bucket BULK-adopt requires at least a scroll-acknowledge — the
+  // attorney must scroll the expanded member list to its end before "Confirm group" enables. This is
+  // the FOLD-ORCH-1 control (the gate is bulk-eligibility, not the click), tightened from expand-to-see
+  // to expand-AND-scroll-acknowledge. Per-item convergent-high-risk and DIVERGENT items never get a
+  // bulk affordance (they are per-item by classification), so the gate only governs convergent_low_risk.
+  const [scrollAcked, setScrollAcked] = useState<Record<string, boolean>>({});
 
   const utils = trpc.useUtils();
   const consolidation = trpc.orchestration.getConsolidation.useQuery({ reviewSessionId }, { enabled: open });
@@ -74,6 +80,23 @@ export default function OrchestrationConsolidationPanel({
   const selectedIds = new Set(currentSelections.map((s) => s.suggestionId));
 
   const toggle = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  // Mark a group scroll-acknowledged once its member list is scrolled to the bottom (or it is short
+  // enough that there is nothing to scroll — handled below by acknowledging short lists on expand).
+  const onMembersScroll = (id: string) => (e: React.UIEvent<HTMLUListElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) {
+      setScrollAcked((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+    }
+  };
+  // When a group is short enough that the member list does not overflow (nothing to scroll), expanding
+  // it IS the acknowledgment — record it via a callback ref the first time the list mounts. The
+  // `scrollHeight > 0` guard means a not-yet-laid-out list (e.g. jsdom geometry of 0) does NOT auto-ack;
+  // a genuinely short, laid-out list (scrollHeight <= clientHeight) does.
+  const ackIfNotScrollable = (id: string) => (el: HTMLUListElement | null) => {
+    if (el && el.scrollHeight > 0 && el.scrollHeight <= el.clientHeight + 4) {
+      setScrollAcked((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+    }
+  };
 
   // Fork A: confirm a convergent+low-risk group ONLY after expand-to-see (never one-click). This
   // SELECTS its members for the next regeneration, tagged with the bulk confirmation mode; the
@@ -149,16 +172,26 @@ export default function OrchestrationConsolidationPanel({
                           </button>
                           {expanded[g.issueId] && (
                             <div className="px-2 pb-2 space-y-1">
-                              <ul className="space-y-0.5">
+                              <ul
+                                ref={ackIfNotScrollable(g.issueId)}
+                                onScroll={onMembersScroll(g.issueId)}
+                                data-testid={`bulk-group-members-${g.issueId}`}
+                                className="space-y-0.5 max-h-32 overflow-y-auto"
+                              >
                                 {g.members.map((m) => (
                                   <li key={m.suggestionId} className="text-[11px] text-gray-600">
                                     <span className="font-medium">{m.reviewerRole}</span>: {m.position}
                                   </li>
                                 ))}
                               </ul>
+                              {!allSelected && !scrollAcked[g.issueId] && (
+                                <p className="text-[10px] text-amber-700" data-testid={`bulk-scroll-ack-hint-${g.issueId}`}>
+                                  Scroll through all items above to enable grouped confirmation.
+                                </p>
+                              )}
                               <DeliberateActButton
                                 onClick={() => confirmGroup(g.members)}
-                                disabled={allSelected || updateSelection.isPending}
+                                disabled={allSelected || updateSelection.isPending || !scrollAcked[g.issueId]}
                                 size="sm"
                                 tone="ghost"
                               >

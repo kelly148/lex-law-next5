@@ -105,6 +105,10 @@ vi.mock('../db/queries/phase4b.js', async (importOriginal) => {
     // injects the carryforward. Stub them so the real DB queries are not hit (returns
     // undefined; non-throwing — adopt-ledger bookkeeping is additive/best-effort here).
     insertAdoptLedgerEntry: vi.fn(),
+    // REVIEW-LOOP-UX-1 R1: regenerate now probes for an already-instant-adopted (session, suggestion,
+    // version) row before each insert. No instant adopt occurs in these tests → return null so the
+    // regenerate insert path proceeds unchanged (new-signature stub, not an assertion change).
+    getAdoptLedgerEntryForSuggestionVersion: vi.fn().mockResolvedValue(null),
     applyRegenerationToAdoptLedger: vi.fn(),
     listAdoptLedgerForPrompt: vi.fn(),
   };
