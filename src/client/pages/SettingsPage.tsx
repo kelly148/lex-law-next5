@@ -24,7 +24,7 @@
  * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
 import React, { useState, useRef } from 'react';
-import { Settings, Mic, Users } from 'lucide-react';
+import { Settings, Mic, Users, Lock } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 
@@ -251,6 +251,135 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
 }
 
 // ============================================================
+// ChangePasswordSection (FOLD-AUTH-CHANGEPW)
+// ============================================================
+// UI half of FOLD-AUTH-1's self-serve password change. Wraps the existing,
+// already-shipped auth.changePassword procedure (server-authoritative: bcrypt-
+// verifies the current password, requires the new one to differ, min 10 chars).
+// Light client-side guards mirror the server only for UX; the server is the gate.
+const NEW_PASSWORD_MIN = 10;
+
+function ChangePasswordSection(): React.ReactElement {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const utils = trpc.useUtils();
+
+  const changeMutation = useGuardedMutation(
+    (input: { currentPassword: string; newPassword: string }) =>
+      utils.client.auth.changePassword.mutate(input),
+    {
+      onSuccess: () => {
+        setError(null);
+        setSaved(true);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => setSaved(false), 3000);
+      },
+      onError: (err) => {
+        setSaved(false);
+        setError(err.message);
+      },
+    }
+  );
+
+  const canSubmit =
+    currentPassword.length > 0 &&
+    newPassword.length >= NEW_PASSWORD_MIN &&
+    confirmPassword.length > 0 &&
+    !changeMutation.isPending;
+
+  const handleSubmit = (e: React.FormEvent): void => {
+    e.preventDefault();
+    setSaved(false);
+    if (newPassword.length < NEW_PASSWORD_MIN) {
+      setError(`New password must be at least ${NEW_PASSWORD_MIN} characters.`);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('New password and confirmation do not match.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError('New password must differ from the current password.');
+      return;
+    }
+    setError(null);
+    changeMutation.mutate({ currentPassword, newPassword });
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Lock className="w-5 h-5 text-firm-navy" />
+        <h2 className="text-base font-semibold text-firm-navy">Change Password</h2>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">
+        Update your account password. Enter your current password to confirm the change.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="current-password" className="block text-sm font-medium text-gray-800 mb-1">
+            Current Password
+          </label>
+          <input
+            id="current-password"
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          />
+        </div>
+        <div>
+          <label htmlFor="new-password" className="block text-sm font-medium text-gray-800 mb-1">
+            New Password
+          </label>
+          <input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          />
+          <p className="text-xs text-gray-500 mt-0.5">At least {NEW_PASSWORD_MIN} characters.</p>
+        </div>
+        <div>
+          <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-800 mb-1">
+            Confirm New Password
+          </label>
+          <input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          />
+        </div>
+
+        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {saved && <p className="text-green-600 text-sm">Password changed.</p>}
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
+          >
+            {changeMutation.isPending ? 'Updating…' : 'Update Password'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ============================================================
 // SettingsPage — main export
 // ============================================================
 export default function SettingsPage(): React.ReactElement {
@@ -264,26 +393,30 @@ export default function SettingsPage(): React.ReactElement {
         <h1 className="text-2xl font-garamond font-semibold text-firm-navy">Settings</h1>
       </div>
 
-      {isLoading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Loading settings…</div>
-      ) : !data ? (
-        <div className="text-center py-12 text-red-600 text-sm">Failed to load settings.</div>
-      ) : (
-        <div className="space-y-6">
-          {/*
-           * key props remount sections when server data changes, avoiding
-           * the useEffect+setState anti-pattern (react-hooks/set-state-in-effect).
-           */}
-          <ReviewerEnablementSection
-            key={`${data.reviewerEnablement.claude}-${data.reviewerEnablement.gpt}-${data.reviewerEnablement.gemini}-${data.reviewerEnablement.grok}`}
-            initial={data.reviewerEnablement}
-          />
-          <VoiceInputSection
-            key={`${data.voiceInput.forceShowAll}-${data.voiceInput.forceHideAll}-${data.voiceInput.dictationLanguage}`}
-            initial={data.voiceInput}
-          />
-        </div>
-      )}
+      <div className="space-y-6">
+        {isLoading ? (
+          <div className="text-center py-12 text-gray-400 text-sm">Loading settings…</div>
+        ) : !data ? (
+          <div className="text-center py-12 text-red-600 text-sm">Failed to load settings.</div>
+        ) : (
+          <>
+            {/*
+             * key props remount sections when server data changes, avoiding
+             * the useEffect+setState anti-pattern (react-hooks/set-state-in-effect).
+             */}
+            <ReviewerEnablementSection
+              key={`${data.reviewerEnablement.claude}-${data.reviewerEnablement.gpt}-${data.reviewerEnablement.gemini}-${data.reviewerEnablement.grok}`}
+              initial={data.reviewerEnablement}
+            />
+            <VoiceInputSection
+              key={`${data.voiceInput.forceShowAll}-${data.voiceInput.forceHideAll}-${data.voiceInput.dictationLanguage}`}
+              initial={data.voiceInput}
+            />
+          </>
+        )}
+        {/* Password change is independent of settings.get — always available. */}
+        <ChangePasswordSection />
+      </div>
     </div>
   );
 }
