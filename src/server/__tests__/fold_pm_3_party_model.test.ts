@@ -65,6 +65,10 @@ const MIGRATION_SQL = readFileSync(
   fileURLToPath(new URL('../db/migrations/0044_fold_pm_3_party_model.sql', import.meta.url)),
   'utf8',
 );
+// Executable DDL only: strip `/* */` and `-- …` comments so the destructive-DDL guards below
+// scan statements, not prose. The header comment intentionally NAMES the `ALTER TABLE … ADD
+// INDEX` TiDB trap it avoids, which must not trip the guard.
+const MIGRATION_DDL = MIGRATION_SQL.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
 
 function caller(userId: string | undefined) {
   return appRouter.createCaller({ req: {} as Request, res: {} as Response, userId });
@@ -248,11 +252,11 @@ describe('FOLD-PM-3 — migration 0044 additive guards (CI-enforceable)', () => 
     expect(/CREATE TABLE IF NOT EXISTS `matter_entity`/.test(MIGRATION_SQL)).toBe(true);
     expect(/CREATE TABLE IF NOT EXISTS `matter_entity_contact`/.test(MIGRATION_SQL)).toBe(true);
     // additive-only
-    expect(/\bDROP\s+(TABLE|COLUMN|DATABASE|INDEX)\b/i.test(MIGRATION_SQL)).toBe(false);
-    expect(/\bTRUNCATE\b/i.test(MIGRATION_SQL)).toBe(false);
-    expect(/\bDELETE\s+FROM\b/i.test(MIGRATION_SQL)).toBe(false);
-    expect(/\bRENAME\b/i.test(MIGRATION_SQL)).toBe(false);
+    expect(/\bDROP\s+(TABLE|COLUMN|DATABASE|INDEX)\b/i.test(MIGRATION_DDL)).toBe(false);
+    expect(/\bTRUNCATE\b/i.test(MIGRATION_DDL)).toBe(false);
+    expect(/\bDELETE\s+FROM\b/i.test(MIGRATION_DDL)).toBe(false);
+    expect(/\bRENAME\b/i.test(MIGRATION_DDL)).toBe(false);
     // TiDB trap guard: indexes are INLINE in CREATE TABLE, never `ALTER TABLE ... ADD INDEX`.
-    expect(/ALTER\s+TABLE[\s\S]*ADD\s+(UNIQUE\s+)?INDEX/i.test(MIGRATION_SQL)).toBe(false);
+    expect(/ALTER\s+TABLE[\s\S]*ADD\s+(UNIQUE\s+)?INDEX/i.test(MIGRATION_DDL)).toBe(false);
   });
 });
