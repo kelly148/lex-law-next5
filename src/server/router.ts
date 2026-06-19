@@ -41,6 +41,7 @@ import { sendabilityGateRouter } from './procedures/sendabilityGate.js';
 import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { conflictPolicyRouter } from './procedures/conflictPolicy.js';
+import { deedGateRouter } from './procedures/deedGate.js';
 import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
@@ -102,6 +103,11 @@ export const appRouter = router({
   // CONFLICT_GATE_ENABLED (default OFF; the surface is dark on prod). DORMANT: nothing reads the effective
   // posture to change a gate transition yet — the wiring is a later, separately accept-gated increment.
   conflictPolicy: conflictPolicyRouter,
+  // FOLD-DEED-1 (Inc 1 foundation) — the three-gate deed recordability gate (Assembly → Legal-Review →
+  // Recordability), gated behind DEED_GATE_ENABLED (default OFF; dark on prod). FAIL-CLOSED + KB-mandatory:
+  // no locality KB seeded → no deed ever reaches "recordable". The VA-primer KB seed + RON are separate
+  // blocked/decision-gated increments.
+  deedGate: deedGateRouter,
   // CHAT-UI-1 — conversation-surface flag exposure (isEnabled), gated behind CHAT_UI_1_ENABLED
   // (default OFF). W0 scaffold is display-only; the surface is absent when the flag is off.
   chatUi: chatUiRouter,

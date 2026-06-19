@@ -75,6 +75,7 @@ import {
   documentParty,
   gateOverride,
   matterConflictPosture,
+  deedGate,
   promptSnapshots,
   postureProvenance,
   reviewerLanes,
@@ -217,6 +218,10 @@ export async function cascadeDeleteMatterChildren(
   // auditEvents (preserved by the everyday delete), so the table itself purges WITH the matter — like
   // egress_hold (operational state), not auditEvents (the permanent record).
   await step('matterConflictPosture', matterConflictPosture, byMatter(matterConflictPosture));
+  // FOLD-DEED-1 Inc 1: the matter's deed-gate state (the affirmative-act checklist; matterId-carried, one row
+  // per deed document). Operational state; the PERMANENT record of each act is the auditEvents Matter-Record
+  // event (preserved by the everyday delete), so the table purges WITH the matter — like matterConflictPosture.
+  await step('deedGate', deedGate, byMatter(deedGate));
   // INSTR-1A0: per-draft-job prompt snapshots — their legacy-path systemText embeds matter-derived
   // content (matter state, PA profile), so they purge with the matter. matterId is nullable on the
   // table, but every draft-job row carries it; owner-scoped like every other step.
