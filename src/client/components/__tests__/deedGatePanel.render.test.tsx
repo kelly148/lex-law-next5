@@ -48,7 +48,8 @@ import { DeedGatePanel } from '../DeedGatePanel.js';
 
 const DOC = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const DEFAULT_STATE = {
-  schemaVersion: 1, sourceOfRecordInstrument: null, descriptionSourceMatch: null, descriptionParcelScope: null,
+  schemaVersion: 1, sourceOfRecordInstrument: null, recordingLocality: null, deedSubType: null,
+  descriptionSourceMatch: null, descriptionParcelScope: null,
   descriptionExceptionText: null, descriptionProvenance: null, descriptionNotOcrOnly: null,
   descriptionHasPlatOrSubdivisionRef: null, descriptionConfirmedAt: null, vestingSelection: null,
   maritalStatusConfirmed: null, spousalJoinder: null, grantorReconciledToSource: null, fiduciaryAuthority: null,
@@ -69,6 +70,14 @@ const KB = {
   vestingOptions: [
     { key: 'jtwros', language: 'as joint tenants with right of survivorship and not as tenants in common', appliesTo: 'multiple grantees' },
     { key: 'tbe', language: 'as tenants by the entirety with the common-law right of survivorship', appliesTo: 'married grantees' },
+  ],
+  deedTypes: [
+    { key: 'bargain_and_sale', title: 'Deed of Bargain and Sale' },
+    { key: 'gift', title: 'Deed of Gift' },
+  ],
+  localities: [
+    { name: 'Fairfax County', deedInstrumentRecordable: true },
+    { name: 'Loudoun County', deedInstrumentRecordable: true },
   ],
   escalationTriggers: ['Deceased grantor without a clean survivorship path', 'Property titled in a trust, estate, LLC, partnership, or other entity'],
   provenance: { sourceTitle: 'Deed Drafting in Virginia — A Training Guide', sourceOrg: 'The Satterwhite Law Firm, PLLC' },
