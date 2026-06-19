@@ -26,8 +26,13 @@ import {
   getUserPreferences,
   updateReviewerEnablement,
   updateVoiceInputPreferences,
+  updateNotificationPreferences,
 } from '../db/queries/userPreferences.js';
-import { ReviewerEnablementSchema, VoiceInputPreferencesSchema } from '../../shared/schemas/matters.js';
+import {
+  ReviewerEnablementSchema,
+  VoiceInputPreferencesSchema,
+  NotificationPreferencesSchema,
+} from '../../shared/schemas/matters.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { isMultiReviewerEnabled } from '../config/featureFlags.js';
 
@@ -37,6 +42,8 @@ export const settingsRouter = router({
     return {
       reviewerEnablement: prefs.preferences.reviewerEnablement,
       voiceInput: prefs.preferences.voiceInput,
+      // NOTIFY-SUITE-1 N3: the notification preferences blob (the panel reads this).
+      notificationPreferences: prefs.preferences.notificationPreferences,
       // MR-CAL-5B: global multi-reviewer toggle (default OFF). Surfaced read-only so
       // the review UI can offer multi-select when enabled; the server resolver is
       // the authoritative gate regardless of this value.
@@ -111,5 +118,20 @@ export const settingsRouter = router({
         reviewerEnablement: updated.preferences.reviewerEnablement,
         voiceInput: updated.preferences.voiceInput,
       };
+    }),
+
+  /**
+   * settings.updateNotificationPreferences — NOTIFY-SUITE-1 N3.
+   *
+   * Persists the notification preferences blob. Zod Wall: input is validated by NotificationPreferencesSchema
+   * here, and the merged blob is re-validated by UserPreferencesDataSchema before the DB write. No telemetry
+   * catalog event exists for this op (R1 — like updateVoiceInput; a new event requires a spec revision), so
+   * none is emitted. Owner-scoped (userId is ctx.userId).
+   */
+  updateNotificationPreferences: protectedProcedure
+    .input(z.object({ notificationPreferences: NotificationPreferencesSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const updated = await updateNotificationPreferences(ctx.userId, input.notificationPreferences);
+      return { notificationPreferences: updated.preferences.notificationPreferences };
     }),
 });

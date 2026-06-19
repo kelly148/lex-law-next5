@@ -15,9 +15,10 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
-import { isDeadlineEngineEnabled } from '../config/featureFlags.js';
+import { isDeadlineEngineEnabled, isNotificationsEnabled } from '../config/featureFlags.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { systemClock } from '../deadline/clock.js';
+import { scanAndEmitDeadlineAlerts } from '../notifications/deadlineAlerts.js';
 import {
   createMatterDeadline, confirmMatterDeadline, batchConfirmMatterDeadlines, overrideMatterDeadline,
   satisfyMatterDeadline, waiveMatterDeadline, proposeRecompute, confirmRecompute,
@@ -176,4 +177,16 @@ export const deadlineRouter = router({
   snoozeTickler: protectedProcedure
     .input(z.object({ ticklerId: z.string().uuid(), snoozedUntil: DATE, reason: z.string().min(1).max(4000) }))
     .mutation(async ({ ctx, input }) => { assertEnabled(); return snoozeTickler(input.ticklerId, ctx.userId, input.snoozedUntil, input.reason); }),
+
+  // NOTIFY-SUITE-1 N2: scan the owner's approaching deadlines and surface each (at most once, via the
+  // tickler.notifiedAt cursor) as an in-app 'deadline' notification — which the existing notification bell +
+  // the per-matter "deadline approaching" badge read. Gated on BOTH the deadline engine AND notifications:
+  // if notifications are OFF there is nowhere to surface, so it is a no-op (emitted: 0). Informational only;
+  // never auto-acts. The client calls this on load / a low-frequency interval.
+  scanAlerts: protectedProcedure.mutation(async ({ ctx }) => {
+    assertEnabled();
+    if (!isNotificationsEnabled()) return { emitted: 0, notificationsEnabled: false };
+    const emitted = await scanAndEmitDeadlineAlerts(ctx.userId, systemClock);
+    return { emitted, notificationsEnabled: true };
+  }),
 });

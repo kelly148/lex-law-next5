@@ -24,6 +24,9 @@ import { z } from 'zod';
 export const NOTIFICATION_TYPE_VALUES = [
   'generic',
   'matter_ready',
+  // NOTIFY-SUITE-1 N2: a deadline/tickler is approaching its effective due date. Drives the per-matter
+  // "deadline approaching" badge (distinct from 'matter_ready'). Informational only; never auto-acts.
+  'deadline',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPE_VALUES)[number];
 
@@ -43,3 +46,39 @@ export const NotificationRowSchema = z.object({
   updatedAt: z.date(),
 });
 export type NotificationRow = z.infer<typeof NotificationRowSchema>;
+
+// ── NOTIFY-SUITE-1 N1 — "while you were away" digest (pure projection over the UNREAD set) ──
+/**
+ * The single derived summary the client shows ON RETURN — ONE coherent line, not N toasts. Derived from
+ * the owner's UNREAD notifications (readAt IS NULL is the per-user last-seen cursor); informational only.
+ */
+export interface NotificationDigest {
+  total: number; // total unread
+  matterReady: number; // unread 'matter_ready'
+  deadline: number; // unread 'deadline'
+  generic: number; // unread 'generic'
+  matterCount: number; // distinct matters with an unread matter-scoped notice
+  summaryLine: string; // human one-liner ('' when nothing is unread)
+}
+
+/**
+ * PURE: build the "while you were away" digest from the owner's UNREAD notification rows. Derive, never
+ * duplicate — the rows are the source. Groups by type so the client renders ONE summary line.
+ */
+export function buildNotificationDigest(unread: NotificationRow[]): NotificationDigest {
+  let matterReady = 0;
+  let deadline = 0;
+  let generic = 0;
+  const matters = new Set<string>();
+  for (const n of unread) {
+    if (n.type === 'matter_ready') matterReady += 1;
+    else if (n.type === 'deadline') deadline += 1;
+    else generic += 1;
+    if (n.matterId) matters.add(n.matterId);
+  }
+  const parts: string[] = [];
+  if (matterReady > 0) parts.push(`${matterReady} ${matterReady === 1 ? 'matter has' : 'matters have'} results`);
+  if (deadline > 0) parts.push(`${deadline} deadline${deadline === 1 ? '' : 's'} approaching`);
+  if (generic > 0) parts.push(`${generic} update${generic === 1 ? '' : 's'}`);
+  return { total: unread.length, matterReady, deadline, generic, matterCount: matters.size, summaryLine: parts.join(' · ') };
+}

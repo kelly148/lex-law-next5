@@ -46,6 +46,12 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
     refetchInterval: notificationsEnabled ? 60_000 : false,
   });
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
+  // NOTIFY-SUITE-1 N1 — "while you were away": one derived digest, fetched once on return (no poll — the
+  // bell badge above carries the live count). Dismissible for the session; informational only.
+  const [digestDismissed, setDigestDismissed] = React.useState(false);
+  const digestQuery = trpc.notifications.digest.useQuery(undefined, { enabled: notificationsEnabled });
+  const digest = digestQuery.data;
+  const showDigest = notificationsEnabled && !digestDismissed && (digest?.total ?? 0) > 0;
 
   const logoutMutation = useGuardedMutation(
     () => utils.client.auth.logout.mutate(),
@@ -161,6 +167,29 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
 
       {/* Main content */}
       <main className="flex-1 bg-firm-light overflow-auto">
+        {/* NOTIFY-SUITE-1 N1 — "while you were away" digest: ONE coherent summary on return (not N toasts),
+            dismissible. Shown only when notifications are ON and something is unread. */}
+        {showDigest && digest && (
+          <div
+            data-testid="notify-digest"
+            className="flex items-center justify-between gap-3 px-4 py-2 bg-surface-2 border-b border-line text-sm text-ink"
+          >
+            <span>
+              <span className="font-medium">While you were away</span>
+              {' — '}
+              {digest.summaryLine || `${digest.total} new notification${digest.total === 1 ? '' : 's'}`}
+            </span>
+            <button
+              type="button"
+              data-testid="notify-digest-dismiss"
+              onClick={() => setDigestDismissed(true)}
+              aria-label="Dismiss the while-you-were-away digest"
+              className="text-ink-secondary hover:text-ink underline whitespace-nowrap"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {children}
       </main>
     </div>

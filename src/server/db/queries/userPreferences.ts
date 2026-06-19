@@ -9,6 +9,7 @@
 import { eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
+import { ownerScope } from '../ownerScope.js';
 import { userPreferences, type UserPreferences } from '../schema.js';
 import {
   UserPreferencesRowSchema,
@@ -124,5 +125,33 @@ export async function updateVoiceInputPreferences(
     .update(userPreferences)
     .set({ preferences: validated })
     .where(eq(userPreferences.userId, userId));
+  return getUserPreferences(userId);
+}
+
+// NOTE: getUserPreferences / updateReviewerEnablement / updateVoiceInputPreferences above predate the
+// FOLD-AUTH ownerScope chokepoint and keep their grandfathered inline eq() owner filters (the ratchet
+// baseline). New owner-scoped writes route through ownerScope() — see updateNotificationPreferences below.
+
+/**
+ * NOTIFY-SUITE-1 N3: update the user's notification preferences. Merges into the existing prefs blob +
+ * re-validates the WHOLE blob through the Zod Wall before write (mirrors updateVoiceInputPreferences). The
+ * additive notificationPreferences field has all-defaulted sub-fields, so an existing (pre-N3) blob reads
+ * with the safe defaults — no migration. Owner-scoped (userId is the caller's). No telemetry catalog event
+ * exists for this op (R1 — like voiceInput), so none is emitted.
+ */
+export async function updateNotificationPreferences(
+  userId: string,
+  notificationPreferences: UserPreferencesData['notificationPreferences'],
+): Promise<UserPreferencesRow> {
+  const current = await getUserPreferences(userId);
+  const updated: UserPreferencesData = {
+    ...current.preferences,
+    notificationPreferences,
+  };
+  const validated = UserPreferencesDataSchema.parse(updated);
+  await db
+    .update(userPreferences)
+    .set({ preferences: validated })
+    .where(ownerScope(userPreferences.userId, userId)); // FOLD-AUTH chokepoint (ratchet: new queries use ownerScope)
   return getUserPreferences(userId);
 }

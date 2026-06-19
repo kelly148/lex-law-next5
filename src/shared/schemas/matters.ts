@@ -246,10 +246,39 @@ export const VoiceInputPreferencesSchema = z.object({
   dictationLanguage: z.string().default('en-US'),
 });
 
+// NOTIFY-SUITE-1 N3 — notification preferences (default-safe: in-app + the digest + failures + deadlines ON;
+// tab-title + OS + sound OFF; nothing muted). Forward-looking: tabTitle/os are channels not yet built;
+// the per-event toggles map to the producer surfaces (only N2 'deadline' is live today). Every field has a
+// default so an existing prefs blob (pre-N3) parses with the safe defaults (additive — no migration).
+export const NotificationEventPrefsSchema = z.object({
+  reviewComplete: z.boolean().default(true),
+  reviewFailed: z.boolean().default(true),
+  regeneration: z.boolean().default(true),
+  extraction: z.boolean().default(true),
+  sendability: z.boolean().default(true),
+  deadline: z.boolean().default(true),
+});
+export type NotificationEventPrefs = z.infer<typeof NotificationEventPrefsSchema>;
+
+export const NotificationPreferencesSchema = z.object({
+  inApp: z.boolean().default(true), // the built channel (bell)
+  tabTitle: z.boolean().default(false), // forward-looking channel
+  os: z.boolean().default(false), // forward-looking channel (off by default — privacy)
+  sound: z.boolean().default(false),
+  digest: z.boolean().default(true), // the N1 "while you were away" digest
+  events: NotificationEventPrefsSchema.default({}),
+  // per-matter mute — bounded for hygiene (a runaway list is data-rot; 500 muted matters far exceeds any
+  // real attorney's load). The producer only ever matches these against the owner's OWN deadlines, so a
+  // stale/foreign id is inert; the bound just caps unbounded growth.
+  mutedMatterIds: z.array(z.string().uuid()).max(500).default([]),
+});
+export type NotificationPreferences = z.infer<typeof NotificationPreferencesSchema>;
+
 // The full preferences JSON blob (Ch 4.15)
 export const UserPreferencesDataSchema = z.object({
   voiceInput: VoiceInputPreferencesSchema.default({}),
   reviewerEnablement: ReviewerEnablementSchema.default({}),
+  notificationPreferences: NotificationPreferencesSchema.default({}),
 });
 
 export type UserPreferencesData = z.infer<typeof UserPreferencesDataSchema>;
@@ -275,6 +304,15 @@ export const DEFAULT_USER_PREFERENCES: UserPreferencesData = {
     gpt: true,
     gemini: true,
     grok: false,
+  },
+  notificationPreferences: {
+    inApp: true,
+    tabTitle: false,
+    os: false,
+    sound: false,
+    digest: true,
+    events: { reviewComplete: true, reviewFailed: true, regeneration: true, extraction: true, sendability: true, deadline: true },
+    mutedMatterIds: [],
   },
 };
 
