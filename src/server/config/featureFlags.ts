@@ -136,6 +136,21 @@ export function isConflictGateEnabled(): boolean {
 }
 
 /**
+ * Conflicts-posture FORCE-ON precedence (CONFLICT-TOGGLE-1, disposition item 6). DEFAULT OFF.
+ *
+ * An admin FLOOR: when exactly "true", the posture resolver forces ENFORCED for every matter regardless of
+ * any persisted firm posture policy — a persisted relaxation (ADVISORY) can never drop below it. When OFF
+ * (the default), the resolver honors the firm policy (still default-safe → ENFORCED on missing/malformed).
+ * This flag NEVER makes the gate less strict; it can only raise the floor. It is independent of
+ * CONFLICT_GATE_ENABLED (which governs whether the affirmative-clearance gate enforces at the four
+ * transitions at all). DORMANT in Increment 1: the posture resolver exists but nothing consumes its result
+ * to change a transition yet.
+ */
+export function isConflictGateForceOn(): boolean {
+  return process.env['CONFLICT_GATE_FORCE_ON'] === 'true';
+}
+
+/**
  * Deadline / tickler engine (FOLD-PM-1, Phase-4 head). DEFAULT OFF.
  *
  * When OFF (the default), the deadline engine is entirely dormant: the data-core tables exist but
