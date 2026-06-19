@@ -177,3 +177,9 @@ export function isVaDeedInstrumentRecordableLocality(name: string | null | undef
   const l = getVaLocality(name);
   return l !== null && l.deedInstrumentRecordable;
 }
+
+/** Does the named locality actually OPERATE an eRecording System ([VERIFIED])? Required for e-notary / RON. */
+export function isVaLocalityERecording(name: string | null | undefined): boolean {
+  const l = getVaLocality(name);
+  return l !== null && l.eRecording.verified && l.eRecording.available;
+}

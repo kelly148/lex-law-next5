@@ -15,7 +15,7 @@
  */
 import type { DeedKbAvailability } from '../../shared/schemas/deedGate.js';
 import { isVaVestingValidated, isVaDeedTypeKnown } from './deedKbVa.js';
-import { isVaDeedInstrumentRecordableLocality, VA_LOCALITIES } from './deedKbLocalitiesVa.js';
+import { isVaDeedInstrumentRecordableLocality, isVaLocalityERecording, VA_LOCALITIES } from './deedKbLocalitiesVa.js';
 
 /** The five v1 VA localities seeded with verified per-locality recordability specs. */
 export const DEED_V1_SEED_LOCALITIES = VA_LOCALITIES.map((l) => l.name);
@@ -42,5 +42,7 @@ export function resolveDeedKbAvailability(lookup: DeedKbLookup): DeedKbAvailabil
   const localityVerified = isVa && isVaDeedInstrumentRecordableLocality(lookup.locality);
   // deed-type × jurisdiction × locality template coverage: a known VA deed sub-type + a verified locality.
   const templateCoverage = isVa && localityVerified && isVaDeedTypeKnown(lookup.deedSubType ?? null);
-  return { templateCoverage, vestingListValidated, localityVerified };
+  // Does the recording locality operate an eRecording System? (required for an e-notary / RON execution mode).
+  const localityERecording = isVa && isVaLocalityERecording(lookup.locality);
+  return { templateCoverage, vestingListValidated, localityVerified, localityERecording };
 }

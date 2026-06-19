@@ -54,6 +54,7 @@ const DEFAULT_STATE = {
   descriptionHasPlatOrSubdivisionRef: null, descriptionConfirmedAt: null, vestingSelection: null,
   maritalStatusConfirmed: null, spousalJoinder: null, grantorReconciledToSource: null, fiduciaryAuthority: null,
   specialInstrumentTriggersReviewed: null, preparerReturnGranteeAddress: null, executionMode: null,
+  eCertificateRecitalsAffirmed: null,
 };
 const GET_RESULT = {
   state: DEFAULT_STATE,
@@ -81,6 +82,12 @@ const KB = {
   ],
   escalationTriggers: ['Deceased grantor without a clean survivorship path', 'Property titled in a trust, estate, LLC, partnership, or other entity'],
   provenance: { sourceTitle: 'Deed Drafting in Virginia — A Training Guide', sourceOrg: 'The Satterwhite Law Firm, PLLC' },
+  ron: {
+    acknowledgmentForms: [
+      { key: 'long_form', citation: 'Va. Code § 55.1-612(1)', label: 'Statutory long-form individual acknowledgment certificate' },
+      { key: 'short_form', citation: 'Va. Code § 55.1-619(3)', label: '"acknowledged before me" short form' },
+    ],
+  },
 };
 
 afterEach(() => cleanup());
@@ -127,6 +134,20 @@ describe('DeedGatePanel', () => {
     const langs = Array.from(sel.options).map((o) => o.value);
     expect(langs).toContain('as joint tenants with right of survivorship and not as tenants in common');
     expect(langs).toContain('as tenants by the entirety with the common-law right of survivorship');
+  });
+
+  it('the RON block (e-certificate recitals + verified ack forms) is hidden for wet-sign and shown for an e-notary / RON mode', () => {
+    const { getByTestId, queryByTestId } = render(<DeedGatePanel documentId={DOC} />);
+    // Default mode is unset → no RON block.
+    expect(queryByTestId('deed-ron-block')).toBeNull();
+    // Wet-sign → still no RON block (no e-certificate recitals needed).
+    fireEvent.change(getByTestId('deed-execution-mode'), { target: { value: 'wet_sign' } });
+    expect(queryByTestId('deed-ron-block')).toBeNull();
+    // RON → the § 47.1-16 e-certificate recitals control + the verified ack-forms reference appear.
+    fireEvent.change(getByTestId('deed-execution-mode'), { target: { value: 'ron' } });
+    expect(getByTestId('deed-ron-block')).toBeTruthy();
+    expect(getByTestId('deed-ecert-recitals')).toBeTruthy();
+    expect(getByTestId('deed-ack-forms').textContent).toContain('§ 55.1-612(1)');
   });
 
   it('recording calls deedGate.recordState with the edited state (vesting from the KB)', () => {

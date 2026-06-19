@@ -88,6 +88,10 @@ export const DeedGateStateSchema = z.object({
   // ── Recordability ──
   preparerReturnGranteeAddress: z.boolean().nullable().default(null), // preparer + return-to + grantee tax-bill address
   executionMode: z.enum(DEED_EXECUTION_MODE_VALUES).nullable().default(null), // acknowledgment must match this mode
+  // For an e-notary / RON execution mode: the § 47.1-16 e-certificate recitals are affirmed (the notary's VA
+  // location at the time of the act, the in-person-vs-RON indication, and the tamper-evident e-seal). Required
+  // for e/RON to clear recordability; null BLOCKS. (Wet-sign deeds do not need it.)
+  eCertificateRecitalsAffirmed: z.boolean().nullable().default(null),
 });
 export type DeedGateState = z.infer<typeof DeedGateStateSchema>;
 
@@ -106,6 +110,9 @@ export interface DeedKbAvailability {
   vestingListValidated: boolean;
   /** the selected locality's recordability KB (cover sheet/GPIN/margins/e-recording specs/fees + ack form) is verified. */
   localityVerified: boolean;
+  /** the selected recording locality actually OPERATES an eRecording System (e-recording is permissive) — required
+   *  for an e-notary / RON execution mode to clear recordability. */
+  localityERecording: boolean;
 }
 
 /** Live party binding for the deed (grantor/grantee via document_party.roleKey). */
@@ -181,12 +188,16 @@ export function evaluateDeedGate(input: DeedGateInput): DeedGateEvaluation {
   // 3) Recordability — the recording-acceptance package for the selected locality.
   const recordReasons: string[] = [];
   if (state.preparerReturnGranteeAddress !== true) recordReasons.push('preparer_return_grantee_address_missing');
-  if (state.executionMode === null) recordReasons.push('execution_acknowledgment_mode_unset');
-  // The acknowledgment MUST match the execution mode (§5.4). In the foundation NO mode-specific acknowledgment
-  // form is seeded, so ONLY wet_sign can clear; e-notary and RON require the KB-seed / RON increment's verified
-  // forms. Blocking them here keeps the foundation from baking in a fail-OPEN the moment a locality is verified
-  // (and keeps RON — the unresolved prompt-vs-disposition increment — structurally unable to clear).
-  else if (state.executionMode !== 'wet_sign') recordReasons.push('execution_mode_acknowledgment_form_unavailable');
+  // The acknowledgment MUST match the execution mode (§5.4). Wet-sign clears on the verified statutory ack
+  // forms. e-notary / RON (URPERA §§ 55.1-661–664: recordable on the same footing as paper) clears ONLY when
+  // the recording locality actually operates an eRecording System (e-recording is permissive) AND the
+  // § 47.1-16 e-certificate recitals are affirmed. The gate REFUSES, never improvises, a RON ack without those.
+  if (state.executionMode === null) {
+    recordReasons.push('execution_acknowledgment_mode_unset');
+  } else if (state.executionMode !== 'wet_sign') {
+    if (!kb.localityERecording) recordReasons.push('locality_e_recording_unavailable');
+    if (state.eCertificateRecitalsAffirmed !== true) recordReasons.push('e_certificate_recitals_unaffirmed');
+  }
   // KB-mandatory locality (item 4): no verified locality KB → never recordable.
   if (!kb.localityVerified) recordReasons.push('locality_kb_unverified');
   const recordability: DeedLayerVerdict = { passed: recordReasons.length === 0, blockingReasons: recordReasons };
