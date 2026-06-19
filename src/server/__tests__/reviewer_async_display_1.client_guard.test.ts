@@ -22,7 +22,11 @@ describe('C-3 — async renders/gates off the contract; sync byte-for-byte (GUAR
     // ASYNC-LANE-DISPLAY-PARITY-1: the async branch renders the lane HEADER (AsyncLaneReviewView) ABOVE the
     // SHARED SuggestionCard list + regenerate footer (renderSuggestionWorkspace / renderApplyFooter) —
     // clean cards + per-suggestion controls + regenerate, not a raw-body terminal view.
-    expect(reviewPane).toContain('<AsyncLaneReviewView lanes={data.lanes} />');
+    // REVIEW-LOOP-UX-1 R2 de-brittled (ci-gotcha #8 — pin INTENT, not exact whitespace): the async branch
+    // mounts AsyncLaneReviewView with the lanes contract. R2 added optional onRerun/rerunPendingRole props
+    // (single-reviewer re-run), so the render is now multi-line — the mount + the lanes contract are intact.
+    expect(reviewPane).toContain('<AsyncLaneReviewView');
+    expect(reviewPane).toContain('lanes={data.lanes}');
     expect(reviewPane).toContain('renderSuggestionWorkspace()');
     expect(reviewPane).toContain('renderApplyFooter()');
   });

@@ -36,6 +36,7 @@ import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 import {
   buildReviewerJobRow,
   buildReviewerCanonicalParams,
+  reviewerIdempotencyKey,
   type ReviewerDurableInput,
 } from '../jobs/reviewerJobFactory.js';
 import { buildEvaluatorSystemPrompt, buildEvaluatorUserPrompt } from '../llm/prompts/evaluatorPrompt.js';
@@ -55,16 +56,18 @@ import {
   isEvaluatorEnabled,
   isReviewerAsyncEnabled,
 } from '../config/featureFlags.js';
-import { insertJob } from '../db/queries/jobs.js';
+import { insertJob, getJobByIdempotencyKey, requeueTerminalReviewerJob } from '../db/queries/jobs.js';
 import { db } from '../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   insertReviewerLanes,
   listReviewerLanesForSession,
+  resetReviewerLaneForRerun,
 } from '../db/queries/reviewerLaneState.js';
 import {
   buildReviewerLanesContract,
   isTerminalLaneStatus,
+  isLaneRerunnable,
   type ReviewerLaneView,
   type ReviewerLanesContract,
 } from '../../shared/schemas/reviewerLaneState.js';
@@ -150,6 +153,130 @@ function assertSessionActive(state: string, procedureName: string): void {
 function isDuplicateKeyError(err: unknown): boolean {
   const e = err as { code?: string; errno?: number } | null;
   return !!e && (e.code === 'ER_DUP_ENTRY' || e.errno === 1062);
+}
+
+// ─── reviewer-prompt assembly (rerunReviewer; MIRRORS create's inline assembly) ──
+// MR-CAL-6B/7B: build the bounded "## Locked Decisions" + "## Previously Adopted" sections and the
+// per-reviewer durable input. These MIRROR reviewSession.create's INLINE assembly so a single-reviewer
+// RE-RUN (REVIEW-LOOP-UX-1 R2) composes a byte-identical prompt against the CURRENT draft. NOTE: create
+// keeps its own inline copy (its dispatch structure is source-audit-locked — REVIEWER-ASYNC-FANOUT-1), so
+// if create's reviewer-prompt assembly ever changes, update these helpers in lockstep.
+
+/** Bounded "## Locked Decisions" reviewer-prompt section (MR-CAL-6B). '' when there are no active locks. */
+function buildLockedDecisionsSection(
+  activeLockedDecisions: Awaited<ReturnType<typeof listActiveLockedDecisionsForDocument>>,
+): string {
+  const MAX_LOCKED_DECISIONS_IN_PROMPT = 50;
+  const LOCKED_RATIONALE_MAX_CHARS = 500;
+  if (activeLockedDecisions.length === 0) return '';
+  const shown = activeLockedDecisions.slice(0, MAX_LOCKED_DECISIONS_IN_PROMPT);
+  const lines = shown.map((ld, i) => {
+    const rationale = (ld.rationale ?? '').replace(/\s+/g, ' ').trim().slice(0, LOCKED_RATIONALE_MAX_CHARS);
+    const rationalePart = rationale ? ` Rationale: ${rationale}` : '';
+    return `${i + 1}. [${ld.origin}] ${ld.summary}${rationalePart}`;
+  });
+  const omitted = activeLockedDecisions.length - shown.length;
+  const omittedNote = omitted > 0 ? `\n(${omitted} additional locked decision(s) omitted for length.)` : '';
+  return [
+    '',
+    '## Locked Decisions (attorney-locked — do not re-raise absent a material new fact)',
+    'The supervising attorney has already decided the following for THIS document. Do not',
+    're-raise these as new defects. If a genuine NEW fact in the current draft materially',
+    'changes one of these, you may raise it, but mark it explicitly as a deliberate re-raise',
+    '(persistence) and state the new fact — do not raise it silently.',
+    ...lines,
+    omittedNote,
+  ].filter((s) => s !== '').join('\n');
+}
+
+/** Bounded "## Previously Adopted" reviewer-prompt section (MR-CAL-7B). '' when the adopt ledger is empty. */
+function buildPreviouslyAdoptedSection(
+  adoptLedgerForPrompt: Awaited<ReturnType<typeof listAdoptLedgerForPrompt>>,
+): string {
+  const MAX_ADOPTED_IN_PROMPT = 50;
+  const ADOPTED_TEXT_MAX_CHARS = 500;
+  if (adoptLedgerForPrompt.length === 0) return '';
+  const shownA = adoptLedgerForPrompt.slice(0, MAX_ADOPTED_IN_PROMPT);
+  const linesA = shownA.map((e, i) => {
+    const txt = (e.adoptedText ?? '').replace(/\s+/g, ' ').trim().slice(0, ADOPTED_TEXT_MAX_CHARS);
+    const modFlag = e.disposition === 'adopted_modified' ? ' (modified)' : '';
+    return `${i + 1}.${modFlag} ${txt}`;
+  });
+  const omittedA = adoptLedgerForPrompt.length - shownA.length;
+  const omittedNoteA = omittedA > 0 ? `\n(${omittedA} additional adopted item(s) omitted for length.)` : '';
+  return [
+    '',
+    '## Previously Adopted (treat as intended current state — do not re-flag as new defects)',
+    'The supervising attorney has already ADOPTED the following changes for THIS document',
+    '(verbatim or modified). Treat them as part of the intended draft. Do not flag an adopted',
+    'change as a new defect. You may still flag a genuine NEW problem the adopted text introduces,',
+    'but say explicitly that it arises from the adopted change.',
+    ...linesA,
+    omittedNoteA,
+  ].filter((s) => s !== '').join('\n');
+}
+
+/** Context for assembling ONE reviewer's durable input (the current-draft prompt + reconstruction params). */
+interface ReviewerPromptContext {
+  userId: string;
+  matterId: string;
+  documentId: string;
+  documentVersionId: string;
+  sessionId: string;
+  iterationNumber: number;
+  docTitle: string;
+  currentVersionContent: string;
+  lockedDecisionsSection: string;
+  previouslyAdoptedSection: string;
+  reviewerAsync: boolean;
+}
+
+/**
+ * Build one reviewer's durable input (frozen prompt + reconstruction params) — the prompt assembly is
+ * byte-identical to the established create path. Shared by create's fan-out AND rerunReviewer's single
+ * re-dispatch, so a re-run reviews the CURRENT draft through the SAME factory + idempotency-keyed job slot.
+ */
+function buildReviewerDurableInput(reviewerRole: string, ctx: ReviewerPromptContext): ReviewerDurableInput {
+  const modelString = resolveReviewerModel(reviewerRole);
+  if (!modelString) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `REVIEWER_NOT_ENABLED: '${reviewerRole}' is not a valid reviewer identifier`,
+    });
+  }
+  // MR-CAL-2: calibrated four-track prompt; legacy wrapper keys ("title"/"body"/"severity") preserved.
+  const systemPrompt = buildReviewerSystemPrompt(reviewerRole as AnyReviewerKey);
+  // S1a (MR-1) full document content; MR-CAL-6B locked-decisions section; MR-CAL-7B adopted section.
+  const userPrompt = [
+    `Review session ${ctx.sessionId}, iteration ${ctx.iterationNumber}.`,
+    `Document title: ${ctx.docTitle}`,
+    '',
+    '## Document Content',
+    ctx.currentVersionContent,
+    ...(ctx.lockedDecisionsSection ? [ctx.lockedDecisionsSection] : []),
+    ...(ctx.previouslyAdoptedSection ? [ctx.previouslyAdoptedSection] : []),
+  ].join('\n');
+  const reviewerTitle = REVIEWER_TITLES[reviewerRole as ReviewerKey | LiteReviewerKey] ?? reviewerRole;
+  return {
+    jobId: uuidv4(),
+    userId: ctx.userId,
+    matterId: ctx.matterId,
+    documentId: ctx.documentId,
+    documentVersionId: ctx.documentVersionId,
+    reviewSessionId: ctx.sessionId,
+    iterationNumber: ctx.iterationNumber,
+    reviewerRole,
+    reviewerTitle,
+    modelString,
+    systemPrompt,
+    userPrompt,
+    // MR-CAL-2 reviewer temperature; GEMINI-BUDGET-CAL-1 per-model ceiling; MR-LLM-GPT-1 / REVIEWER-
+    // ASYNC-FANOUT-1 timeout (720 000 ms async background vs 300 000 ms sync). Frozen at enqueue.
+    temperature: 0.4,
+    maxTokens: getReviewerCeiling(modelString),
+    timeoutMs: ctx.reviewerAsync ? 720_000 : 300_000,
+    async: ctx.reviewerAsync,
+  };
 }
 
 // ─── router ───────────────────────────────────────────────────────────────────
@@ -1213,6 +1340,131 @@ export const reviewSessionRouter = router({
       });
 
       return { jobId: result.jobId, status: result.status };
+    }),
+
+  // ============================================================
+  // reviewSession.rerunReviewer — REVIEW-LOOP-UX-1 R2
+  // Re-run ONE reviewer on the CURRENT draft (a flaky/failed/timed-out/held return), leaving the other
+  // lanes intact. Re-dispatches the SAME (session,reviewer) idempotency-keyed job slot through the outbox
+  // factory (reviewerJobFactory) — NOT a second dispatch path. Offered ONLY for no-usable-feedback terminal
+  // lanes (failure-class + blocked_by_hold), so nothing returned/adopted is discarded. The #328 live-refresh
+  // surfaces the lane Queued->Running->Returned. Async-lane only (the sync path has no lanes).
+  // ============================================================
+  rerunReviewer: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        reviewerRole: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+
+      if (!isReviewerAsyncEnabled()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'RERUN_REQUIRES_ASYNC: single-reviewer re-run is only available on the async reviewer lane',
+        });
+      }
+
+      const session = await getReviewSessionById(input.sessionId, userId);
+      if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Review session not found' });
+      assertSessionActive(session.state, 'reviewSession.rerunReviewer');
+
+      const selectedReviewers = (session.selectedReviewers ?? []) as string[];
+      if (!selectedReviewers.includes(input.reviewerRole)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `REVIEWER_NOT_IN_SESSION: reviewer '${input.reviewerRole}' was not selected for this session`,
+        });
+      }
+
+      // The lane must be in a RE-RUNNABLE terminal state (failure-class or blocked_by_hold) — never a
+      // completed_with_feedback lane (its feedback may be adopted) nor a still in-flight lane.
+      const lanes = await listReviewerLanesForSession(input.sessionId, userId);
+      const lane = lanes.find((l) => l.reviewerRole === input.reviewerRole);
+      if (!lane) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `LANE_NOT_FOUND: no reviewer lane for '${input.reviewerRole}'` });
+      }
+      if (!isLaneRerunnable(lane.status)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `LANE_NOT_RERUNNABLE: lane '${input.reviewerRole}' is '${lane.status}'; re-run is offered only for a failed/timed_out/dispatch_failed/orphaned_reaped/canceled/blocked_by_hold lane`,
+        });
+      }
+
+      // Locate the EXISTING (session,reviewer) job slot by its durable-outbox idempotency key — the re-run
+      // reuses it, never forks a new dispatch path / job row.
+      const idempotencyKey = reviewerIdempotencyKey(input.sessionId, input.reviewerRole);
+      const existingJob = await getJobByIdempotencyKey(idempotencyKey, userId);
+      if (!existingJob) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `RERUN_JOB_NOT_FOUND: no reviewer job for '${input.reviewerRole}'` });
+      }
+
+      // Re-compose the durable input against the CURRENT draft (the frozen prompt was cleared on the prior
+      // terminal): current version + current locked decisions + current adopt ledger -> a byte-identical
+      // assembly to create (shared helpers). Reuse the EXISTING job id for the slot.
+      const doc = await getDocumentById(session.documentId, userId);
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+      assertNotComplete(doc.workflowState, 'reviewSession.rerunReviewer');
+      if (!doc.currentVersionId) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'NO_CURRENT_VERSION: document has no current version' });
+      }
+      const currentVersion = await getVersionById(doc.currentVersionId, userId);
+      if (!currentVersion) throw new TRPCError({ code: 'NOT_FOUND', message: 'Current version not found' });
+
+      const lockedDecisionsSection = buildLockedDecisionsSection(
+        await listActiveLockedDecisionsForDocument(session.documentId, userId),
+      );
+      const previouslyAdoptedSection = buildPreviouslyAdoptedSection(
+        await listAdoptLedgerForPrompt(session.documentId, userId),
+      );
+
+      const durableInput: ReviewerDurableInput = {
+        ...buildReviewerDurableInput(input.reviewerRole, {
+          userId,
+          matterId: doc.matterId,
+          documentId: session.documentId,
+          documentVersionId: doc.currentVersionId,
+          sessionId: input.sessionId,
+          iterationNumber: session.iterationNumber,
+          docTitle: doc.title,
+          currentVersionContent: currentVersion.content,
+          lockedDecisionsSection,
+          previouslyAdoptedSection,
+          reviewerAsync: true,
+        }),
+        jobId: existingJob.id, // reuse the EXISTING (session,reviewer) job slot — no new row
+      };
+
+      // Re-queue the existing terminal job (status->queued + fresh input) FIRST: its conditional UPDATE is
+      // the single-winner guard, so a double-click / concurrent re-run can requeue at most once. Then reset
+      // the lane to 'pending' (clear terminal markers, arm a fresh deadline) and re-dispatch via the SAME
+      // deferred path; runJob's atomic claim dedupes, and the #328 live-refresh shows the lane move.
+      const requeued = await requeueTerminalReviewerJob(
+        existingJob.id,
+        userId,
+        buildReviewerJobRow(durableInput).input as Record<string, unknown>,
+      );
+      if (requeued === 0) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `RERUN_IN_PROGRESS: reviewer '${input.reviewerRole}' is no longer in a re-runnable state (already re-running?)`,
+        });
+      }
+      const laneDeadlineAt = new Date(Date.now() + REVIEWER_LANE_TERMINAL_DEADLINE_MS);
+      await resetReviewerLaneForRerun(input.sessionId, input.reviewerRole, userId, laneDeadlineAt);
+
+      registerDeferredContinuation(existingJob.id, buildReviewerCanonicalParams(durableInput));
+      void runDeferredCanonicalJob(existingJob.id).catch((e) =>
+        // eslint-disable-next-line no-console
+        console.error(
+          `[reviewer-outbox] background reviewer RE-RUN failed (session ${input.sessionId}, ${input.reviewerRole}):`,
+          e,
+        ),
+      );
+
+      return { jobId: existingJob.id, reviewerRole: input.reviewerRole, status: 'queued' as const };
     }),
 
   // ============================================================
