@@ -9,7 +9,7 @@
  * and asserts the rebranded chrome renders without a hooks/render violation.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // FOLD-NOTIFY-1: the render mock returns this for trpc.notifications.list.useQuery. A test
@@ -19,6 +19,11 @@ const notificationsListData: { data: { items: unknown[]; unreadCount: number; un
 };
 // FOLD-NOTIFY-1: the render mock returns this for trpc.notifications.isEnabled.useQuery.
 const notificationsFlagData: { data: { enabled: boolean } } = { data: { enabled: false } };
+// NOTIFY-SUITE-1 N1: the render mock returns this for trpc.notifications.digest.useQuery (the "while you
+// were away" banner). A test mutates it (then restores) to exercise the banner path.
+const notificationsDigestData: {
+  data: { total: number; matterReady: number; deadline: number; generic: number; matterCount: number; summaryLine: string };
+} = { data: { total: 0, matterReady: 0, deadline: 0, generic: 0, matterCount: 0, summaryLine: '' } };
 
 // AppShell calls trpc.useUtils() (for the logout mutation). A deep no-op proxy
 // satisfies utils.client.auth.logout.mutate / utils.auth.me.invalidate. AppShell now also mounts
@@ -71,6 +76,12 @@ vi.mock('../../trpc.js', async () => {
           useQuery: () => {
             React.useRef(null);
             return { ...notificationsListData, isLoading: false, isError: false, error: null };
+          },
+        },
+        digest: {
+          useQuery: () => {
+            React.useRef(null);
+            return { ...notificationsDigestData, isLoading: false, isError: false, error: null };
           },
         },
       },
@@ -166,5 +177,46 @@ describe('AppShell — FOLD-NOTIFY-1 bell + unread badge (flag-gated)', () => {
     );
     expect(getByTestId('notifications-bell')).toBeTruthy();
     expect(queryByTestId('notifications-badge')).toBeNull();
+  });
+});
+
+describe('AppShell — NOTIFY-SUITE-1 N1 "while you were away" digest banner', () => {
+  afterEach(() => {
+    notificationsFlagData.data = { enabled: false };
+    notificationsDigestData.data = { total: 0, matterReady: 0, deadline: 0, generic: 0, matterCount: 0, summaryLine: '' };
+  });
+
+  it('flag ON + unread -> the digest banner shows the summary; Dismiss hides it for the session', () => {
+    notificationsFlagData.data = { enabled: true };
+    notificationsDigestData.data = {
+      total: 4, matterReady: 3, deadline: 1, generic: 0, matterCount: 3,
+      summaryLine: '3 matters have results · 1 deadline approaching',
+    };
+    const { getByTestId, queryByTestId } = render(
+      <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
+    );
+    const banner = getByTestId('notify-digest');
+    expect(banner.textContent).toContain('While you were away');
+    expect(banner.textContent).toContain('3 matters have results · 1 deadline approaching');
+    fireEvent.click(getByTestId('notify-digest-dismiss'));
+    expect(queryByTestId('notify-digest')).toBeNull();
+  });
+
+  it('flag ON but nothing unread (total 0) -> NO banner', () => {
+    notificationsFlagData.data = { enabled: true };
+    notificationsDigestData.data = { total: 0, matterReady: 0, deadline: 0, generic: 0, matterCount: 0, summaryLine: '' };
+    const { queryByTestId } = render(
+      <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
+    );
+    expect(queryByTestId('notify-digest')).toBeNull();
+  });
+
+  it('flag OFF -> NO banner even with a digest present', () => {
+    notificationsFlagData.data = { enabled: false };
+    notificationsDigestData.data = { total: 5, matterReady: 5, deadline: 0, generic: 0, matterCount: 5, summaryLine: '5 matters have results' };
+    const { queryByTestId } = render(
+      <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
+    );
+    expect(queryByTestId('notify-digest')).toBeNull();
   });
 });

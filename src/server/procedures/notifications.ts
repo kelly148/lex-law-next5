@@ -21,11 +21,13 @@ import { router, protectedProcedure } from '../trpc.js';
 import { isNotificationsEnabled } from '../config/featureFlags.js';
 import {
   listNotificationsForOwner,
+  listUnreadForOwner,
   countUnreadForOwner,
   listUnreadMatterIdsForOwner,
   markAllNotificationsSeen,
   markNotificationSeen,
 } from '../db/queries/notifications.js';
+import { buildNotificationDigest } from '../../shared/schemas/notifications.js';
 
 function assertEnabled(): void {
   if (!isNotificationsEnabled()) {
@@ -52,6 +54,22 @@ export const notificationsRouter = router({
       ]);
       return { items, unreadCount, unreadMatterIds };
     }),
+
+  // ── NOTIFY-SUITE-1 N1 — "while you were away" digest ───────────────────────
+  // ONE derived summary over the owner's UNREAD notices (readAt cursor) for display on return — not N
+  // toasts. The breakdown is projected over the UNREAD set ITSELF (listUnreadForOwner — newest-first, capped),
+  // NOT the read-status-agnostic recent feed, so the per-type counts can never disagree with the authoritative
+  // total. total is the exact countUnreadForOwner; the projection covers up to the cap most-recent unread (for
+  // an owner with more unread than the cap the summary is of the most-recent, total stays honest). Derive,
+  // never duplicate; informational only.
+  digest: protectedProcedure.query(async ({ ctx }) => {
+    assertEnabled();
+    const [unread, total] = await Promise.all([
+      listUnreadForOwner(ctx.userId, 500),
+      countUnreadForOwner(ctx.userId),
+    ]);
+    return { ...buildNotificationDigest(unread), total }; // authoritative total from countUnreadForOwner
+  }),
 
   // ── "Mark seen" / last-seen cursor (per-user; owner-scoped) ────────────────
   markAllSeen: protectedProcedure.mutation(async ({ ctx }) => {

@@ -53,6 +53,8 @@ export interface CreateNotificationArgs {
 export interface NotificationStore {
   insert(row: NewNotification): Promise<NotificationRow>;
   listForOwner(userId: string, limit: number): Promise<NotificationRow[]>;
+  /** owner-scoped UNREAD notices only (readAt IS NULL), newest first, capped. Powers the N1 digest. */
+  listUnread(userId: string, limit: number): Promise<NotificationRow[]>;
   unreadCount(userId: string): Promise<number>;
   /** owner-scoped distinct matterIds that have at least one UNREAD matter-scoped notice. */
   unreadMatterIds(userId: string): Promise<string[]>;
@@ -79,6 +81,16 @@ const drizzleStore: NotificationStore = {
       .select()
       .from(notifications)
       .where(ownerScope(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+    return rows.map(parse);
+  },
+
+  async listUnread(userId: string, limit: number): Promise<NotificationRow[]> {
+    const rows = await db
+      .select()
+      .from(notifications)
+      .where(and(ownerScope(notifications.userId, userId), isNull(notifications.readAt)))
       .orderBy(desc(notifications.createdAt))
       .limit(limit);
     return rows.map(parse);
@@ -156,6 +168,15 @@ export async function listNotificationsForOwner(
   limit = 50,
 ): Promise<NotificationRow[]> {
   return store().listForOwner(userId, limit);
+}
+
+/**
+ * NOTIFY-SUITE-1 N1: owner-scoped UNREAD notices only (readAt IS NULL), newest first, capped. The digest
+ * projects over THIS set — not the read-status-agnostic recent feed — so its per-type breakdown can never
+ * diverge from the authoritative unread total for any owner with <= `limit` unread.
+ */
+export async function listUnreadForOwner(userId: string, limit = 200): Promise<NotificationRow[]> {
+  return store().listUnread(userId, limit);
 }
 
 export async function countUnreadForOwner(userId: string): Promise<number> {

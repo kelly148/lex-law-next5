@@ -18,6 +18,7 @@
  */
 import { createNotification } from '../db/queries/notifications.js';
 import { recordAuditEvent } from '../db/queries/auditEvents.js';
+import { getUserPreferences } from '../db/queries/userPreferences.js';
 import {
   listUninformedTicklers,
   markTicklerNotified,
@@ -34,6 +35,11 @@ export async function scanAndEmitDeadlineAlerts(
   userId: string,
   clock: DeadlineClock = systemClock,
 ): Promise<number> {
+  // NOTIFY-SUITE-1 N3: respect the owner's notification preferences. If the in-app channel is off OR the
+  // 'deadline' event type is muted, surface nothing this scan (left UN-stamped, so re-enabling re-alerts).
+  const prefs = (await getUserPreferences(userId)).preferences.notificationPreferences;
+  if (!prefs.inApp || !prefs.events.deadline) return 0;
+
   const today = clock.today();
   const due = await listUninformedTicklers(userId, today); // notifiedAt IS NULL AND fireAt <= today
   let emitted = 0;
@@ -44,7 +50,13 @@ export async function scanAndEmitDeadlineAlerts(
       if (t.snoozedUntil && t.snoozedUntil > today) continue;
 
       const deadline = await getMatterDeadlineById(t.matterDeadlineId, userId);
-      if (!deadline) continue;
+      if (!deadline) {
+        // Orphaned tickler — its deadline row is gone (a tickler is always created FROM a deadline, so an
+        // owner-scoped null here means the deadline was deleted). Terminal: STAMP it so it stops re-scanning
+        // on every pass (mirrors the satisfied/waived branch). There is nothing to alert about.
+        await markTicklerNotified(t.id, userId);
+        continue;
+      }
 
       // A disposed (satisfied/waived) deadline needs no reminder — STAMP it so its tickler stops re-scanning,
       // but emit nothing.
@@ -52,6 +64,9 @@ export async function scanAndEmitDeadlineAlerts(
         await markTicklerNotified(t.id, userId);
         continue;
       }
+
+      // N3 per-matter mute: skip a muted matter's alert (left UN-stamped, so unmuting re-checks).
+      if (prefs.mutedMatterIds.includes(deadline.matterId)) continue;
 
       // Claim the tickler FIRST (single-winner) — a concurrent scan that loses the stamp emits nothing.
       const stamped = await markTicklerNotified(t.id, userId);

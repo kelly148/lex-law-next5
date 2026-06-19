@@ -42,6 +42,16 @@ export function createInMemoryNotificationStore(
       );
     },
 
+    listUnread(userId: string, limit: number): Promise<NotificationRow[]> {
+      return Promise.resolve(
+        rows
+          .filter((x) => x.userId === userId && x.readAt == null)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, limit)
+          .map((x) => ({ ...x })),
+      );
+    },
+
     unreadCount(userId: string): Promise<number> {
       return Promise.resolve(rows.filter((x) => x.userId === userId && x.readAt == null).length);
     },

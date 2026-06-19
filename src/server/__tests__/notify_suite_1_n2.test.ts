@@ -12,7 +12,9 @@ import { scanAndEmitDeadlineAlerts } from '../notifications/deadlineAlerts.js';
 import * as deadlineQueries from '../db/queries/deadlines.js';
 import * as notificationQueries from '../db/queries/notifications.js';
 import * as auditQueries from '../db/queries/auditEvents.js';
+import * as prefQueries from '../db/queries/userPreferences.js';
 import type { DeadlineClock } from '../deadline/clock.js';
+import type { NotificationPreferences } from '../../shared/schemas/matters.js';
 import type { TicklerRow, MatterDeadlineRow } from '../../shared/schemas/deadline.js';
 import type { NotificationRow } from '../../shared/schemas/notifications.js';
 
@@ -27,6 +29,10 @@ vi.mock('../db/queries/notifications.js', async (importOriginal) => {
 vi.mock('../db/queries/auditEvents.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../db/queries/auditEvents.js')>();
   return { ...actual, recordAuditEvent: vi.fn().mockResolvedValue(undefined) };
+});
+vi.mock('../db/queries/userPreferences.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../db/queries/userPreferences.js')>();
+  return { ...actual, getUserPreferences: vi.fn() };
 });
 
 const USER_ID = '11111111-1111-1111-1111-111111111111';
@@ -63,8 +69,25 @@ function deadline(over: Partial<MatterDeadlineRow> = {}): MatterDeadlineRow {
   } as MatterDeadlineRow;
 }
 
+function setPrefs(over: Partial<NotificationPreferences> = {}): void {
+  const np: NotificationPreferences = {
+    inApp: true,
+    tabTitle: false,
+    os: false,
+    sound: false,
+    digest: true,
+    events: { reviewComplete: true, reviewFailed: true, regeneration: true, extraction: true, sendability: true, deadline: true },
+    mutedMatterIds: [],
+    ...over,
+  };
+  vi.mocked(prefQueries.getUserPreferences).mockResolvedValue({
+    preferences: { notificationPreferences: np },
+  } as Awaited<ReturnType<typeof prefQueries.getUserPreferences>>);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  setPrefs(); // N3: default = deadline alerts enabled, nothing muted
   vi.mocked(deadlineQueries.markTicklerNotified).mockResolvedValue(1);
   vi.mocked(auditQueries.recordAuditEvent).mockResolvedValue(undefined);
   vi.mocked(notificationQueries.createNotification).mockResolvedValue({} as NotificationRow);
@@ -92,6 +115,17 @@ describe('NOTIFY-SUITE-1 N2 — scanAndEmitDeadlineAlerts', () => {
   it('STAMPS but does NOT emit for a satisfied/waived deadline (no reminder needed; stop re-scanning)', async () => {
     vi.mocked(deadlineQueries.listUninformedTicklers).mockResolvedValue([tickler({ id: 't1' })]);
     vi.mocked(deadlineQueries.getMatterDeadlineById).mockResolvedValue(deadline({ status: 'satisfied' }));
+
+    const emitted = await scanAndEmitDeadlineAlerts(USER_ID, CLOCK);
+
+    expect(emitted).toBe(0);
+    expect(deadlineQueries.markTicklerNotified).toHaveBeenCalledWith('t1', USER_ID); // stamped to stop re-scan
+    expect(notificationQueries.createNotification).not.toHaveBeenCalled();
+  });
+
+  it('STAMPS but does NOT emit for an ORPHANED tickler (deadline row gone; stop re-scanning forever)', async () => {
+    vi.mocked(deadlineQueries.listUninformedTicklers).mockResolvedValue([tickler({ id: 't1' })]);
+    vi.mocked(deadlineQueries.getMatterDeadlineById).mockResolvedValue(null); // deadline was deleted
 
     const emitted = await scanAndEmitDeadlineAlerts(USER_ID, CLOCK);
 
@@ -136,5 +170,32 @@ describe('NOTIFY-SUITE-1 N2 — scanAndEmitDeadlineAlerts', () => {
 
     expect(emitted).toBe(1); // t1 failed, t2 succeeded
     expect(notificationQueries.createNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it('N3: in-app channel OFF -> emits NOTHING (does not even scan)', async () => {
+    setPrefs({ inApp: false });
+    const emitted = await scanAndEmitDeadlineAlerts(USER_ID, CLOCK);
+    expect(emitted).toBe(0);
+    expect(deadlineQueries.listUninformedTicklers).not.toHaveBeenCalled();
+    expect(notificationQueries.createNotification).not.toHaveBeenCalled();
+  });
+
+  it('N3: the deadline event type OFF -> emits NOTHING', async () => {
+    setPrefs({
+      events: { reviewComplete: true, reviewFailed: true, regeneration: true, extraction: true, sendability: true, deadline: false },
+    });
+    const emitted = await scanAndEmitDeadlineAlerts(USER_ID, CLOCK);
+    expect(emitted).toBe(0);
+    expect(notificationQueries.createNotification).not.toHaveBeenCalled();
+  });
+
+  it('N3: a MUTED matter is skipped (un-stamped, so unmuting re-checks)', async () => {
+    setPrefs({ mutedMatterIds: [MATTER_ID] });
+    vi.mocked(deadlineQueries.listUninformedTicklers).mockResolvedValue([tickler({ id: 't1' })]);
+    vi.mocked(deadlineQueries.getMatterDeadlineById).mockResolvedValue(deadline()); // matterId = MATTER_ID
+    const emitted = await scanAndEmitDeadlineAlerts(USER_ID, CLOCK);
+    expect(emitted).toBe(0);
+    expect(notificationQueries.createNotification).not.toHaveBeenCalled();
+    expect(deadlineQueries.markTicklerNotified).not.toHaveBeenCalled(); // un-stamped -> re-checks if unmuted
   });
 });

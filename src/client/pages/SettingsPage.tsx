@@ -24,9 +24,10 @@
  * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
 import React, { useState, useRef } from 'react';
-import { Settings, Mic, Users, Lock } from 'lucide-react';
+import { Settings, Mic, Users, Lock, Bell } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import type { NotificationPreferences } from '../../shared/schemas/matters.js';
 
 const DICTATION_LANGUAGES = [
   { value: 'en-US', label: 'English (US)' },
@@ -251,6 +252,152 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
 }
 
 // ============================================================
+// NotificationPreferencesSection (NOTIFY-SUITE-1 N3)
+// ============================================================
+// Mirrors ReviewerEnablementSection: optimistic toggles over the notificationPreferences blob through
+// settings.updateNotificationPreferences. Default-safe; informational only. The per-event toggles map to
+// the producer surfaces — only 'deadline' (N2) is live today; the rest are forward-looking. Per-matter mute
+// is set from the matter, not this global panel.
+const NOTIFY_EVENT_LABELS: Record<keyof NotificationPreferences['events'], string> = {
+  reviewComplete: 'Review complete',
+  reviewFailed: 'Review failed',
+  regeneration: 'Regenerations',
+  extraction: 'Extractions',
+  sendability: 'Sendability checks',
+  deadline: 'Deadline reminders',
+};
+
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onToggle,
+  disabled,
+  testid,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+  testid: string;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+      <div>
+        <span className="text-sm font-medium text-gray-800">{label}</span>
+        {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
+      </div>
+      <button
+        type="button"
+        data-testid={testid}
+        onClick={onToggle}
+        disabled={disabled}
+        role="switch"
+        aria-checked={checked}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+          checked ? 'bg-firm-navy' : 'bg-gray-300'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function NotificationPreferencesSection({ initial }: { initial: NotificationPreferences }): React.ReactElement {
+  const [prefs, setPrefs] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const utils = trpc.useUtils();
+  const prevRef = useRef(initial);
+
+  const updateMutation = useGuardedMutation(
+    (input: { notificationPreferences: NotificationPreferences }) =>
+      utils.client.settings.updateNotificationPreferences.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.settings.get.invalidate();
+        setError(null);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      },
+      onError: (err) => {
+        setPrefs(prevRef.current); // roll back the optimistic toggle
+        setError(err.message);
+      },
+    }
+  );
+
+  const save = (next: NotificationPreferences): void => {
+    prevRef.current = prefs;
+    setPrefs(next); // optimistic
+    updateMutation.mutate({ notificationPreferences: next });
+  };
+  const toggleTop = (key: 'inApp' | 'digest' | 'sound'): void => save({ ...prefs, [key]: !prefs[key] });
+  const toggleEvent = (key: keyof NotificationPreferences['events']): void =>
+    save({ ...prefs, events: { ...prefs.events, [key]: !prefs.events[key] } });
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6" data-testid="notification-preferences">
+      <div className="flex items-center gap-2 mb-4">
+        <Bell className="w-5 h-5 text-firm-navy" />
+        <h2 className="text-base font-semibold text-firm-navy">Notifications</h2>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">
+        In-app alerts for what happens while you work. Informational only — they never act on their own.
+      </p>
+      <div className="space-y-1">
+        <ToggleRow
+          label="In-app notifications"
+          hint="The bell + per-matter badges. Turning this off silences all in-app alerts."
+          checked={prefs.inApp}
+          onToggle={() => toggleTop('inApp')}
+          disabled={updateMutation.isPending}
+          testid="notif-toggle-inApp"
+        />
+        <ToggleRow
+          label="“While you were away” digest"
+          hint="A single summary on return instead of many separate alerts."
+          checked={prefs.digest}
+          onToggle={() => toggleTop('digest')}
+          disabled={updateMutation.isPending || !prefs.inApp}
+          testid="notif-toggle-digest"
+        />
+        <ToggleRow
+          label="Sound"
+          checked={prefs.sound}
+          onToggle={() => toggleTop('sound')}
+          disabled={updateMutation.isPending || !prefs.inApp}
+          testid="notif-toggle-sound"
+        />
+      </div>
+
+      <p className="text-xs font-medium text-gray-500 mt-5 mb-1 uppercase tracking-wide">Alert me about</p>
+      <div className="space-y-1">
+        {(Object.keys(NOTIFY_EVENT_LABELS) as Array<keyof NotificationPreferences['events']>).map((key) => (
+          <ToggleRow
+            key={key}
+            label={NOTIFY_EVENT_LABELS[key]}
+            checked={prefs.events[key]}
+            onToggle={() => toggleEvent(key)}
+            disabled={updateMutation.isPending || !prefs.inApp}
+            testid={`notif-event-${key}`}
+          />
+        ))}
+      </div>
+
+      {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+      {saved && <p className="text-green-600 text-sm mt-3">Saved.</p>}
+    </div>
+  );
+}
+
+// ============================================================
 // ChangePasswordSection (FOLD-AUTH-CHANGEPW)
 // ============================================================
 // UI half of FOLD-AUTH-1's self-serve password change. Wraps the existing,
@@ -412,6 +559,16 @@ export default function SettingsPage(): React.ReactElement {
               key={`${data.voiceInput.forceShowAll}-${data.voiceInput.forceHideAll}-${data.voiceInput.dictationLanguage}`}
               initial={data.voiceInput}
             />
+            {/*
+             * NOTIFY-SUITE-1 N3. Guarded so a settings payload without the (additive) blob simply omits the
+             * panel rather than crashing; settings.get always returns it in production (Zod-defaulted).
+             */}
+            {data.notificationPreferences && (
+              <NotificationPreferencesSection
+                key={JSON.stringify(data.notificationPreferences)}
+                initial={data.notificationPreferences}
+              />
+            )}
           </>
         )}
         {/* Password change is independent of settings.get — always available. */}
