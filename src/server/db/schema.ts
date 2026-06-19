@@ -2062,6 +2062,31 @@ export const matterConflictPosture = mysqlTable(
 export type MatterConflictPosture = typeof matterConflictPosture.$inferSelect;
 export type NewMatterConflictPosture = typeof matterConflictPosture.$inferInsert;
 
+// FOLD-DEED-1 (Inc 1 foundation) — deed_gate (per-deed-document recordability gate state). One row per deed
+// document (documentId UNIQUE), holding the attorney-recorded affirmative-act checklist as a Zod-validated
+// JSON blob. The permanent record of each act is the audit_events Matter-Record event; this is the current
+// operational state. Owner+matter-scoped; NO DB FK; indexes INLINE (migration 0049). DORMANT unless
+// DEED_GATE_ENABLED. FAIL-CLOSED + KB-mandatory (no locality KB → never recordable).
+export const deedGate = mysqlTable(
+  'deed_gate',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    state: json('state').notNull(),
+    changedByUserId: char('changedByUserId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    uxDeedGateDocument: uniqueIndex('ux_deed_gate_document').on(table.documentId),
+    idxDeedGateMatter: index('idx_deed_gate_matter').on(table.userId, table.matterId),
+  }),
+);
+export type DeedGate = typeof deedGate.$inferSelect;
+export type NewDeedGate = typeof deedGate.$inferInsert;
+
 // ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================

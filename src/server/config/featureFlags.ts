@@ -151,6 +151,21 @@ export function isConflictGateForceOn(): boolean {
 }
 
 /**
+ * Deed recordability gate (FOLD-DEED-1, Inc 1 foundation). DEFAULT OFF.
+ *
+ * When OFF (the default), the deed-gate surface is entirely dormant: the deedGate procedures refuse
+ * (PRECONDITION_FAILED) except the ungated isEnabled probe, nothing reads/writes the deed_gate table, and no
+ * gate evaluation runs — zero new behavior. When exactly "true", the three-gate evaluator + the affirmative-
+ * attorney-act recording surface. INVARIANT: the gate is FAIL-CLOSED and KB-mandatory — with no locality KB
+ * seeded (the blocked VA-primer increment), NO deed ever reaches "recordable", by design. The deed_gate table
+ * (migration 0049) must be applied before flipping this. This flag gates ONLY the gate; it never enables RON/
+ * e-recording (a separate, decision-gated increment).
+ */
+export function isDeedGateEnabled(): boolean {
+  return process.env['DEED_GATE_ENABLED'] === 'true';
+}
+
+/**
  * Deadline / tickler engine (FOLD-PM-1, Phase-4 head). DEFAULT OFF.
  *
  * When OFF (the default), the deadline engine is entirely dormant: the data-core tables exist but
