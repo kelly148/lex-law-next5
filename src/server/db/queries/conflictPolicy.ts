@@ -14,14 +14,21 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { desc } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../connection.js';
-import { firmConflictPolicy, type NewFirmConflictPolicy } from '../schema.js';
+import {
+  firmConflictPolicy,
+  matterConflictPosture,
+  type NewFirmConflictPolicy,
+  type NewMatterConflictPosture,
+} from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
 import {
   ConflictPolicySchema,
+  ConflictPostureSchema,
   DEFAULT_CONFLICT_POLICY,
   type ConflictPolicy,
+  type ConflictPosture,
 } from '../../../shared/schemas/conflictPolicy.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 
@@ -115,4 +122,47 @@ export async function listFirmConflictPolicyHistory(
       createdAt: r.createdAt,
     };
   });
+}
+
+// ── Inc 2: per-matter posture election (append-only) ────────────────────────────────────────────────────
+/**
+ * The matter's CURRENT elected posture (the latest append-only row), or null when none has been elected (the
+ * gate then derives the firm default — default-safe ENFORCED). FAIL-SAFE: an unparseable posture string is
+ * treated as no election (null), never as a relaxation. Owner-scoped; matterId is not an owner column so it
+ * uses inline eq (the ratchet bans inline eq only on owner columns).
+ */
+export async function getMatterConflictPosture(
+  matterId: string,
+  userId: string,
+): Promise<ConflictPosture | null> {
+  const rows = await db
+    .select()
+    .from(matterConflictPosture)
+    .where(and(ownerScope(matterConflictPosture.userId, userId), eq(matterConflictPosture.matterId, matterId)))
+    .orderBy(desc(matterConflictPosture.createdAt))
+    .limit(1);
+  if (rows.length === 0) return null;
+  const parsed = ConflictPostureSchema.safeParse(rows[0]!.posture);
+  return parsed.success ? parsed.data : null; // fail-safe: unknown string → no election (derive firm default)
+}
+
+export interface SetMatterConflictPostureArgs {
+  userId: string;
+  matterId: string;
+  posture: ConflictPosture;
+  changedByUserId: string;
+  reasonText?: string | null;
+}
+
+/** Append a per-matter posture election (the SOLE write path). Append-only — prior rows are the history. */
+export async function setMatterConflictPosture(args: SetMatterConflictPostureArgs): Promise<void> {
+  const row: NewMatterConflictPosture = {
+    id: uuidv4(),
+    userId: args.userId,
+    matterId: args.matterId,
+    posture: args.posture,
+    changedByUserId: args.changedByUserId,
+    reasonText: args.reasonText ?? null,
+  };
+  await db.insert(matterConflictPosture).values(row);
 }

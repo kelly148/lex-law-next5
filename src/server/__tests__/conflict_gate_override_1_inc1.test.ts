@@ -212,12 +212,17 @@ describe('CONFLICT-GATE-OVERRIDE-1: wiring (additive; gate default fail-closed; 
     expect(queries).toContain("eventType: 'disposition'");
     expect(queries).toContain('ownerScope(gateOverride.userId, userId)');
   });
-  it('the create gate, export gate, and generation paths consult the override-aware resolver', () => {
-    expect(read('src/server/procedures/documents.ts')).toContain('resolveDraftingGate(input.matterId, ctx.userId)');
-    expect(read('src/server/index.ts')).toContain('resolveDraftingGate(doc.matterId, userId)');
+  it('the create gate, export gate, and generation paths consult the posture-aware resolver (which wraps the override-aware resolver)', () => {
+    // CONFLICT-TOGGLE-1 Inc 2 rewired these sites from resolveDraftingGate to resolvePostureDraftingGate.
+    // INTENT preserved: the override-aware resolveDraftingGate is still consulted underneath (postureGate.ts
+    // wraps it) — posture only governs whether the ABSENCE of clearance hard-blocks; a blocker still stops.
+    expect(read('src/server/procedures/documents.ts')).toContain('resolvePostureDraftingGate(input.matterId, ctx.userId)');
+    expect(read('src/server/index.ts')).toContain('resolvePostureDraftingGate(doc.matterId, userId)');
     const gen = read('src/server/procedures/documents4a.ts');
-    expect(gen).toContain('resolveDraftingGate(doc.matterId, userId)');
+    expect(gen).toContain('resolvePostureDraftingGate(doc.matterId, userId)');
     expect(gen).toContain('recordDraftUnderOverride({');
+    // the posture-aware resolver still consults the override-aware resolveDraftingGate underneath
+    expect(read('src/server/conflicts/postureGate.ts')).toContain('resolveDraftingGate(matterId, userId)');
   });
   it('the gateOverride router is wired into the root app router', () => {
     expect(read('src/server/router.ts')).toContain('gateOverride: gateOverrideRouter');

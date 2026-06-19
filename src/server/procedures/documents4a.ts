@@ -51,7 +51,8 @@ import {
 } from '../db/queries/templates.js';
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
-import { resolveDraftingGate, recordDraftUnderOverride } from '../db/queries/gateOverride.js';
+import { recordDraftUnderOverride } from '../db/queries/gateOverride.js';
+import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import type { GateOverrideRow } from '../../shared/schemas/gateOverride.js';
 import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
 import { validateTargetingForFinalize } from '../documents/targetingValidation.js';
@@ -501,14 +502,14 @@ export const document4aRouter = router({
       // active overrides are captured for the per-draft provenance record (Inc 4).
       let activeGateOverrides: GateOverrideRow[] = [];
       if (isConflictGateEnabled()) {
-        const gate = await resolveDraftingGate(doc.matterId, userId);
+        const gate = await resolvePostureDraftingGate(doc.matterId, userId);
         if (!gate.allowed) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${gate.blockingReasons.join(', ')}). The intake gate re-armed (a party or identity record changed since the override) — disposition the precondition or record a fresh attested override before generating.`,
           });
         }
-        activeGateOverrides = gate.activeOverrides;
+        activeGateOverrides = gate.base.activeOverrides;
       }
 
       const matter = await getMatterById(doc.matterId, userId);
@@ -676,14 +677,14 @@ export const document4aRouter = router({
       // active overrides feed the per-draft provenance record.
       let activeGateOverrides: GateOverrideRow[] = [];
       if (isConflictGateEnabled()) {
-        const gate = await resolveDraftingGate(doc.matterId, userId);
+        const gate = await resolvePostureDraftingGate(doc.matterId, userId);
         if (!gate.allowed) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: `CONFLICTS_NOT_CLEARED: this matter is not conflict-cleared for drafting (${gate.blockingReasons.join(', ')}). The intake gate re-armed (a party or identity record changed since the override) — disposition the precondition or record a fresh attested override before regenerating.`,
           });
         }
-        activeGateOverrides = gate.activeOverrides;
+        activeGateOverrides = gate.base.activeOverrides;
       }
 
       const currentVersion = await getVersionById(doc.currentVersionId, userId);

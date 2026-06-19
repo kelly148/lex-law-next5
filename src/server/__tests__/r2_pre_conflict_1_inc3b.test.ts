@@ -189,21 +189,26 @@ describe('R2-PRE-CONFLICT-1 Inc3b — enforcement-wiring source audit (no bypass
   it('advance-to-drafting gates on the shared predicate behind the flag', () => {
     const block = documents.slice(documents.indexOf('Advance-to-drafting conflicts gate'), documents.indexOf('const doc = await insertDocument'));
     expect(block).toContain('isConflictGateEnabled()');
-    // CONFLICT-GATE-OVERRIDE-1: the ON branch consults the override-aware resolver (default fail-closed
-    // unchanged; an active attested override of every blocking precondition lets a non-cleared matter draft).
-    expect(block).toContain('resolveDraftingGate(input.matterId, ctx.userId)');
+    // CONFLICT-TOGGLE-1 Inc 2: the ON branch now consults the POSTURE-aware resolver, which wraps the
+    // override-aware resolveDraftingGate (default ENFORCED → fail-closed unchanged; ADVISORY lets the absence
+    // of clearance pass but a positive blocker still hard-stops).
+    expect(block).toContain('resolvePostureDraftingGate(input.matterId, ctx.userId)');
     expect(block).toContain('!gate.allowed');
     expect(block).toContain('CONFLICTS_NOT_CLEARED');
     // legacy path still present + UNCHANGED for the OFF branch
     expect(block).toContain('hasUndispositionedBlocker(input.matterId, ctx.userId)');
   });
 
-  it('lockPlan (the cleared-disposition ROOT) gates on the shared predicate, keeping the all-hits gate', () => {
-    const fn = analysis.slice(analysis.indexOf('export async function lockPlan'), analysis.indexOf('conflictsClearedForPlanning: true'));
+  it('lockPlan (the cleared-disposition ROOT) gates on the posture-aware resolver, keeping the all-hits gate', () => {
+    // CONFLICT-TOGGLE-1 Inc 2: lockPlan's affirmative-clearance block moved from evaluateConflictClearance to
+    // the posture-aware resolver; the all-hits gate is KEPT (it already hard-stops an undispositioned blocker
+    // for every posture); conflictsClearedForPlanning is set TRUE only when actually CLEARED (never on an
+    // advisory pass).
+    const fn = analysis.slice(analysis.indexOf('export async function lockPlan'), analysis.indexOf('conflictsClearedForPlanning: clearedForPlanning'));
     expect(fn).toContain('allHitsDispositionedForLatest(a.matterId, params.userId)'); // kept
     expect(fn).toContain('isConflictGateEnabled()');
-    expect(fn).toContain('evaluateConflictClearance(a.matterId, params.userId)');
-    expect(fn).toContain("clearance.state !== 'CLEARED'");
+    expect(fn).toContain('resolvePostureDraftingGate(a.matterId, params.userId)');
+    expect(fn).toContain("postureGate.base.clearance.state === 'CLEARED'");
   });
 
   it('export/send gates on the shared predicate, behind the flag, INDEPENDENT of the sendability flag', () => {
@@ -211,8 +216,9 @@ describe('R2-PRE-CONFLICT-1 Inc3b — enforcement-wiring source audit (no bypass
     expect(start).toBeGreaterThan(-1);
     const block = index.slice(start, index.indexOf('FOLD-SEND-1 export-safety gate'));
     expect(block).toContain('isConflictGateEnabled()');
-    // CONFLICT-GATE-OVERRIDE-1: export consults the same override-aware resolver as advance-to-drafting.
-    expect(block).toContain('resolveDraftingGate(doc.matterId, userId)');
+    // CONFLICT-TOGGLE-1 Inc 2: export consults the same POSTURE-aware resolver as advance-to-drafting (which
+    // wraps the override-aware, fail-closed resolveDraftingGate).
+    expect(block).toContain('resolvePostureDraftingGate(doc.matterId, userId)');
     expect(block).toContain('!gate.allowed');
     expect(block).toContain('CONFLICTS_NOT_CLEARED');
     expect(block).toContain('reasons: gate.blockingReasons');

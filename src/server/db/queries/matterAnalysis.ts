@@ -15,7 +15,8 @@ import { db } from '../connection.js';
 import { matterAnalysis, matters, type MatterAnalysisStatus } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
 import { insertAuditEvent } from './auditEvents.js';
-import { allHitsDispositionedForLatest, evaluateConflictClearance } from './conflicts.js';
+import { allHitsDispositionedForLatest } from './conflicts.js';
+import { resolvePostureDraftingGate } from '../../conflicts/postureGate.js';
 import { isConflictGateEnabled } from '../../config/featureFlags.js';
 import {
   MatterAnalysisRowSchema,
@@ -142,21 +143,25 @@ export async function lockPlan(params: { analysisId: string; userId: string; rat
   if (!gate) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONFLICTS_NOT_CHECKED: run the conflicts check before locking a plan.' });
   if (!gate.ok) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'CONFLICTS_UNDISPOSITIONED: every conflict hit must be dispositioned before locking a plan.' });
 
-  // R2-PRE-CONFLICT-1 Inc 3b (behind CONFLICT_GATE_ENABLED): lockPlan is BOTH the lockPlan transition
-  // AND the cleared-disposition ROOT — it writes conflictsClearedForPlanning=true below. That clearance
-  // flag must never be asserted vacuously, so when the gate is ON we additionally require the affirmative
-  // shared predicate (a CONFIRMED role='client' party etc.), on top of the all-hits-dispositioned gate
-  // above (which we KEEP — it is lockPlan's stronger requirement that EVERY hit, not just blockers, is
-  // dispositioned). One shared predicate (evaluateConflictClearance); no per-site copy of the logic.
-  // FLAG OFF (default): unchanged behavior — the all-hits gate alone governs.
+  // R2-PRE-CONFLICT-1 Inc 3b + CONFLICT-TOGGLE-1 Inc 2 (behind CONFLICT_GATE_ENABLED): lockPlan is BOTH the
+  // lockPlan transition AND the cleared-disposition ROOT — it writes conflictsClearedForPlanning below. We
+  // KEEP the all-hits-dispositioned gate above unconditionally (lockPlan's stronger requirement that EVERY
+  // hit — including a blocker — is dispositioned; it already hard-stops an undispositioned blocker for every
+  // posture). The POSTURE-aware gate then governs the affirmative-clearance requirement: ENFORCED requires
+  // CLEARED; ADVISORY/SANDBOX let the absence of clearance pass (a positive blocker is still caught by the
+  // all-hits gate). CRUCIAL: conflictsClearedForPlanning is set TRUE only when the matter is ACTUALLY CLEARED
+  // — an advisory pass locks the plan WITHOUT vacuously asserting clearance. FLAG OFF (default): unchanged —
+  // the all-hits gate alone governs and the flag is marked cleared as before.
+  let clearedForPlanning = true;
   if (isConflictGateEnabled()) {
-    const clearance = await evaluateConflictClearance(a.matterId, params.userId);
-    if (clearance.state !== 'CLEARED') {
+    const postureGate = await resolvePostureDraftingGate(a.matterId, params.userId);
+    if (!postureGate.allowed) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
-        message: `CONFLICTS_NOT_CLEARED: the plan cannot be locked until the matter is conflict-cleared (${clearance.reasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker before locking.`,
+        message: `CONFLICTS_NOT_CLEARED: the plan cannot be locked until the matter is conflict-cleared (${postureGate.blockingReasons.join(', ')}). Run the conflicts check, add and confirm the client party, and disposition any blocker before locking.`,
       });
     }
+    clearedForPlanning = postureGate.base.clearance.state === 'CLEARED';
   }
 
   const eventId = uuidv4();
@@ -185,7 +190,7 @@ export async function lockPlan(params: { analysisId: string; userId: string; rat
         lockedAt: new Date(),
         lockRationale: params.rationale ?? null,
         conflictCheckId: gate.checkId,
-        conflictsClearedForPlanning: true,
+        conflictsClearedForPlanning: clearedForPlanning,
       })
       .where(and(eq(matterAnalysis.id, params.analysisId), ownerScope(matterAnalysis.userId, params.userId)));
     await tx

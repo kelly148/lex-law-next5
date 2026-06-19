@@ -95,3 +95,103 @@ export function resolveEffectivePosture(input: PostureResolutionInput): PostureR
   if (!input.policy) return { posture: 'ENFORCED', source: 'no_policy_default' };
   return { posture: input.policy.transactionalPosture, source: 'firm_policy' };
 }
+
+// ── Inc 2: per-matter posture + the posture-aware gate (the behavior-changing layer) ───────────────────
+// Strictness ordering: higher = STRICTER. ENFORCED is the strictest (full gate); SANDBOX the most lenient
+// (internal/non-client). A matter may always go STRICTER than the firm allows, never more lenient.
+const POSTURE_STRICTNESS: Record<ConflictPosture, number> = { ENFORCED: 2, ADVISORY: 1, SANDBOX: 0 };
+
+/** Clamp an elected posture so it is never MORE LENIENT than the firm ceiling (item 6: stricter ok, looser no). */
+export function clampPostureToCeiling(elected: ConflictPosture, ceiling: ConflictPosture): ConflictPosture {
+  return POSTURE_STRICTNESS[elected] >= POSTURE_STRICTNESS[ceiling] ? elected : ceiling;
+}
+
+export interface MatterPostureInput {
+  firmPolicy: ConflictPolicy | null;
+  capacity: string | null | undefined;
+  /** The matter's latest per-matter elected posture, or null when none has been elected. */
+  electedPosture: ConflictPosture | null;
+  forceOn: boolean;
+  /** True when a detected disqualifier (adverse party / multiple represented / blocker) forces full enforcement. */
+  autoEscalate: boolean;
+}
+export type MatterPostureSource =
+  | 'force_on'
+  | 'auto_escalation'
+  | 'representational_or_default'
+  | 'matter_election'
+  | 'matter_election_clamped'
+  | 'firm_default';
+
+/**
+ * The EFFECTIVE posture for a specific matter. Safety order: force-on and auto-escalation force ENFORCED;
+ * representational/unknown capacity is non-disableable ENFORCED; otherwise the per-matter election, clamped
+ * so it can never be more lenient than the firm's transactional ceiling. PURE, default-safe.
+ */
+export function resolveMatterEffectivePosture(input: MatterPostureInput): { posture: ConflictPosture; source: MatterPostureSource } {
+  if (input.forceOn) return { posture: 'ENFORCED', source: 'force_on' };
+  if (input.autoEscalate) return { posture: 'ENFORCED', source: 'auto_escalation' };
+  if (input.capacity !== 'title_settlement_agent') return { posture: 'ENFORCED', source: 'representational_or_default' };
+  const ceiling = resolveEffectivePosture({ policy: input.firmPolicy, capacity: input.capacity, forceOn: false }).posture;
+  if (input.electedPosture) {
+    const clamped = clampPostureToCeiling(input.electedPosture, ceiling);
+    return { posture: clamped, source: clamped === input.electedPosture ? 'matter_election' : 'matter_election_clamped' };
+  }
+  return { posture: ceiling, source: 'firm_default' };
+}
+
+export interface AutoEscalationInput {
+  partyRoles: readonly string[];
+  clientPartyCount: number;
+  clearanceState: string;
+}
+/**
+ * The detection-based backstop (item 10): even with an ADVISORY election, a detectable disqualifier forces
+ * ENFORCED. v1 triggers: an adverse party present, more than one represented (client) party, or a positive
+ * undispositioned blocker. PURE. (Attestation-based eligibility is the primary gate per the operator
+ * decision; this is the backstop, and detection-hardening is the deferred CONFLICT-DETECT-HARDEN-1.)
+ */
+export function detectAutoEscalation(input: AutoEscalationInput): { escalate: boolean; triggers: string[] } {
+  const triggers: string[] = [];
+  if (input.partyRoles.includes('adverse')) triggers.push('adverse_party_present');
+  if (input.clientPartyCount > 1) triggers.push('multiple_represented_parties');
+  if (input.clearanceState === 'BLOCKED') triggers.push('undispositioned_blocker');
+  return { escalate: triggers.length > 0, triggers };
+}
+
+export type PostureGateMode = 'enforced' | 'advisory_clear' | 'advisory_blocker' | 'sandbox';
+export interface PostureGateOutcome {
+  allowed: boolean;
+  mode: PostureGateMode;
+  /** Non-blocker reasons that ADVISORY/SANDBOX let pass (recorded for the advisory trail); empty for ENFORCED. */
+  bypassedReasons: string[];
+}
+
+/**
+ * Compose the effective posture with the (override-aware) clearance result. ENFORCED = the unchanged gate.
+ * ADVISORY lets the ABSENCE of affirmative clearance pass — but a positive BLOCKER still hard-stops (item 3:
+ * advisory means "don't block on the absence of clearance," NEVER "ignore a real conflict"). SANDBOX is
+ * internal/non-client (gated to test matters elsewhere) and allows regardless. PURE.
+ */
+export function applyPostureToGate(args: {
+  posture: ConflictPosture;
+  clearanceState: string; // 'CLEARED' | 'BLOCKED' | 'NOT_ESTABLISHED'
+  baseAllowed: boolean; // resolveDraftingGate.allowed (CLEARED or every blocking precondition overridden)
+  blockingReasons: readonly string[];
+}): PostureGateOutcome {
+  if (args.posture === 'ENFORCED') {
+    return { allowed: args.baseAllowed, mode: 'enforced', bypassedReasons: [] };
+  }
+  if (args.clearanceState === 'CLEARED') {
+    return { allowed: true, mode: args.posture === 'SANDBOX' ? 'sandbox' : 'advisory_clear', bypassedReasons: [] };
+  }
+  // A positive blocker hard-stops even in ADVISORY. SANDBOX (internal/non-client) allows regardless.
+  if (args.posture === 'ADVISORY' && args.clearanceState === 'BLOCKED') {
+    return { allowed: false, mode: 'advisory_blocker', bypassedReasons: [] };
+  }
+  return {
+    allowed: true,
+    mode: args.posture === 'SANDBOX' ? 'sandbox' : 'advisory_clear',
+    bypassedReasons: [...args.blockingReasons],
+  };
+}
