@@ -45,7 +45,7 @@ import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
-import { resolveDraftingGate } from './db/queries/gateOverride.js';
+import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
 import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled } from './config/featureFlags.js';
 import { resolveRootServe } from './landingRoot.js';
 
@@ -447,7 +447,10 @@ app.get(
       // evaluation error (an error NEVER opens the gate) and lets a non-CLEARED matter through ONLY when
       // every blocking precondition has an active attested override. Default (no override rows) is the
       // unchanged fail-closed export gate — the deliberate asymmetry vs. the sendability gate is preserved.
-      const gate = await resolveDraftingGate(doc.matterId, userId);
+      // CONFLICT-TOGGLE-1 Inc 2: posture-aware. ENFORCED = the unchanged fail-closed export gate; ADVISORY
+      // lets the absence of clearance pass but a positive blocker still hard-stops the export; SANDBOX
+      // (internal/test) allows. Auto-escalation forces ENFORCED. The fail-closed asymmetry is preserved.
+      const gate = await resolvePostureDraftingGate(doc.matterId, userId);
       if (!gate.allowed) {
         res.status(409).json({
           error: 'CONFLICTS_NOT_CLEARED',

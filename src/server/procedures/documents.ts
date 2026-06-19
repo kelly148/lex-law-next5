@@ -45,7 +45,7 @@ import {
   updateMatterPhase,
 } from '../db/queries/matters.js';
 import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
-import { resolveDraftingGate } from '../db/queries/gateOverride.js';
+import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -199,7 +199,11 @@ export const documentRouter = router({
       // proceed; it re-arms automatically on a material change. The legacy FLAG-OFF branch is UNCHANGED
       // (the override applies only in the enforced regime, where the preconditions are actually gated).
       if (isConflictGateEnabled()) {
-        const gate = await resolveDraftingGate(input.matterId, ctx.userId);
+        // CONFLICT-TOGGLE-1 Inc 2: the POSTURE-aware gate. ENFORCED = the unchanged override-aware gate;
+        // ADVISORY lets the absence of affirmative clearance pass but a positive blocker still hard-stops;
+        // SANDBOX (internal/test) allows. Auto-escalation forces ENFORCED on a detected disqualifier. The
+        // check still runs + records on every posture; the clearance predicate is untouched.
+        const gate = await resolvePostureDraftingGate(input.matterId, ctx.userId);
         if (!gate.allowed) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',

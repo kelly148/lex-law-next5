@@ -74,6 +74,7 @@ import {
   tickler,
   documentParty,
   gateOverride,
+  matterConflictPosture,
   promptSnapshots,
   postureProvenance,
   reviewerLanes,
@@ -211,6 +212,11 @@ export async function cascadeDeleteMatterChildren(
   await step('sendabilityOverride', sendabilityOverride, byMatter(sendabilityOverride));
   await step('sendabilityEvaluation', sendabilityEvaluation, byMatter(sendabilityEvaluation));
   await step('gateOverride', gateOverride, byMatter(gateOverride)); // CONFLICT-GATE-OVERRIDE-1
+  // CONFLICT-TOGGLE-1 Inc 2: the matter's per-matter posture election rows. Operational matter-scoped state
+  // (the gate reads the latest); the PERMANENT record of each election is the Matter-Record event in
+  // auditEvents (preserved by the everyday delete), so the table itself purges WITH the matter — like
+  // egress_hold (operational state), not auditEvents (the permanent record).
+  await step('matterConflictPosture', matterConflictPosture, byMatter(matterConflictPosture));
   // INSTR-1A0: per-draft-job prompt snapshots — their legacy-path systemText embeds matter-derived
   // content (matter state, PA profile), so they purge with the matter. matterId is nullable on the
   // table, but every draft-job row carries it; owner-scoped like every other step.

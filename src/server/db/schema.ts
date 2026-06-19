@@ -2036,6 +2036,32 @@ export const firmConflictPolicy = mysqlTable(
 export type FirmConflictPolicy = typeof firmConflictPolicy.$inferSelect;
 export type NewFirmConflictPolicy = typeof firmConflictPolicy.$inferInsert;
 
+// CONFLICT-TOGGLE-1 (Inc 2) — matter_conflict_posture (per-matter elected posture). APPEND-ONLY: latest row
+// (by userId, matterId, createdAt) is the matter's current election; history is the tamper-evident audit. A
+// matter relaxes to ADVISORY only via an explicit, audited INSERT carrying the attestation reason. Owner-
+// scoped; NO DB FK; index INLINE (migration 0048). DORMANT in Inc 2 unless CONFLICT_GATE_ENABLED.
+export const matterConflictPosture = mysqlTable(
+  'matter_conflict_posture',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    posture: varchar('posture', { length: 16 }).notNull(),
+    reasonText: text('reasonText'),
+    changedByUserId: char('changedByUserId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxMatterConflictPosture: index('idx_matter_conflict_posture').on(
+      table.userId,
+      table.matterId,
+      table.createdAt,
+    ),
+  }),
+);
+export type MatterConflictPosture = typeof matterConflictPosture.$inferSelect;
+export type NewMatterConflictPosture = typeof matterConflictPosture.$inferInsert;
+
 // ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
