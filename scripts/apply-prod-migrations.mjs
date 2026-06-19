@@ -156,8 +156,21 @@ const MIGRATIONS = [
   // is ON (default OFF); apply BEFORE flipping the flag. Default-safe; on the additive
   // pre-deploy path. No new env var beyond the flag.
   '0045_fold_notify_1_notifications.sql',
+  // NOTIFY-SUITE-1 (N2) — additive: notifications.type ENUM += 'deadline' (trailing-append MODIFY), tickler
+  // .notifiedAt (ADD COLUMN IF NOT EXISTS) + its index (CREATE INDEX IF NOT EXISTS ... ON tickler). No new
+  // table; idempotent. Apply BEFORE flipping NOTIFICATIONS_ENABLED / DEADLINE_ENGINE_ENABLED.
+  '0046_notify_suite_1_deadline_alerts.sql',
+  // CONFLICT-TOGGLE-1 (Inc 1) — firm_conflict_policy (CREATE TABLE IF NOT EXISTS, append-only firm posture
+  // policy; index INLINE). Idempotent. Apply BEFORE flipping CONFLICT_GATE_ENABLED. Default-safe.
+  '0047_conflict_toggle_1_posture_policy.sql',
+  // CONFLICT-TOGGLE-1 (Inc 2) — matter_conflict_posture (CREATE TABLE IF NOT EXISTS, append-only per-matter
+  // posture election; index INLINE). Idempotent. Apply BEFORE flipping CONFLICT_GATE_ENABLED. Default-safe.
+  '0048_conflict_toggle_1_matter_posture.sql',
+  // FOLD-DEED-1 (Inc 1) — deed_gate (CREATE TABLE IF NOT EXISTS, per-deed-document recordability gate state;
+  // indexes INLINE). Idempotent. Apply BEFORE flipping DEED_GATE_ENABLED. Default-safe.
+  '0049_deed_1_deed_gate.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications', 'firm_conflict_policy', 'matter_conflict_posture', 'deed_gate'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
