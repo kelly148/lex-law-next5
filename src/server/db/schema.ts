@@ -2009,6 +2009,34 @@ export type GateOverride = typeof gateOverride.$inferSelect;
 export type NewGateOverride = typeof gateOverride.$inferInsert;
 
 // ============================================================
+// CONFLICT-TOGGLE-1 (Inc 1) — firm_conflict_policy (firm-scoped conflicts posture policy)
+// ============================================================
+// APPEND-ONLY: one row per version of a firm's conflicts posture policy; the latest row (by
+// firmOwnerUserId, createdAt) is current, and the row history IS the tamper-evident settings-audit. The
+// policy relaxes only through an explicit, audited INSERT — never UPDATE/DELETE. FIRM-scoped (keyed by the
+// firm's owning attorney, firm-shaped for a later multi-user firm), NOT per-user. NO DB FK (app-layer
+// ownerScope). Index is INLINE (migration 0047). DORMANT in Inc 1 — nothing reads the posture yet.
+export const firmConflictPolicy = mysqlTable(
+  'firm_conflict_policy',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    firmOwnerUserId: char('firmOwnerUserId', { length: 36 }).notNull(),
+    policy: json('policy').notNull(),
+    changedByUserId: char('changedByUserId', { length: 36 }).notNull(),
+    reasonText: text('reasonText'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxFirmConflictPolicyOwner: index('idx_firm_conflict_policy_owner').on(
+      table.firmOwnerUserId,
+      table.createdAt,
+    ),
+  }),
+);
+export type FirmConflictPolicy = typeof firmConflictPolicy.$inferSelect;
+export type NewFirmConflictPolicy = typeof firmConflictPolicy.$inferInsert;
+
+// ============================================================
 // FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked
