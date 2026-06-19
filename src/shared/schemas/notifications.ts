@@ -24,6 +24,9 @@ import { z } from 'zod';
 export const NOTIFICATION_TYPE_VALUES = [
   'generic',
   'matter_ready',
+  // NOTIFY-SUITE-1 N2: a deadline/tickler is approaching its effective due date. Drives the per-matter
+  // "deadline approaching" badge (distinct from 'matter_ready'). Informational only; never auto-acts.
+  'deadline',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPE_VALUES)[number];
 

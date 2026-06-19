@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { ownerScope } from '../ownerScope.js';
 import {
@@ -113,6 +113,35 @@ export async function listTicklersForDeadline(matterDeadlineId: string, userId: 
   const rows = await db.select().from(tickler)
     .where(and(eq(tickler.matterDeadlineId, matterDeadlineId), ownerScope(tickler.userId, userId)));
   return rows.map(parseTickler);
+}
+
+/**
+ * NOTIFY-SUITE-1 N2: the owner's NOT-YET-ALERTED ticklers whose fireAt has arrived (<= `through`, a
+ * YYYY-MM-DD). The N2 producer reads this to emit an in-app "deadline approaching" alert AT MOST ONCE per
+ * tickler lead — notifiedAt IS NULL is the cursor. Owner-scoped (ownerScope) + Zod Wall. NO new deadline
+ * computation; a pure read over the existing tickler rows the engine already materialized.
+ */
+export async function listUninformedTicklers(userId: string, through: string): Promise<TicklerRow[]> {
+  const rows = await db
+    .select()
+    .from(tickler)
+    .where(and(ownerScope(tickler.userId, userId), isNull(tickler.notifiedAt), lte(tickler.fireAt, through)));
+  return rows.map(parseTickler);
+}
+
+/**
+ * NOTIFY-SUITE-1 N2: stamp a tickler's "alerted-at" cursor so its lead-time reminder fires AT MOST ONCE.
+ * Conditional on notifiedAt IS NULL — the single-winner guard against a concurrent double-emit — and
+ * owner-scoped. Returns the conditional UPDATE's OWN affectedRows (1 = THIS call stamped it; 0 = already
+ * alerted / not this owner's), NOT a post-hoc SELECT (the markJobRunning single-winner pattern).
+ */
+export async function markTicklerNotified(ticklerId: string, userId: string): Promise<number> {
+  const res = await db
+    .update(tickler)
+    .set({ notifiedAt: new Date() })
+    .where(and(eq(tickler.id, ticklerId), ownerScope(tickler.userId, userId), isNull(tickler.notifiedAt)));
+  const header = res[0] as { affectedRows?: number } | undefined;
+  return header?.affectedRows ?? 0;
 }
 
 // ============================================================

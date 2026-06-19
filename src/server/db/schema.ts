@@ -2535,12 +2535,16 @@ export const tickler = mysqlTable(
     acknowledgedAt: timestamp('acknowledgedAt'),
     snoozedUntil: date('snoozedUntil', { mode: 'string' }),
     snoozeReason: text('snoozeReason'),
+    // NOTIFY-SUITE-1 N2: per-tickler "alerted-at" cursor (NULL = not yet alerted). Additive (migration 0046).
+    notifiedAt: timestamp('notifiedAt'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
   },
   (table) => ({
     idxTicklerDeadline: index('idx_tickler_deadline').on(table.matterDeadlineId),
     idxTicklerUserFire: index('idx_tickler_user_fire').on(table.userId, table.fireAt),
+    // NOTIFY-SUITE-1 N2: the producer's "owner's not-yet-alerted ticklers" read (userId, notifiedAt).
+    idxTicklerUserNotified: index('idx_tickler_user_notified').on(table.userId, table.notifiedAt),
   }),
 );
 

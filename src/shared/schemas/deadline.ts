@@ -183,6 +183,10 @@ export const TicklerRowSchema = z.object({
   acknowledgedAt: z.date().nullable(),
   snoozedUntil: DateOnlySchema.nullable(),
   snoozeReason: z.string().nullable(),
+  // NOTIFY-SUITE-1 N2: the per-tickler "alerted-at" cursor (NULL = not yet alerted). The N2 producer sets it
+  // so each lead-time reminder fires at most once. Additive + .nullable().optional() (the established Inc-2
+  // additive-column pattern) so a pre-migration row / existing TicklerRow literal parses without it.
+  notifiedAt: z.date().nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
