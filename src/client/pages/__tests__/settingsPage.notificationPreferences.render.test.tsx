@@ -38,6 +38,15 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // CONFLICT-TOGGLE-1 Inc 3: the ConflictEnforcementSection self-gates on this — OFF here, so it renders null.
+      conflictPolicy: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: { enabled: false } };
+          },
+        },
+      },
     },
   };
 });

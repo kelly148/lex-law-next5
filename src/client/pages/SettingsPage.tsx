@@ -24,7 +24,7 @@
  * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
 import React, { useState, useRef } from 'react';
-import { Settings, Mic, Users, Lock, Bell } from 'lucide-react';
+import { Settings, Mic, Users, Lock, Bell, ShieldAlert } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import type { NotificationPreferences } from '../../shared/schemas/matters.js';
@@ -398,6 +398,208 @@ function NotificationPreferencesSection({ initial }: { initial: NotificationPref
 }
 
 // ============================================================
+// ConflictEnforcementSection (CONFLICT-TOGGLE-1 Inc 3 — anti-silent-off UX)
+// ============================================================
+// The firm-scoped "Conflict clearance enforcement" admin surface. DELIBERATELY labeled enforcement (NOT
+// "conflicts checking") to kill the "off = no conflicts" misread (disposition item 8). Representational
+// matters are ALWAYS fully enforced and non-disableable; only the transactional (title/settlement scrivener)
+// default may be relaxed to ADVISORY — and only through a typed confirmation + a required reason (item 8).
+// Self-gates on conflictPolicy.isEnabled so the whole surface is DARK on prod until the gate is activated.
+function ConflictEnforcementSection(): React.ReactElement | null {
+  const enabledQ = trpc.conflictPolicy.isEnabled.useQuery();
+  // Dark until the conflict gate is enabled (prod default). The hook is called unconditionally above.
+  if (!enabledQ.data?.enabled) return null;
+  return <ConflictEnforcementPanel />;
+}
+
+function ConflictEnforcementPanel(): React.ReactElement {
+  const { data, isLoading } = trpc.conflictPolicy.get.useQuery();
+  const historyQ = trpc.conflictPolicy.history.useQuery({ limit: 1 });
+  const utils = trpc.useUtils();
+  const [pendingRelax, setPendingRelax] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const setPolicyMutation = useGuardedMutation(
+    (input: { policy: { schemaVersion: 1; transactionalPosture: 'ENFORCED' | 'ADVISORY' }; reasonText?: string }) =>
+      utils.client.conflictPolicy.setPolicy.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.conflictPolicy.get.invalidate();
+        void utils.conflictPolicy.history.invalidate();
+        setError(null);
+        setSaved(true);
+        setPendingRelax(false);
+        setConfirmText('');
+        setReason('');
+        setTimeout(() => setSaved(false), 2500);
+      },
+      onError: (err) => setError(err.message),
+    },
+  );
+
+  const header = (
+    <div className="flex items-center gap-2 mb-4">
+      <ShieldAlert className="w-5 h-5 text-firm-navy" />
+      <h2 className="text-base font-semibold text-firm-navy">Conflict clearance enforcement</h2>
+    </div>
+  );
+  const wrap = (inner: React.ReactNode): React.ReactElement => (
+    <div className="bg-white border border-gray-200 rounded-lg p-6" data-testid="conflict-enforcement">
+      {header}
+      {inner}
+    </div>
+  );
+
+  if (isLoading) return wrap(<p className="text-sm text-gray-400">Loading…</p>);
+  if (!data) return wrap(<p className="text-sm text-red-600">Failed to load the conflict policy.</p>);
+
+  const current = data.policy.transactionalPosture; // 'ENFORCED' | 'ADVISORY'
+  const forceOn = data.forceOn;
+  const relaxedSince = current === 'ADVISORY' ? (historyQ.data?.entries[0]?.createdAt ?? null) : null;
+  const confirmReady = confirmText.trim() === 'ADVISORY' && reason.trim().length > 0 && !setPolicyMutation.isPending;
+
+  const tighten = (): void => {
+    setError(null);
+    setPolicyMutation.mutate({ policy: { schemaVersion: 1, transactionalPosture: 'ENFORCED' } });
+  };
+  const confirmRelax = (): void => {
+    if (confirmText.trim() !== 'ADVISORY') {
+      setError('Type ADVISORY to confirm.');
+      return;
+    }
+    if (!reason.trim()) {
+      setError('A reason is required to relax enforcement.');
+      return;
+    }
+    setPolicyMutation.mutate({ policy: { schemaVersion: 1, transactionalPosture: 'ADVISORY' }, reasonText: reason.trim() });
+  };
+
+  return wrap(
+    <>
+      <p className="text-sm text-gray-500 mb-4">
+        This is an ethics control, not a convenience setting. <span className="font-medium">Representational matters
+        are always fully enforced</span> and cannot be relaxed here. Only transactional (title/settlement scrivener)
+        matters can run in an advisory posture — and even then the conflicts check still runs and a real conflict still
+        blocks.
+      </p>
+
+      {forceOn && (
+        <div
+          data-testid="conflict-forceon-lock"
+          className="flex items-center gap-2 mb-4 rounded border border-firm-navy/30 bg-firm-navy/5 px-3 py-2 text-sm text-firm-navy"
+        >
+          <Lock className="w-4 h-4" />
+          Locked ON by server policy (CONFLICT_GATE_FORCE_ON): every matter is fully enforced; this control cannot relax it.
+        </div>
+      )}
+
+      {/* Effective posture per capacity (read-only). */}
+      <div className="space-y-2 mb-4">
+        <div className="flex items-center justify-between py-1 text-sm">
+          <span className="text-gray-800">Representational matters (law firm)</span>
+          <span className="font-medium text-firm-navy">ENFORCED · always</span>
+        </div>
+        <div className="flex items-center justify-between py-1 text-sm">
+          <span className="text-gray-800">Transactional matters (title / settlement scrivener)</span>
+          <span data-testid="conflict-transactional-effective" className="font-medium text-firm-navy">
+            {data.effectiveByCapacity.title_settlement_agent}
+          </span>
+        </div>
+      </div>
+
+      {/* The transactional control — relaxation is gated behind a typed confirmation + reason. */}
+      {!forceOn && current === 'ENFORCED' && !pendingRelax && (
+        <button
+          data-testid="conflict-begin-relax"
+          onClick={() => {
+            setPendingRelax(true);
+            setError(null);
+          }}
+          disabled={setPolicyMutation.isPending}
+          className="px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          Relax transactional matters to advisory…
+        </button>
+      )}
+
+      {!forceOn && current === 'ENFORCED' && pendingRelax && (
+        <div data-testid="conflict-relax-confirm" className="rounded border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <p className="text-sm text-amber-900">
+            You are relaxing conflict-clearance enforcement to <span className="font-semibold">ADVISORY</span> for
+            transactional matters. The check still runs and a real conflict still blocks, but the absence of affirmative
+            clearance will no longer stop drafting/export. Type <span className="font-mono font-semibold">ADVISORY</span>{' '}
+            to confirm and give a reason.
+          </p>
+          <input
+            data-testid="conflict-confirm-input"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type ADVISORY"
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          />
+          <textarea
+            data-testid="conflict-reason-input"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (required) — e.g. deed/POA scrivener desk only, no represented adverse parties"
+            rows={2}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setPendingRelax(false);
+                setConfirmText('');
+                setReason('');
+                setError(null);
+              }}
+              className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              data-testid="conflict-confirm-relax"
+              onClick={confirmRelax}
+              disabled={!confirmReady}
+              className="px-3 py-2 text-sm bg-amber-700 text-white rounded hover:bg-amber-800 disabled:opacity-50"
+            >
+              Confirm relaxation
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!forceOn && current === 'ADVISORY' && (
+        <div className="space-y-2">
+          <div
+            data-testid="conflict-relaxed-banner"
+            className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            Transactional matters are running in <span className="font-semibold">ADVISORY</span> posture
+            {relaxedSince ? <> — relaxed since {new Date(relaxedSince).toLocaleDateString()}</> : null}. The check still
+            runs and a real conflict still blocks.
+          </div>
+          <button
+            data-testid="conflict-restore-enforced"
+            onClick={tighten}
+            disabled={setPolicyMutation.isPending}
+            className="px-3 py-2 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+          >
+            Restore full enforcement
+          </button>
+        </div>
+      )}
+
+      {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+      {saved && <p className="text-green-600 text-sm mt-3">Saved.</p>}
+    </>,
+  );
+}
+
+// ============================================================
 // ChangePasswordSection (FOLD-AUTH-CHANGEPW)
 // ============================================================
 // UI half of FOLD-AUTH-1's self-serve password change. Wraps the existing,
@@ -571,6 +773,9 @@ export default function SettingsPage(): React.ReactElement {
             )}
           </>
         )}
+        {/* CONFLICT-TOGGLE-1 Inc 3: the firm conflict-enforcement admin. Self-gates on conflictPolicy.isEnabled
+            (dark on prod), so it is rendered unconditionally and returns null when the gate is off. */}
+        <ConflictEnforcementSection />
         {/* Password change is independent of settings.get — always available. */}
         <ChangePasswordSection />
       </div>
