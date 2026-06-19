@@ -18,10 +18,15 @@
  * modelString (deterministic), so they are intentionally NOT stored in jobs.input. The prompt text in
  * jobs.input is CLEARED on terminal (markJob* reset input to {}), so it never lingers as a second copy.
  *
- * INCREMENT-3 SEAM (do NOT wire here): the per-reviewer transmit is runJob -> adapter.generate (inside the
- * canonical chokepoint, already on the egress CI-guard allowlist). In Inc 3 that single call is wrapped by
- * the Inc-1 egress primitive as a `document_job` EgressSubject — the durable input above already carries
- * everything that subject needs (matterId / documentId / documentVersionId / jobId / userId / modelString).
+ * INCREMENT-3a SEAM (NOW WIRED): the per-reviewer transmit is runJob -> adapter.generate (inside the
+ * canonical chokepoint, on the egress CI-guard allowlist). buildReviewerCanonicalParams now attaches an
+ * `egress` descriptor (surface 'reviewer', a `document_job` EgressSubject) so runJob routes that single
+ * provider call through the Inc-1 egress primitive (documentEgressSend) — log AND hold from day one, with
+ * the retry/abort/heartbeat machinery riding inside the one decision row. A no_external hold (or hold-check
+ * uncertainty / non-allowlisted provider) blocks the transmit; onBlocked marks the lane 'blocked_by_hold'
+ * (terminal, NOT a failure) and re-derives the session partial-by-hold reason. The durable input carries
+ * everything the subject needs (matterId / documentId / documentVersionId / jobId / userId / modelString).
+ * Inc 3b (the hold-blocked-partial send-gate acknowledgment) is OUT of scope here.
  */
 import { parseModelString, resolveReviewerLatencyTuning } from '../llm/config.js';
 import { getPromptVersionForJobType } from '../llm/promptVersions.js';
@@ -33,6 +38,7 @@ import { insertFeedback, setReviewSessionSettled } from '../db/queries/phase4b.j
 import {
   markReviewerLaneRunning,
   markReviewerLaneTerminal,
+  markReviewerLaneBlockedByHold,
   listReviewerLanesForSession,
 } from '../db/queries/reviewerLaneState.js';
 import {
@@ -173,6 +179,41 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
           },
         }
       : {}),
+    // EGRESS-CONTROL-PLANE-1 Inc 3a: onboard the reviewer fan-out onto the egress plane. runJob routes the
+    // single provider call through documentEgressSend with this descriptor — one pre-dispatch, hold-aware
+    // egress_events decision row (surface 'reviewer'); a no_external hold blocks the transmit. The
+    // document_job subject carries documentVersionId (the send-gate version-binding) + the job/matter ids.
+    egress: {
+      surface: 'reviewer',
+      // Reviewers are NOT gated by the GROUNDED_CHAT_PROVIDERS chat-grounding allowlist (empty in prod by
+      // GLBA design): reviewer providers are validated at boot and pre-date this plane. Onboarding adds log +
+      // hold, NOT a new provider block — the no_external HOLD remains the egress control. (Sendability keeps
+      // the allowlist by default.)
+      enforceProviderAllowlist: false,
+      buildSubject: (jid) => ({
+        type: 'document_job',
+        subjectId: jid,
+        matterId,
+        userId,
+        documentId,
+        documentVersionId,
+        jobId: jid,
+      }),
+      // Store-by-reference: hash the composed prompt actually sent (matter-state/master injection happens in
+      // runJob, so this receives the FINAL llmParams). Never stored — only the HMAC of this string is.
+      buildSerializedPayload: (lp) => JSON.stringify({ systemPrompt: lp.systemPrompt, userPrompt: lp.userPrompt }),
+      // A no_external hold refused this reviewer's transmit (the blocked egress_events row is durable). Mark
+      // the lane 'blocked_by_hold' (terminal, NOT a failure) and re-derive the session partial-by-hold
+      // reason. Async-only — the sync path has no lanes (the egress row remains the audit of record there).
+      ...(isAsync
+        ? {
+            onBlocked: async ({ blockReason }: { jobId: string; blockReason: string }) => {
+              await markReviewerLaneBlockedByHold(reviewSessionId, reviewerRole, userId, blockReason);
+              await finalizeSessionLifecycleIfSettled(reviewSessionId, userId);
+            },
+          }
+        : {}),
+    },
     timeoutMs,
     txn2Commit: async ({ jobId, output }) => {
       const rawOutput = typeof output === 'string' ? output : JSON.stringify(output);

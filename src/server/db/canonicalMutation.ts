@@ -49,6 +49,8 @@ import {
 import { emitTelemetry, type TelemetryContext } from '../telemetry/emitTelemetry.js';
 import { getPromptVersionForJobType } from '../llm/promptVersions.js';
 import { resolveAdapter } from '../llm/registry.js';
+import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
+import type { EgressSubject, EgressSurface } from '../../shared/schemas/egress.js';
 import { classifyProviderError, isUndiciTimeoutError, type LlmGenerateParams } from '../llm/types.js';
 import { deriveTokenAccounting, formatTokenAccounting } from '../llm/tokenAccounting.js';
 import { getLlmFetchTimeoutMs, parseModelString } from '../llm/config.js';
@@ -267,6 +269,34 @@ export interface CanonicalMutationParams {
    * unchanged. A throw here must never break the job (the runJob invocation void/catches it).
    */
   onRunning?: (jobId: string) => void | Promise<void>;
+  /**
+   * EGRESS-CONTROL-PLANE-1 Inc 3a: when present, the SINGLE provider call is routed through the egress
+   * control plane (documentEgressSend) — log AND hold from day one — instead of a raw adapter.generate. The
+   * reviewer fan-out supplies this (surface 'reviewer', subject 'document_job'); every not-yet-onboarded
+   * surface leaves it undefined, so its dispatch is byte-for-byte the raw path (unchanged).
+   *
+   *  - buildSubject(jobId): the document_job EgressSubject for THIS run — carries documentVersionId (the
+   *    send-gate version-binding) plus the matter/document/job ids.
+   *  - buildSerializedPayload(llmParams): the store-by-reference bundle to HASH (never stored), built from
+   *    the FINAL composed llmParams so the hash covers exactly what was sent.
+   *  - onBlocked: best-effort hook fired when the plane REFUSES the send under a no_external hold (the
+   *    blocked egress_events row is already durable). The reviewer path marks its lane 'blocked_by_hold'
+   *    (a deliberate withhold — NOT a failure) and finalizes the session partial-by-hold. A throw here never
+   *    breaks the job (runJob void/catches it).
+   */
+  egress?: {
+    surface: EgressSurface;
+    buildSubject: (jobId: string) => EgressSubject;
+    buildSerializedPayload: (llmParams: Omit<LlmGenerateParams, 'signal'>) => string;
+    onBlocked?: (args: { jobId: string; blockReason: string }) => void | Promise<void>;
+    /**
+     * Whether the egress plane applies the GROUNDED_CHAT_PROVIDERS chat-grounding allowlist as a provider
+     * gate. The reviewer surface passes FALSE (reviewer providers are boot-validated and were never gated by
+     * the chat-grounding switch — which ships empty in prod by GLBA design; onboarding must add log + hold,
+     * not a new provider block). Omitted/undefined → the egress default (enforced — sendability unchanged).
+     */
+    enforceProviderAllowlist?: boolean;
+  };
   /**
    * Transaction 2 — success path: write output, advance document state.
    * Called inside a DB transaction after the LLM call succeeds.
@@ -705,10 +735,66 @@ async function runJob(
 
   let llmResult: Awaited<ReturnType<typeof adapter.generate>>;
   try {
-    llmResult = await generateWithRetry();
+    if (params.egress) {
+      // EGRESS-CONTROL-PLANE-1 Inc 3a: route the SINGLE provider call through the egress control plane. A
+      // pre-dispatch, hold-aware egress_events decision row is written BEFORE generateWithRetry runs; a
+      // no_external hold (or hold-check uncertainty, or a non-allowlisted provider) BLOCKS the send (throws
+      // DocumentEgressBlockedError, handled below). The retry/abort/heartbeat machinery rides INSIDE the
+      // single dispatch closure, so exactly ONE decision row is written even across transient retries.
+      const eg = params.egress;
+      llmResult = await documentEgressSend({
+        subject: eg.buildSubject(jobId),
+        surface: eg.surface,
+        modelString,
+        // llmParams is vestigial when a dispatch override is supplied (generateWithRetry builds its own
+        // per-attempt signal); pass the composed params + the cancel signal only to satisfy the type.
+        llmParams: { ...llmParams, signal: abortController.signal },
+        serializedPayload: eg.buildSerializedPayload(llmParams),
+        dispatch: generateWithRetry,
+        ...(eg.enforceProviderAllowlist !== undefined ? { enforceProviderAllowlist: eg.enforceProviderAllowlist } : {}),
+      });
+    } else {
+      llmResult = await generateWithRetry();
+    }
   } catch (err) {
     unregisterAbortController(jobId);
     const elapsedMs = Date.now() - startTime;
+
+    // EGRESS-CONTROL-PLANE-1 Inc 3a: a no_external hold (or hold-check uncertainty / non-allowlisted
+    // provider) REFUSED this send — the blocked egress_events row is already durable (the audit of record).
+    // This is a deliberate WITHHOLD, NOT a provider failure: skip txn2Revert's failure path entirely. Fire
+    // the caller's onBlocked hook (the reviewer path marks its lane 'blocked_by_hold' + classifies the
+    // session partial-by-hold), terminalize the job 'cancelled' (a deliberate non-send; jobs has no
+    // 'blocked' status), and return errorClass 'blocked_by_hold' so an egress-aware caller can distinguish
+    // a hold-block from an attorney cancel.
+    if (err instanceof DocumentEgressBlockedError) {
+      if (params.egress?.onBlocked) {
+        try {
+          await params.egress.onBlocked({ jobId, blockReason: err.blockReason });
+        } catch (hookErr) {
+          console.error(`[canonicalMutation] egress onBlocked hook failed for job ${jobId}:`, hookErr);
+        }
+      }
+      // JOB-RECOVERY-1 (H3): a throw while terminalizing must not wedge the job (the B-2 reaper backstops).
+      try {
+        await jw.markJobCancelled(jobId, userId);
+      } catch (cancelErr) {
+        console.error(`[canonicalMutation] markJobCancelled threw for held job ${jobId}:`, cancelErr);
+      }
+      // Audit of record is the durable egress_events 'blocked' row (queryable via listEgressEvents by
+      // decision='blocked'); telemetry is intentionally NOT emitted here (job_cancelled's catalog payload is
+      // attorney-cancel-shaped — a hold-block is a distinct, ledger-recorded event). Server-log for ops.
+      // eslint-disable-next-line no-console
+      console.info(
+        `[canonicalMutation] egress hold blocked job ${jobId} (${jobType}) after ${elapsedMs}ms: ${err.blockReason}`,
+      );
+      return { jobId, status: 'cancelled', errorClass: 'blocked_by_hold', errorMessage: err.message };
+    }
+
+    // NOTE: a NON-DocumentEgressBlockedError throw from documentEgressSend (e.g. an audit-WRITE failure,
+    // which auditedEgress raises BEFORE dispatch — so still NO unlogged egress) is intentionally NOT treated
+    // as a hold-block. It falls through to the failure path below (classify -> txn2Revert -> lane 'failed'),
+    // the correct operator signal for an infra fault vs. a deliberate withhold.
 
     // Determine if this was a timeout or cancellation
     const isTimeout =

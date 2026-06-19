@@ -21,13 +21,64 @@ import {
   getTelemetryBuffer,
 } from '../telemetry/emitTelemetry.js';
 import type { TelemetryEventName } from '../../shared/types/telemetry.js';
+import { setEgressEventStore, type EgressEventStore } from '../db/queries/egressEvents.js';
+import { setEgressHoldStore, type EgressHoldStore } from '../db/queries/egressHold.js';
+import type { NewEgressEvent } from '../db/schema.js';
+import type { EgressEventRow } from '../../shared/schemas/egress.js';
 
 // Enable in-memory telemetry mode for all tests
 enableTestTelemetry();
 
-// Clear the buffer before each test to prevent cross-test contamination
+// ============================================================
+// EGRESS-CONTROL-PLANE-1 Inc 3a — DB-less egress stores for the global test env
+// ============================================================
+// Inc 3a onboarded the reviewer fan-out onto the egress control plane: any test that dispatches a
+// reviewer_feedback job through executeCanonicalMutation now reaches resolveEffectiveHold +
+// recordEgressEvent, which throw against the absent test DB. Install empty/no-op egress stores by
+// default (the DB-less equivalent of prod's "no hold; record OK" path: resolveEffectiveHold -> none ->
+// allowed). Egress-SPECIFIC tests override these in their own beforeEach (which runs after setupFiles)
+// and reset to null in afterEach; the next test re-installs the defaults here. Inert for non-egress tests.
+function egressRowFromInsert(row: NewEgressEvent): EgressEventRow {
+  return {
+    id: row.id!,
+    userId: row.userId!,
+    matterId: row.matterId!,
+    surface: row.surface!,
+    subjectType: row.subjectType!,
+    conversationId: row.conversationId ?? null,
+    documentId: row.documentId ?? null,
+    documentVersionId: row.documentVersionId ?? null,
+    jobId: row.jobId ?? null,
+    holdScope: row.holdScope ?? null,
+    decision: row.decision!,
+    blockReason: row.blockReason ?? null,
+    provider: row.provider!,
+    model: row.model!,
+    policyVersion: row.policyVersion ?? null,
+    inputBundleHash: row.inputBundleHash ?? null,
+    correlationId: row.correlationId!,
+    status: row.status ?? 'pending',
+    failureReason: row.failureReason ?? null,
+    createdAt: new Date(),
+    completedAt: null,
+  };
+}
+const NO_HOLD_STORE: EgressHoldStore = {
+  listActiveForSubject: () => Promise.resolve([]), // no hold -> resolveEffectiveHold returns { none, null }
+  insert: () => Promise.resolve(),
+};
+const NOOP_EVENT_STORE: EgressEventStore = {
+  insert: (row: NewEgressEvent) => Promise.resolve(egressRowFromInsert(row)),
+  complete: () => Promise.resolve(null),
+  get: () => Promise.resolve(null),
+  list: () => Promise.resolve([]),
+};
+
+// Clear the buffer + install the default egress stores before each test (cross-test contamination guard)
 beforeEach(() => {
   clearTelemetryBuffer();
+  setEgressHoldStore(NO_HOLD_STORE);
+  setEgressEventStore(NOOP_EVENT_STORE);
 });
 
 // ============================================================

@@ -123,11 +123,12 @@ describe('CHAT-COPILOT-2 A1 — egress broker architecture guard', () => {
 // reach a provider through the JOB plane (executeCanonicalMutation -> runJob -> llmFetch), which the triad
 // disposition found is NOT control-equivalent (no audit row, no hold). Each onboards in a later increment by
 // routing through egress/documentEgress (the egress plane). This is the explicit SHRINKING checklist — delete
-// an entry when its surface onboards (the list shrinks to empty). Sendability (the increment-1 pilot) is
-// already onboarded and is therefore NOT in this list. Routing reviewer/drafter through the broker is the
-// increment-2 architectural decision (route-through-broker vs gate-inside-canonicalMutation) and carries a
-// fail-closed-allowlist prod risk, so it is operator-gated.
-const EGRESS_ONBOARDING_TODO: readonly string[] = ['reviewer', 'drafter', 'evaluator', 'outline', 'intake', 'information_request'];
+// an entry when its surface onboards (the list shrinks to empty). Sendability (Inc 1) and REVIEWER (Inc 3a)
+// are already onboarded and are therefore NOT in this list: the reviewer fan-out's single provider call in
+// runJob now routes through documentEgressSend (an `egress` descriptor on its canonical params; surface
+// 'reviewer'), so the reviewer transmit gets log AND hold from the plane. drafter/evaluator/outline/intake/
+// information_request onboard in later increments.
+const EGRESS_ONBOARDING_TODO: readonly string[] = ['drafter', 'evaluator', 'outline', 'intake', 'information_request'];
 
 describe('EGRESS-CONTROL-PLANE-1 — egress control plane architecture guard', () => {
   const files = walk(SRC_DIR);
@@ -175,5 +176,29 @@ describe('EGRESS-CONTROL-PLANE-1 — egress control plane architecture guard', (
     }
     // Sendability is NOT in the inventory (already onboarded in increment 1).
     expect(EGRESS_ONBOARDING_TODO.includes('sendability')).toBe(false);
+    // EGRESS-CONTROL-PLANE-1 Inc 3a: REVIEWER is onboarded — runJob routes the reviewer fan-out's single
+    // provider call through documentEgressSend (the `egress` descriptor on its canonical params), so it is
+    // off the job plane and no longer in the onboarding inventory.
+    expect(EGRESS_ONBOARDING_TODO.includes('reviewer')).toBe(false);
+  });
+
+  it('REVIEWER onboarding is STRUCTURALLY enforced: reviewerJobFactory carries an egress descriptor (surface reviewer) + canonicalMutation routes it through documentEgressSend', () => {
+    // Reviewer onboarding is a RUNTIME routing (an `egress` descriptor on the canonical params), not an
+    // import-surface change — so guard it with a source-level structural assertion in addition to the
+    // behavioral test, so a refactor that silently drops the reviewer off the plane FAILS the build.
+    // Single-line substrings (LF-insensitive; gotcha #11 is about \n-bearing scans).
+    const factory = files.find((f) => rel(f).endsWith('server/jobs/reviewerJobFactory.ts'));
+    expect(factory, 'reviewerJobFactory.ts not found').toBeTruthy();
+    const factorySrc = readFileSync(factory!, 'utf8');
+    expect(
+      factorySrc.includes("surface: 'reviewer'"),
+      'reviewerJobFactory must attach an egress descriptor with surface reviewer (reviewer must stay on the plane)',
+    ).toBe(true);
+    const canonical = files.find((f) => rel(f).endsWith('db/canonicalMutation.ts'));
+    expect(canonical, 'canonicalMutation.ts not found').toBeTruthy();
+    expect(
+      readFileSync(canonical!, 'utf8').includes('documentEgressSend('),
+      'canonicalMutation must route an egress-bearing job through documentEgressSend',
+    ).toBe(true);
   });
 });

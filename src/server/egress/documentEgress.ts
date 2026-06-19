@@ -64,6 +64,25 @@ export interface DocumentEgressParams {
   llmParams: LlmGenerateParams;
   /** The serialized payload to HASH for the audit row (never stored). */
   serializedPayload: string;
+  /**
+   * EGRESS-CONTROL-PLANE-1 Inc 3a: optional dispatch override. When provided, the plane uses it for the
+   * SINGLE provider call instead of the internal resolveAdapter(...).generate — so a caller that owns its
+   * own retry/abort/heartbeat machinery (the reviewer fan-out in canonicalMutation.runJob) keeps that
+   * machinery while still getting exactly ONE pre-dispatch, hold-aware egress_events decision row (any
+   * retries happen INSIDE this single dispatch, preserving the "exactly one decision row" invariant). The
+   * provider call still lives inside an allowlisted chokepoint (runJob), so the CI guard is unaffected.
+   * Default (sendability) keeps the internal single dispatch via the registry inside THIS module.
+   */
+  dispatch?: () => Promise<LlmGenerateResult>;
+  /**
+   * EGRESS-CONTROL-PLANE-1 Inc 3a: whether to apply the GROUNDED_CHAT_PROVIDERS chat-grounding allowlist as
+   * a provider gate (default TRUE — sendability is byte-for-byte unchanged). The REVIEWER surface passes
+   * FALSE: reviewer providers are validated at boot (REVIEWER-MODEL-VALIDATION-FIX-1) and pre-date this
+   * plane (reviewers were never gated by the chat-grounding switch, which ships empty/unset in prod by GLBA
+   * design). Onboarding reviewers must ADD log + hold WITHOUT adding a new provider-blocking gate they never
+   * had — the no_external HOLD remains the egress control. The egress_events row is still written either way.
+   */
+  enforceProviderAllowlist?: boolean;
 }
 
 /**
@@ -90,7 +109,12 @@ export async function documentEgressSend(params: DocumentEgressParams): Promise<
   } catch {
     blockReasons.push('hold_check_uncertain');
   }
-  if (!isGroundedChatProviderAllowed(provider)) blockReasons.push('provider_not_allowlisted');
+  // The chat-grounding provider allowlist gates by default (sendability); the reviewer surface opts out
+  // (enforceProviderAllowlist === false) since its providers are boot-validated and were never gated by the
+  // chat-grounding switch. The no_external HOLD above remains the egress control on every surface.
+  if (params.enforceProviderAllowlist !== false && !isGroundedChatProviderAllowed(provider)) {
+    blockReasons.push('provider_not_allowlisted');
+  }
   const decision: AuditedEgressDecision = {
     decision: blockReasons.length === 0 ? 'allowed' : 'blocked',
     blockReason: blockReasons.length > 0 ? blockReasons.join('+') : null,
@@ -130,9 +154,11 @@ export async function documentEgressSend(params: DocumentEgressParams): Promise<
       await recordEgressEvent(row);
     },
     onBlocked: (blockReason) => new DocumentEgressBlockedError(blockReason, eventId),
-    // ── DISPATCH — the provider call lives INSIDE this approved chokepoint (no raw adapter.generate at a
-    //    caller). Single dispatch; no silent fallback. ──
-    dispatch: () => resolveAdapter(params.modelString).generate(params.llmParams),
+    // ── DISPATCH — the provider call lives INSIDE an approved chokepoint (this module by default, or the
+    //    caller-supplied override which itself must be inside an allowlisted chokepoint, e.g. runJob). Single
+    //    dispatch; no silent fallback. The override (Inc 3a) lets the reviewer fan-out reuse runJob's retry/
+    //    abort/heartbeat machinery while still recording exactly one pre-dispatch decision row. ──
+    dispatch: params.dispatch ?? (() => resolveAdapter(params.modelString).generate(params.llmParams)),
     // ── COMPLETE the row with the outcome (best-effort; the allowed decision is already durable). ──
     completeDecision: async (outcome) => {
       await completeEgressEvent(
