@@ -17,11 +17,31 @@
 -- -----------------------------------------------------------------------------
 -- audit_events: add the 'disposition' event type and the disposition-detail columns.
 -- All added columns are NULLable so existing rows remain valid (additive).
+--
+-- RE-RUN-SAFETY INVARIANT (the pre-deploy runner re-runs EVERY allowlisted migration,
+-- in order, on EVERY deploy): this MODIFY must always carry the FINAL union of
+-- eventType values for the column — never an intermediate/narrower set. Re-running
+-- 0005 against a schema already widened by 0022/0043 must be a NO-OP, never a
+-- narrowing (a narrowing truncates audit rows using the later values — e.g.
+-- 'review_session_transition' — which TiDB rejects: "Data truncated for column
+-- 'eventType'"). 0043 holds the canonical ordered list; 0005 and 0022 mirror it
+-- EXACTLY (same values, same order). Append-only: never remove or reorder a value.
 -- -----------------------------------------------------------------------------
 ALTER TABLE `audit_events`
   MODIFY COLUMN `eventType` ENUM(
-    'model_output','adopted','rejected','locked','unlocked','sent','withheld',
-    'authority_verified','judgment_required','disposition'
+    'model_output',
+    'adopted',
+    'rejected',
+    'locked',
+    'unlocked',
+    'sent',
+    'withheld',
+    'authority_verified',
+    'judgment_required',
+    'disposition',
+    'deadline_fired',
+    'deadline_acknowledged',
+    'review_session_transition'
   ) NOT NULL;
 
 ALTER TABLE `audit_events`
