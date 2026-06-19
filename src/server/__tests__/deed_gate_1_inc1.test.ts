@@ -17,6 +17,7 @@ import {
   type DeedGateState,
   type DeedKbAvailability,
 } from '../../shared/schemas/deedGate.js';
+import { resolveDeedKbAvailability } from '../deed/deedKb.js';
 
 const FULL_KB: DeedKbAvailability = { templateCoverage: true, vestingListValidated: true, localityVerified: true };
 const NO_KB: DeedKbAvailability = { templateCoverage: false, vestingListValidated: false, localityVerified: false };
@@ -228,11 +229,18 @@ describe('FOLD-DEED-1 Inc 1 — KB availability is sourced ONLY from the fail-cl
     expect(/vestingListValidated\s*:\s*true/.test(src)).toBe(false);
     expect(/localityVerified\s*:\s*true/.test(src)).toBe(false);
   });
-  it('the foundation KB resolver is hard fail-closed (returns all-false, never true)', () => {
-    const src = readFileSync(fileURLToPath(new URL('../deed/deedKb.ts', import.meta.url)), 'utf8');
-    expect(/templateCoverage:\s*false/.test(src)).toBe(true);
-    expect(/localityVerified:\s*false/.test(src)).toBe(true);
-    expect(/:\s*true/.test(src)).toBe(false); // no field is ever seeded true in the foundation resolver
+  it('the KB resolver keeps the LOCALITY fail-closed — templateCoverage + localityVerified are NEVER true (Inc 2)', () => {
+    // Even for a named v1 locality + a valid VA vesting, the per-locality KB is unseeded (absent from the
+    // primer), so locality-bearing recordability can never clear. (The state-level vesting list DOES validate;
+    // that is exercised in the Inc-2 KB suite.)
+    const r = resolveDeedKbAvailability({
+      jurisdiction: 'VA',
+      locality: 'Fairfax County',
+      deedType: 'deed',
+      vestingSelection: 'as joint tenants with right of survivorship and not as tenants in common',
+    });
+    expect(r.localityVerified).toBe(false);
+    expect(r.templateCoverage).toBe(false);
   });
 });
 
