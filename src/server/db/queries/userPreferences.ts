@@ -9,6 +9,7 @@
 import { eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
+import { ownerScope } from '../ownerScope.js';
 import { userPreferences, type UserPreferences } from '../schema.js';
 import {
   UserPreferencesRowSchema,
@@ -127,6 +128,10 @@ export async function updateVoiceInputPreferences(
   return getUserPreferences(userId);
 }
 
+// NOTE: getUserPreferences / updateReviewerEnablement / updateVoiceInputPreferences above predate the
+// FOLD-AUTH ownerScope chokepoint and keep their grandfathered inline eq() owner filters (the ratchet
+// baseline). New owner-scoped writes route through ownerScope() — see updateNotificationPreferences below.
+
 /**
  * NOTIFY-SUITE-1 N3: update the user's notification preferences. Merges into the existing prefs blob +
  * re-validates the WHOLE blob through the Zod Wall before write (mirrors updateVoiceInputPreferences). The
@@ -147,6 +152,6 @@ export async function updateNotificationPreferences(
   await db
     .update(userPreferences)
     .set({ preferences: validated })
-    .where(eq(userPreferences.userId, userId));
+    .where(ownerScope(userPreferences.userId, userId)); // FOLD-AUTH chokepoint (ratchet: new queries use ownerScope)
   return getUserPreferences(userId);
 }
