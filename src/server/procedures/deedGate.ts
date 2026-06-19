@@ -23,6 +23,17 @@ import { getDocumentById } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { insertAuditEvent } from '../db/queries/auditEvents.js';
 import { resolveDeedKbAvailability } from '../deed/deedKb.js';
+import {
+  DEED_KB_PROVENANCE,
+  VA_DEED_TYPES,
+  VA_VESTING_OPTIONS,
+  VA_EXEMPTIONS,
+  VA_DEED_MUST_HAVES,
+  VA_RECITAL_STRUCTURE,
+  VA_ESCALATION_TRIGGERS,
+  VA_STATUTORY_CITATIONS,
+  VA_SEED_LOCALITIES,
+} from '../deed/deedKbVa.js';
 import { DeedGateStateSchema, evaluateDeedGate } from '../../shared/schemas/deedGate.js';
 
 function assertEnabled(): void {
@@ -44,7 +55,14 @@ async function requireDeedDocument(documentId: string, userId: string): Promise<
 async function evaluateForDocument(documentId: string, matterId: string, userId: string, state: Parameters<typeof evaluateDeedGate>[0]['state']) {
   const parties = await countDeedPartyBindings(documentId, userId);
   const matter = await getMatterById(matterId, userId);
-  const kb = resolveDeedKbAvailability({ jurisdiction: matter?.jurisdiction ?? null, locality: null, deedType: 'deed' });
+  // KB availability comes ONLY from the verified KB resolver (never model memory). The vesting selection is
+  // validated against the seeded VA controlled-list; locality stays fail-closed (no per-locality KB seeded).
+  const kb = resolveDeedKbAvailability({
+    jurisdiction: matter?.jurisdiction ?? null,
+    locality: null, // no per-locality recording-locality field on the matter yet; locality KB is unseeded anyway
+    deedType: 'deed',
+    vestingSelection: state.vestingSelection,
+  });
   return { evaluation: evaluateDeedGate({ state, kb, parties }), parties, kbSeeded: kb.localityVerified };
 }
 
@@ -116,4 +134,24 @@ export const deedGateRouter = router({
       const { evaluation } = await evaluateForDocument(input.documentId, matterId, ctx.userId, resolved.state);
       return { state: resolved.state, evaluation };
     }),
+
+  // The verified VA KB allowlist (Inc 2 — the composition-chokepoint reference). Read-only; the SOLE source of
+  // VA deed legal content is the seeded KB (transcribed from the primer), never model memory. Surfaces the
+  // deed-type controlled list, vesting controlled list, exemption table, deed-must-haves, recital structure,
+  // escalation triggers, statutory citations, and the locality verified-status (all five UNverified — locality
+  // recordability/e-recording specs + RON forms are NOT in the primer, so recordability stays fail-closed).
+  referenceKb: protectedProcedure.query(() => {
+    assertEnabled();
+    return {
+      provenance: DEED_KB_PROVENANCE,
+      deedTypes: VA_DEED_TYPES,
+      vestingOptions: VA_VESTING_OPTIONS,
+      exemptions: VA_EXEMPTIONS,
+      deedMustHaves: VA_DEED_MUST_HAVES,
+      recitalStructure: VA_RECITAL_STRUCTURE,
+      escalationTriggers: VA_ESCALATION_TRIGGERS,
+      statutoryCitations: VA_STATUTORY_CITATIONS,
+      seedLocalities: VA_SEED_LOCALITIES,
+    };
+  }),
 });
