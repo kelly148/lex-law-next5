@@ -9,7 +9,7 @@
  * clean-card + controls + regenerate coverage lives in reviewPaneAsyncParity.render.test.tsx.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, cleanup, screen, act } from '@testing-library/react';
+import { render, cleanup, screen, act, fireEvent } from '@testing-library/react';
 import { AsyncLaneReviewView } from '../AsyncLaneReviewView.js';
 import {
   buildReviewerLanesContract,
@@ -87,5 +87,52 @@ describe('AsyncLaneReviewView (lane header)', () => {
     render(<AsyncLaneReviewView lanes={lanes} />);
     expect(screen.getByTestId('async-lane-header').textContent).toMatch(/did not respond/);
     expect(screen.getByTestId('lane-gpt').getAttribute('data-status')).toBe('failed');
+  });
+});
+
+describe('AsyncLaneReviewView — single-reviewer re-run (REVIEW-LOOP-UX-1 R2)', () => {
+  it('shows a Re-run button ONLY for re-runnable terminal lanes (failure-class + blocked_by_hold); click -> onRerun(role)', () => {
+    const onRerun = vi.fn();
+    const lanes = buildReviewerLanesContract([
+      lane('claude', 'completed_with_feedback', 3), // returned feedback (may be adopted) -> NOT re-runnable
+      lane('gpt', 'failed'),
+      lane('gemini', 'timed_out'),
+      lane('grok', 'blocked_by_hold'),
+    ]);
+    render(<AsyncLaneReviewView lanes={lanes} onRerun={onRerun} />);
+    expect(screen.getByTestId('lane-rerun-gpt')).toBeTruthy();
+    expect(screen.getByTestId('lane-rerun-gemini')).toBeTruthy();
+    expect(screen.getByTestId('lane-rerun-grok')).toBeTruthy();
+    expect(screen.queryByTestId('lane-rerun-claude')).toBeNull(); // completed_with_feedback is excluded
+    fireEvent.click(screen.getByTestId('lane-rerun-gpt'));
+    expect(onRerun).toHaveBeenCalledWith('gpt');
+  });
+
+  it('NO Re-run button for completed_without_feedback or a non-terminal (running/pending) lane', () => {
+    const onRerun = vi.fn();
+    const lanes = buildReviewerLanesContract([
+      lane('claude', 'completed_without_feedback', 0),
+      lane('gpt', 'running'),
+      lane('gemini', 'pending'),
+    ]);
+    render(<AsyncLaneReviewView lanes={lanes} onRerun={onRerun} />);
+    expect(screen.queryByTestId('lane-rerun-claude')).toBeNull();
+    expect(screen.queryByTestId('lane-rerun-gpt')).toBeNull();
+    expect(screen.queryByTestId('lane-rerun-gemini')).toBeNull();
+  });
+
+  it('display-only by default: NO Re-run button when onRerun is omitted', () => {
+    const lanes = buildReviewerLanesContract([lane('gpt', 'failed')]);
+    render(<AsyncLaneReviewView lanes={lanes} />);
+    expect(screen.queryByTestId('lane-rerun-gpt')).toBeNull();
+  });
+
+  it('the in-flight lane button is disabled + labelled (rerunPendingRole); siblings stay enabled', () => {
+    const onRerun = vi.fn();
+    const lanes = buildReviewerLanesContract([lane('gpt', 'failed'), lane('gemini', 'failed')]);
+    render(<AsyncLaneReviewView lanes={lanes} onRerun={onRerun} rerunPendingRole="gpt" />);
+    expect((screen.getByTestId('lane-rerun-gpt') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('lane-rerun-gpt').textContent).toContain('Re-running');
+    expect((screen.getByTestId('lane-rerun-gemini') as HTMLButtonElement).disabled).toBe(false);
   });
 });

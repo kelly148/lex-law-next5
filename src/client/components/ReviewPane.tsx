@@ -1202,6 +1202,23 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   const instructionsRef = React.useRef<HTMLTextAreaElement>(null);
   // MR-4 P2: regenError state for SUGGESTION_NOT_RESOLVED and other regenerate errors.
   const [regenError, setRegenError] = useState<string | null>(null);
+  // REVIEW-LOOP-UX-1 R2: re-run ONE reviewer on the CURRENT draft (a flaky/failed/timed-out/held lane).
+  // The mutation lives HERE (the parent); AsyncLaneReviewView surfaces the affordance + calls back, staying
+  // display-only. The #328 live-refresh poll then shows the lane Queued->Running->Returned; rerunningRole
+  // disables that lane's button until the mutation settles.
+  const [rerunningRole, setRerunningRole] = useState<string | null>(null);
+  const rerunReviewerMutation = useGuardedMutation(
+    (input: { sessionId: string; reviewerRole: string }) =>
+      utils.client.reviewSession.rerunReviewer.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.reviewSession.get.invalidate({ sessionId });
+      },
+      onSettled: () => {
+        setRerunningRole(null);
+      },
+    },
+  );
   // REVIEW-UX-REDESIGN-1: "Decline (this iteration)" is a within-session triage mark — non-permanent
   // by design (it resets on reload; persisting it would need a schema migration, out of scope here).
   // Accept (selections) and Decline & lock (locked_decisions) persist via their existing mutations.
@@ -1661,7 +1678,14 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   if (data.lanes) {
     return (
       <div className="flex flex-col h-full min-h-0">
-        <AsyncLaneReviewView lanes={data.lanes} />
+        <AsyncLaneReviewView
+          lanes={data.lanes}
+          onRerun={(reviewerRole) => {
+            setRerunningRole(reviewerRole);
+            rerunReviewerMutation.mutate({ sessionId, reviewerRole });
+          }}
+          rerunPendingRole={rerunningRole}
+        />
         <div className="flex-1 min-h-0 overflow-y-auto" data-testid="review-scroll-body">
           <div className="p-4 space-y-3">
             {renderSuggestionWorkspace()}

@@ -15,10 +15,11 @@
  * suggestion list + regenerate footer.
  */
 import React, { useEffect, useState } from 'react';
-import type {
-  ReviewerLanesContract,
-  ReviewerLanesAggregate,
-  LaneDisplayState,
+import {
+  isLaneRerunnable,
+  type ReviewerLanesContract,
+  type ReviewerLanesAggregate,
+  type LaneDisplayState,
 } from '../../shared/schemas/reviewerLaneState.js';
 
 /** After this much wall-clock with the run still not all-terminal, the client flags it incomplete. */
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
   dispatch_failed: 'Dispatch failed',
   orphaned_reaped: 'No response (recovered)',
   canceled: 'Canceled',
+  blocked_by_hold: 'Held (not sent)',
 };
 
 const DISPLAY_MESSAGE: Record<LaneDisplayState, (a: ReviewerLanesAggregate) => string> = {
@@ -47,7 +49,18 @@ const DISPLAY_MESSAGE: Record<LaneDisplayState, (a: ReviewerLanesAggregate) => s
   all_failed: (a) => `No reviewer returned — all ${a.expected} failed.`,
 };
 
-export function AsyncLaneReviewView({ lanes }: { lanes: ReviewerLanesContract }): React.ReactElement {
+export function AsyncLaneReviewView({
+  lanes,
+  onRerun,
+  rerunPendingRole,
+}: {
+  lanes: ReviewerLanesContract;
+  /** REVIEW-LOOP-UX-1 R2: re-run ONE reviewer on the current draft. The PARENT owns the mutation (this
+   *  component stays display-only — it only surfaces the affordance + calls back). Omitted => no button. */
+  onRerun?: (reviewerRole: string) => void;
+  /** The reviewerRole whose re-run is currently in flight (its button is disabled until the poll moves it). */
+  rerunPendingRole?: string | null;
+}): React.ReactElement {
   const [elapsedMs, setElapsedMs] = useState(0);
   useEffect(() => {
     if (lanes.allTerminal) return;
@@ -75,6 +88,19 @@ export function AsyncLaneReviewView({ lanes }: { lanes: ReviewerLanesContract })
           >
             {l.reviewerTitle}: {STATUS_LABEL[l.status] ?? l.status}
             {l.status === 'completed_with_feedback' && l.suggestionCount != null ? ` (${l.suggestionCount})` : ''}
+            {onRerun && isLaneRerunnable(l.status) && (
+              <button
+                type="button"
+                data-testid={`lane-rerun-${l.reviewerRole}`}
+                className="ml-1.5 underline hover:no-underline disabled:opacity-50 disabled:no-underline"
+                disabled={rerunPendingRole === l.reviewerRole}
+                onClick={() => onRerun(l.reviewerRole)}
+                aria-label={`Re-run ${l.reviewerTitle}`}
+                title="Re-run this reviewer on the current draft"
+              >
+                {rerunPendingRole === l.reviewerRole ? '↻ Re-running…' : '↻ Re-run'}
+              </button>
+            )}
           </li>
         ))}
       </ul>

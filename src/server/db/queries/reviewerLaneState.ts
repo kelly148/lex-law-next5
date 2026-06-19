@@ -25,6 +25,7 @@ import { emitTelemetry, type TelemetryContext } from '../../telemetry/emitTeleme
 import {
   ReviewerLaneRowSchema,
   FAILURE_LANE_STATUSES,
+  RERUNNABLE_LANE_STATUSES,
   type ReviewerLaneRow,
   type ReviewerLaneStatus,
 } from '../../../shared/schemas/reviewerLaneState.js';
@@ -230,6 +231,45 @@ export async function markReviewerLaneBlockedByHold(
         inArray(reviewerLanes.status, NON_TERMINAL_LANE_STATUSES),
       ),
     );
+}
+
+/**
+ * REVIEW-LOOP-UX-1 R2 (single-reviewer re-run): reset a NO-USABLE-FEEDBACK terminal lane (failure-class or
+ * blocked_by_hold) back to 'pending' for an EXPLICIT attorney re-run — clear the terminal markers + arm a
+ * fresh terminal deadline so the Component-C sweep and the #328 live-refresh treat it as a new in-flight
+ * lane. GUARDED to RERUNNABLE_LANE_STATUSES (inArray) so it can NEVER reset a completed_with_feedback lane
+ * (whose feedback may be adopted), a completed_without_feedback lane, or an already non-terminal lane.
+ * Returns rows affected (1 = reset; 0 = the lane was not in a re-runnable terminal state).
+ */
+export async function resetReviewerLaneForRerun(
+  reviewSessionId: string,
+  reviewerRole: string,
+  userId: string,
+  terminalDeadlineAt: Date,
+): Promise<number> {
+  const now = new Date();
+  const res = await db
+    .update(reviewerLanes)
+    .set({
+      status: 'pending',
+      suggestionCount: null,
+      feedbackRowId: null,
+      failureReason: null,
+      jobId: null,
+      terminalizedAt: null,
+      terminalDeadlineAt,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(reviewerLanes.reviewSessionId, reviewSessionId),
+        eq(reviewerLanes.reviewerRole, reviewerRole),
+        ownerScope(reviewerLanes.userId, userId),
+        inArray(reviewerLanes.status, [...RERUNNABLE_LANE_STATUSES]),
+      ),
+    );
+  const header = res[0] as { affectedRows?: number } | undefined;
+  return header?.affectedRows ?? 0;
 }
 
 /**

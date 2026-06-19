@@ -61,6 +61,34 @@ export const FAILURE_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
 export const HOLD_BLOCKED_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set(['blocked_by_hold']);
 
 /**
+ * REVIEW-LOOP-UX-1 R2 (single-reviewer re-run): the terminal lane statuses a re-run is OFFERED for. A re-run
+ * reuses the (session,reviewer) job slot, so it is safe ONLY where the lane reached terminal via a path that
+ * ALSO left the JOB in a terminal status with NO feedback row — failed / timed_out / canceled (txn2Revert or
+ * cancel terminalized the job; no feedback) + blocked_by_hold (the egress gate cancelled the job; no feedback).
+ * DELIBERATELY EXCLUDES:
+ *   - completed_with_feedback / completed_without_feedback — a re-run discards-and-replaces; never offered
+ *     where returned/adopted feedback could be lost.
+ *   - orphaned_reaped AND dispatch_failed — the LANE reaper / dispatch-failure terminalize the LANE, but the
+ *     JOB is DECOUPLED (the job reaper is a separate, separately-flag-gated sweep). The job may still be
+ *     'queued' (a lost continuation -> a re-run would run the STALE frozen prompt against the OLD draft) or
+ *     even 'completed' with a feedback row (a lost best-effort lane-terminal write -> a re-run would DUPLICATE
+ *     feedback). Their job state is not guaranteed, so they are NOT safely re-runnable here (a future seize-
+ *     and-refresh hardening could cover them; out of R2 scope).
+ * Non-terminal lanes are never re-runnable.
+ */
+export const RERUNNABLE_LANE_STATUSES: ReadonlySet<ReviewerLaneStatus> = new Set([
+  'failed',
+  'timed_out',
+  'canceled',
+  'blocked_by_hold',
+]);
+
+/** True if a single-reviewer re-run may be offered for this (terminal) lane status (REVIEW-LOOP-UX-1 R2). */
+export function isLaneRerunnable(status: ReviewerLaneStatus): boolean {
+  return RERUNNABLE_LANE_STATUSES.has(status);
+}
+
+/**
  * WHY a (terminal) reviewer set is partial — the Inc-2 data foundation for the Inc-3 send gate.
  *   'blocked_by_hold' — a no_external hold blocked >=1 reviewer; Inc 3 requires the recorded one-click
  *     attorney acknowledgment before the review is send-ready (a hold must never be silently overridden).

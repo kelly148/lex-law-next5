@@ -451,6 +451,72 @@ export async function requeueJob(
 }
 
 /**
+ * REVIEW-LOOP-UX-1 R2: fetch the reviewer job for a (session, reviewer) by its durable-outbox idempotency
+ * key (`${reviewSessionId}:${reviewerRole}`), owner-scoped. Exactly one such row exists (uniq_jobs_idempotency_key),
+ * so a single-reviewer re-run targets the EXISTING job slot rather than forking a new dispatch path.
+ */
+export async function getJobByIdempotencyKey(
+  idempotencyKey: string,
+  userId: string,
+): Promise<JobRow | null> {
+  const rows = await db
+    .select()
+    .from(jobs)
+    .where(and(eq(jobs.idempotencyKey, idempotencyKey), ownerScope(jobs.userId, userId)))
+    .limit(1);
+  if (rows.length === 0 || !rows[0]) return null;
+  return parseJobRow(rows[0], { userId, jobId: rows[0].id });
+}
+
+/**
+ * REVIEW-LOOP-UX-1 R2 (single-reviewer re-run): reset a TERMINAL reviewer_feedback job back to 'queued'
+ * with a freshly-composed durable input, so the SAME (session,reviewer) idempotency-keyed job slot re-runs
+ * on the CURRENT draft — no second dispatch path, no new row. Unlike requeueJob (D-3: running|queued only),
+ * this DELIBERATELY transitions a terminal job on an EXPLICIT attorney re-run, repopulating the input that
+ * was cleared on the prior terminal and clearing the prior outcome. Owner-scoped + conditional on a TERMINAL
+ * status (never disturbs an in-flight job). Returns rows affected (1 = re-queued; 0 = not terminal / not owner).
+ */
+export async function requeueTerminalReviewerJob(
+  jobId: string,
+  userId: string,
+  input: Record<string, unknown>,
+): Promise<number> {
+  const now = new Date();
+  const res = await db
+    .update(jobs)
+    .set({
+      status: 'queued',
+      input,
+      queuedAt: now,
+      startedAt: null,
+      completedAt: null,
+      lastHeartbeatAt: null,
+      output: null,
+      errorClass: null,
+      errorMessage: null,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      tokensReasoning: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(jobs.id, jobId),
+        ownerScope(jobs.userId, userId),
+        eq(jobs.jobType, 'reviewer_feedback'),
+        inArray(jobs.status, ['failed', 'timed_out', 'cancelled', 'completed']),
+      ),
+    );
+  // Return the conditional UPDATE's OWN affectedRows — the single-winner count of rows THIS call actually
+  // transitioned terminal->queued — exactly like markJobRunning / resetReviewerLaneForRerun. A post-hoc
+  // `SELECT ... WHERE status='queued'` would return 1 to EVERY concurrent caller once ANY of them queued the
+  // row (the bug class markJobRunning was rewritten to eliminate), silently swallowing the loser's CONFLICT.
+  // 0 here honestly means "the job was not in a re-queueable terminal status" (so rerunReviewer surfaces it).
+  const header = res[0] as { affectedRows?: number } | undefined;
+  return header?.affectedRows ?? 0;
+}
+
+/**
  * JOB-RECOVERY-1 (B-2): fetch 'running' jobs whose heartbeat is stale (older than `staleBefore`)
  * or missing — orphans left in 'running' by a crash/restart mid-job. SYSTEM-WIDE read with NO owner
  * filter (same shape as getQueuedJobs, which the FOLD-AUTH-1 ratchet exempts); each returned row
