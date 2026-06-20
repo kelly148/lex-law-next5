@@ -4,6 +4,32 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-20b (FOLD-L0-1 conflicts-at-intake — LIVE-VERIFIED on prod 4e07e51)
+
+**Disposition.** Cowork live-verified FOLD-L0-1 (conflicts-at-intake) on prod `4e07e51` end-to-end (3 synthetic cross-conflict matters): **STRONG PASS, no correctness defects.** This is the self-use lift gate for the conflicts vertical; the operator decision to go client-facing is **separate**.
+
+**Verified.** Cross-matter conflict check at intake; BLOCKER on client/adverse crossing both directions (exact + normalized name match); REVIEW correctly not escalated on role-only match; blocker disposition hard-gated on a recorded rationale (review optional); server-side defense-in-depth — a lock was rejected (`CONFLICTS_NOT_CLEARED`/`unconfirmed_client_party`) despite a UI-enabled button; plan-lock on genuine clearance → `plan:locked`, `sendability:not_applicable`; single-lane default analysis; clean path with no false positives; drafting gate fail-closed and releases on full clearance.
+
+**Recorded.** `docs/MR_CAL_engagement_state.json` history append `live-verified:FOLD-L0-1 pass` — a pure history append (FOLD-L0-1 already in `completed_engagements`; `awaiting_live_verification` unchanged = `[FOLD-PM-1]`; no Rule-11 membership change). Full UAT results: `outputs/FOLD-L0-1_UAT_RESULTS_2026-06-20.md` (Cowork scratchpad). Open: the operator's go-client-facing decision; prod synthetic-data cleanup (the 3 ZZ-UAT-FOLDL0 matters, operator-gated).
+
+---
+
+## 2026-06-20a (UAT fix batch F1/F4/F5/F2 + M1 deed-gate mount — merged + deployed to prod 4e07e51)
+
+**Disposition.** Committer-lane batch off `origin/main`, each its own isolated-worktree branch → PR → Linux-CI-green → squash-merge. **`origin/main` advanced `23aa13f` → `4e07e51`; operator then deployed `4e07e51` to prod and set `DEED_GATE_ENABLED=true`.**
+
+**Merged (reversible build-and-PR lane; auto-merge on green CI except where flagged for the accept gate):**
+- **F1 DOC-PANE-LIVE-REFRESH-1 (#355 `f5ee6c7`)** — content pane live-refreshes on draft-job completion (`refetchIntervalInBackground` on the JobBanner poll + symmetric `version.list` invalidation; mirrors #328). Fixes Monster-UAT U1/M2.
+- **F4 REVIEWER-BANNER-CLEAR-1 (#356 `80c8f01`)** — clears the lingering "reviewer feedback in progress" JobBanner on session close (invalidate `job.listForDocument` on abandon/close).
+- **F5 PROMPT-SNAPSHOT-READ-1 (#357 `9c2b756`)** — owner-scoped (`ownerScope`) read of the composed system prompt + a read-only Context Preview section. No migration (reused `prompt_snapshots`). One CI-red cycle on the owner-filter ratchet, fixed by routing through `ownerScope`.
+- **F2 REVIEWER-CONCURRENT-FANOUT-1 (#358 `dbcd4e9`)** — concurrent SYNC reviewer fan-out (`Promise.allSettled`; one slow/failing reviewer no longer blocks the others). Operator-accepted (a real sync-vs-async fork + 3 source-audit assertion updates surfaced). The async/outbox path (durable lanes + live progress) remains the operator-gated full fix (migration 0030 + `REVIEWER_ASYNC_ENABLED` + `JOB_DISPATCHER_ENABLED`).
+- **M1 DEED-GATE-MOUNT-1 (#359 `4e07e51`)** — mounted the FOLD-DEED-1 `DeedGatePanel` (recordability / locality / RON) on the deed document page; it shipped (#351) but was never mounted (Monster-UAT M1 P1 blocker). Operator-accepted (deed vertical; collision re-check clean). Surfaces for deed docs now that `DEED_GATE_ENABLED=true`.
+- **F3 token-streaming — SPUN OUT** as a spec (`outputs/F3_TOKEN_STREAMING_SPEC_2026-06-20.md`); too large for the batch (~2 wk: 4 provider SDKs + SSE transport + client).
+
+**Also live in `4e07e51` (monster session's work; their bookkeeping owns the detail):** CONFLICT-TOGGLE-1, FOLD-DEED-1, NOTIFY-SUITE-1. **Punch-list M3 (gift-deed nominal-consideration) + M4 (Mason letterhead) — operator dispositioned: keep both as-is, no change.** Local `.git` corruption from interrupted parallel sessions was repaired (Cowork de-truncated `packed-refs`; I confirmed `fsck`/`commit-graph verify` clean, regenerated the commit-graph, re-enabled `core.commitGraph`).
+
+---
+
 ## 2026-06-17b (REVIEW-LOOP-UX-1 / R1 accepted + merged — closes the rev.3 batch)
 
 **Disposition.** Operator returned the three R1 UX decisions: (1) **instant committed adopt** (per-click adopt-ledger write, not deferred to regenerate), (2) reject reuses the existing **Decline** control, (3) defer = badge. Implemented and merged via `operator approve accept:REVIEW-LOOP-UX-1-R1`. **PR #337 squash `f0a03a5`; `origin/main` = `f0a03a5`.**
