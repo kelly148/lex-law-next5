@@ -14,7 +14,7 @@
  *   const mock = new MockLlmAdapter({ simulateTimeout: true });
  */
 
-import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, type LlmClient, type LlmGenerateParams, type LlmGenerateResult, type LlmStreamChunk } from './types.js';
 
 export interface MockLlmAdapterOptions {
   /** Free-form text response (for drafter-family roles) */
@@ -31,6 +31,14 @@ export interface MockLlmAdapterOptions {
   tokensCompletion?: number;
   /** Optional delay in ms before responding (for testing async behavior) */
   delayMs?: number;
+  /**
+   * F3 streaming test knobs (DRAFT-STREAMING-1). When generateStream is exercised: streamContent is the
+   * text streamed/returned (distinct from `content` so a test can prove WHICH path ran); streamErrorAfter,
+   * if set, throws an api_error AFTER yielding that many deltas (simulates a mid-stream failure to verify
+   * discard-on-interrupt — no partial persist).
+   */
+  streamContent?: string;
+  streamErrorAfter?: number;
 }
 
 export class MockLlmAdapter implements LlmClient {
@@ -113,6 +121,76 @@ export class MockLlmAdapter implements LlmClient {
       tokensPrompt: this.options.tokensPrompt ?? 100,
       tokensCompletion: this.options.tokensCompletion ?? 50,
       providerMetadata: { provider: 'mock', model: 'mock-model' },
+    };
+  }
+
+  /**
+   * F3 streaming overlay (DRAFT-STREAMING-1). Mirrors generate()'s abort/timeout/error handling, then
+   * yields the text in small deltas followed by a terminal `final` chunk. Honors the same signal so the
+   * dispatcher's timeout/cancel classification works; streamErrorAfter simulates a mid-stream failure.
+   */
+  async *generateStream(params: LlmGenerateParams): AsyncIterable<LlmStreamChunk> {
+    const { signal } = params;
+    const abort = (): never => {
+      const err = new Error('The operation was aborted');
+      err.name = signal.reason instanceof Error ? signal.reason.name : 'AbortError';
+      throw err;
+    };
+
+    if (signal.aborted) abort();
+
+    if (this.options.delayMs && this.options.delayMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, this.options.delayMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    }
+
+    if (this.options.simulateTimeout) {
+      await new Promise<void>((_resolve, reject) => {
+        const onAbort = (): void => {
+          const err = new Error('The operation was aborted');
+          err.name = signal.reason instanceof Error ? signal.reason.name : 'AbortError';
+          reject(err);
+        };
+        signal.addEventListener('abort', onAbort);
+        if (signal.aborted) onAbort();
+      });
+    }
+
+    if (this.options.errorClass) {
+      throw new LlmProviderError(
+        this.options.errorClass,
+        this.options.errorMessage ?? `Simulated ${this.options.errorClass}`,
+      );
+    }
+
+    const text = this.options.streamContent ?? this.options.content ?? 'Mock LLM response content';
+    // Chunk into small pieces; joining the deltas reconstructs `text` exactly.
+    const deltas = text.length > 0 ? (text.match(/[\s\S]{1,8}/g) ?? [text]) : [];
+    let emitted = 0;
+    for (const d of deltas) {
+      if (signal.aborted) abort();
+      yield { kind: 'delta', text: d };
+      emitted += 1;
+      if (this.options.streamErrorAfter !== undefined && emitted >= this.options.streamErrorAfter) {
+        throw new LlmProviderError('api_error', 'Simulated mid-stream failure');
+      }
+    }
+
+    yield {
+      kind: 'final',
+      result: {
+        content: text,
+        tokensPrompt: this.options.tokensPrompt ?? 100,
+        tokensCompletion: this.options.tokensCompletion ?? 50,
+        providerMetadata: { provider: 'mock', model: 'mock-model', streamed: true },
+      },
     };
   }
 }

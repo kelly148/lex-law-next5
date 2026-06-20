@@ -61,8 +61,26 @@ export interface LlmGenerateResult {
 /** Structured output parsed and validated against the role's Zod schema (Ch 22.7) */
 export type ParsedStructuredOutput = Record<string, unknown>;
 
+/**
+ * F3 token-streaming (DRAFT-STREAMING-1): the chunk type yielded by the OPTIONAL generateStream overlay.
+ * The iterable yields incremental `delta` text chunks (display-only, ephemeral) and then exactly one
+ * terminal `final` chunk carrying the authoritative LlmGenerateResult (full text + token counts) — so the
+ * durable two-transaction commit persists the SAME shape as the non-streaming generate(). Deltas are a
+ * delivery overlay only; the `final` result is the single source of truth.
+ */
+export type LlmStreamChunk =
+  | { readonly kind: 'delta'; readonly text: string }
+  | { readonly kind: 'final'; readonly result: LlmGenerateResult };
+
 export interface LlmClient {
   generate(params: LlmGenerateParams): Promise<LlmGenerateResult>;
+  /**
+   * OPTIONAL streaming delivery (F3 token streaming). Same params as generate(); yields incremental text
+   * deltas then a single terminal `final` chunk. Adapters without native streaming simply omit this method
+   * (callers feature-detect `adapter.generateStream`). It must NEVER change the non-streaming path, and its
+   * terminal `final.result` must be shape-identical to what generate() returns for the same call.
+   */
+  generateStream?(params: LlmGenerateParams): AsyncIterable<LlmStreamChunk>;
 }
 
 // ============================================================

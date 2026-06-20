@@ -61,6 +61,10 @@ import { resolvePromptComposition } from '../llm/assemblePrompt.js';
 import { OUTLINE_ADDENDUM } from '../llm/outlineMasterComposition.js';
 import { sha256Hex } from '../llm/promptAssets.js';
 import { insertPromptSnapshot } from './queries/promptSnapshots.js';
+// F3 token streaming (DRAFT-STREAMING-1): flag + shared stream accumulator + the per-job display bus.
+import { isDraftStreamingEnabled } from '../config/featureFlags.js';
+import { consumeLlmStream } from '../llm/streamConsume.js';
+import { openDraftStream, publishDraftDelta, closeDraftStream } from '../streaming/draftStreamBus.js';
 import type { NewJob, JobType, NewPromptSnapshot } from './schema.js';
 
 // ============================================================
@@ -733,6 +737,52 @@ async function runJob(
     }
   };
 
+  // F3 token streaming (DRAFT-STREAMING-1): a flag-gated DELIVERY OVERLAY for free-form drafts. Active only
+  // when ALL hold: the flag is on; the job is a draft/regeneration; the resolved adapter implements
+  // generateStream; there is NO structured-output schema (the stream path does not validate JSON); and
+  // there is NO egress override (drafts do not egress — this keeps streaming entirely out of the egress
+  // dispatch path). When ANY is false, llmResult is produced by the unchanged generate() path below
+  // (byte-for-byte). The streamed deltas are display-only via the per-job bus; the SINGLE source of truth
+  // remains the terminal LlmGenerateResult persisted by the existing txn2Commit.
+  const DRAFT_STREAMING_JOB_TYPES: ReadonlySet<string> = new Set(['draft_generation', 'regeneration']);
+  const canStream =
+    isDraftStreamingEnabled() &&
+    DRAFT_STREAMING_JOB_TYPES.has(jobType) &&
+    typeof adapter.generateStream === 'function' &&
+    llmParams.structuredOutputSchema === undefined &&
+    params.egress === undefined;
+
+  const generateStreaming = async (): Promise<Awaited<ReturnType<typeof adapter.generate>>> => {
+    // One streaming attempt (no mid-stream retry — re-running would replay deltas to the client). Re-arm
+    // the same per-attempt timeout signal the failure handler reads (timeout vs. cancel distinction).
+    timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
+    const combinedSignal = AbortSignal.any
+      ? AbortSignal.any([timeoutSignal, abortController.signal])
+      : abortController.signal;
+    openDraftStream(jobId);
+    let emittedAny = false;
+    try {
+      const result = await consumeLlmStream(
+        adapter.generateStream!({ ...llmParams, signal: combinedSignal }),
+        (text) => {
+          emittedAny = true;
+          publishDraftDelta(jobId, text);
+        },
+      );
+      closeDraftStream(jobId, 'completed');
+      return result;
+    } catch (err) {
+      closeDraftStream(jobId, 'failed');
+      // Connect-time transient blip with NOTHING streamed yet → fall back to the retrying non-streaming
+      // path so a draft is not failed by a recoverable hiccup. A cancel/timeout, or a failure AFTER any
+      // delta was emitted, propagates unchanged (the failure handler runs txn2Revert — no partial persist).
+      if (!abortController.signal.aborted && !emittedAny && isTransientRetryable(err)) {
+        return generateWithRetry();
+      }
+      throw err;
+    }
+  };
+
   let llmResult: Awaited<ReturnType<typeof adapter.generate>>;
   try {
     if (params.egress) {
@@ -754,7 +804,8 @@ async function runJob(
         ...(eg.enforceProviderAllowlist !== undefined ? { enforceProviderAllowlist: eg.enforceProviderAllowlist } : {}),
       });
     } else {
-      llmResult = await generateWithRetry();
+      // F3: stream the draft when eligible (canStream), else the unchanged blocking call.
+      llmResult = canStream ? await generateStreaming() : await generateWithRetry();
     }
   } catch (err) {
     unregisterAbortController(jobId);
