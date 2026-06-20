@@ -96,8 +96,10 @@ describe('Item 3: Evaluator conditional — code path audit', () => {
     expect(reviewSessionFile).toContain('input.selectedReviewers.map((reviewerRole) =>');
     expect(reviewSessionFile).toContain('const reviewers: ReviewerDurableInput[] = input.selectedReviewers.map');
     // And push each successfully-completed reviewer's jobId to reviewerJobIds.
-    // The loop variable is now `r` (the durable-input entry), so the push reads r.jobId.
-    expect(reviewSessionFile).toContain('reviewerJobIds.push(r.jobId)');
+    // REVIEWER-CONCURRENT-FANOUT-1 (F2): the SYNC fan-out is now concurrent (Promise.allSettled) and
+    // collects results by index, so the push reads reviewers[i]!.jobId — still one entry per completed
+    // reviewer (intent preserved).
+    expect(reviewSessionFile).toContain('reviewerJobIds.push(reviewers[i]!.jobId)');
   });
 });
 
