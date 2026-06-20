@@ -40,6 +40,7 @@ export default function ContextPreviewPanel({ matterId, documentId }: ContextPre
   const [operation, setOperation] = useState<OperationType>('context_preview');
   const [showIncluded, setShowIncluded] = useState(true);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
 
   const { data, isLoading, error } = trpc.contextPipeline.preview.useQuery(
     {
@@ -48,6 +49,14 @@ export default function ContextPreviewPanel({ matterId, documentId }: ContextPre
       operation,
     },
     { staleTime: 30_000 }
+  );
+
+  // PROMPT-SNAPSHOT-READ-1 (F5): the FULL composed system prompt actually sent for this document's latest
+  // draft/regeneration job (matter-state + master + per-PA + base) — surfaces the injected layers that the
+  // materials list above does not. Owner-scoped read; null when no document or no snapshot yet.
+  const { data: promptData } = trpc.contextPipeline.systemPrompt.useQuery(
+    { matterId, ...(documentId ? { documentId } : {}) },
+    { staleTime: 30_000 },
   );
 
   const budgetPercent = data
@@ -208,6 +217,32 @@ export default function ContextPreviewPanel({ matterId, documentId }: ContextPre
               </div>
             )}
           </>
+        )}
+
+        {/* PROMPT-SNAPSHOT-READ-1 (F5): the composed system prompt actually sent (read-only). Independent of
+            the preview query above — shows even when preview errors (e.g. PINNED_OVERFLOW). */}
+        {promptData?.systemText && (
+          <div className="border-t border-gray-100 pt-3">
+            <button
+              onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+              className="flex items-center gap-2 w-full text-xs font-medium text-gray-700 hover:text-firm-navy mb-2"
+            >
+              <FileText className="w-3.5 h-3.5 text-firm-navy" />
+              <span>Composed System Prompt</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{promptData.source}</span>
+              {showSystemPrompt ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+            </button>
+            {showSystemPrompt && (
+              <div>
+                <div className="text-[10px] text-gray-400 mb-1">
+                  {promptData.modelString} · {promptData.callRole} · {promptData.systemText.length.toLocaleString()} chars
+                </div>
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words bg-gray-50 border border-gray-200 rounded p-2 max-h-80 overflow-auto text-gray-700">
+                  {promptData.systemText}
+                </pre>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
