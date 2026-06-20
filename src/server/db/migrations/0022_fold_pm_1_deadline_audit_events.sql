@@ -5,10 +5,16 @@
 -- the system FIRING (system surfaced a deadline/tickler) and the attorney ACKNOWLEDGMENT distinctly from
 -- an attorney 'disposition' (FOLD-PM-1 disposition: audit the firing distinct from acknowledgment).
 --
--- ENUM value ADDITION is additive: MODIFY re-declares the column with the SAME existing values IN ORDER
--- plus the two new trailing values — no value is removed or reordered, existing rows stay valid, and a
--- re-run to the identical definition is a no-op (idempotent). The pre-deploy additive guard permits
--- ALTER ... MODIFY (it is not DROP/TRUNCATE/DELETE/RENAME/UPDATE).
+-- ENUM value ADDITION is additive: MODIFY re-declares the column with the existing values IN ORDER plus
+-- trailing values — no value is removed or reordered, existing rows stay valid. The pre-deploy additive
+-- guard permits ALTER ... MODIFY (it is not DROP/TRUNCATE/DELETE/RENAME/UPDATE).
+--
+-- RE-RUN-SAFETY INVARIANT (the pre-deploy runner re-runs EVERY allowlisted migration, in order, on EVERY
+-- deploy): a MODIFY is a no-op on re-run ONLY when its list is the column's FINAL union of values. This
+-- MODIFY therefore carries 'review_session_transition' too — even though 0043 is what FIRST adds it —
+-- because re-running 0022 against the 0043-widened (13-value) column must NOT narrow it back to 12 and
+-- truncate audit rows using the later value. 0043 holds the canonical ordered list; 0022 mirrors it
+-- EXACTLY (same values, same order). Append-only: never remove or reorder a value.
 -- -----------------------------------------------------------------------------
 
 ALTER TABLE `audit_events`
@@ -24,5 +30,6 @@ ALTER TABLE `audit_events`
     'judgment_required',
     'disposition',
     'deadline_fired',
-    'deadline_acknowledged'
+    'deadline_acknowledged',
+    'review_session_transition'
   ) NOT NULL;

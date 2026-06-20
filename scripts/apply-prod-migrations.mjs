@@ -17,6 +17,16 @@
  *     the deploy) rather than apply it. Defense-in-depth on the allowlist.
  *   - IDEMPOTENT: the allowlisted files use CREATE/ADD ... IF NOT EXISTS and additive
  *     ALTERs, so re-running on every deploy is safe.
+ *   - ENUM RE-RUN INVARIANT: because EVERY allowlisted file re-runs IN ORDER on EVERY
+ *     deploy, any `MODIFY COLUMN <col> ENUM(...)` MUST carry the FINAL UNION of that
+ *     column's values across ALL migrations that touch it — never an intermediate /
+ *     narrower set. If an earlier file's MODIFY lists fewer values than a later one
+ *     (e.g. 0005 / 0022 vs the canonical 0043 on audit_events.eventType), re-running the
+ *     earlier file NARROWS the live column and TiDB truncates any row using a later value
+ *     ("Data truncated for column 'eventType'"). Widening-only: never remove/reorder a
+ *     value. Enforced by migration_enum_rerun_safety.test.ts. FOLLOW-UP CANDIDATE (NOT
+ *     built here): an applied-migrations ledger so each file runs exactly once would
+ *     remove this re-run-safety burden entirely (standard pattern; separate engagement).
  *   - Never prints the connection string.
  *
  * USAGE:
@@ -31,6 +41,9 @@ import { fileURLToPath } from 'node:url';
 // Additive allowlist — IN ORDER. 0004 creates audit_events; 0005 alters it; then 0006.
 // To auto-apply a FUTURE *additive* migration, append its filename here. NEVER add a
 // destructive/non-additive migration — run those manually (operator-gated).
+// ENUM AUTHORING RULE (see GUARDS above): every `MODIFY COLUMN <col> ENUM(...)` must list
+// the FINAL UNION of that column's values across ALL allowlisted migrations (widening-only),
+// so re-running an earlier file never narrows a column a later file widened.
 const MIGRATIONS = [
   '0004_fold_gov_1a_audit_events.sql',
   '0005_fold_l1_1_matter_state_engine.sql',
