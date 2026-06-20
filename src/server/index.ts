@@ -36,6 +36,8 @@ import { getSession, extractUserId } from './middleware/session.js';
 import { insertMaterial } from './db/queries/materials.js';
 import { getMatterById } from './db/queries/matters.js';
 import { getDocumentById } from './db/queries/documents.js';
+import { getJobById } from './db/queries/jobs.js';
+import { subscribeDraftStream } from './streaming/draftStreamBus.js';
 import { resolveDraftingSubjectScope } from './documents/draftingSubject.js';
 import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
@@ -46,7 +48,7 @@ import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
-import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled } from './config/featureFlags.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled } from './config/featureFlags.js';
 import { resolveRootServe } from './landingRoot.js';
 
 // ============================================================
@@ -338,6 +340,75 @@ app.post(
     );
 
     res.status(201).json(material);
+  },
+);
+
+// ============================================================
+// GET /api/stream/draft/:jobId — F3 token streaming (DRAFT-STREAMING-1)
+//
+// Server-Sent Events transport for progressive draft render. DELIVERY-ONLY: the durable draft is the
+// terminal result persisted by the canonical two-transaction commit; the deltas streamed here are
+// ephemeral. Auth: userId from the iron-session cookie (FOLD-AUTH-1, Ch 35.2) — 401 if missing. The job is
+// owner-scoped via getJobById(jobId, userId) — 404 (NOT 403) for a non-owned/unknown jobId (no existence
+// leak). Subscribes to the in-memory draft stream bus: replays the buffered prefix, streams live deltas,
+// and unsubscribes on client disconnect. When streaming is off, or the job has no active stream
+// (terminal / never-streamed), it emits a single `done` event so the client falls back to polling.
+// ============================================================
+app.get(
+  '/api/stream/draft/:jobId',
+  async (req: Request, res: Response): Promise<void> => {
+    const session = await getSession(req, res);
+    const userId: string | null = extractUserId(session);
+    if (!userId) {
+      res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' });
+      return;
+    }
+    const jobId = req.params['jobId'];
+    if (!jobId) {
+      res.status(400).json({ error: 'MISSING_JOB_ID', message: 'jobId is required' });
+      return;
+    }
+    // Owner-scoped: returns null for a non-owned or unknown job (404, no existence leak).
+    const job = await getJobById(jobId, userId);
+    if (!job) {
+      res.status(404).json({ error: 'JOB_NOT_FOUND', message: 'Job not found' });
+      return;
+    }
+
+    // SSE headers — no-store + keep-alive; X-Accel-Buffering:no asks proxies (Railway/nginx) not to buffer.
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const send = (event: string, data: unknown): void => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Subscribe to the per-job stream. Null = no active stream (flag OFF, or job terminal / never
+    // streamed) → tell the client to poll and close. The bus replays the buffered prefix synchronously.
+    const unsubscribe = isDraftStreamingEnabled()
+      ? subscribeDraftStream(jobId, {
+          onDelta: (text) => send('delta', { text }),
+          onDone: (status) => {
+            send('done', { status });
+            res.end();
+          },
+        })
+      : null;
+
+    if (!unsubscribe) {
+      send('done', { status: 'no_stream' });
+      res.end();
+      return;
+    }
+
+    // Unsubscribe when the client disconnects before the stream terminates (prevents listener leak).
+    res.on('close', () => {
+      unsubscribe();
+    });
   },
 );
 

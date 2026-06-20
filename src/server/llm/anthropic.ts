@@ -37,7 +37,7 @@
  */
 
 import { z } from 'zod';
-import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult, type LlmStreamChunk } from './types.js';
 import { llmFetch } from './llmFetch.js';
 import { LLM_FETCH_TIMEOUT_MS } from './config.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
@@ -54,6 +54,8 @@ interface AnthropicRequest {
   system?: string;
   messages: AnthropicMessage[];
   temperature?: number;
+  /** F3 streaming (DRAFT-STREAMING-1): set true on the generateStream path for SSE delivery. */
+  stream?: boolean;
 }
 
 interface AnthropicResponse {
@@ -274,6 +276,155 @@ export class AnthropicAdapter implements LlmClient {
         model: data.model,
         stopReason: data.stop_reason,
         messageId: data.id,
+      },
+    };
+  }
+
+  /**
+   * F3 token streaming (DRAFT-STREAMING-1) — optional delivery overlay for free-form (non-structured)
+   * generations (drafts/regenerations). Mirrors generate()'s auth + error handling but uses the Anthropic
+   * Messages API with `stream: true`, over the SAME llmFetch wrapper (NO provider SDK — the architecture
+   * guard forbids raw SDK imports). Yields incremental text deltas, then exactly one terminal `final`
+   * chunk whose LlmGenerateResult is shape-identical to generate()'s non-structured return (so persistence
+   * is unchanged). Structured output is NOT supported here (the dispatch seam gates streaming off when a
+   * structuredOutputSchema is present); callers must not request it on the stream path.
+   */
+  async *generateStream(params: LlmGenerateParams): AsyncIterable<LlmStreamChunk> {
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) {
+      throw new LlmProviderError(
+        'api_error',
+        'ANTHROPIC_API_KEY is not set. Configure it in your environment to use the Anthropic adapter.',
+      );
+    }
+
+    const { systemPrompt, userPrompt, maxTokens = 4096, signal } = params;
+    const requestBody: AnthropicRequest = {
+      model: this.modelId,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      stream: true,
+    };
+
+    let response: Response;
+    try {
+      response = await llmFetch(ANTHROPIC_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': ANTHROPIC_API_VERSION,
+        },
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (err) {
+      // AbortError/TimeoutError from the signal — propagate verbatim so the dispatcher classifies
+      // timeout vs. cancel; everything else is an api_error (same as generate()).
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        throw err;
+      }
+      throw new LlmProviderError('api_error', `Anthropic stream fetch failed: ${String(err)}`, err);
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new LlmProviderError(
+        httpStatusToErrorClass(response.status),
+        `Anthropic API error ${response.status}: ${body}`,
+      );
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new LlmProviderError('api_error', 'Anthropic streaming response had no body to read.');
+    }
+
+    const decoder = new TextDecoder();
+    let buffered = '';
+    let accumulated = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let stopReason: string | null = null;
+    let messageId = '';
+    let model = this.modelId;
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffered += decoder.decode(value, { stream: true });
+        // Anthropic streams Server-Sent Events: `event: <type>\n` then `data: <json>\n`, blank-line
+        // separated. We only need the `data:` payloads (each carries its own `type`). Split on newlines;
+        // keep the trailing partial line in `buffered`.
+        let nl: number;
+        while ((nl = buffered.indexOf('\n')) >= 0) {
+          const line = buffered.slice(0, nl).replace(/\r$/, '');
+          buffered = buffered.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload.length === 0) continue;
+          let evt: {
+            type?: string;
+            message?: { id?: string; model?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+            delta?: { type?: string; text?: string; stop_reason?: string | null };
+            usage?: { output_tokens?: number };
+            error?: unknown;
+          };
+          try {
+            evt = JSON.parse(payload);
+          } catch {
+            // Tolerate a non-JSON keepalive/comment line rather than failing the whole stream.
+            continue;
+          }
+          switch (evt.type) {
+            case 'message_start':
+              inputTokens = evt.message?.usage?.input_tokens ?? inputTokens;
+              outputTokens = evt.message?.usage?.output_tokens ?? outputTokens;
+              messageId = evt.message?.id ?? messageId;
+              model = evt.message?.model ?? model;
+              break;
+            case 'content_block_delta':
+              if (evt.delta?.type === 'text_delta' && typeof evt.delta.text === 'string') {
+                accumulated += evt.delta.text;
+                yield { kind: 'delta', text: evt.delta.text };
+              }
+              break;
+            case 'message_delta':
+              // output_tokens here is the running total for the message; stop_reason arrives with it.
+              if (typeof evt.usage?.output_tokens === 'number') outputTokens = evt.usage.output_tokens;
+              if (evt.delta?.stop_reason != null) stopReason = evt.delta.stop_reason;
+              break;
+            case 'error':
+              throw new LlmProviderError('api_error', `Anthropic stream error: ${JSON.stringify(evt.error ?? evt)}`);
+            default:
+              // ping / content_block_start / content_block_stop / message_stop — nothing to accumulate.
+              break;
+          }
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        /* reader already released on normal completion */
+      }
+    }
+
+    yield {
+      kind: 'final',
+      result: {
+        content: accumulated,
+        tokensPrompt: inputTokens,
+        tokensCompletion: outputTokens,
+        providerMetadata: {
+          provider: 'anthropic',
+          model,
+          stopReason,
+          messageId,
+          streamed: true,
+        },
       },
     };
   }

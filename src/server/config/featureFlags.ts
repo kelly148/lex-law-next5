@@ -486,3 +486,18 @@ export function isPartyModelEnabled(): boolean {
 export function isNotificationsEnabled(): boolean {
   return process.env['NOTIFICATIONS_ENABLED'] === 'true';
 }
+
+/**
+ * Draft token streaming (F3 / DRAFT-STREAMING-1). DEFAULT OFF.
+ *
+ * When OFF (the default), draft_generation/regeneration jobs run the established blocking generate()
+ * path byte-for-byte — no streaming, no SSE, no behavior change. When exactly "true", an eligible draft
+ * (an adapter that implements generateStream, no structured-output schema, no egress override) is
+ * delivered as a token stream over GET /api/stream/draft/:jobId for progressive client render. Streaming
+ * is a DELIVERY OVERLAY only: the durable draft is still the terminal result persisted by the
+ * two-transaction commit; deltas are ephemeral. Additive + reversible; no migration. Inc 1 implements the
+ * Anthropic (primary drafter) provider; other providers fall back to non-streaming until F3 Inc 3.
+ */
+export function isDraftStreamingEnabled(): boolean {
+  return process.env['DRAFT_STREAMING_ENABLED'] === 'true';
+}
