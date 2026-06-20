@@ -37,8 +37,9 @@
  */
 
 import { z } from 'zod';
-import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult, type LlmStreamChunk } from './types.js';
 import { llmFetch } from './llmFetch.js';
+import { sseDataLines } from './sseParse.js';
 import { getModelCapability } from './modelCapabilities.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 
@@ -58,6 +59,9 @@ interface OpenAiRequest {
   // supplies them (the flag-gated reviewer lane) — absent on every other request.
   reasoning_effort?: string;
   service_tier?: string;
+  /** F3 streaming (DRAFT-STREAMING-1 Inc 3): set on the generateStream path. */
+  stream?: boolean;
+  stream_options?: { include_usage?: boolean };
 }
 
 interface OpenAiResponse {
@@ -371,6 +375,96 @@ export class OpenAiAdapter implements LlmClient {
         completionId: data.id,
         // REVIEWER-LATENCY-1 Step 2a: granted service tier echo (undefined when not requested).
         serviceTier: data.service_tier,
+      },
+    };
+  }
+
+  /**
+   * F3 token streaming (DRAFT-STREAMING-1 Inc 3) — free-form streaming over the OpenAI Chat Completions
+   * API with stream:true + stream_options.include_usage (so usage arrives in the terminal chunk). Mirrors
+   * generate()'s request build (reasoning-model token budget, latency knobs) over the SAME llmFetch wrapper
+   * (no SDK). Yields text deltas then a terminal `final` shape-identical to generate(). No structured
+   * output (the dispatch seam gates streaming off when a schema is present).
+   */
+  async *generateStream(params: LlmGenerateParams): AsyncIterable<LlmStreamChunk> {
+    const apiKey = process.env['OPENAI_API_KEY'];
+    if (!apiKey) {
+      throw new LlmProviderError('api_error', 'OPENAI_API_KEY is not set. Configure it in your environment to use the OpenAI adapter.');
+    }
+    const { systemPrompt, userPrompt, maxTokens = 4096, temperature = 0.3, reasoningEffort, serviceTier, signal } = params;
+    const messages: OpenAiMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+    const capability = getModelCapability(`openai:${this.modelId}`);
+    const usesCompletionTokens = capability
+      ? capability.supportsThinkingControl
+      : this.modelId.startsWith('gpt-5') || this.modelId.startsWith('o1') || this.modelId.startsWith('o3') || this.modelId.startsWith('o4');
+    const requestBody: OpenAiRequest = {
+      model: this.modelId,
+      messages,
+      ...(usesCompletionTokens ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens, temperature }),
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    if (reasoningEffort && usesCompletionTokens) requestBody.reasoning_effort = reasoningEffort;
+    if (serviceTier) requestBody.service_tier = serviceTier;
+
+    let response: Response;
+    try {
+      response = await llmFetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) throw err;
+      throw new LlmProviderError('api_error', `OpenAI stream fetch failed: ${String(err)}`, err);
+    }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new LlmProviderError(httpStatusToErrorClass(response.status), `OpenAI API error ${response.status}: ${body}`);
+    }
+    if (!response.body) throw new LlmProviderError('api_error', 'OpenAI streaming response had no body to read.');
+
+    let content = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let model = this.modelId;
+    let finishReason: string | null = null;
+    for await (const payload of sseDataLines(response.body)) {
+      if (payload === '[DONE]') break;
+      let evt: {
+        model?: string;
+        choices?: Array<{ delta?: { content?: string | null }; finish_reason?: string | null }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+      };
+      try {
+        evt = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      if (evt.model) model = evt.model;
+      const choice = evt.choices?.[0];
+      const piece = choice?.delta?.content;
+      if (typeof piece === 'string' && piece.length > 0) {
+        content += piece;
+        yield { kind: 'delta', text: piece };
+      }
+      if (choice?.finish_reason != null) finishReason = choice.finish_reason;
+      if (evt.usage) {
+        if (typeof evt.usage.prompt_tokens === 'number') promptTokens = evt.usage.prompt_tokens;
+        if (typeof evt.usage.completion_tokens === 'number') completionTokens = evt.usage.completion_tokens;
+      }
+    }
+    yield {
+      kind: 'final',
+      result: {
+        content,
+        tokensPrompt: promptTokens,
+        tokensCompletion: completionTokens,
+        providerMetadata: { provider: 'openai', model, finishReason, streamed: true },
       },
     };
   }
