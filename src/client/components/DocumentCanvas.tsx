@@ -145,6 +145,15 @@ export interface DocumentCanvasProps {
   emptyStatePrimaryAction?: React.ReactNode;
   /** No-version state: optional outline headings, rendered as a faint, clearly-labeled scaffold. */
   outlineHeadings?: string[] | null;
+  /**
+   * F3 token streaming (DRAFT-STREAMING-1 Inc 2): the draft-so-far streamed text. When `isGenerating` and
+   * this is non-empty, the sheet renders the progressive text in place of the bare skeleton. Display-only
+   * — the persisted version still takes over on completion (poll/refetch). Empty/undefined = no stream
+   * (the existing skeleton renders), so the non-streaming experience is unchanged.
+   */
+  streamingContent?: string;
+  /** True while deltas are actively arriving — drives the streaming caret. */
+  streamingActive?: boolean;
 }
 
 // Sheet: text measure + generous padding, centered, capped on wide screens; hairline, no shadow.
@@ -168,11 +177,33 @@ export default function DocumentCanvas(
     onRetry,
     emptyStatePrimaryAction,
     outlineHeadings,
+    streamingContent,
+    streamingActive,
   } = props;
 
   let body: React.ReactElement;
 
-  if (isGenerating || isLoading) {
+  // F3 (DRAFT-STREAMING-1): once tokens are streaming for a generating draft, render the draft-so-far in
+  // place of the bare skeleton (with a caret while deltas arrive). Empty/no-stream -> the skeleton below.
+  const isStreamingDraft = isGenerating && typeof streamingContent === 'string' && streamingContent.length > 0;
+
+  if (isStreamingDraft) {
+    body = (
+      <div className={MEASURE} data-testid="canvas-streaming">
+        <div className="font-serif text-[16px] leading-[1.65] text-ink whitespace-pre-wrap">
+          {streamingContent}
+          {streamingActive && (
+            <span
+              data-testid="canvas-streaming-caret"
+              className="inline-block w-[2px] h-[1.05em] -mb-[0.12em] ml-px bg-ink/70 animate-pulse"
+              aria-hidden="true"
+            />
+          )}
+        </div>
+        <p className="mt-6 text-sm text-ink-secondary">Generating draft…</p>
+      </div>
+    );
+  } else if (isGenerating || isLoading) {
     // Skeleton for BOTH the first-draft generating state and the version.list-loading window —
     // never blank, and never the "No draft yet" empty state while a real draft may still load.
     body = (

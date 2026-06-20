@@ -55,6 +55,7 @@ import { DeedGatePanel } from '../components/DeedGatePanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
 import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
+import { useDraftStream } from '../hooks/useDraftStream.js';
 import { DraftingTargetHeader } from '../components/DraftingTargetHeader.js';
 import { deriveVersionStatus } from '../utils/versionStatus.js';
 
@@ -701,6 +702,24 @@ export default function DocumentDetail(): React.ReactElement {
     latestFormattingJob !== null &&
     (latestFormattingJob.status === 'queued' || latestFormattingJob.status === 'running');
 
+  // F3 token streaming (DRAFT-STREAMING-1 Inc 2): while a FIRST draft is generating (iterative, no current
+  // version yet), subscribe to the per-job SSE so the canvas can render the draft-so-far. Inputs come from
+  // doc + the job list (both available pre-return), and the hook is called UNCONDITIONALLY here, BEFORE the
+  // early returns below (Rules of Hooks — the #310 lesson). When streaming is OFF server-side the endpoint
+  // replies no_stream and the hook stays idle, so the skeleton experience is byte-for-byte unchanged.
+  const streamingDraftJob =
+    allJobs.find(
+      (j) =>
+        (j.status === 'running' || j.status === 'queued') &&
+        j.documentId === documentId &&
+        (j.jobType === 'draft_generation' || j.jobType === 'regeneration'),
+    ) ?? null;
+  const streamActive = streamingDraftJob !== null && doc?.draftingMode === 'iterative' && !doc?.currentVersionId;
+  const { streamingText, isStreaming: isDraftStreaming } = useDraftStream({
+    jobId: streamingDraftJob?.id ?? null,
+    active: streamActive,
+  });
+
   if (!documentId || !matterId) return <div className="p-6 text-red-600">Invalid document ID.</div>;
   if (isLoading) return <div className="p-6 text-gray-400 text-sm">Loading document…</div>;
   if (!doc) return <div className="p-6 text-red-600 text-sm">Document not found.</div>;
@@ -1275,6 +1294,8 @@ export default function DocumentDetail(): React.ReactElement {
                 }}
                 emptyStatePrimaryAction={emptyStatePrimaryAction}
                 outlineHeadings={outlineHeadings}
+                streamingContent={streamingText}
+                streamingActive={isDraftStreaming}
               />
 
               {/* Notes — supporting furniture, off paper. */}
