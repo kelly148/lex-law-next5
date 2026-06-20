@@ -51,6 +51,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
+import { DeedGatePanel } from '../components/DeedGatePanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
 import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
@@ -956,6 +957,19 @@ export default function DocumentDetail(): React.ReactElement {
       {showContextPreview && (
         <div data-no-print className="mb-4">
           <ContextPreviewPanel matterId={matterId} documentId={documentId} />
+        </div>
+      )}
+
+      {/* DEED-GATE-MOUNT-1 (M1): surface the three-gate recordability panel for DEED documents.
+          FOLD-DEED-1 shipped DeedGatePanel + tests but never mounted it, so it never appeared (Monster UAT
+          M1). DeedGatePanel self-gates on DEED_GATE_ENABLED (renders null when off — dark on prod until the
+          gate is activated) and the server's deedGate.get is owner-scoped + deed-only; gating the MOUNT on
+          documentType==='deed' (the server's own check) avoids firing an erroring deedGate.get for non-deed
+          docs. The panel itself surfaces the fail-closed states (unverified-locality KB banner, blocking
+          reasons), so no jurisdiction pre-condition is needed here. */}
+      {doc.documentType === 'deed' && (
+        <div data-no-print className="mb-4">
+          <DeedGatePanel documentId={documentId} />
         </div>
       )}
 
