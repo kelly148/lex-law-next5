@@ -32,8 +32,8 @@ import {
   VA_RECITAL_STRUCTURE,
   VA_ESCALATION_TRIGGERS,
   VA_STATUTORY_CITATIONS,
-  VA_SEED_LOCALITIES,
 } from '../deed/deedKbVa.js';
+import { VA_LOCALITIES } from '../deed/deedKbLocalitiesVa.js';
 import { DeedGateStateSchema, evaluateDeedGate } from '../../shared/schemas/deedGate.js';
 
 function assertEnabled(): void {
@@ -59,8 +59,9 @@ async function evaluateForDocument(documentId: string, matterId: string, userId:
   // validated against the seeded VA controlled-list; locality stays fail-closed (no per-locality KB seeded).
   const kb = resolveDeedKbAvailability({
     jurisdiction: matter?.jurisdiction ?? null,
-    locality: null, // no per-locality recording-locality field on the matter yet; locality KB is unseeded anyway
+    locality: state.recordingLocality, // the attorney-selected recording locality (deed gate state)
     deedType: 'deed',
+    deedSubType: state.deedSubType,
     vestingSelection: state.vestingSelection,
   });
   return { evaluation: evaluateDeedGate({ state, kb, parties }), parties, kbSeeded: kb.localityVerified };
@@ -151,7 +152,9 @@ export const deedGateRouter = router({
       recitalStructure: VA_RECITAL_STRUCTURE,
       escalationTriggers: VA_ESCALATION_TRIGGERS,
       statutoryCitations: VA_STATUTORY_CITATIONS,
-      seedLocalities: VA_SEED_LOCALITIES,
+      // The five v1 localities with their VERIFIED per-locality specs (deedInstrumentRecordable, parcel-ID
+      // format, on-deed first-page rules, e-recording vendors, fees, quirks, advisories, source cite).
+      localities: VA_LOCALITIES,
     };
   }),
 });

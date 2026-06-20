@@ -53,6 +53,12 @@ export const DeedGateStateSchema = z.object({
   // ── Assembly ──
   // The source-of-record instrument the description is taken from (book/page or instrument #) — cited, not blank.
   sourceOfRecordInstrument: z.string().max(512).nullable().default(null),
+  // The attorney-selected RECORDING LOCALITY (the clerk's office where the deed records) + the deed SUB-TYPE
+  // (bargain-and-sale / gift / into-trust / confirmation / TOD / distribution). Both drive KB template coverage
+  // (the recording locality must be a verified seeded locality; the sub-type a known VA deed type). Additive
+  // blob fields — no migration. Null BLOCKS (fail-closed).
+  recordingLocality: z.string().max(128).nullable().default(null),
+  deedSubType: z.string().max(64).nullable().default(null),
 
   // ── Legal-review: the TWO-PRONG description control (every prong is an AFFIRMATIVE act — null BLOCKS) ──
   descriptionSourceMatch: z.boolean().nullable().default(null), // prong (a): matches the source of record
@@ -139,6 +145,9 @@ export function evaluateDeedGate(input: DeedGateInput): DeedGateEvaluation {
   if (parties.grantorCount < 1) assemblyReasons.push('no_grantor_bound');
   if (parties.granteeCount < 1) assemblyReasons.push('no_grantee_bound');
   if (!state.sourceOfRecordInstrument) assemblyReasons.push('source_of_record_not_cited');
+  if (!state.recordingLocality) assemblyReasons.push('recording_locality_unselected');
+  if (!state.deedSubType) assemblyReasons.push('deed_sub_type_unselected');
+  // template coverage = a verified recording locality × a known VA deed sub-type (KB-sourced; null/unseeded blocks).
   if (!kb.templateCoverage) assemblyReasons.push('deed_type_jurisdiction_locality_template_uncovered');
   const assembly: DeedLayerVerdict = { passed: assemblyReasons.length === 0, blockingReasons: assemblyReasons };
 

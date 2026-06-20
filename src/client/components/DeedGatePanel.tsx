@@ -28,7 +28,9 @@ const REASON_LABELS: Record<string, string> = {
   no_grantor_bound: 'No grantor party is bound to the deed',
   no_grantee_bound: 'No grantee party is bound to the deed',
   source_of_record_not_cited: 'The source-of-record instrument is not cited',
-  deed_type_jurisdiction_locality_template_uncovered: 'No verified template for this deed type × jurisdiction × locality',
+  recording_locality_unselected: 'The recording locality is not selected',
+  deed_sub_type_unselected: 'The deed sub-type is not selected',
+  deed_type_jurisdiction_locality_template_uncovered: 'No verified template for this deed sub-type × jurisdiction × recording locality',
   description_source_match_unconfirmed: 'Description not confirmed to match the source of record (prong a)',
   description_parcel_scope_unset: 'Parcel scope (whole / partial / with reservation) not set (prong b)',
   parcel_exception_text_missing: 'The excepted / reserved parcel is not described',
@@ -52,6 +54,8 @@ const reasonText = (r: string): string => REASON_LABELS[r] ?? r;
 
 type ReferenceKb = {
   vestingOptions: ReadonlyArray<{ key: string; language: string; appliesTo: string }>;
+  deedTypes: ReadonlyArray<{ key: string; title: string }>;
+  localities: ReadonlyArray<{ name: string; deedInstrumentRecordable: boolean }>;
   escalationTriggers: readonly string[];
   provenance: { sourceTitle: string; sourceOrg: string };
 };
@@ -154,6 +158,34 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Record the attorney’s affirmative acts</p>
 
         <TextField label="Source-of-record instrument (book/page or instrument #)" value={state.sourceOfRecordInstrument} onChange={(v) => set('sourceOfRecordInstrument', v)} testid="deed-source-of-record" />
+
+        {/* Recording locality — a DROPDOWN of the verified seeded localities (drives KB template coverage). */}
+        <label className="block">
+          <span className="text-sm text-gray-800">Recording locality (verified)</span>
+          <select
+            data-testid="deed-recording-locality"
+            value={state.recordingLocality ?? ''}
+            onChange={(e) => set('recordingLocality', e.target.value === '' ? null : e.target.value)}
+            className="mt-1 w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          >
+            <option value="">— select —</option>
+            {kb.localities.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+          </select>
+        </label>
+
+        {/* Deed sub-type — the verified controlled list (drives template coverage + the exemption/granting rules). */}
+        <label className="block">
+          <span className="text-sm text-gray-800">Deed sub-type (verified controlled list)</span>
+          <select
+            data-testid="deed-sub-type"
+            value={state.deedSubType ?? ''}
+            onChange={(e) => set('deedSubType', e.target.value === '' ? null : e.target.value)}
+            className="mt-1 w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+          >
+            <option value="">— select —</option>
+            {kb.deedTypes.map((t) => <option key={t.key} value={t.key}>{t.title}</option>)}
+          </select>
+        </label>
 
         <Tri label="Description matches the source of record (prong a)" value={state.descriptionSourceMatch} onChange={(v) => set('descriptionSourceMatch', v)} testid="deed-source-match" />
         <Sel label="Parcel scope (prong b)" options={DEED_PARCEL_SCOPE_VALUES} value={state.descriptionParcelScope} onChange={(v) => set('descriptionParcelScope', v as DeedGateState['descriptionParcelScope'])} testid="deed-parcel-scope" />

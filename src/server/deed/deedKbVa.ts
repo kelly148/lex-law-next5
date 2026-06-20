@@ -210,24 +210,8 @@ export const VA_STATUTORY_CITATIONS: readonly { citation: string; subject: strin
   { citation: 'Va. Code § 64.2-510', subject: 'Real-estate (heir) affidavit / small-estate procedure.' },
 ];
 
-// ── The five v1 localities — NONE verified (the primer is state-level; no per-locality spec exists in it) ─
-// Disposition §5.1 names these five; the locality-level recordability/e-recording specs are NOT in the
-// primer, so each is UNVERIFIED and BLOCKS recordability clearance (fail-closed) until a verified locality
-// source is supplied. RON/e-notary acknowledgment forms are likewise absent from the primer.
-export interface VaSeedLocality {
-  name: string;
-  // None is verified in the current seed (all false — the primer carries no per-locality recordability spec).
-  // A verified LOCALITY source (a future increment) flips specific entries; a test locks the all-false seed.
-  verified: boolean;
-  note: string;
-}
-export const VA_SEED_LOCALITIES: readonly VaSeedLocality[] = [
-  { name: 'Fairfax County', verified: false, note: 'Recordability/e-recording spec NOT in the primer — unverified, blocks.' },
-  { name: 'City of Alexandria', verified: false, note: 'Recordability/e-recording spec NOT in the primer — unverified, blocks.' },
-  { name: 'Arlington County', verified: false, note: 'Recordability/e-recording spec NOT in the primer — unverified, blocks.' },
-  { name: 'Loudoun County', verified: false, note: 'Recordability/e-recording spec NOT in the primer — unverified, blocks.' },
-  { name: 'Prince William County', verified: false, note: 'Recordability/e-recording spec NOT in the primer — unverified, blocks.' },
-];
+// The five v1 localities' VERIFIED per-locality recordability specs now live in deedKbLocalitiesVa.ts (seeded
+// from the verified locality+RON source). This state-level KB no longer carries a locality placeholder.
 
 // ── KB lookups (the composition-chokepoint allowlist) ───────────────────────────────────────────────────
 const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').replace(/[.,;]/g, '').trim();
@@ -247,9 +231,3 @@ export function isVaDeedTypeKnown(deedType: string | null | undefined): boolean 
   return VA_DEED_TYPES.some((t) => t.key === n.replace(/ /g, '_') || norm(t.title) === n);
 }
 
-/** Is the named locality verified in the KB? Always false in the seed (no locality source in the primer). */
-export function isVaLocalityVerified(locality: string | null | undefined): boolean {
-  if (!locality) return false;
-  const n = norm(locality);
-  return VA_SEED_LOCALITIES.some((l) => norm(l.name) === n && l.verified);
-}

@@ -27,6 +27,8 @@ function fullState(over: Partial<DeedGateState> = {}): DeedGateState {
   return {
     schemaVersion: 1,
     sourceOfRecordInstrument: 'Deed Book 1234, Page 56',
+    recordingLocality: 'Fairfax County',
+    deedSubType: 'bargain_and_sale',
     descriptionSourceMatch: true,
     descriptionParcelScope: 'whole',
     descriptionExceptionText: null,
@@ -229,18 +231,17 @@ describe('FOLD-DEED-1 Inc 1 — KB availability is sourced ONLY from the fail-cl
     expect(/vestingListValidated\s*:\s*true/.test(src)).toBe(false);
     expect(/localityVerified\s*:\s*true/.test(src)).toBe(false);
   });
-  it('the KB resolver keeps the LOCALITY fail-closed — templateCoverage + localityVerified are NEVER true (Inc 2)', () => {
-    // Even for a named v1 locality + a valid VA vesting, the per-locality KB is unseeded (absent from the
-    // primer), so locality-bearing recordability can never clear. (The state-level vesting list DOES validate;
-    // that is exercised in the Inc-2 KB suite.)
-    const r = resolveDeedKbAvailability({
-      jurisdiction: 'VA',
-      locality: 'Fairfax County',
-      deedType: 'deed',
-      vestingSelection: 'as joint tenants with right of survivorship and not as tenants in common',
-    });
-    expect(r.localityVerified).toBe(false);
-    expect(r.templateCoverage).toBe(false);
+  it('the KB resolver keeps an UNSEEDED locality fail-closed; a verified locality + known sub-type clears template coverage', () => {
+    // An unseeded locality (or non-VA) → localityVerified false, templateCoverage false (fail-closed).
+    const unseeded = resolveDeedKbAvailability({ jurisdiction: 'VA', locality: 'Richmond', deedType: 'deed', deedSubType: 'gift' });
+    expect(unseeded.localityVerified).toBe(false);
+    expect(unseeded.templateCoverage).toBe(false);
+    // A verified seeded locality + a known VA deed sub-type → both clear (the locality seed; cover sheets out).
+    const ok = resolveDeedKbAvailability({ jurisdiction: 'VA', locality: 'Fairfax County', deedType: 'deed', deedSubType: 'gift' });
+    expect(ok.localityVerified).toBe(true);
+    expect(ok.templateCoverage).toBe(true);
+    // An unknown sub-type keeps template coverage closed even on a verified locality.
+    expect(resolveDeedKbAvailability({ jurisdiction: 'VA', locality: 'Fairfax County', deedType: 'deed', deedSubType: 'quitclaim' }).templateCoverage).toBe(false);
   });
 });
 

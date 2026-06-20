@@ -12,10 +12,8 @@ import {
   VA_DEED_TYPES,
   VA_VESTING_OPTIONS,
   VA_EXEMPTIONS,
-  VA_SEED_LOCALITIES,
   DEED_KB_PROVENANCE,
   isVaVestingValidated,
-  isVaLocalityVerified,
   isVaDeedTypeKnown,
 } from '../deed/deedKbVa.js';
 import { resolveDeedKbAvailability } from '../deed/deedKb.js';
@@ -49,10 +47,6 @@ describe('FOLD-DEED-1 Inc 2 — verified VA KB content (transcribed from the pri
     expect(cits).toEqual(expect.arrayContaining(['Va. Code § 58.1-811(D)', 'Va. Code § 58.1-811(A)(12)', 'Va. Code § 58.1-810(1)', 'Va. Code § 58.1-811(J)', 'Va. Code § 58.1-811(K)']));
   });
 
-  it('all five v1 localities are UNVERIFIED (no per-locality spec in the primer — fail-closed)', () => {
-    expect(VA_SEED_LOCALITIES.map((l) => l.name)).toEqual(['Fairfax County', 'City of Alexandria', 'Arlington County', 'Loudoun County', 'Prince William County']);
-    expect(VA_SEED_LOCALITIES.every((l) => l.verified === false)).toBe(true);
-  });
 });
 
 describe('FOLD-DEED-1 Inc 2 — KB lookups + resolver (the verified allowlist; never model memory)', () => {
@@ -71,16 +65,8 @@ describe('FOLD-DEED-1 Inc 2 — KB lookups + resolver (the verified allowlist; n
     expect(isVaDeedTypeKnown('quitclaim')).toBe(false);
   });
 
-  it('isVaLocalityVerified is false for every seeded locality (none verified)', () => {
-    for (const l of VA_SEED_LOCALITIES) expect(isVaLocalityVerified(l.name)).toBe(false);
-    expect(isVaLocalityVerified('Richmond')).toBe(false);
-  });
-
-  it('resolver: VA + a controlled-list vesting validates; arbitrary vesting / MD do not; locality always fail-closed', () => {
-    const ok = resolveDeedKbAvailability({ jurisdiction: 'VA', locality: 'Fairfax County', deedType: 'deed', vestingSelection: 'as tenants by the entirety with the common-law right of survivorship' });
-    expect(ok.vestingListValidated).toBe(true);
-    expect(ok.localityVerified).toBe(false);
-    expect(ok.templateCoverage).toBe(false);
+  it('resolver: VA vesting validates against the controlled list; arbitrary vesting / MD do not', () => {
+    expect(resolveDeedKbAvailability({ jurisdiction: 'VA', locality: 'Fairfax County', deedType: 'deed', vestingSelection: 'as tenants by the entirety with the common-law right of survivorship' }).vestingListValidated).toBe(true);
     expect(resolveDeedKbAvailability({ jurisdiction: 'VA', locality: null, deedType: 'deed', vestingSelection: 'made up by the model' }).vestingListValidated).toBe(false);
     expect(resolveDeedKbAvailability({ jurisdiction: 'MD', locality: null, deedType: 'deed', vestingSelection: 'as tenants by the entirety with the common-law right of survivorship' }).vestingListValidated).toBe(false); // MD unseeded
   });
@@ -99,12 +85,12 @@ describe('FOLD-DEED-1 Inc 2 — deedGate.referenceKb procedure', () => {
     await expect(caller(U).deedGate.referenceKb()).rejects.toThrow(/DEED_GATE_DISABLED/);
   });
 
-  it('returns the verified KB allowlist with provenance + all localities unverified', async () => {
+  it('returns the verified KB allowlist with provenance + the five seeded localities', async () => {
     process.env[FLAG] = 'true';
     const kb = await caller(U).deedGate.referenceKb();
     expect(kb.provenance.source).toBe('docs/Deed_Drafting_Training_Guide_Virginia.docx');
     expect(kb.deedTypes.length).toBe(6);
-    expect(kb.seedLocalities.every((l) => l.verified === false)).toBe(true);
+    expect(kb.localities.length).toBe(5);
     expect(kb.escalationTriggers.length).toBeGreaterThan(0);
     expect(kb.exemptions.length).toBeGreaterThan(0);
   });
