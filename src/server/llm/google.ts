@@ -28,8 +28,9 @@
  */
 
 import { z } from 'zod';
-import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult } from './types.js';
+import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult, type LlmStreamChunk } from './types.js';
 import { llmFetch } from './llmFetch.js';
+import { sseDataLines } from './sseParse.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 
 interface GeminiContent {
@@ -308,6 +309,86 @@ export class GoogleAdapter implements LlmClient {
         provider: 'google',
         model: this.modelId,
         finishReason: data.candidates[0]?.finishReason,
+      },
+    };
+  }
+
+  /**
+   * F3 token streaming (DRAFT-STREAMING-1 Inc 3) — free-form streaming over Gemini's
+   * streamGenerateContent (alt=sse), via the SAME llmFetch wrapper (no SDK). Yields text deltas then a
+   * terminal `final` shape-identical to generate() (incl. tokensReasoning from thoughtsTokenCount). No
+   * structured output (the dispatch seam gates streaming off when a schema is present). Gemini's SSE has
+   * no [DONE] sentinel — the stream simply ends.
+   */
+  async *generateStream(params: LlmGenerateParams): AsyncIterable<LlmStreamChunk> {
+    const apiKey = process.env['GOOGLE_API_KEY'];
+    if (!apiKey) {
+      throw new LlmProviderError('api_error', 'GOOGLE_API_KEY is not set. Configure it in your environment to use the Google adapter.');
+    }
+    const { systemPrompt, userPrompt, maxTokens = 4096, temperature = 0.3, signal } = params;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelId}:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const requestBody: GeminiRequest = {
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      generationConfig: { maxOutputTokens: maxTokens, temperature },
+      safetySettings: SAFETY_SETTINGS,
+    };
+
+    let response: Response;
+    try {
+      response = await llmFetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) throw err;
+      throw new LlmProviderError('api_error', `Google Gemini stream fetch failed: ${String(err)}`, err);
+    }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new LlmProviderError(httpStatusToErrorClass(response.status), `Google Gemini API error ${response.status}: ${body}`);
+    }
+    if (!response.body) throw new LlmProviderError('api_error', 'Google Gemini streaming response had no body to read.');
+
+    let content = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let reasoningTokens: number | undefined;
+    let finishReason: string | null = null;
+    for await (const payload of sseDataLines(response.body)) {
+      let evt: {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string | null }>;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+      };
+      try {
+        evt = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const cand = evt.candidates?.[0];
+      for (const part of cand?.content?.parts ?? []) {
+        if (typeof part.text === 'string' && part.text.length > 0) {
+          content += part.text;
+          yield { kind: 'delta', text: part.text };
+        }
+      }
+      if (cand?.finishReason != null) finishReason = cand.finishReason;
+      if (evt.usageMetadata) {
+        if (typeof evt.usageMetadata.promptTokenCount === 'number') promptTokens = evt.usageMetadata.promptTokenCount;
+        if (typeof evt.usageMetadata.candidatesTokenCount === 'number') completionTokens = evt.usageMetadata.candidatesTokenCount;
+        if (typeof evt.usageMetadata.thoughtsTokenCount === 'number') reasoningTokens = evt.usageMetadata.thoughtsTokenCount;
+      }
+    }
+    yield {
+      kind: 'final',
+      result: {
+        content,
+        tokensPrompt: promptTokens,
+        tokensCompletion: completionTokens,
+        tokensReasoning: reasoningTokens,
+        providerMetadata: { provider: 'google', model: this.modelId, finishReason, streamed: true },
       },
     };
   }
