@@ -1319,6 +1319,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
     {
       onSuccess: () => {
         void utils.reviewSession.get.invalidate({ sessionId });
+        // REVIEWER-BANNER-CLEAR-1 (F4): drop any now-terminal reviewer_feedback job from the document
+        // JobBanner the instant the session is abandoned, so the "reviewer feedback in progress…"
+        // indicator does not linger (U6). Without F1's background poll this stale indicator could sit for
+        // a full poll cycle; this clears it immediately on close.
+        void utils.job.listForDocument.invalidate({ documentId });
         onClose();
       },
     }
@@ -1967,10 +1972,17 @@ export default function ReviewPane({ documentId, iterationNumber, onClose }: Rev
     (input: { sessionId: string }) => utils.client.reviewSession.abandon.mutate(input),
     {
       onSuccess: () => {
+        // REVIEWER-BANNER-CLEAR-1 (F4): clear the abandoned session's cache and drop any stale
+        // reviewer_feedback job from the document JobBanner so the "reviewer feedback in progress…"
+        // indicator does not linger after the pane closes via the X (U6).
+        if (sessionId) void utils.reviewSession.get.invalidate({ sessionId });
+        void utils.job.listForDocument.invalidate({ documentId });
         onClose();
       },
       onError: () => {
-        // If abandon fails (e.g. session already terminal), close anyway.
+        // If abandon fails (e.g. session already terminal), close anyway — but still clear the stale
+        // job indicator (REVIEWER-BANNER-CLEAR-1, F4).
+        void utils.job.listForDocument.invalidate({ documentId });
         onClose();
       },
     }
