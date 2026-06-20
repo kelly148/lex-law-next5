@@ -111,14 +111,21 @@ interface JobBannerProps {
   documentId: string;
 }
 
-function JobBanner({ documentId }: JobBannerProps): React.ReactElement | null {
+export function JobBanner({ documentId }: JobBannerProps): React.ReactElement | null {
   const utils = trpc.useUtils();
+  // DOC-PANE-LIVE-REFRESH-1 (F1): keep this poll firing while the tab is blurred/backgrounded.
+  // react-query v5 gates interval refetches behind `refetchIntervalInBackground || focusManager.isFocused()`,
+  // so WITHOUT this, an attorney who switches tabs during the 60-70s draft never has completion detected —
+  // the terminal useEffect below never runs, and the content pane stays "No draft yet" / "Version History (0)"
+  // until a manual reload. Mirrors the #328 async-lane live-refresh fix. Bounded: refetchInterval returns
+  // false once no job is active, so the background poll self-terminates.
   const { data } = trpc.job.listForDocument.useQuery({ documentId }, {
     refetchInterval: (query) => {
       const jobs = query.state.data?.jobs ?? [];
       const hasActive = jobs.some((j) => j.status === 'queued' || j.status === 'running');
       return hasActive ? 5000 + Math.random() * 1000 : false;
     },
+    refetchIntervalInBackground: true,
   });
 
   const jobs = data?.jobs ?? [];
@@ -581,6 +588,10 @@ export default function DocumentDetail(): React.ReactElement {
     {
       onSuccess: () => {
         void utils.document.get.invalidate({ documentId: documentId! });
+        // DOC-PANE-LIVE-REFRESH-1 (F1): invalidate version.list alongside document.get so the two never
+        // drift — the UAT symptom was the action bar (document.get) updating while Version History (0)
+        // (version.list) stayed stale. Keeping them symmetric means the new draft surfaces without a reload.
+        void utils.version.list.invalidate({ documentId: documentId! });
         void utils.job.listForDocument.invalidate({ documentId: documentId! });
       },
     }
@@ -591,6 +602,8 @@ export default function DocumentDetail(): React.ReactElement {
     {
       onSuccess: () => {
         void utils.document.get.invalidate({ documentId: documentId! });
+        // DOC-PANE-LIVE-REFRESH-1 (F1): keep version.list symmetric with document.get (see generateDraft).
+        void utils.version.list.invalidate({ documentId: documentId! });
         void utils.job.listForDocument.invalidate({ documentId: documentId! });
         setRegenerateInstructions('');
       },
