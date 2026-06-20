@@ -2,8 +2,9 @@
  * REVIEWER-ASYNC-FANOUT-1 — Increment 1
  *
  * Flag-gated async + progressive reviewer fan-out. When REVIEWER_ASYNC_ENABLED, reviewSession.create
- * fires each reviewer in the background (concurrent, not awaited) and returns immediately; otherwise
- * the established inline + sequential path runs unchanged.
+ * fires each reviewer in the background (concurrent, not awaited) and returns immediately; otherwise the
+ * inline SYNC path runs — now CONCURRENTLY too (REVIEWER-CONCURRENT-FANOUT-1, F2: awaited Promise.allSettled
+ * instead of a serial await-in-loop, so one slow reviewer no longer blocks the others).
  *
  * The create handler is a closure inside executeCanonicalMutation-based dispatch; direct invocation
  * needs broad tRPC/DB mocking. Per the house convention (mr1.llm1_s2 etc.), the dispatch WIRING is
@@ -61,9 +62,16 @@ describe('reviewSession.create async dispatch wiring (source audit)', () => {
     expect(src).toContain('void runDeferredCanonicalJob(r.jobId)');
     expect(src).not.toContain('const reviewerResultPromise = executeCanonicalMutation(reviewerParams);');
   });
-  it('preserves the inline + sequential SYNC path (awaited deferred run) when async is OFF', () => {
-    expect(src).toContain('const result = await runDeferredCanonicalJob(r.jobId);');
-    expect(src).toContain('reviewerJobIds.push(r.jobId);');
+  it('runs the SYNC path CONCURRENTLY when async is OFF (REVIEWER-CONCURRENT-FANOUT-1, F2)', () => {
+    // F2 (was: "preserves the inline + sequential SYNC path"). The serial await-in-loop became
+    // Promise.allSettled so one slow/failing reviewer can no longer block the others — create() now takes
+    // ~the slowest single reviewer's time, not the sum. Same deferred runner, same per-reviewer timeout,
+    // same persistence (still all awaited before the evaluator fan-in).
+    expect(src).toContain('await Promise.allSettled(');
+    expect(src).toContain('reviewers.map((r) => runDeferredCanonicalJob(r.jobId))');
+    expect(src).toContain('reviewerJobIds.push(reviewers[i]!.jobId)');
+    // the pre-F2 sequential "await one, then start the next" shape is gone
+    expect(src).not.toContain('const result = await runDeferredCanonicalJob(r.jobId);');
   });
   it('skips the advisory evaluator in async mode (it needs all reviewer feedback first)', () => {
     expect(src).toContain('!reviewerAsync && isEvaluatorEnabled() && input.selectedReviewers.length > 1');

@@ -75,11 +75,13 @@ describe('C-1 — lanes terminalize from job completion (conditions 3/4/5/10)', 
 describe('C-1 — GUARD: every lane write is async-gated (sync writes no lanes)', () => {
   it('the inline (sync) dispatch path runs each reviewer to terminal and writes NO lanes when reviewerAsync is false', () => {
     // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): the sync path no longer forks to
-    // executeCanonicalMutation(reviewerParams)/reviewerJobIds.push(reviewerResult.jobId) (RETIRED). It now
-    // runs each committed reviewer job to terminal via the SAME deferred path, BLOCKING — preserve the
-    // original intent (the sync inline path runs reviewers to terminal in-band) by asserting the new call.
-    expect(reviewSession).toContain('const result = await runDeferredCanonicalJob(r.jobId);');
-    expect(reviewSession).toContain('reviewerJobIds.push(r.jobId);');
+    // executeCanonicalMutation(reviewerParams) (RETIRED). REVIEWER-CONCURRENT-FANOUT-1 (F2) then made it run
+    // each committed reviewer job to terminal CONCURRENTLY (awaited Promise.allSettled) via the SAME deferred
+    // path, BLOCKING until all settle — preserve the original intent (the sync inline path runs reviewers to
+    // terminal in-band) by asserting the new concurrent call.
+    expect(reviewSession).toContain('await Promise.allSettled(');
+    expect(reviewSession).toContain('reviewers.map((r) => runDeferredCanonicalJob(r.jobId))');
+    expect(reviewSession).toContain('reviewerJobIds.push(reviewers[i]!.jobId)');
     // GUARD (unchanged intent): the ONLY lane write in create — insertReviewerLanes — sits inside the
     // `if (reviewerAsync)` guard, so the SYNC path writes no lanes (its display path stays byte-for-byte
     // unchanged). The terminal/revert lane writes moved to the factory and are themselves async-gated

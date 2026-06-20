@@ -675,10 +675,37 @@ export const reviewSessionRouter = router({
         // established sync card view — but the job row was committed FIRST (atomic outbox), so the session
         // can never be left active-with-zero-jobs. Each reviewer's feedback is persisted by the factory's
         // txn2Commit before create returns, just like before.
+        // REVIEWER-CONCURRENT-FANOUT-1 (F2): dispatch the reviewers CONCURRENTLY instead of one-at-a-time.
+        // Reviewer work is independent — there is no reason to serialize it, and the pre-fix sequential loop
+        // made an N-reviewer panel take ~N x the slowest reviewer (the Monster UAT saw a 3-reviewer create
+        // sit ~3 minutes because a flaky reviewer's full timeout was awaited BEFORE the others even started).
+        // Each runDeferredCanonicalJob already runs under its OWN frozen timeoutMs (300_000ms sync) + a fresh
+        // AbortController, so every reviewer has an independent timeout envelope; Promise.allSettled isolates
+        // failures so one slow/failing reviewer can no longer block the others. Result: create() returns in
+        // ~the slowest single reviewer's time, not the SUM, and still degrades cleanly to the honest N-of-M.
+        // Same models, same prompts, same persistence — each reviewer's factory txn2Commit is independent and
+        // all are awaited here before the evaluator fan-in below reads the persisted feedback. Pure
+        // orchestration change (serial -> parallel awaits); the async/outbox path (flag-gated) is unchanged.
         for (const r of reviewers) {
           registerDeferredContinuation(r.jobId, buildReviewerCanonicalParams(r));
-          const result = await runDeferredCanonicalJob(r.jobId);
-          if (result?.status === 'completed') reviewerJobIds.push(r.jobId);
+        }
+        const reviewerResults = await Promise.allSettled(
+          reviewers.map((r) => runDeferredCanonicalJob(r.jobId)),
+        );
+        for (let i = 0; i < reviewers.length; i++) {
+          const settled = reviewerResults[i]!;
+          if (settled.status === 'fulfilled') {
+            if (settled.value?.status === 'completed') reviewerJobIds.push(reviewers[i]!.jobId);
+          } else {
+            // A reviewer dispatch rejected outside the canonical job's own error handling — it counts as a
+            // non-response (absent from reviewerJobIds), exactly as a sequential failure would, but WITHOUT
+            // aborting the create or the other reviewers.
+            // eslint-disable-next-line no-console
+            console.error(
+              `[reviewer-concurrent] reviewer ${reviewers[i]!.reviewerRole} dispatch failed (session ${sessionId}):`,
+              settled.reason,
+            );
+          }
         }
         // SYNC has no lanes; record the session-level partial reason from the reviewer outcomes (the Inc-2
         // data foundation). Inc-2 sync has no hold gate, so a partial here is always non-response.
@@ -689,10 +716,10 @@ export const reviewSessionRouter = router({
       // EVALUATOR PATH — MR-CAL-5C (advisory output contract; default OFF)
       //
       // Gated behind isEvaluatorEnabled() (env EVALUATOR_ENABLED, default OFF) AND
-      // more than one selected reviewer. The reviewer loop above runs inline and
-      // sequentially (executeCanonicalMutation awaits each LLM + persist), so by the
-      // time we reach here ALL reviewer feedback for this iteration is persisted and
-      // can be read to build the evaluator prompt.
+      // more than one selected reviewer. The reviewer fan-out above runs inline and
+      // CONCURRENTLY (REVIEWER-CONCURRENT-FANOUT-1: Promise.allSettled awaits every reviewer's
+      // LLM + persist), so by the time we reach here ALL reviewer feedback for this iteration is
+      // persisted and can be read to build the evaluator prompt.
       //
       // The evaluator is ADVISORY ONLY: it emits one disposition (adopt/reject/
       // neutral) + a short synthesis per reviewer suggestion, persisted to
