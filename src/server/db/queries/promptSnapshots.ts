@@ -12,6 +12,7 @@
 import { and, eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../connection.js';
+import { ownerScope } from '../ownerScope.js';
 import { promptSnapshots, type NewPromptSnapshot } from '../schema.js';
 
 export async function insertPromptSnapshot(row: NewPromptSnapshot): Promise<void> {
@@ -52,9 +53,11 @@ export async function getLatestPromptSnapshotForDocument(
       modelString: promptSnapshots.modelString,
     })
     .from(promptSnapshots)
-    // Owner scope: userId is the table's ownership column, so this returns a row ONLY for the owner —
-    // a document that is not the caller's yields no snapshot (no cross-user exposure).
-    .where(and(eq(promptSnapshots.userId, userId), eq(promptSnapshots.documentId, documentId)))
+    // Owner scope via the FOLD-AUTH chokepoint (ownerScope), NOT an inline eq(userId) — userId is the
+    // table's ownership column, so this returns a row ONLY for the owner; a document that is not the
+    // caller's yields no snapshot (no cross-user exposure). Routing through ownerScope keeps the
+    // owner-filter baseline ratchet (mr_fold_auth_2) green and inherits any future sharing layer.
+    .where(and(ownerScope(promptSnapshots.userId, userId), eq(promptSnapshots.documentId, documentId)))
     .orderBy(desc(promptSnapshots.createdAt))
     .limit(1);
   if (rows.length === 0) return null;

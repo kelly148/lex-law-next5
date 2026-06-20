@@ -33,12 +33,15 @@ describe('T-F5-1: getLatestPromptSnapshotForDocument is owner-scoped', () => {
     expect(query).toContain('export async function getLatestPromptSnapshotForDocument(');
   });
 
-  it('filters by BOTH userId AND documentId (the owner-scope guard)', () => {
+  it('filters by owner (via ownerScope) AND documentId — through the FOLD-AUTH chokepoint, not inline eq', () => {
     const fn = query.slice(query.indexOf('export async function getLatestPromptSnapshotForDocument('));
-    expect(fn).toContain('eq(promptSnapshots.userId, userId)');
+    // owner filter routes through ownerScope() (keeps the mr_fold_auth_2 baseline ratchet green), NOT a bare
+    // inline eq(promptSnapshots.userId, ...).
+    expect(fn).toContain('ownerScope(promptSnapshots.userId, userId)');
+    expect(fn).not.toContain('eq(promptSnapshots.userId, userId)');
     expect(fn).toContain('eq(promptSnapshots.documentId, documentId)');
     // both conditions combined under and(...)
-    expect(fn).toMatch(/and\(\s*eq\(promptSnapshots\.userId, userId\),\s*eq\(promptSnapshots\.documentId, documentId\)\s*\)/);
+    expect(fn).toMatch(/and\(\s*ownerScope\(promptSnapshots\.userId, userId\),\s*eq\(promptSnapshots\.documentId, documentId\)\s*\)/);
   });
 
   it('selects the LATEST snapshot (orderBy createdAt desc, limit 1)', () => {
