@@ -43,6 +43,14 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
     void utils.matterIntake.listParties.invalidate({ matterId });
     void utils.matterIntake.getLatestConflicts.invalidate({ matterId });
     void utils.matterIntake.getAnalysis.invalidate({ matterId });
+    // MATTERSTATE-LIVE-REFRESH-1 (F1-class, #355): the LEFT Matter State summary reads queries the intake
+    // panel did not invalidate, so it lagged until a manual reload after an intake action (conflict
+    // disposition, party confirm, plan lock). Refresh both sources so clearance reflects live:
+    //   - matterState.dashboard -> the "Conflicts: …" summary (MatterRecitalBand)
+    //   - gateOverride.getGate   -> the "Drafting blocked" banner (GateOverridePanel)
+    // Cosmetic only — the gate logic is server-authoritative and unchanged.
+    void utils.matterState.dashboard.invalidate();
+    void utils.gateOverride.getGate.invalidate({ matterId });
   };
 
   const addParty = useGuardedMutation(
