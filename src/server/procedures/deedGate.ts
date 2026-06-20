@@ -34,6 +34,16 @@ import {
   VA_STATUTORY_CITATIONS,
 } from '../deed/deedKbVa.js';
 import { VA_LOCALITIES } from '../deed/deedKbLocalitiesVa.js';
+import {
+  RON_PROVENANCE,
+  RON_AUTHORITY,
+  ACKNOWLEDGMENT_FORMS,
+  ACKNOWLEDGMENT_CONTENT,
+  E_CERTIFICATE_RECITALS,
+  URPERA_EQUIVALENCE,
+  E_RECORDING_SUBMITTERS,
+  RON_ADVISORIES,
+} from '../deed/deedKbRonVa.js';
 import { DeedGateStateSchema, evaluateDeedGate } from '../../shared/schemas/deedGate.js';
 
 function assertEnabled(): void {
@@ -155,6 +165,18 @@ export const deedGateRouter = router({
       // The five v1 localities with their VERIFIED per-locality specs (deedInstrumentRecordable, parcel-ID
       // format, on-deed first-page rules, e-recording vendors, fees, quirks, advisories, source cite).
       localities: VA_LOCALITIES,
+      // RON / e-recording (verified): authority, acknowledgment-form STRUCTURAL templates (§§ 55.1-612/618/619),
+      // the § 47.1-16 e-certificate recitals, URPERA equivalence, e-recording submitters, and advisories.
+      ron: {
+        provenance: RON_PROVENANCE,
+        authority: RON_AUTHORITY,
+        acknowledgmentForms: ACKNOWLEDGMENT_FORMS,
+        acknowledgmentContent: ACKNOWLEDGMENT_CONTENT,
+        eCertificateRecitals: E_CERTIFICATE_RECITALS,
+        urperaEquivalence: URPERA_EQUIVALENCE,
+        eRecordingSubmitters: E_RECORDING_SUBMITTERS,
+        advisories: RON_ADVISORIES,
+      },
     };
   }),
 });

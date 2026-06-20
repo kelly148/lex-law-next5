@@ -47,7 +47,8 @@ const REASON_LABELS: Record<string, string> = {
   special_instrument_triggers_unreviewed: 'Special-instrument triggers not reviewed (the wrong-tool check)',
   preparer_return_grantee_address_missing: 'Preparer / return-to / grantee tax-bill address not confirmed',
   execution_acknowledgment_mode_unset: 'Execution / acknowledgment mode not selected',
-  execution_mode_acknowledgment_form_unavailable: 'No verified acknowledgment form for the selected mode (e-notary / RON pending)',
+  locality_e_recording_unavailable: 'This recording locality does not operate an eRecording System — an e-notary / RON deed cannot be submitted here',
+  e_certificate_recitals_unaffirmed: 'The § 47.1-16 e-certificate recitals (notary VA location, in-person vs RON, tamper-evident e-seal) are not affirmed',
   locality_kb_unverified: 'This locality’s recordability KB is not verified — no deed can be recordable here yet',
 };
 const reasonText = (r: string): string => REASON_LABELS[r] ?? r;
@@ -58,6 +59,7 @@ type ReferenceKb = {
   localities: ReadonlyArray<{ name: string; deedInstrumentRecordable: boolean }>;
   escalationTriggers: readonly string[];
   provenance: { sourceTitle: string; sourceOrg: string };
+  ron?: { acknowledgmentForms: ReadonlyArray<{ key: string; citation: string; label: string }> };
 };
 
 export function DeedGatePanel({ documentId }: { documentId: string }): React.ReactElement | null {
@@ -240,9 +242,26 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
         <Tri label="Preparer + return-to + grantee tax-bill address present" value={state.preparerReturnGranteeAddress} onChange={(v) => set('preparerReturnGranteeAddress', v)} testid="deed-preparer-address" />
         <Sel label="Execution / acknowledgment mode" options={DEED_EXECUTION_MODE_VALUES} value={state.executionMode} onChange={(v) => set('executionMode', v as DeedGateState['executionMode'])} testid="deed-execution-mode" />
         {state.executionMode && state.executionMode !== 'wet_sign' && (
-          <p className="text-xs text-amber-800" data-testid="deed-mode-warning">
-            e-notary / RON cannot clear recordability until a verified acknowledgment form is seeded for that mode.
-          </p>
+          <div className="rounded border border-gray-200 px-3 py-2 space-y-2" data-testid="deed-ron-block">
+            <p className="text-xs text-gray-600">
+              e-notary / RON: a RON deed records on the same footing as paper (URPERA §§ 55.1-661–664) — but ONLY when
+              the recording locality operates an eRecording System AND the § 47.1-16 e-certificate recitals are affirmed.
+            </p>
+            <Tri
+              label="§ 47.1-16 e-certificate recitals affirmed (notary VA location · in-person vs RON · tamper-evident e-seal)"
+              value={state.eCertificateRecitalsAffirmed}
+              onChange={(v) => set('eCertificateRecitalsAffirmed', v)}
+              testid="deed-ecert-recitals"
+            />
+            {kb.ron && (
+              <details className="text-xs text-gray-500">
+                <summary className="cursor-pointer">Verified acknowledgment forms (§§ 55.1-612 / 55.1-619)</summary>
+                <ul className="list-disc pl-5 mt-1 space-y-0.5" data-testid="deed-ack-forms">
+                  {kb.ron.acknowledgmentForms.map((f) => <li key={f.key}><span className="font-medium">{f.citation}</span>: {f.label}</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
         )}
       </div>
 

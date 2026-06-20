@@ -19,8 +19,8 @@ import {
 } from '../../shared/schemas/deedGate.js';
 import { resolveDeedKbAvailability } from '../deed/deedKb.js';
 
-const FULL_KB: DeedKbAvailability = { templateCoverage: true, vestingListValidated: true, localityVerified: true };
-const NO_KB: DeedKbAvailability = { templateCoverage: false, vestingListValidated: false, localityVerified: false };
+const FULL_KB: DeedKbAvailability = { templateCoverage: true, vestingListValidated: true, localityVerified: true, localityERecording: true };
+const NO_KB: DeedKbAvailability = { templateCoverage: false, vestingListValidated: false, localityVerified: false, localityERecording: false };
 const GOOD_PARTIES = { grantorCount: 1, granteeCount: 1 };
 
 function fullState(over: Partial<DeedGateState> = {}): DeedGateState {
@@ -44,6 +44,7 @@ function fullState(over: Partial<DeedGateState> = {}): DeedGateState {
     specialInstrumentTriggersReviewed: true,
     preparerReturnGranteeAddress: true,
     executionMode: 'wet_sign',
+    eCertificateRecitalsAffirmed: null, // wet-sign deeds do not need the § 47.1-16 e-certificate recitals
     ...over,
   };
 }
@@ -96,10 +97,19 @@ describe('FOLD-DEED-1 Inc 1 — evaluateDeedGate (pure, fail-closed)', () => {
     expect(evaluateDeedGate({ state: fullState({ specialInstrumentTriggersReviewed: null }), kb: FULL_KB, parties: GOOD_PARTIES }).legalReview.blockingReasons).toContain('special_instrument_triggers_unreviewed');
   });
 
-  it('recordability: e-notary / RON cannot clear in the foundation (no mode-specific acknowledgment form seeded)', () => {
-    expect(evaluateDeedGate({ state: fullState({ executionMode: 'ron' }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('execution_mode_acknowledgment_form_unavailable');
-    expect(evaluateDeedGate({ state: fullState({ executionMode: 'e_notary' }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('execution_mode_acknowledgment_form_unavailable');
+  it('recordability: e-notary / RON clears ONLY with operating e-recording AND § 47.1-16 recitals affirmed (URPERA parity)', () => {
+    const NO_ERECORD_KB: DeedKbAvailability = { ...FULL_KB, localityERecording: false };
+    // RON / e-notary with full KB but the § 47.1-16 e-certificate recitals NOT affirmed (fullState default null) BLOCKS.
+    expect(evaluateDeedGate({ state: fullState({ executionMode: 'ron' }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('e_certificate_recitals_unaffirmed');
+    expect(evaluateDeedGate({ state: fullState({ executionMode: 'e_notary' }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('e_certificate_recitals_unaffirmed');
+    // A RON deed in a locality that does NOT operate an eRecording System BLOCKS even with the recitals affirmed.
+    expect(evaluateDeedGate({ state: fullState({ executionMode: 'ron', eCertificateRecitalsAffirmed: true }), kb: NO_ERECORD_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('locality_e_recording_unavailable');
+    // RON + operating e-recording + recitals affirmed → recordable (URPERA parity with paper).
+    expect(evaluateDeedGate({ state: fullState({ executionMode: 'ron', eCertificateRecitalsAffirmed: true }), kb: FULL_KB, parties: GOOD_PARTIES }).recordable).toBe(true);
+    // Wet-sign needs neither e-recording nor the e-certificate recitals.
     expect(evaluateDeedGate({ state: fullState({ executionMode: 'wet_sign' }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.passed).toBe(true);
+    // No mode chosen at all → fail-closed.
+    expect(evaluateDeedGate({ state: fullState({ executionMode: null }), kb: FULL_KB, parties: GOOD_PARTIES }).recordability.blockingReasons).toContain('execution_acknowledgment_mode_unset');
   });
 
   it('two-prong description: an unlocked or scope-unset description blocks legal-review', () => {
