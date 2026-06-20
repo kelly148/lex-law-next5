@@ -20,6 +20,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
 import { assembleContext, type OperationType } from '../context/pipeline.js';
 import { getMatterById } from '../db/queries/matters.js';
+import { getLatestPromptSnapshotForDocument } from '../db/queries/promptSnapshots.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 
 export const contextPipelineRouter = router({
@@ -90,5 +91,25 @@ export const contextPipelineRouter = router({
         }
         throw err;
       }
+    }),
+
+  // PROMPT-SNAPSHOT-READ-1 (F5): owner-scoped, read-only access to the FULL composed system prompt
+  // actually sent for a document's latest draft/regeneration job (the prompt_snapshots audit row). Surfaces
+  // the injected master / per-PA / matter-state layers in Context Preview for transparency/debugging.
+  // Additive, no egress. Returns null when there is no document or no snapshot yet.
+  systemPrompt: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        documentId: z.string().uuid().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const matter = await getMatterById(input.matterId, ctx.userId);
+      if (!matter) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
+      }
+      if (input.documentId === undefined) return null;
+      return getLatestPromptSnapshotForDocument(input.documentId, ctx.userId);
     }),
 });
