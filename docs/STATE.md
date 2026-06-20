@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-20c (F2-ASYNC-REVIEWER-PREFLIGHT-1 — read-only pre-flight, GO-WITH-WATCH; report merged to main 5b7a7f7)
+
+**Disposition.** Read-only pre-flight for activating the async reviewer path (`REVIEWER_ASYNC_ENABLED` + `JOB_DISPATCHER_ENABLED`), against `origin/main` `67b45c7`. No code, no flag flip, no migration, no prod touched. Five-dimension investigation (completeness / flag-semantics / migration-safety / CI-coverage / rollback+failure-handling) — all **PASS**. Disposition **GO-WITH-WATCH**. Report committed to `docs/engagements/F2-ASYNC-REVIEWER-PREFLIGHT-1-investigation.md`, PR #365 (Lint + Type Check + Tests green), operator `operator approve accept:` → squash-merged to `main` as **5b7a7f7**; branch deleted. SHA reconciliation: the brief's `25906d6` was a stale local `main`-worktree; true `origin/main` was `67b45c7` (the `25906d6→67b45c7` delta is F3 streaming #362–#364, default-OFF, async-irrelevant).
+
+**Key finding (beyond the 5-agent map, found in follow-up).** At the activation HEAD the reviewer transmit is **unconditionally** egress-routed (`reviewerJobFactory.ts` attaches an `egress:` descriptor to every reviewer job; `canonicalMutation.ts:788` routes the provider call through `documentEgressSend` whenever present — NO separate egress flag). The gate is **fail-closed** (`documentEgress.ts`): a present `no_external` hold OR a hold-check it cannot confirm (`hold_check_uncertain`) blocks. So the flip hard-depends not just on migration 0030 (reviewer_lanes) but on the **egress-plane migrations 0041 (egress_events) / 0042 (egress_hold) / 0043 (review_sessions.lifecyclePhase+partialReason, reviewer_lanes.status += blocked_by_hold, jobs.idempotencyKey, audit ENUM)**. All four are additive/idempotent, in the prod allowlist (`scripts/apply-prod-migrations.mjs`), and auto-applied by the Railway `preDeployCommand` — so they apply on the next deploy of the egress-plane build, but a MISSING `egress_hold` on prod → `hold_check_uncertain` → ALL reviewers blocked.
+
+**Recommended activation (operator-gated, NOT done here).** Set, in order: `JOB_DISPATCHER_ENABLED=true` first → `REVIEWER_ASYNC_ENABLED=true` → `JOB_REAPER_ENABLED=true` (recommended, restart-durable). Watch items: **W1** verify migrations 0030/0041/0042/0043 applied to prod BEFORE flip (deploy first, let the pre-deploy runner succeed); **W2** no standing GLOBAL `no_external` hold (per-matter holds fine); **W3** dispatcher-first flip order; **W4** let in-flight async sessions settle before any rollback (else ≤30-min CR-4 cleanup); **W5** post-flip Pattern-16 live verify; **W6** advisory evaluator is SKIPPED in async v1 (documented fast-follow). Rollback is a clean flag flip (sync path byte-for-byte; reviewer_lanes rows inert under sync; no one-way door).
+
+**Open items / gate residuals.** The flag flip itself is the operator's gated action, blocked on W1/W2 (prod-state facts not readable from the repo). The async-path code, migrations, tests, and rollback are all clean — no defect, only a verification sequence. Not added to `state.json` (this was an ad-hoc read-only pre-flight, not a tracked queue engagement; no Rule-11 membership change made). The stale `featureFlags.ts:60–62` "fire-and-forget" comment is noted (accurate only for ASYNC-on/DISPATCHER-off), not edited.
+
+---
+
 ## 2026-06-20b (FOLD-L0-1 conflicts-at-intake — LIVE-VERIFIED on prod 4e07e51)
 
 **Disposition.** Cowork live-verified FOLD-L0-1 (conflicts-at-intake) on prod `4e07e51` end-to-end (3 synthetic cross-conflict matters): **STRONG PASS, no correctness defects.** This is the self-use lift gate for the conflicts vertical; the operator decision to go client-facing is **separate**.
