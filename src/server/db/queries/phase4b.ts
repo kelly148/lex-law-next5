@@ -949,6 +949,61 @@ export async function abandonReviewSessionAudited(params: {
   });
 }
 
+/**
+ * TERMINAL-SESSION-SUPERSEDE-1 — SOFT, FAIL-CLOSED-AUDITED supersede of a TERMINAL (completed/failed, NOT
+ * in-flight, NOT hold) review session when the attorney starts a NEW review on the same draft. The CAS
+ * transitions active->'regenerated' (NOT 'abandoned'): 'regenerated' is the History-VISIBLE supersede state
+ * (listFeedbackForDocument hides only 'abandoned'), so the prior review stays viewable/comparable in
+ * document history EXACTLY like the "generate revised draft" supersede — nothing is hidden, deleted, or made
+ * un-adoptable (NO destructive cascade: feedback / lanes / locks / ledger are all retained). The CAS + the
+ * append-only audit row (reason 'superseded_by_new_review' — a free-text payload value; the
+ * 'review_session_transition' eventType ENUM is already migrated, so NO new migration) commit in ONE tx: a
+ * failed audit ROLLS BACK the supersede (no silent/un-audited transition). The CAS is the single-flight lock
+ * (rows===1 = this caller won; the activeSessionKey unique index backstops the create that follows). Mirrors
+ * abandonReviewSessionAudited; kept separate so the audit trail records supersede-by-new-review honestly.
+ */
+export async function supersedeReviewSessionForNewReview(params: {
+  sessionId: string;
+  userId: string;
+  matterId: string;
+  documentId: string;
+  fromLifecyclePhase: string | null;
+  summary: string;
+}): Promise<number> {
+  return db.transaction(async (tx) => {
+    const rows = await updateReviewSessionStateCas(
+      params.sessionId,
+      params.userId,
+      'active',
+      'regenerated',
+      tx,
+    );
+    if (rows === 1) {
+      // FAIL-VISIBLY (throws -> tx rollback -> supersede undone). The attorney initiated the new review,
+      // so the actor is 'attorney'; the reason code reconstructs supersede-by-new-review under discovery.
+      await insertAuditEvent(
+        {
+          userId: params.userId,
+          matterId: params.matterId,
+          documentId: params.documentId,
+          eventType: 'review_session_transition',
+          actor: 'attorney',
+          summary: params.summary,
+          payload: {
+            fromState: 'active',
+            toState: 'regenerated',
+            reason: 'superseded_by_new_review',
+            fromLifecyclePhase: params.fromLifecyclePhase,
+          },
+          reviewSessionId: params.sessionId,
+        },
+        tx,
+      );
+    }
+    return rows;
+  });
+}
+
 export async function updateReviewSessionSelections(
   id: string,
   userId: string,

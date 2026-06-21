@@ -70,7 +70,11 @@ import {
   HOLD_BLOCKED_LANE_STATUSES,
   type ReviewerLaneView,
 } from '../../shared/schemas/reviewerLaneState.js';
-import { updateReviewSessionStateCas, abandonReviewSessionAudited } from '../db/queries/phase4b.js';
+import {
+  updateReviewSessionStateCas,
+  abandonReviewSessionAudited,
+  supersedeReviewSessionForNewReview,
+} from '../db/queries/phase4b.js';
 
 const repoRoot = resolve(__dirname, '../../..');
 const read = (p: string): string => readFileSync(resolve(repoRoot, p), 'utf8');
@@ -296,6 +300,76 @@ describe('SOFT, fail-closed-AUDITED abandon (gating: abandon non-destructive + a
       }),
     ).rejects.toThrow(/AUDIT_WRITE_FAILED/);
     h.setInsertThrows(false);
+  });
+});
+
+// ============================================================
+// TERMINAL-SESSION-SUPERSEDE-1 — a completed-but-unclosed session is superseded (NOT abandoned) so a new
+// review proceeds without the 409; in-flight stays blocked with a clear message; hold never supersedes.
+// ============================================================
+describe('TERMINAL-SESSION-SUPERSEDE-1 — supersede helper (gating: History-VISIBLE supersede + audited + fail-closed)', () => {
+  it('on success: CAS active->regenerated + an audit row in ONE tx; returns 1 (NOT abandoned — stays in History)', async () => {
+    h.reset();
+    const rows = await supersedeReviewSessionForNewReview({
+      sessionId: UUID(6),
+      userId: UUID(2),
+      matterId: UUID(3),
+      documentId: UUID(4),
+      fromLifecyclePhase: 'completed',
+      summary: 'superseded on new review',
+    });
+    expect(rows).toBe(1);
+    expect(h.calls.transaction).toBe(1);
+    expect(h.calls.update).toBe(1); // the CAS active->regenerated
+    expect(h.calls.insert).toBe(1); // the audit row (same tx)
+  });
+
+  it('FAIL-CLOSED: an audit-write failure REJECTS the supersede (tx rolls back — no silent transition)', async () => {
+    h.reset();
+    h.setInsertThrows(true);
+    await expect(
+      supersedeReviewSessionForNewReview({
+        sessionId: UUID(6),
+        userId: UUID(2),
+        matterId: UUID(3),
+        documentId: UUID(4),
+        fromLifecyclePhase: 'completed',
+        summary: 'superseded on new review',
+      }),
+    ).rejects.toThrow(/AUDIT_WRITE_FAILED/);
+    h.setInsertThrows(false);
+  });
+});
+
+describe('TERMINAL-SESSION-SUPERSEDE-1 — reviewSession.create wiring (source-audit, house convention)', () => {
+  it('supersedes a TERMINAL existing session to the History-VISIBLE "regenerated" state (NOT "abandoned")', () => {
+    expect(reviewSessionSrc).toContain('await supersedeReviewSessionForNewReview({');
+    // the supersede helper CASes active->'regenerated' (asserted in phase4b; here confirm create calls it,
+    // not abandon, for the terminal-but-unclosed case).
+    expect(reviewSessionSrc).toContain('const supersededRows = await supersedeReviewSessionForNewReview(');
+  });
+
+  it('decides by REAL terminality, not by state: sync needs settled/old, async needs all-lanes-terminal', () => {
+    expect(reviewSessionSrc).toContain('const liveInFlight = liveLanes.some((l) => !isTerminalLaneStatus(l.status));');
+    expect(reviewSessionSrc).toContain(
+      "(livePhase === 'completed' || liveLanes.length > 0 || liveAgeMs > MAX_DISPATCH_WINDOW_MS)",
+    );
+  });
+
+  it('a genuinely IN-FLIGHT review returns a clear REVIEW_IN_PROGRESS message, NOT a raw SESSION_ALREADY_EXISTS 409', () => {
+    expect(reviewSessionSrc).toContain('REVIEW_IN_PROGRESS:${stillLive.id}');
+    expect(reviewSessionSrc).toContain("code: 'PRECONDITION_FAILED'");
+  });
+
+  it('a HOLD phase is NEVER auto-superseded (resumable conflict; clearing a hold is a privileged act)', () => {
+    expect(reviewSessionSrc).toContain(
+      "livePhase === 'held' || livePhase === 'blocked_by_hold' || livePhase === 'partial_blocked_by_hold'",
+    );
+  });
+
+  it('a lost single-flight CAS re-resolves and only conflicts if a fresh active session now holds the key', () => {
+    expect(reviewSessionSrc).toContain('if (supersededRows === 0) {');
+    expect(reviewSessionSrc).toContain('const afterRace = await getActiveReviewSessionForDocument(input.documentId, userId);');
   });
 });
 
