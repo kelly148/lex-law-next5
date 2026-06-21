@@ -29,3 +29,22 @@ void main(){
   col=mix(col,maroon,md*0.07*u_intensity);
   gl_FragColor=vec4(col,1.0);
 }`;
+
+/**
+ * B — Guilloché deed header (intensity 1.0). Engine-turned rosette lines on a vignette, behind deed /
+ * certificate section-header strips (the title + "RECORDED" stamp render on top). §3.1: the strip sits on
+ * --wa-surface-2 → cream = surface-2; maroon → --wa-accent. Not interactive.
+ */
+export const GUILLOCHE_HEADER_FRAG = `
+void main(){
+  vec2 uv=gl_FragCoord.xy/u_res.xy; float a=u_res.x/u_res.y; vec2 c=(uv-0.5); c.x*=a;
+  float t=u_time*0.05*u_motion; float r=length(c), th=atan(c.y,c.x);
+  float f1=sin(18.0*th+9.0*sin(6.2831*6.0*r-t));
+  float f2=sin(11.0*th-7.0*cos(6.2831*9.0*r+t*0.8));
+  float field=0.5*f1+0.5*f2;
+  float lines=smoothstep(0.10,0.0,abs(fract(field*3.0)-0.5));
+  float vign=smoothstep(0.02,0.14,r)*smoothstep(0.66,0.40,r);
+  vec3 cream=${WA.surface2}, maroon=${WA.accent};
+  vec3 col=mix(cream,maroon,lines*vign*0.55*u_intensity);
+  gl_FragColor=vec4(col,1.0);
+}`;

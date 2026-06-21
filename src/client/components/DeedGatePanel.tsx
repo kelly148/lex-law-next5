@@ -15,6 +15,10 @@ import React, { useState } from 'react';
 import { Scale, CheckCircle2, XCircle } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+// WHEREAS-POLISH-1 effect B (flag-gated; OFF → this header is byte-for-byte its current self).
+import ShaderCanvas from './shader/ShaderCanvas.js';
+import { GUILLOCHE_HEADER_FRAG } from './shader/shaders.js';
+import { SHADER_POLISH, SHADER_POLISH_ENABLED } from '../config/shaderPolish.js';
 import {
   DEED_PARCEL_SCOPE_VALUES,
   DEED_SPOUSAL_JOINDER_VALUES,
@@ -126,10 +130,27 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-5" data-testid="deed-gate">
-      <div className="flex items-center gap-2">
-        <Scale className="w-5 h-5 text-firm-navy" />
-        <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
-      </div>
+      {/* WHEREAS-POLISH-1 effect B: a guilloché header strip behind the deed section title (the form below
+          stays flat per §6). Flag OFF → the plain inline title, byte-for-byte. */}
+      {SHADER_POLISH_ENABLED ? (
+        <div data-testid="deed-guilloche-header" className="relative -mx-6 -mt-6 mb-1 overflow-hidden rounded-t-lg px-6 py-3">
+          <ShaderCanvas
+            fragmentShader={GUILLOCHE_HEADER_FRAG}
+            intensity={SHADER_POLISH.effects.guillocheHeader.intensity}
+            className="absolute inset-0"
+            fallbackVar="--wa-surface-2"
+          />
+          <div className="relative z-10 flex items-center gap-2">
+            <Scale className="w-5 h-5 text-firm-navy" />
+            <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Scale className="w-5 h-5 text-firm-navy" />
+          <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
+        </div>
+      )}
 
       {/* Overall verdict — recordable is the ALL-THREE-GATES AND; NEVER "legally correct" (item 2). */}
       <div
