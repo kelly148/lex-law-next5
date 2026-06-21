@@ -106,6 +106,9 @@ import {
   updateReviewSessionLifecyclePhase,
   setReviewSessionSettled,
   abandonReviewSessionAudited,
+  // TERMINAL-SESSION-SUPERSEDE-1: soft, audited supersede (active->'regenerated', History-visible) of a
+  // completed-but-unclosed session when a new review starts on the same draft.
+  supersedeReviewSessionForNewReview,
   updateReviewSessionSelections,
   updateReviewSessionGlobalInstructions,
   listFeedbackForSession,
@@ -425,16 +428,74 @@ export const reviewSessionRouter = router({
           }
         }
         if (!recovered) {
-          // A live session blocks create. If we attempted recovery but lost the single-flight race
-          // (rows===0), the winner already abandoned it — re-resolve to see if create may now proceed.
+          // A live (state='active') session still blocks the activeSessionKey. If we attempted CR-4
+          // recovery but lost the single-flight race (rows===0), the winner already abandoned it —
+          // re-resolve to see if create may now proceed.
           const stillLive = attemptedAbandon
             ? await getActiveReviewSessionForDocument(input.documentId, userId)
             : existingSession;
           if (stillLive) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: `SESSION_ALREADY_EXISTS:${stillLive.id}: an active review session already exists for this document at iteration ${stillLive.iterationNumber}`,
+            // TERMINAL-SESSION-SUPERSEDE-1. `state='active'` is true for BOTH a genuinely-running review and
+            // a done-but-unclosed one (state leaves 'active' only on an explicit Close/regenerate/abandon —
+            // never on natural completion), so the old raw 409 blocked the legitimate "start a fresh review"
+            // case. Decide by REAL terminality, not by `state`:
+            //   - HOLD phase            -> NEVER auto-supersede (a no_external hold is deliberate; clearing it
+            //                              is a privileged Inc-3 act). Resumable conflict (the client opens it).
+            //   - genuinely IN-FLIGHT   -> a review is still running; clear "in progress" (NOT a raw 409). The
+            //                              client resumes the running session (it carries the id).
+            //   - TERMINAL              -> supersede it (active->'regenerated', the History-VISIBLE supersede
+            //                              state, NOT 'abandoned'): the prior review stays viewable/comparable
+            //                              in document history and the new review proceeds. Nothing is deleted.
+            const livePhase = stillLive.lifecyclePhase ?? null;
+            const liveIsHold =
+              livePhase === 'held' || livePhase === 'blocked_by_hold' || livePhase === 'partial_blocked_by_hold';
+            if (liveIsHold) {
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: `SESSION_ALREADY_EXISTS:${stillLive.id}: a held review session exists for this document at iteration ${stillLive.iterationNumber}; resolve the hold before starting a new review`,
+              });
+            }
+            // Terminality: any non-terminal lane => in-flight (async). For the SYNC path there are NO lanes,
+            // so "all lanes terminal" alone is not enough — a young, not-yet-settled session could be a sync
+            // run still blocking inside its own create. The robust terminal signal is therefore: no in-flight
+            // lane AND (the session is settled [lifecyclePhase 'completed'] OR it has lanes [async, all
+            // terminal] OR it is older than the dispatch window [any in-flight run is long dead]).
+            const liveLanes = await listReviewerLanesForSession(stillLive.id, userId);
+            const liveInFlight = liveLanes.some((l) => !isTerminalLaneStatus(l.status));
+            const liveAgeMs = Date.now() - stillLive.createdAt.getTime();
+            const liveTerminal =
+              !liveInFlight &&
+              (livePhase === 'completed' || liveLanes.length > 0 || liveAgeMs > MAX_DISPATCH_WINDOW_MS);
+            if (!liveTerminal) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `REVIEW_IN_PROGRESS:${stillLive.id}: a review is still running on this document at iteration ${stillLive.iterationNumber} — wait for it to finish before starting a new one`,
+              });
+            }
+            const supersededRows = await supersedeReviewSessionForNewReview({
+              sessionId: stillLive.id,
+              userId,
+              matterId: doc.matterId,
+              documentId: input.documentId,
+              fromLifecyclePhase: livePhase,
+              summary:
+                `Superseded completed review session ${stillLive.id} (document ${input.documentId}, ` +
+                `iteration ${stillLive.iterationNumber}) on a new review request. Prior review retained and ` +
+                `visible in document history (state 'regenerated'); no feedback / locks / ledger discarded.`,
             });
+            if (supersededRows === 0) {
+              // Lost the single-flight CAS (a concurrent supersede/abandon already moved it). Re-resolve; if a
+              // fresh active session now holds the key (a concurrent create won), surface the resumable conflict.
+              const afterRace = await getActiveReviewSessionForDocument(input.documentId, userId);
+              if (afterRace) {
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: `SESSION_ALREADY_EXISTS:${afterRace.id}: an active review session already exists for this document at iteration ${afterRace.iterationNumber}`,
+                });
+              }
+            }
+            // superseded (rows===1) OR the activeSessionKey is now free (afterRace null) -> fall through to the
+            // normal atomic insert below; the unique index is the final backstop against a concurrent winner.
           }
         }
       }

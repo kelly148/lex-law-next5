@@ -75,9 +75,12 @@ interface CreateSessionViewProps {
   onCreated: (sessionId: string) => void;
 }
 
-// Parse SESSION_ALREADY_EXISTS:<uuid>: ... error messages to extract the existing session ID.
+// Parse SESSION_ALREADY_EXISTS:<uuid>: ... OR REVIEW_IN_PROGRESS:<uuid>: ... (TERMINAL-SESSION-SUPERSEDE-1)
+// to extract the existing session ID, so a create blocked by a held OR a still-running review on the same
+// draft RESUMES/opens that session instead of a dead-end error. (A TERMINAL session is auto-superseded
+// server-side, so create just succeeds with a fresh session and never returns either of these.)
 function parseExistingSessionId(message: string): string | null {
-  const match = /^SESSION_ALREADY_EXISTS:([0-9a-f-]{36}):/.exec(message);
+  const match = /^(?:SESSION_ALREADY_EXISTS|REVIEW_IN_PROGRESS):([0-9a-f-]{36}):/.exec(message);
   return match ? (match[1] ?? null) : null;
 }
 
