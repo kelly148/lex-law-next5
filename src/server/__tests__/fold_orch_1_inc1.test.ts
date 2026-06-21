@@ -121,7 +121,37 @@ describe('FOLD-ORCH-1 — consolidateReviewerFeedback', () => {
     // claude succeeded, gemini did not -> agreedCount = 1 -> not convergent
     expect(g.agreedCount).toBe(1);
     expect(g.classification).toBe('single_reviewer');
-    expect(res.denominator).toEqual({ intended: 4, successful: 2, missing: ['gemini', 'grok'] });
+    // REVIEWER-NO-RETURN-RELABEL-1: with no completedReviewers supplied, the split defaults to legacy
+    // parity — everything non-successful is a non-return, nothing is completed-empty.
+    expect(res.denominator).toEqual({
+      intended: 4,
+      successful: 2,
+      missing: ['gemini', 'grok'],
+      completedEmpty: [],
+      noReturn: ['gemini', 'grok'],
+    });
+  });
+
+  it('REVIEWER-NO-RETURN-RELABEL-1: completedReviewers splits `missing` into completed-empty vs no-return (convergence math untouched)', () => {
+    const res = consolidateReviewerFeedback(input({
+      intendedReviewers: ['claude', 'gpt', 'gemini', 'grok'],
+      successfulReviewers: ['claude'],
+      // gpt COMPLETED but returned zero suggestions ("No suggestions"); gemini + grok never returned.
+      completedReviewers: ['claude', 'gpt'],
+      groups: [{ issueId: 'i1', severity: 'PRECISION', reviewerMembers: ['claude', 'gpt'], divergent: false }],
+    }));
+    expect(res.denominator).toEqual({
+      intended: 4,
+      successful: 1,
+      missing: ['gpt', 'gemini', 'grok'],
+      completedEmpty: ['gpt'], // completed, zero suggestions -> "No suggestions", NOT "No return"
+      noReturn: ['gemini', 'grok'], // never returned -> "No return"
+    });
+    // The split is label-only: convergence still counts ONLY successful reviewers, so a completed-empty
+    // reviewer is still not a vote and the floor is still unmet with one success.
+    expect(res.denominator.successful).toBe(1);
+    expect(res.convergenceFloorMet).toBe(false);
+    expect(res.groups[0]!.agreedCount).toBe(1);
   });
 
   it('STRUCTURAL convergent is per-item unless positively classified low-risk cleanup', () => {

@@ -73,6 +73,24 @@ export function successfulReviewersFromFeedback(rows: ReviewerFeedbackForGroupin
 }
 
 /**
+ * REVIEWER-NO-RETURN-RELABEL-1: the reviewers that COMPLETED this run = distinct reviewer roles that
+ * wrote a feedback row, REGARDLESS of suggestion count. A clean-but-empty reviewer DOES write a row
+ * (txn2Commit → insertFeedback, lane completed_without_feedback), so it appears here; an errored /
+ * timed-out / rate-limited reviewer goes through txn2Revert and writes NO row, so it is absent here
+ * (a true non-return). A superset of successfulReviewersFromFeedback. Order-preserving, deduplicated.
+ */
+export function completedReviewersFromFeedback(rows: ReviewerFeedbackForGrouping[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    if (seen.has(r.reviewerRole)) continue;
+    seen.add(r.reviewerRole);
+    out.push(r.reviewerRole);
+  }
+  return out;
+}
+
+/**
  * Assemble the full consolidation for a session: classified groups + bulk-eligible ids (the Inc1
  * engine) and the content-preserving divergent-item projections (Fork E). PURE.
  */
@@ -84,9 +102,11 @@ export function assembleSessionConsolidation(
     feedbackRows: input.feedbackRows,
   });
   const successfulReviewers = successfulReviewersFromFeedback(input.feedbackRows);
+  const completedReviewers = completedReviewersFromFeedback(input.feedbackRows);
   const consolidation = consolidateReviewerFeedback({
     intendedReviewers: input.intendedReviewers,
     successfulReviewers,
+    completedReviewers,
     groups,
   });
 

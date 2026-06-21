@@ -110,8 +110,17 @@ const consolidation = (
   intended: number,
   missing: string[],
   convergenceFloorMet: boolean,
+  // REVIEWER-NO-RETURN-RELABEL-1: missing = completedEmpty ∪ noReturn. Default: treat every missing
+  // reviewer as a true non-return (the pre-relabel behavior); pass `split` to model completed-empty.
+  split?: { completedEmpty?: string[]; noReturn?: string[] },
 ) => ({
-  denominator: { successful, intended, missing },
+  denominator: {
+    successful,
+    intended,
+    missing,
+    completedEmpty: split?.completedEmpty ?? [],
+    noReturn: split?.noReturn ?? missing,
+  },
   convergenceFloorMet,
   groups: [],
   divergentItems: [],
@@ -154,5 +163,16 @@ describe('ActiveSessionView — R2-2 Inc A denominator + review basis (now in th
     const { container } = render(<ActiveSessionView {...PROPS} />);
     expect(container.innerHTML).toContain('Review basis:');
     expect(container.innerHTML).toMatch(/iteration 2/);
+  });
+
+  it('REVIEWER-NO-RETURN-RELABEL-1: a completed-but-empty reviewer reads "No suggestions", not "No return"', () => {
+    // grok COMPLETED cleanly with zero suggestions: it is in `missing` (not a successful vote) but must
+    // read "No suggestions" (matching its per-lane chip), NEVER "No return".
+    mockState.consolidation = {
+      data: consolidation(1, 2, ['grok'], false, { completedEmpty: ['grok'], noReturn: [] }),
+    };
+    const { container } = render(<ActiveSessionView {...PROPS} />);
+    expect(container.innerHTML).toContain('No suggestions: Grok');
+    expect(container.innerHTML).not.toContain('No return:');
   });
 });
