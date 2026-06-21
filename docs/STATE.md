@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-21e (DRAFT-STREAMING-GAP-1 — diagnostic: F3 token streaming does not engage in prod; merged to main 16a39b8; fix STOPPED for operator direction)
+
+**Disposition.** Read-only diagnostic. Cowork live-tested F3 (DRAFT_STREAMING_ENABLED set + redeployed): streaming does NOT engage on either draft path (static "Generating draft…" then full result; no /api/stream/draft SSE call). 3-agent read-only trace. NO behavior fix. Diagnostic committed `docs/engagements/DRAFT-STREAMING-GAP-1-investigation.md`, PR #378 (CI green), `operator approve accept:` → squash-merged **16a39b8**; branch deleted.
+
+**Root cause.** Drafts run SYNCHRONOUSLY: `document.generateDraft`/`regenerate` call `executeCanonicalMutation` INLINE+awaited (`documents4a.ts:578/:746`) → returns `{jobId,status}` only AFTER `txn2Commit`. The F3 seam IS wired and engages (`canStream` true for drafts: jobType draft_generation/regeneration, no structuredOutputSchema, no egress — `canonicalMutation.ts:765-770,825`), so the server opens the per-jobId bus and publishes deltas — but to a bus with NO subscriber, because the client only learns the jobId in the final response (after the LLM call + all deltas + `closeDraftStream`, which deletes the unobserved entry `draftStreamBus.ts:93-95`). The client never opens the EventSource (`useDraftStream` needs an early jobId; `useDocumentJobs` doesn't poll, `DocumentDetail.tsx:176`). BOTH a server (sync-mutation timing) gap AND a client (never-subscribes) gap — two facets of one root: drafts are a synchronous request/response, unlike the async F2 reviewer path.
+
+**Confirmed (not the gap).** Flag works (per-call `DRAFT_STREAMING_ENABLED==='true'`; env-set+redeploy activates). SSE endpoint mounted/auth/owner-scoped (`index.ts:357`). Bus REPLAYS the prefix for an in-flight subscriber (`draftStreamBus.ts:109-129`) but DROPS everything post-completion; bus is per-process in-memory (multi-replica hazard — SSE must hit the job's instance).
+
+**Proposed minimal fix (NOT implemented — STOPPED for operator direction).** Dispatch drafts ASYNC like F2 reviewers (now ON): enqueue → return jobId early → run `runJob` in background (`registerDeferredContinuation` + `void runDeferredCanonicalJob`); client subscribes-before-await on the early jobId; the bus already buffers the enqueue→subscribe race. Caveats surfaced: (1) per-replica bus → confirm Railway replica count before relying on streaming at scale (multi-replica needs Redis pub/sub); (2) async-draft is a flag-gated behavior change (its own increment). Operator options offered: (a) build the async-draft fix (flag-gated); (b) defer F3 + flip DRAFT_STREAMING_ENABLED back off (harmlessly inert today); (c) accept the diagnostic, decide later. **Open: awaiting operator direction (a/b/c); no F3 fix until then.**
+
+---
+
 ## 2026-06-21d (NOTIFY-PRODUCERS-1 — wire review-ready + draft-generated in-app notification producers; merged to main 30db067; auto-merged Rule 15)
 
 **Disposition.** FOLD-NOTIFY-1 shipped the notifications store/read/bell/badge/60s-poll (NOTIFICATIONS_ENABLED on in prod) but DEFERRED the producers, so no badge fired (Cowork live-confirmed). Wired the two events the operator wants: (1) a review has RETURNED, (2) a DRAFT has been generated. Hold/ack + deadline types stay deferred. Reversible build-and-PR; NO decision surfaced → auto-merged per Rule 15 on green CI (#376, squash **30db067**); branch deleted. Not deployed (merge ≠ deploy); Cowork live-verifies post-deploy.
