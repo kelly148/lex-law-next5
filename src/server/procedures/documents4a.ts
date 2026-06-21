@@ -50,7 +50,7 @@ import {
   getVariableSchemaForVersion,
 } from '../db/queries/templates.js';
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
-import { isConflictGateEnabled } from '../config/featureFlags.js';
+import { isConflictGateEnabled, isAsyncDraftDispatchEnabled } from '../config/featureFlags.js';
 import { recordDraftUnderOverride } from '../db/queries/gateOverride.js';
 // NOTIFY-PRODUCERS-1: draft-ready producer (in-app badge on a committed draft version; best-effort).
 import { emitDraftReadyNotification } from '../db/queries/notifications.js';
@@ -71,6 +71,9 @@ import {
 } from '../llm/handlebars/engine.js';
 import {
   executeCanonicalMutation,
+  enqueueCanonicalJobForDispatcher,
+  runDeferredCanonicalJob,
+  type CanonicalMutationParams,
 } from '../db/canonicalMutation.js';
 import {
   PRIMARY_DRAFTER_MODEL,
@@ -577,7 +580,7 @@ export const document4aRouter = router({
         { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
       );
 
-      const result = await executeCanonicalMutation({
+      const draftParams: CanonicalMutationParams = {
         userId,
         jobType: 'draft_generation',
         modelString: resolveGenerationModel(generationModelMode, PRIMARY_DRAFTER_MODEL),
@@ -630,8 +633,20 @@ export const document4aRouter = router({
           );
         },
         telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-      });
-
+      };
+      // F3 / ASYNC-DRAFT-DISPATCH-1: flag OFF (default) -> the established SYNCHRONOUS inline path
+      // (byte-for-byte). Flag ON -> mirror the F2 reviewer dispatch: enqueue 'queued', return the jobId
+      // immediately, run runJob detached so the canStream seam publishes deltas while the client subscribes.
+      // The committed version is unchanged (txn2Commit runs identically in the background); only timing moves.
+      if (isAsyncDraftDispatchEnabled()) {
+        const jobId = await enqueueCanonicalJobForDispatcher(draftParams);
+        void runDeferredCanonicalJob(jobId).catch((e) =>
+          // eslint-disable-next-line no-console
+          console.error(`[draft-async] background draft run failed (doc ${input.documentId}, job ${jobId}):`, e),
+        );
+        return { jobId, status: 'queued' as const };
+      }
+      const result = await executeCanonicalMutation(draftParams);
       return { jobId: result.jobId, status: result.status };
     }),
 
@@ -748,7 +763,7 @@ export const document4aRouter = router({
 
       const nextIterationNumber = currentVersion.iterationNumber + 1;
 
-      const result = await executeCanonicalMutation({
+      const regenParams: CanonicalMutationParams = {
         userId,
         jobType: 'regeneration',
         modelString: PRIMARY_DRAFTER_MODEL,
@@ -801,8 +816,17 @@ export const document4aRouter = router({
           );
         },
         telemetryCtx: { userId, matterId: doc.matterId, documentId: input.documentId, jobId: null },
-      });
-
+      };
+      // F3 / ASYNC-DRAFT-DISPATCH-1: see generateDraft — flag OFF = byte-for-byte sync; ON = async dispatch.
+      if (isAsyncDraftDispatchEnabled()) {
+        const jobId = await enqueueCanonicalJobForDispatcher(regenParams);
+        void runDeferredCanonicalJob(jobId).catch((e) =>
+          // eslint-disable-next-line no-console
+          console.error(`[draft-async] background regeneration run failed (doc ${input.documentId}, job ${jobId}):`, e),
+        );
+        return { jobId, status: 'queued' as const };
+      }
+      const result = await executeCanonicalMutation(regenParams);
       return { jobId: result.jobId, status: result.status };
     }),
 
