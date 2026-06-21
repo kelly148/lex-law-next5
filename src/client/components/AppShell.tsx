@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X } from 'lucide-react';
+import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X, Activity } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -37,6 +37,8 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   const deliverableFlag = trpc.matterDeliverable.isEnabled.useQuery();
   // SUPERVISION-VIEW-1 — show the Supervision nav link only when enabled (default OFF -> hidden).
   const supervisionFlag = trpc.supervision.isEnabled.useQuery();
+  // REVIEWER-HEALTH-VIEW-1 (5C) — show the Diagnostics nav link only when enabled (default OFF -> hidden).
+  const reviewerHealthFlag = trpc.reviewerHealth.isEnabled.useQuery();
   // FOLD-NOTIFY-1 — probe the notifications flag (default OFF -> bell hidden, no poll).
   const notificationsFlag = trpc.notifications.isEnabled.useQuery();
   const notificationsEnabled = notificationsFlag.data?.enabled === true;
@@ -175,6 +177,12 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             <NavLink to="/supervision" className={navLinkClass}>
               <ShieldCheck className="w-4 h-4 flex-shrink-0" />
               <span data-rail-label>Supervision</span>
+            </NavLink>
+          )}
+          {reviewerHealthFlag.data?.enabled === true && (
+            <NavLink to="/diagnostics" className={navLinkClass}>
+              <Activity className="w-4 h-4 flex-shrink-0" />
+              <span data-rail-label>Diagnostics</span>
             </NavLink>
           )}
           <NavLink to="/templates" className={navLinkClass}>
