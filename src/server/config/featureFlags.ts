@@ -533,6 +533,25 @@ export function isAsyncDraftDispatchEnabled(): boolean {
 }
 
 /**
+ * GPT-5 reviewer reasoning cap — truncation insurance (GPT5-REASONING-CAP-1). DEFAULT OFF.
+ *
+ * GPT-5 is a reasoning model: on the reviewer lane it spends `max_completion_tokens` (the 16384 reviewer
+ * ceiling) on reasoning tokens AND the visible answer COMBINED, so unbounded internal reasoning can consume
+ * the budget and truncate the review (finish_reason 'length'). This flag, when exactly "true", sends a
+ * BOUNDED top-level `reasoning_effort` (env-overridable GPT5_REASONING_CAP_EFFORT, default "low") on the
+ * GPT-5 reviewer_feedback lane so reasoning reserves room for a complete answer.
+ *
+ * DECOUPLED from REVIEWER_LATENCY_TUNING_ENABLED (which sets the same knob for SPEED): the cap is a
+ * truncation-insurance FALLBACK — when latency tuning already supplies reasoning_effort the cap is inert;
+ * when latency tuning is OFF, the cap supplies it. DEFAULT OFF → byte-for-byte today (no reasoning_effort
+ * sent unless one of the two flags is on). Scope: the active full GPT reviewer only (same TUNED_REVIEWER_
+ * MODELS set); drafter / evaluator / lite / non-OpenAI lanes are never touched. No migration; reversible.
+ */
+export function isGpt5ReasoningCapEnabled(): boolean {
+  return process.env['GPT5_REASONING_CAP_ENABLED'] === 'true';
+}
+
+/**
  * Draft token streaming (F3 / DRAFT-STREAMING-1). DEFAULT OFF.
  *
  * When OFF (the default), draft_generation/regeneration jobs run the established blocking generate()

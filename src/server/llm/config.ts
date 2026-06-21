@@ -275,7 +275,7 @@ export function validateReviewerModels(
 // `reasoning: { effort }` nesting). Values are env-overridable without a code change (a Railway
 // env edit + restart) so the effort/tier can be retuned from measurement without a redeploy.
 
-import { isReviewerLatencyTuningEnabled } from '../config/featureFlags.js';
+import { isReviewerLatencyTuningEnabled, isGpt5ReasoningCapEnabled } from '../config/featureFlags.js';
 
 export interface ReviewerLatencyTuning {
   /** OpenAI Chat Completions top-level `reasoning_effort` (gpt-5/o-series): minimal|low|medium|high. */
@@ -317,6 +317,25 @@ export function resolveReviewerLatencyTuning(
     reasoningEffort: envOr('REVIEWER_GPT5_REASONING_EFFORT', 'low'),
     serviceTier: envOr('REVIEWER_GPT5_SERVICE_TIER', 'priority'),
   };
+}
+
+/**
+ * GPT5-REASONING-CAP-1: a bounded reasoning_effort for the GPT-5 reviewer lane as TRUNCATION insurance,
+ * DECOUPLED from REVIEWER_LATENCY_TUNING_ENABLED. Returns { reasoningEffort } ONLY when
+ * GPT5_REASONING_CAP_ENABLED is on, for a reviewer_feedback job on the active full GPT reviewer (the SAME
+ * TUNED_REVIEWER_MODELS scope as the latency tuning); null otherwise. The caller uses it as a FALLBACK after
+ * resolveReviewerLatencyTuning, so when latency tuning already supplies reasoning_effort the cap is inert
+ * (no double-set). Env override: GPT5_REASONING_CAP_EFFORT (default "low" — bounds reasoning enough to leave
+ * the visible answer room within the 16384 ceiling without gutting review depth).
+ */
+export function resolveReviewerReasoningCap(
+  jobType: string,
+  modelString: string,
+): { reasoningEffort: string } | null {
+  if (!isGpt5ReasoningCapEnabled()) return null;
+  if (jobType !== 'reviewer_feedback') return null;
+  if (!TUNED_REVIEWER_MODELS.has(modelString)) return null;
+  return { reasoningEffort: envOr('GPT5_REASONING_CAP_EFFORT', 'low') };
 }
 
 // ============================================================
