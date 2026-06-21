@@ -73,12 +73,28 @@ export interface ConsolidatedGroup {
 export interface ConsolidationInput {
   intendedReviewers: string[]; // the matter's toggled-on reviewer set
   successfulReviewers: string[]; // reviewers that returned a substantive result this run
+  // REVIEWER-NO-RETURN-RELABEL-1: reviewers that COMPLETED this run (wrote a feedback row — even an
+  // EMPTY one), a superset of successfulReviewers. Used ONLY to split the non-success set into
+  // completed-empty ("No suggestions") vs a true non-return ("No return") for honest labeling; it
+  // does NOT affect convergence/eligibility (those still count over successfulReviewers). Optional:
+  // omitted => completed defaults to the successful set (legacy: completedEmpty empty, noReturn = missing).
+  completedReviewers?: string[];
   groups: OrchestrationGroup[];
 }
 
 export interface ConsolidationResult {
   groups: ConsolidatedGroup[];
-  denominator: { intended: number; successful: number; missing: string[] };
+  // `missing` = intended − successful (preserved for back-compat). REVIEWER-NO-RETURN-RELABEL-1
+  // partitions it: `completedEmpty` = returned a clean EMPTY result ("No suggestions"); `noReturn` =
+  // never returned (errored / timed_out / rate_limited / cancelled — "No return"). The two are
+  // disjoint and their union is exactly `missing`.
+  denominator: {
+    intended: number;
+    successful: number;
+    missing: string[];
+    completedEmpty: string[];
+    noReturn: string[];
+  };
   convergenceFloorMet: boolean;
   bulkEligibleIssueIds: string[];
 }
@@ -97,6 +113,14 @@ export function consolidateReviewerFeedback(input: ConsolidationInput): Consolid
   const successful = uniq(input.successfulReviewers).filter((r) => intended.includes(r));
   const successfulSet = new Set(successful);
   const missing = intended.filter((r) => !successfulSet.has(r));
+  // REVIEWER-NO-RETURN-RELABEL-1: split `missing` into completed-empty vs true non-return for honest
+  // labeling. `completed` = reviewers that wrote a feedback row this run (a superset of successful; an
+  // EMPTY row is still a completion). Default to the successful set when not supplied (legacy parity).
+  const completedSet = new Set(
+    uniq([...(input.completedReviewers ?? successful), ...successful]).filter((r) => intended.includes(r)),
+  );
+  const completedEmpty = intended.filter((r) => completedSet.has(r) && !successfulSet.has(r));
+  const noReturn = intended.filter((r) => !completedSet.has(r));
   const convergenceFloorMet = successful.length >= CONVERGENCE_FLOOR;
 
   const groups: ConsolidatedGroup[] = input.groups.map((g) => {
@@ -132,7 +156,7 @@ export function consolidateReviewerFeedback(input: ConsolidationInput): Consolid
 
   return {
     groups,
-    denominator: { intended: intended.length, successful: successful.length, missing },
+    denominator: { intended: intended.length, successful: successful.length, missing, completedEmpty, noReturn },
     convergenceFloorMet,
     bulkEligibleIssueIds: groups.filter((g) => g.bulkEligible).map((g) => g.issueId),
   };

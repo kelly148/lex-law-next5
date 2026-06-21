@@ -1538,7 +1538,11 @@ export function ActiveSessionView({ sessionId, documentId, onClose }: ActiveSess
   const convergenceTooltip = ((): string => {
     const parts: string[] = [];
     if (denominator) parts.push(`${denominator.successful} of ${denominator.intended} configured reviewers returned substantive feedback.`);
-    if (denominator && denominator.missing.length > 0) parts.push(`No return: ${denominator.missing.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}.`);
+    // REVIEWER-NO-RETURN-RELABEL-1: a reviewer that COMPLETED with zero suggestions is "no suggestions"
+    // (matches its per-lane chip), NOT a non-return; only an errored/timed-out/cancelled reviewer reads
+    // "No return". (denominator.missing = completedEmpty ∪ noReturn — never conflate the two here.)
+    if (denominator && denominator.completedEmpty.length > 0) parts.push(`No suggestions: ${denominator.completedEmpty.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}.`);
+    if (denominator && denominator.noReturn.length > 0) parts.push(`No return: ${denominator.noReturn.map((r) => REVIEWER_LABELS[r] ?? r).join(', ')}.`);
     if (!convergenceFloorMet) parts.push('Fewer than two reviewers returned, so nothing is treated as convergent.');
     if (reviewedAt) parts.push(`Review basis: the draft at iteration ${session.iterationNumber}, reviewed ${reviewedAt}.`);
     return parts.join(' ');

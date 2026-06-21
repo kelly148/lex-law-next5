@@ -55,8 +55,36 @@ describe('FOLD-ORCH-1 Inc3b-2 — assembleSessionConsolidation', () => {
       issueGroups,
     });
     expect(proj.consolidation.bulkEligibleIssueIds).toContain('i1');
-    expect(proj.consolidation.denominator).toEqual({ intended: 3, successful: 2, missing: ['gemini'] });
+    // REVIEWER-NO-RETURN-RELABEL-1: gemini wrote NO feedback row here -> a true non-return.
+    expect(proj.consolidation.denominator).toEqual({
+      intended: 3,
+      successful: 2,
+      missing: ['gemini'],
+      completedEmpty: [],
+      noReturn: ['gemini'],
+    });
     expect(proj.divergentItems).toHaveLength(0);
+  });
+
+  it('REVIEWER-NO-RETURN-RELABEL-1: a completed-but-empty reviewer is "no suggestions", an absent one is "no return"', () => {
+    const rows: ReviewerFeedbackForGrouping[] = [
+      { reviewerRole: 'claude', suggestions: [{ suggestionId: 'c1', body: 'x', severity: 'PRECISION' }] }, // returned
+      { reviewerRole: 'gpt', suggestions: [] }, // COMPLETED, empty row -> completedEmpty / "No suggestions"
+      // 'gemini' is intended but wrote NO feedback row -> noReturn / "No return"
+    ];
+    const proj = assembleSessionConsolidation({
+      reviewSessionId: 'sess-empty-vs-noreturn',
+      intendedReviewers: ['claude', 'gpt', 'gemini'],
+      feedbackRows: rows,
+      issueGroups: null,
+    });
+    expect(proj.consolidation.denominator).toEqual({
+      intended: 3,
+      successful: 1,
+      missing: ['gpt', 'gemini'],
+      completedEmpty: ['gpt'], // empty lane != failed lane
+      noReturn: ['gemini'],
+    });
   });
 
   it('divergent group -> a content-preserving divergent item (per-item, never auto-close)', () => {

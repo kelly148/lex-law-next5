@@ -137,7 +137,10 @@ export default function OrchestrationConsolidationPanel({
                 <Users className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-gray-500" />
                 <span>
                   {data.denominator.successful} of {data.denominator.intended} configured reviewers returned substantive feedback
-                  {data.denominator.missing.length > 0 && <> (no return: {data.denominator.missing.join(', ')})</>}.
+                  {/* REVIEWER-NO-RETURN-RELABEL-1: completed-but-empty reads "no suggestions"; only a true
+                      non-return (errored/timed-out) reads "no return" — matches the per-lane chip. */}
+                  {data.denominator.completedEmpty.length > 0 && <> (no suggestions: {data.denominator.completedEmpty.join(', ')})</>}
+                  {data.denominator.noReturn.length > 0 && <> (no return: {data.denominator.noReturn.join(', ')})</>}.
                   {!data.convergenceFloorMet && (
                     <> Fewer than two reviewers returned — no items are treated as convergent (everything is a per-item decision).</>
                   )}
