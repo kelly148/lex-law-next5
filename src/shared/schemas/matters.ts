@@ -247,7 +247,9 @@ export const VoiceInputPreferencesSchema = z.object({
 });
 
 // NOTIFY-SUITE-1 N3 — notification preferences (default-safe: in-app + the digest + failures + deadlines ON;
-// tab-title + OS + sound OFF; nothing muted). Forward-looking: tabTitle/os are channels not yet built;
+// tab-title + OS OFF; nothing muted). NOTIFY-SOUND-1: `sound` defaults ON so the gavel cue works the moment
+// NOTIFY_SOUND_ENABLED is flipped on (the toggle is the user's off-switch); it is INERT until that flag is
+// on, so the default flip is invisible on prod. Forward-looking: tabTitle/os are channels not yet built;
 // the per-event toggles map to the producer surfaces (only N2 'deadline' is live today). Every field has a
 // default so an existing prefs blob (pre-N3) parses with the safe defaults (additive — no migration).
 export const NotificationEventPrefsSchema = z.object({
@@ -264,7 +266,7 @@ export const NotificationPreferencesSchema = z.object({
   inApp: z.boolean().default(true), // the built channel (bell)
   tabTitle: z.boolean().default(false), // forward-looking channel
   os: z.boolean().default(false), // forward-looking channel (off by default — privacy)
-  sound: z.boolean().default(false),
+  sound: z.boolean().default(true), // NOTIFY-SOUND-1 gavel cue — default ON; gated by NOTIFY_SOUND_ENABLED (default OFF), so inert until the flag flips
   digest: z.boolean().default(true), // the N1 "while you were away" digest
   events: NotificationEventPrefsSchema.default({}),
   // per-matter mute — bounded for hygiene (a runaway list is data-rot; 500 muted matters far exceeds any
@@ -309,7 +311,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferencesData = {
     inApp: true,
     tabTitle: false,
     os: false,
-    sound: false,
+    sound: true,
     digest: true,
     events: { reviewComplete: true, reviewFailed: true, regeneration: true, extraction: true, sendability: true, deadline: true },
     mutedMatterIds: [],

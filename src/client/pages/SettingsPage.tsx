@@ -369,7 +369,8 @@ function NotificationPreferencesSection({ initial }: { initial: NotificationPref
           testid="notif-toggle-digest"
         />
         <ToggleRow
-          label="Sound"
+          label="Notification sound"
+          hint="Play a gavel sound when a draft or review is ready."
           checked={prefs.sound}
           onToggle={() => toggleTop('sound')}
           disabled={updateMutation.isPending || !prefs.inApp}

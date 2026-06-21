@@ -8,7 +8,7 @@
  * path in CI, post the FOLD-ORCH-1 #310 incident): it mounts the FULL AppShell
  * and asserts the rebranded chrome renders without a hooks/render violation.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -17,8 +17,16 @@ import { MemoryRouter } from 'react-router-dom';
 const notificationsListData: { data: { items: unknown[]; unreadCount: number; unreadMatterIds: string[] } } = {
   data: { items: [], unreadCount: 0, unreadMatterIds: [] },
 };
-// FOLD-NOTIFY-1: the render mock returns this for trpc.notifications.isEnabled.useQuery.
-const notificationsFlagData: { data: { enabled: boolean } } = { data: { enabled: false } };
+// FOLD-NOTIFY-1 / NOTIFY-SOUND-1: the render mock returns this for trpc.notifications.isEnabled.useQuery.
+// soundEnabled is the NOTIFY_SOUND_ENABLED flag (gavel cue).
+const notificationsFlagData: { data: { enabled: boolean; soundEnabled?: boolean } } = {
+  data: { enabled: false, soundEnabled: false },
+};
+// NOTIFY-SOUND-1: the render mock returns this for trpc.settings.get.useQuery — AppShell reads
+// notificationPreferences.sound (the per-user gavel toggle) from it.
+const settingsData: { data: { notificationPreferences: { sound: boolean } } } = {
+  data: { notificationPreferences: { sound: true } },
+};
 // NOTIFY-SUITE-1 N1: the render mock returns this for trpc.notifications.digest.useQuery (the "while you
 // were away" banner). A test mutates it (then restores) to exercise the banner path.
 const notificationsDigestData: {
@@ -85,9 +93,21 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // NOTIFY-SOUND-1: AppShell reads the per-user sound toggle from settings.get.
+      settings: {
+        get: {
+          useQuery: () => {
+            React.useRef(null);
+            return { ...settingsData, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
     },
   };
 });
+
+// NOTIFY-SOUND-1: the gavel cue is a best-effort side effect — mock it so we can assert WHEN it fires.
+vi.mock('../../utils/gavelSound.js', () => ({ playGavel: vi.fn() }));
 
 vi.mock('../../hooks/useAuth.js', () => ({
   useAuth: () => ({
@@ -102,10 +122,18 @@ vi.mock('../../hooks/useGuardedMutation.js', () => ({
 }));
 
 import AppShell from '../AppShell.js';
+import { playGavel } from '../../utils/gavelSound.js';
 
 afterEach(() => {
   cleanup();
 });
+
+const renderShell = () =>
+  render(
+    <MemoryRouter>
+      <AppShell><div>Main content</div></AppShell>
+    </MemoryRouter>
+  );
 
 describe('AppShell — Whereas R1 rebranded shell', () => {
   it('renders the Whereas wordmark and navigation without crashing', () => {
@@ -218,5 +246,111 @@ describe('AppShell — NOTIFY-SUITE-1 N1 "while you were away" digest banner', (
       <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
     );
     expect(queryByTestId('notify-digest')).toBeNull();
+  });
+});
+
+describe('AppShell — Item 2: notifications dropdown + working mark-seen', () => {
+  afterEach(() => {
+    notificationsFlagData.data = { enabled: false, soundEnabled: false };
+    notificationsListData.data = { items: [], unreadCount: 0, unreadMatterIds: [] };
+    notificationsDigestData.data = { total: 0, matterReady: 0, deadline: 0, generic: 0, matterCount: 0, summaryLine: '' };
+  });
+
+  const ITEMS = [
+    { id: '11111111-1111-1111-1111-111111111111', title: 'Review ready', body: null, matterId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', type: 'matter_ready', readAt: null },
+    { id: '22222222-2222-2222-2222-222222222222', title: 'Draft ready', body: null, matterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', type: 'matter_ready', readAt: null },
+  ];
+
+  it('the bell is a BUTTON; the panel is closed until clicked, then lists the items + a "mark all as read" control', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: false };
+    notificationsListData.data = { items: ITEMS, unreadCount: 2, unreadMatterIds: [ITEMS[0]!.matterId, ITEMS[1]!.matterId] };
+    const { getByTestId, queryByTestId, getAllByTestId } = renderShell();
+
+    const bell = getByTestId('notifications-bell');
+    expect(bell.tagName).toBe('BUTTON'); // interactive, not the old inert <div>
+    expect(queryByTestId('notifications-panel')).toBeNull(); // closed by default
+
+    fireEvent.click(bell);
+    expect(getByTestId('notifications-panel')).toBeTruthy();
+    expect(getByTestId('notifications-mark-all')).toBeTruthy();
+    expect(getAllByTestId('notification-item')).toHaveLength(2);
+    expect(getByTestId('notifications-panel').textContent).toContain('Review ready');
+  });
+
+  it('clicking an item and "mark all as read" do not throw (mutations wired)', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: false };
+    notificationsListData.data = { items: ITEMS, unreadCount: 2, unreadMatterIds: [] };
+    const { getByTestId, getAllByTestId } = renderShell();
+    fireEvent.click(getByTestId('notifications-bell'));
+    expect(() => fireEvent.click(getAllByTestId('notification-item')[0]!)).not.toThrow();
+    fireEvent.click(getByTestId('notifications-bell')); // reopen (item-click closed it)
+    expect(() => fireEvent.click(getByTestId('notifications-mark-all'))).not.toThrow();
+  });
+
+  it('the digest banner exposes a "Mark all read" action distinct from Dismiss', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: false };
+    notificationsDigestData.data = { total: 1, matterReady: 1, deadline: 0, generic: 0, matterCount: 1, summaryLine: '1 matter has results' };
+    const { getByTestId } = renderShell();
+    expect(getByTestId('notify-digest-mark-all')).toBeTruthy();
+    expect(() => fireEvent.click(getByTestId('notify-digest-mark-all'))).not.toThrow();
+    notificationsDigestData.data = { total: 0, matterReady: 0, deadline: 0, generic: 0, matterCount: 0, summaryLine: '' };
+  });
+});
+
+describe('AppShell — Item 3: gavel cue on a newly-arrived notification', () => {
+  beforeEach(() => {
+    vi.mocked(playGavel).mockClear();
+  });
+  afterEach(() => {
+    notificationsFlagData.data = { enabled: false, soundEnabled: false };
+    notificationsListData.data = { items: [], unreadCount: 0, unreadMatterIds: [] };
+    settingsData.data = { notificationPreferences: { sound: true } };
+  });
+
+  const NEW_ITEM = { id: '33333333-3333-3333-3333-333333333333', title: 'Review ready', body: null, matterId: 'cccccccc-cccc-cccc-cccc-cccccccccccc', type: 'matter_ready', readAt: null };
+
+  it('does NOT replay pre-existing unseen notifications on first load (seed only)', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: true };
+    settingsData.data = { notificationPreferences: { sound: true } };
+    notificationsListData.data = { items: [NEW_ITEM], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
+    renderShell();
+    expect(vi.mocked(playGavel)).not.toHaveBeenCalled();
+  });
+
+  it('plays ONCE when a new unseen notification arrives during the session (flag + toggle ON)', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: true };
+    settingsData.data = { notificationPreferences: { sound: true } };
+    notificationsListData.data = { items: [], unreadCount: 0, unreadMatterIds: [] };
+    const { rerender } = renderShell();
+    expect(vi.mocked(playGavel)).not.toHaveBeenCalled(); // first load seeds, no play
+    // a later poll surfaces a freshly-created notice
+    notificationsListData.data = { items: [NEW_ITEM], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
+    rerender(<MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>);
+    expect(vi.mocked(playGavel)).toHaveBeenCalledTimes(1);
+    // a later poll returns a FRESH array instance with the SAME item id -> effect re-runs but must NOT
+    // replay (dedupe by id).
+    notificationsListData.data = { items: [{ ...NEW_ITEM }], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
+    rerender(<MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>);
+    expect(vi.mocked(playGavel)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT play when the NOTIFY_SOUND_ENABLED flag is OFF', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: false };
+    settingsData.data = { notificationPreferences: { sound: true } };
+    notificationsListData.data = { items: [], unreadCount: 0, unreadMatterIds: [] };
+    const { rerender } = renderShell();
+    notificationsListData.data = { items: [NEW_ITEM], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
+    rerender(<MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>);
+    expect(vi.mocked(playGavel)).not.toHaveBeenCalled();
+  });
+
+  it('does NOT play when the per-user sound toggle is OFF', () => {
+    notificationsFlagData.data = { enabled: true, soundEnabled: true };
+    settingsData.data = { notificationPreferences: { sound: false } };
+    notificationsListData.data = { items: [], unreadCount: 0, unreadMatterIds: [] };
+    const { rerender } = renderShell();
+    notificationsListData.data = { items: [NEW_ITEM], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
+    rerender(<MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>);
+    expect(vi.mocked(playGavel)).not.toHaveBeenCalled();
   });
 });

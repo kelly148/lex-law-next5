@@ -243,13 +243,17 @@ export async function emitReviewReadyNotification(args: {
   matterId: string;
 }): Promise<void> {
   try {
-    await emitNotificationOnce({
+    const created = await emitNotificationOnce({
       dedupKey: `review_ready:${args.reviewSessionId}`,
       userId: args.userId,
       matterId: args.matterId,
       type: 'matter_ready',
       title: 'Review ready',
     });
+    // Turn the best-effort silence into evidence: a live run records whether a NEW row was written
+    // (created=true), a dedup no-op (created=false), or a swallowed error (the catch below) — so the
+    // "review completed but no badge" symptom is diagnosable from logs without guesswork.
+    console.info(`[notify-producers] review-ready emit (session ${args.reviewSessionId}): created=${created}`);
   } catch (e) {
     console.error(`[notify-producers] review-ready emit failed (session ${args.reviewSessionId}):`, e);
   }
@@ -266,13 +270,14 @@ export async function emitDraftReadyNotification(args: {
   matterId: string;
 }): Promise<void> {
   try {
-    await emitNotificationOnce({
+    const created = await emitNotificationOnce({
       dedupKey: `draft_ready:${args.versionId}`,
       userId: args.userId,
       matterId: args.matterId,
       type: 'matter_ready',
       title: 'Draft ready',
     });
+    console.info(`[notify-producers] draft-ready emit (version ${args.versionId}): created=${created}`);
   } catch (e) {
     console.error(`[notify-producers] draft-ready emit failed (version ${args.versionId}):`, e);
   }
