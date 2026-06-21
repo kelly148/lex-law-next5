@@ -4,6 +4,34 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-22b (ASYNC-DRAFT-DISPATCH-1 / F3 — async draft dispatch so streaming reaches the client; merged to main abc968b; auto-merged Rule 15)
+
+**Disposition.** Fixes the diagnosed DRAFT-STREAMING-GAP-1 (2026-06-21e). Reversible build-and-PR; no decision/residual surfaced → auto-merged per Rule 15 on green CI (PR #381, squash **abc968b**); branch deleted. Not deployed (merge ≠ deploy); Cowork live-verifies post-deploy. New flag **`ASYNC_DRAFT_DISPATCH_ENABLED`** (default OFF). No migration.
+
+**Delivered.** `document.generateDraft` / `document.regenerate` now branch on the flag: OFF → the established synchronous `executeCanonicalMutation` path **byte-for-byte**; ON → mirror the proven F2 reviewer dispatch — `enqueueCanonicalJobForDispatcher(params)` commits the job 'queued', returns the jobId immediately (`status:'queued'`), and `void runDeferredCanonicalJob(jobId).catch(...)` runs it detached. That opens the live window in which the client holds the jobId while the draft generates, so the F3 stream seam now has a subscriber. **No client change needed**: the existing `JobBanner` poll keeps the shared `job.listForDocument` React-Query cache fresh while the job is queued/running → `streamingDraftJob` feeds `useDraftStream` (initial-draft tokens stream when `DRAFT_STREAMING_ENABLED` is also on); completion always flows via the JobBanner terminal effect → `version.list` refetch (both paths). The committed version stays the durable source of truth (two-transaction commit unchanged); streaming is a delivery overlay.
+
+**Verification.** Adversarial review (3 lenses): zero blockers; the no-client-change claim confirmed in code. Local: tsc clean (only pre-existing env-only `intake/*` missing-dep errors), eslint clean, 135 affected tests pass (incl. the R4 source-audits + the f3 client source-audit — both kept intact, no assertion changes). New `async_draft_dispatch_1.test.ts` (flag accessor + dispatch-wiring source-audit; the runJob half is already behaviorally covered by the F2 async suites).
+
+**v1 limitations (accepted — same posture as REVIEWER_ASYNC).** In-process fire-and-forget (a restart mid-draft loses the run; jobs row left non-terminal for the reaper); per-process stream bus → single Railway replica (operator-confirmed); a draft FAILURE surfaces via job state (like F2), not a thrown mutation error.
+
+**Open / parked follow-ups.** (1) Reliable fast-draft streaming — an optimistic-open on the returned jobId (real ~60-70s drafts already stream via the 5s poll; only very fast drafts degrade to no-stream, completion unaffected). (2) Regenerate streaming OVERLAY — needs the `streamActive` `!doc?.currentVersionId` realignment = a client test-assertion change (autopilot hard-stop); regenerate FUNCTIONS today (polled completion), only its token-streaming overlay is deferred. **Deploy-pending:** flip `ASYNC_DRAFT_DISPATCH_ENABLED` (+ `DRAFT_STREAMING_ENABLED`) at deploy; no migration.
+
+---
+
+## 2026-06-22a (NOTIFY-UX-1 — review-ready refresh + clearable mark-seen + gavel sound; merged to main 43155c1; auto-merged Rule 15)
+
+**Disposition.** Three items from Cowork's live post-deploy UAT on `f91dbc99`. Reversible build-and-PR (client + producer-side; not a FIRE); auto-merged per Rule 15 on green CI (PR #380, squash **43155c1**); branch deleted. Not deployed; Cowork live-verifies post-deploy. New flag **`NOTIFY_SOUND_ENABLED`** (default OFF) + reused `notificationPreferences.sound` (default flipped false→true, inert until the flag flips). No migration.
+
+**Item 1 — review-ready "didn't fire" for completed (empty) reviews.** Root-caused via a 5-agent adversarial workflow: on the prod SYNC path the row IS inserted (the producer was never emptiness-gated), but the AppShell "while you were away" digest was fetched once and never refetched (zero `notifications.*.invalidate` in the client) — so an in-session review completion never moved the matters-with-results line. Fix: digest + bell-list now `refetchInterval 60s` + `refetchOnWindowFocus`. Also closed a latent async-finalize race in `reviewerJobFactory` (txn2Commit/Revert now `await markReviewerLaneTerminal` before `await finalizeSessionLifecycleIfSettled`; was fire-and-forget void/void — could drop the emit for a single-lane async session; inert on prod, async lane flag-OFF; idempotent, hold-blocked exclusion preserved). Producers now log `created=<bool>` for live diagnosability.
+
+**Item 2 — clearable mark-seen.** The bell became a button opening a dropdown (click item → markSeen + open matter; "Mark all as read" → markAllSeen; invalidate list+digest). The digest banner gained a "Mark all read" action. The persistent nav count is now clearable.
+
+**Item 3 — gavel sound (ships dark).** New `gavelSound.ts` (Web Audio, soft voicing, best-effort, never throws, autoplay-safe). AppShell plays once per newly-arrived unseen notification (seed-on-first-load, dedupe-by-id, burst-debounced; gated on `notificationsEnabled && NOTIFY_SOUND_ENABLED && userSoundOn`). Settings "Notification sound" toggle.
+
+**Verification.** 29-agent adversarial review: zero blockers/high; 3 low/nit (no-fix). Full CI green. **Deploy-pending:** flip `NOTIFY_SOUND_ENABLED` at deploy if the gavel is wanted; existing prefs rows that persisted `sound:false` keep it (toggle once).
+
+---
+
 ## 2026-06-21e (DRAFT-STREAMING-GAP-1 — diagnostic: F3 token streaming does not engage in prod; merged to main 16a39b8; fix STOPPED for operator direction)
 
 **Disposition.** Read-only diagnostic. Cowork live-tested F3 (DRAFT_STREAMING_ENABLED set + redeployed): streaming does NOT engage on either draft path (static "Generating draft…" then full result; no /api/stream/draft SSE call). 3-agent read-only trace. NO behavior fix. Diagnostic committed `docs/engagements/DRAFT-STREAMING-GAP-1-investigation.md`, PR #378 (CI green), `operator approve accept:` → squash-merged **16a39b8**; branch deleted.
