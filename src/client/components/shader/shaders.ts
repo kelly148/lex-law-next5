@@ -48,3 +48,44 @@ void main(){
   vec3 col=mix(cream,maroon,lines*vign*0.55*u_intensity);
   gl_FragColor=vec4(col,1.0);
 }`;
+
+/**
+ * G — Generating shimmer (intensity 1.0). A slow diagonal warm band over the 60–90s draft/review wait
+ * card. §3.1: the card sits on --wa-surface → card = surface; warm → --wa-accent. Not interactive.
+ */
+export const GENERATING_SHIMMER_FRAG = `
+void main(){
+  vec2 uv=gl_FragCoord.xy/u_res.xy; float d=(uv.x+uv.y)*0.5; float t=u_time*0.22*u_motion;
+  float band=exp(-pow((fract(d-t)-0.5)*4.0,2.0));
+  vec3 card=${WA.surface}, warm=${WA.accent};
+  vec3 col=mix(card,warm,band*0.16*u_intensity);
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+/**
+ * D — State-reactive recordability ring (intensity 1.0). A small dedicated canvas BESIDE the recordability
+ * panel (never behind the form, §6), wired to the REAL deed gate via the u_prog uniform (not-started 0.0 /
+ * assembly 0.34 / legal-review 0.67 / recordable 1.0) with the §3.2#2 green terminal tip at u_prog≈1.0.
+ * u_prog + u_alert are EXTRA dynamic uniforms (declared here; the harness only declares the standard set).
+ * v1: u_alert is hardwired to 0.0 at the mount (no conflict pulse) — operator-locked; the conflict source is
+ * a separate scoped follow-up. al stays red (§3.2#1) so the pulse is correct if ever wired. calm = muted
+ * rose (effect-local). §3.1: cream → --wa-paper, warm → --wa-accent.
+ */
+export const RECORDABILITY_RING_FRAG = `
+uniform float u_prog; uniform float u_alert;
+void main(){
+  vec2 uv=gl_FragCoord.xy/u_res.xy; float a=u_res.x/u_res.y; vec2 c=uv-0.5; c.x*=a;
+  float r=length(c); float ang=atan(c.y,c.x); float frac=(ang/6.2831)+0.5; float pf=mod(0.75-frac,1.0);
+  float R=0.30, w=0.05; float ring=smoothstep(w,w*0.4,abs(r-R));
+  float filled=smoothstep(0.004,0.0,pf-u_prog);
+  vec3 cream=${WA.paper}, calm=vec3(0.76,0.60,0.61), warm=${WA.accent}, al=vec3(0.66,0.18,0.12);
+  vec3 base=mix(calm,warm,u_prog);
+  vec3 success=${WA.success};
+  base=mix(base, success, smoothstep(0.92,1.0,u_prog)*0.6);
+  base=mix(base,al,u_alert*(0.55+0.45*sin(u_time*4.0*u_motion)));
+  vec3 col=cream;
+  col=mix(col,vec3(0.87,0.81,0.80),ring*0.55);
+  col=mix(col,base,ring*filled);
+  float glow=exp(-7.0*abs(r-R))*filled; col=mix(col,base,glow*0.22*u_intensity);
+  gl_FragColor=vec4(col,1.0);
+}`;

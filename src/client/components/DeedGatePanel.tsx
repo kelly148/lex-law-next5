@@ -15,9 +15,9 @@ import React, { useState } from 'react';
 import { Scale, CheckCircle2, XCircle } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
-// WHEREAS-POLISH-1 effect B (flag-gated; OFF → this header is byte-for-byte its current self).
+// WHEREAS-POLISH-1 effects B + D (flag-gated; OFF → byte-for-byte the current header).
 import ShaderCanvas from './shader/ShaderCanvas.js';
-import { GUILLOCHE_HEADER_FRAG } from './shader/shaders.js';
+import { GUILLOCHE_HEADER_FRAG, RECORDABILITY_RING_FRAG } from './shader/shaders.js';
 import { SHADER_POLISH, SHADER_POLISH_ENABLED } from '../config/shaderPolish.js';
 import {
   DEED_PARCEL_SCOPE_VALUES,
@@ -127,6 +127,10 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
 
   const set = <K extends keyof DeedGateState>(k: K, v: DeedGateState[K]): void => setState((s) => ({ ...s, [k]: v }));
   const ev = initial.evaluation;
+  // WHEREAS-POLISH-1 effect D: u_prog from the REAL three-gate evaluation (acceptance #8) — not-started 0,
+  // assembly 0.34, legal-review 0.67, recordable 1.0 (the §3.2#2 green tip fires at ≈1.0). The gates are
+  // sequential, so the highest cleared layer wins.
+  const ringProg = ev.recordable ? 1.0 : ev.legalReview.passed ? 0.67 : ev.assembly.passed ? 0.34 : 0.0;
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-5" data-testid="deed-gate">
@@ -140,9 +144,23 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
             className="absolute inset-0"
             fallbackVar="--wa-surface-2"
           />
-          <div className="relative z-10 flex items-center gap-2">
-            <Scale className="w-5 h-5 text-firm-navy" />
-            <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
+          <div className="relative z-10 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Scale className="w-5 h-5 text-firm-navy" />
+              <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
+            </div>
+            {/* Effect D: the recordability progress ring, BESIDE the panel header (never behind the form,
+                §6), wired to the real gate via u_prog. u_alert is hardwired to 0 in v1 (no conflict pulse) —
+                operator-locked; the conflict is already surfaced by the FOLD-L0-1 intake gate.
+                TODO(FOLD-INTEG follow-up): wire u_alert to the live conflict signal once its source is
+                cleanly identified + Cowork-verified. */}
+            <ShaderCanvas
+              fragmentShader={RECORDABILITY_RING_FRAG}
+              intensity={SHADER_POLISH.effects.recordabilityRing.intensity}
+              uniforms={{ u_prog: ringProg, u_alert: 0.0 }}
+              className="relative h-10 w-10 shrink-0"
+              fallbackVar="--wa-surface-2"
+            />
           </div>
         </div>
       ) : (

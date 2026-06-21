@@ -9,7 +9,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SHADER_POLISH_ENABLED, SHADER_POLISH, WA } from '../shaderPolish.js';
-import { INK_LANDING_FRAG, GUILLOCHE_HEADER_FRAG } from '../../components/shader/shaders.js';
+import {
+  INK_LANDING_FRAG,
+  GUILLOCHE_HEADER_FRAG,
+  GENERATING_SHIMMER_FRAG,
+  RECORDABILITY_RING_FRAG,
+} from '../../components/shader/shaders.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -79,6 +84,45 @@ describe('DeedGatePanel effect-B header (source-audit)', () => {
     expect(src).toContain('deed-guilloche-header');
     expect(src).toContain("fallbackVar=\"--wa-surface-2\""); // the strip sits on surface-2 (§3.1)
     expect(src).toContain('Deed recordability'); // the title is preserved in both branches
+  });
+});
+
+describe('effect G + D shaders (Inc 3)', () => {
+  it('G (generating shimmer) uses the surface base + reconciled accent, central uniforms omitted', () => {
+    expect(GENERATING_SHIMMER_FRAG).toContain(WA.surface);
+    expect(GENERATING_SHIMMER_FRAG).toContain(WA.accent);
+    expect(GENERATING_SHIMMER_FRAG).not.toContain('uniform ');
+  });
+  it('D (recordability ring) declares its extra u_prog/u_alert uniforms + the green terminal tip', () => {
+    expect(RECORDABILITY_RING_FRAG).toContain('uniform float u_prog;');
+    expect(RECORDABILITY_RING_FRAG).toContain('uniform float u_alert;');
+    expect(RECORDABILITY_RING_FRAG).toContain(WA.paper);
+    expect(RECORDABILITY_RING_FRAG).toContain(WA.accent);
+    expect(RECORDABILITY_RING_FRAG).toContain(WA.success); // §3.2#2 green terminal tip
+    expect(RECORDABILITY_RING_FRAG).not.toContain('0.957,0.941,0.906'); // pre-reconciliation cream gone
+  });
+});
+
+describe('DocumentCanvas effect-G mount (source-audit)', () => {
+  const src = readFileSync(resolve(__dirname, '../../components/DocumentCanvas.tsx'), 'utf8');
+  it('mounts the shimmer behind the generating card only when the flag is on AND generating', () => {
+    expect(src).toContain('SHADER_POLISH_ENABLED && isGenerating');
+    expect(src).toContain('GENERATING_SHIMMER_FRAG');
+    expect(src).toContain('fallbackVar="--wa-surface"');
+  });
+});
+
+describe('DeedGatePanel effect-D ring (source-audit)', () => {
+  const src = readFileSync(resolve(__dirname, '../../components/DeedGatePanel.tsx'), 'utf8');
+  it('wires u_prog from the REAL gate evaluation (acceptance #8) and hardwires u_alert to 0 in v1', () => {
+    expect(src).toContain('RECORDABILITY_RING_FRAG');
+    // u_prog derived from the real ev.* gate verdicts, not a mock/local stepper:
+    expect(src).toContain('ev.recordable ? 1.0');
+    expect(src).toContain('ev.legalReview.passed ? 0.67');
+    expect(src).toContain('ev.assembly.passed ? 0.34');
+    expect(src).toContain('u_prog: ringProg');
+    expect(src).toContain('u_alert: 0.0'); // no conflict pulse in v1 (operator-locked)
+    expect(src).toContain('TODO(FOLD-INTEG follow-up): wire u_alert');
   });
 });
 
