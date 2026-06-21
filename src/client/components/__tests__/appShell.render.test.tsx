@@ -71,6 +71,15 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // REVIEWER-HEALTH-VIEW-1 (5C): AppShell probes this flag for the Diagnostics nav link.
+      reviewerHealth: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: { enabled: false }, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
       // FOLD-NOTIFY-1: AppShell probes the notifications flag (bell mount) + polls the
       // owner feed for the unread badge. Both stub useRef for #310 render-fidelity.
       notifications: {

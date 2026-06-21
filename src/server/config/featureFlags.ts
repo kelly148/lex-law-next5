@@ -552,6 +552,19 @@ export function isGpt5ReasoningCapEnabled(): boolean {
 }
 
 /**
+ * Internal reviewer-health / observability view (REVIEWER-HEALTH-VIEW-1, the 5C panel). DEFAULT OFF.
+ *
+ * A READ-ONLY, owner-scoped operational dashboard over EXISTING job/review data (the SUPERVISION-VIEW-1
+ * pattern): reviewer_feedback job-status counts over a window + active/stuck review sessions. NO new egress,
+ * NO mutation, NO migration — a pure aggregate read. When OFF (default), the reviewerHealth procedures refuse
+ * with PRECONDITION_FAILED (except the ungated isEnabled probe), the /diagnostics page redirects, and its
+ * nav link is hidden — zero new behavior. Additive + reversible.
+ */
+export function isReviewerHealthViewEnabled(): boolean {
+  return process.env['REVIEWER_HEALTH_VIEW_ENABLED'] === 'true';
+}
+
+/**
  * Draft token streaming (F3 / DRAFT-STREAMING-1). DEFAULT OFF.
  *
  * When OFF (the default), draft_generation/regeneration jobs run the established blocking generate()

@@ -32,6 +32,7 @@ const ChatSurface = lazy(() => import("./pages/ChatSurface.js"));
 const CopilotPage = lazy(() => import("./pages/CopilotPage.js"));
 const MattersOverview = lazy(() => import("./pages/MattersOverview.js"));
 const SupervisionView = lazy(() => import("./pages/SupervisionView.js"));
+const ReviewerHealthView = lazy(() => import("./pages/ReviewerHealthView.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -73,6 +74,8 @@ export default function App(): React.ReactElement {
       {/* SUPERVISION-VIEW-1 — read-only egress supervision. Always registered; SupervisionView
           self-guards on SUPERVISION_VIEW_ENABLED (default OFF) and redirects to /matters when off. */}
       <Route path="/supervision" element={<ProtectedLayout><SupervisionView /></ProtectedLayout>} />
+      {/* REVIEWER-HEALTH-VIEW-1 (5C) — read-only; the page self-gates on reviewerHealth.isEnabled (redirects when OFF). */}
+      <Route path="/diagnostics" element={<ProtectedLayout><ReviewerHealthView /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />
