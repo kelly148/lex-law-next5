@@ -9,7 +9,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SHADER_POLISH_ENABLED, SHADER_POLISH, WA } from '../shaderPolish.js';
-import { INK_LANDING_FRAG } from '../../components/shader/shaders.js';
+import { INK_LANDING_FRAG, GUILLOCHE_HEADER_FRAG } from '../../components/shader/shaders.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -57,6 +57,28 @@ describe('effect A shader', () => {
     // the standard uniforms are declared centrally by ShaderCanvas, not in the body:
     expect(INK_LANDING_FRAG).not.toContain('uniform ');
     expect(INK_LANDING_FRAG).toContain('void main()');
+  });
+});
+
+describe('effect B shader (Inc 2)', () => {
+  it('uses the surface-2 base + reconciled accent, and omits the central uniforms', () => {
+    expect(GUILLOCHE_HEADER_FRAG).toContain(WA.surface2);
+    expect(GUILLOCHE_HEADER_FRAG).toContain(WA.accent);
+    expect(GUILLOCHE_HEADER_FRAG).not.toContain('0.984,0.972,0.949'); // pre-reconciliation cream gone
+    expect(GUILLOCHE_HEADER_FRAG).not.toContain('uniform ');
+    expect(GUILLOCHE_HEADER_FRAG).toContain('void main()');
+  });
+});
+
+describe('DeedGatePanel effect-B header (source-audit)', () => {
+  const src = readFileSync(resolve(__dirname, '../../components/DeedGatePanel.tsx'), 'utf8');
+  it('gates the guilloché header strip behind SHADER_POLISH_ENABLED; OFF keeps the plain title', () => {
+    expect(src).toContain('SHADER_POLISH_ENABLED ?');
+    expect(src).toContain('<ShaderCanvas');
+    expect(src).toContain('GUILLOCHE_HEADER_FRAG');
+    expect(src).toContain('deed-guilloche-header');
+    expect(src).toContain("fallbackVar=\"--wa-surface-2\""); // the strip sits on surface-2 (§3.1)
+    expect(src).toContain('Deed recordability'); // the title is preserved in both branches
   });
 });
 
