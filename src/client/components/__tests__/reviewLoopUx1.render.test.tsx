@@ -58,7 +58,7 @@ const bulkConsolidation = {
   groups: [
     { issueId: 'g1', severity: 'PRECISION', classification: 'convergent_low_risk', bucket: 'bulk_eligible', convergent: true, bulkEligible: true, agreedCount: 2, reason: 'convergent low-risk' },
   ],
-  denominator: { intended: 2, successful: 2, missing: [] },
+  denominator: { intended: 2, successful: 2, missing: [], completedEmpty: [], noReturn: [] },
   convergenceFloorMet: true,
   bulkEligibleIssueIds: ['g1'],
   bulkEligibleGroups: [
