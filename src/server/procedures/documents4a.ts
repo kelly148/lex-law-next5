@@ -52,6 +52,8 @@ import {
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
 import { recordDraftUnderOverride } from '../db/queries/gateOverride.js';
+// NOTIFY-PRODUCERS-1: draft-ready producer (in-app badge on a committed draft version; best-effort).
+import { emitDraftReadyNotification } from '../db/queries/notifications.js';
 import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import type { GateOverrideRow } from '../../shared/schemas/gateOverride.js';
 import { evaluateTargetConsistency } from '../documents/targetConsistency.js';
@@ -611,6 +613,9 @@ export const document4aRouter = router({
             versionId: newVersion.id,
             overrides: activeGateOverrides,
           });
+          // NOTIFY-PRODUCERS-1: a draft version was COMMITTED — emit ONE "Draft ready" badge (idempotent
+          // per versionId). Best-effort (the producer swallows; a notification must never fail a commit).
+          await emitDraftReadyNotification({ versionId: newVersion.id, userId, matterId: doc.matterId });
           void emitTelemetry(
             'generation_completed',
             { jobId, operation: 'initial_draft', newVersionNumber: versionNumber },
@@ -779,6 +784,9 @@ export const document4aRouter = router({
             versionId: newVersion.id,
             overrides: activeGateOverrides,
           });
+          // NOTIFY-PRODUCERS-1: a regenerated draft version was COMMITTED — emit ONE "Draft ready" badge
+          // (idempotent per versionId). Best-effort (the producer swallows; never fail a commit).
+          await emitDraftReadyNotification({ versionId: newVersion.id, userId, matterId: doc.matterId });
           void emitTelemetry(
             'generation_completed',
             { jobId, operation: 'regeneration', newVersionNumber: versionNumber },

@@ -32,6 +32,23 @@ export function createInMemoryNotificationStore(
       return Promise.resolve({ ...r });
     },
 
+    // NOTIFY-PRODUCERS-1: dedup by id (mirrors the drizzle PK uniqueness). true = newly inserted.
+    insertIfAbsent(row: NewNotification): Promise<boolean> {
+      if (rows.some((x) => x.id === row.id!)) return Promise.resolve(false);
+      rows.push({
+        id: row.id!,
+        userId: row.userId!,
+        matterId: row.matterId ?? null,
+        type: row.type ?? 'generic',
+        title: row.title!,
+        body: row.body ?? null,
+        readAt: null,
+        createdAt: now(),
+        updatedAt: now(),
+      });
+      return Promise.resolve(true);
+    },
+
     listForOwner(userId: string, limit: number): Promise<NotificationRow[]> {
       return Promise.resolve(
         rows

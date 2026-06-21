@@ -35,6 +35,8 @@ import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import type { NewJob } from '../db/schema.js';
 import type { CanonicalMutationParams } from '../db/canonicalMutation.js';
 import { insertFeedback, setReviewSessionSettled } from '../db/queries/phase4b.js';
+// NOTIFY-PRODUCERS-1: review-ready producer (in-app badge; best-effort; emitted on the non-hold settle).
+import { emitReviewReadyNotification } from '../db/queries/notifications.js';
 import {
   markReviewerLaneRunning,
   markReviewerLaneTerminal,
@@ -209,7 +211,7 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
         ? {
             onBlocked: async ({ blockReason }: { jobId: string; blockReason: string }) => {
               await markReviewerLaneBlockedByHold(reviewSessionId, reviewerRole, userId, blockReason);
-              await finalizeSessionLifecycleIfSettled(reviewSessionId, userId);
+              await finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
             },
           }
         : {}),
@@ -261,7 +263,7 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
           suggestionCount: suggestions.length,
           feedbackRowId,
         }).catch((e) => console.error(`[reviewer-outbox] lane commit-update failed (${reviewerRole}):`, e));
-        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId);
+        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
       }
       void emitTelemetry(
         'generation_completed',
@@ -280,7 +282,7 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
           status: errorClass === 'timeout' ? 'timed_out' : 'failed',
           failureReason: errorClass,
         }).catch((e) => console.error(`[reviewer-outbox] lane revert-update failed (${reviewerRole}):`, e));
-        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId);
+        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
       }
     },
     telemetryCtx: { userId, matterId, documentId, jobId: null },
@@ -330,6 +332,7 @@ export function reconstructReviewerParamsFromJob(job: JobRow): CanonicalMutation
 export async function finalizeSessionLifecycleIfSettled(
   reviewSessionId: string,
   userId: string,
+  matterId: string,
 ): Promise<void> {
   try {
     const lanes = await listReviewerLanesForSession(reviewSessionId, userId);
@@ -348,6 +351,13 @@ export async function finalizeSessionLifecycleIfSettled(
         ? 'non_response'
         : null;
     await setReviewSessionSettled(reviewSessionId, userId, partialReason);
+    // NOTIFY-PRODUCERS-1: the session has RETURNED — emit ONE "Review ready" badge (idempotent per
+    // session via the producer's deterministic id, so concurrent last-lane completions or a re-fired
+    // finalize never duplicate). A hold-blocked settle is NOT "ready" (its ack flow is the deferred
+    // hold/ack notification type), so it does not notify. Best-effort (the producer swallows errors).
+    if (!holdBlocked) {
+      await emitReviewReadyNotification({ reviewSessionId, userId, matterId });
+    }
   } catch (e) {
     console.error(`[reviewer-outbox] finalizeSessionLifecycleIfSettled failed (session ${reviewSessionId}):`, e);
   }

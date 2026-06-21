@@ -133,6 +133,10 @@ import {
   updateAdoptLedgerStatus,
   applyRegenerationToAdoptLedger,
 } from '../db/queries/phase4b.js';
+// NOTIFY-PRODUCERS-1: review-ready producer for the SYNC settle path (F2-off fallback; async settle
+// emits from finalizeSessionLifecycleIfSettled); draft-ready producer for the review-loop regenerate.
+// Idempotent per session/version + best-effort.
+import { emitReviewReadyNotification, emitDraftReadyNotification } from '../db/queries/notifications.js';
 import { assertNotComplete } from './documents.js';
 import { type ConfirmationMode } from '../../shared/schemas/orchestration.js';
 
@@ -772,6 +776,10 @@ export const reviewSessionRouter = router({
         // data foundation). Inc-2 sync has no hold gate, so a partial here is always non-response.
         const anyFailed = reviewerJobIds.length < reviewers.length;
         await setReviewSessionSettled(sessionId, userId, anyFailed ? 'non_response' : null);
+        // NOTIFY-PRODUCERS-1: the SYNC review has RETURNED (no lanes; no hold gate here, so never held)
+        // — emit ONE "Review ready" badge. Same producer + deterministic per-session id the async
+        // finalize uses, so a document run in either mode never double-notifies. Best-effort (swallows).
+        await emitReviewReadyNotification({ reviewSessionId: sessionId, userId, matterId: doc.matterId });
       }
 
       // EVALUATOR PATH — MR-CAL-5C (advisory output contract; default OFF)
@@ -2184,6 +2192,9 @@ async function _invokeDocumentRegenerate(params: {
         iterationNumber: nextIterationNumber,
       });
       await updateDocumentCurrentVersion(documentId, userId, newVersion.id);
+      // NOTIFY-PRODUCERS-1: the review-loop "generate revised draft" committed a version — emit ONE
+      // "Draft ready" badge (idempotent per versionId; same producer the document paths use). Best-effort.
+      await emitDraftReadyNotification({ versionId: newVersion.id, userId, matterId });
       // MR-CAL-7B: mark adopt-ledger entries carried into this produced version and run
       // the ADVISORY survival heuristic (auto-status only; never touches attorney-set rows,
       // never deletes/hides). Failure here must NOT fail the regeneration (the new version is
