@@ -17,6 +17,10 @@
 import React from 'react';
 import clsx from 'clsx';
 import { FileText, ChevronDown, ArrowUp, Check } from 'lucide-react';
+// WHEREAS-POLISH-1 effect G (flag-gated; OFF → byte-for-byte the existing skeleton).
+import ShaderCanvas from './shader/ShaderCanvas.js';
+import { GENERATING_SHIMMER_FRAG } from './shader/shaders.js';
+import { SHADER_POLISH, SHADER_POLISH_ENABLED } from '../config/shaderPolish.js';
 import {
   deriveVersionStatus,
   formatVersionLabel,
@@ -207,8 +211,24 @@ export default function DocumentCanvas(
     // Skeleton for BOTH the first-draft generating state and the version.list-loading window —
     // never blank, and never the "No draft yet" empty state while a real draft may still load.
     body = (
-      <div className={MEASURE} data-testid={isGenerating ? 'canvas-generating' : 'canvas-loading'}>
-        <div className="space-y-3 animate-pulse" aria-hidden="true">
+      <div
+        className={clsx(MEASURE, SHADER_POLISH_ENABLED && isGenerating && 'relative overflow-hidden')}
+        data-testid={isGenerating ? 'canvas-generating' : 'canvas-loading'}
+      >
+        {/* WHEREAS-POLISH-1 effect G: a slow shimmer behind the generating wait card (surface base). Flag
+            OFF (or not generating) → no canvas, the skeleton byte-for-byte. */}
+        {SHADER_POLISH_ENABLED && isGenerating && (
+          <ShaderCanvas
+            fragmentShader={GENERATING_SHIMMER_FRAG}
+            intensity={SHADER_POLISH.effects.generatingShimmer.intensity}
+            className="absolute inset-0"
+            fallbackVar="--wa-surface"
+          />
+        )}
+        <div
+          className={clsx('space-y-3 animate-pulse', SHADER_POLISH_ENABLED && isGenerating && 'relative')}
+          aria-hidden="true"
+        >
           {[0, 1, 2, 3, 4].map((i) => (
             <div
               key={i}
@@ -216,7 +236,7 @@ export default function DocumentCanvas(
             />
           ))}
         </div>
-        <p className="mt-6 text-sm text-ink-secondary">
+        <p className={clsx('mt-6 text-sm text-ink-secondary', SHADER_POLISH_ENABLED && isGenerating && 'relative')}>
           {isGenerating ? 'Generating draft…' : 'Loading…'}
         </p>
       </div>
