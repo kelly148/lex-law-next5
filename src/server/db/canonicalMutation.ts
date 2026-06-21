@@ -152,9 +152,26 @@ function getPromptSnapshotWriter(): PromptSnapshotWriter {
 
 const MAX_LLM_RETRIES = 2;
 
-/** Backoff before retry attempt N (1-based): 500ms, 1500ms. */
-function retryBackoffMs(attempt: number): number {
+/** Deterministic base backoff before retry attempt N (1-based): 500ms, 1500ms. */
+export function baseBackoffMs(attempt: number): number {
   return 500 * Math.pow(3, attempt - 1);
+}
+
+/**
+ * REVIEWER-RETRY-JITTER-1: equal-jitter backoff before retry attempt N. Returns a delay bounded to
+ * [base/2, base] — half the deterministic base plus a uniform draw in [0, base/2]. The jitter
+ * DE-CORRELATES retries across the concurrent reviewer fan-out: without it, lanes that hit the same
+ * transient (a 429 quota window, a network blip) at the same instant retried in lockstep (an
+ * identical 500ms then 1500ms) and re-collided on the same window — the GEMINI-NO-RETURN-1 live
+ * Gemini "no return" was a transient under the busy 4-model fan-out, amplified by lockstep retries.
+ * Only the transient classes are retried at all (isTransientRetryable); a MAX_TOKENS truncation
+ * stays api_error / NON-retryable per the GEMINI-BUDGET-CAL contract, so jitter never re-runs a
+ * truncation. `rng` is injectable for deterministic tests; it defaults to Math.random.
+ */
+export function retryBackoffMs(attempt: number, rng: () => number = Math.random): number {
+  const base = baseBackoffMs(attempt);
+  const half = base / 2;
+  return Math.round(half + rng() * half);
 }
 
 /**
