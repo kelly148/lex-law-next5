@@ -12,6 +12,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { trpc } from '../trpc.js';
+// WHEREAS-POLISH-1 effect A (flag-gated; OFF → this page is byte-for-byte its current self).
+import ShaderCanvas from '../components/shader/ShaderCanvas.js';
+import { INK_LANDING_FRAG } from '../components/shader/shaders.js';
+import { SHADER_POLISH, SHADER_POLISH_ENABLED } from '../config/shaderPolish.js';
+import '../styles/shaderPolish.css';
 
 export default function LoginPage(): React.ReactElement {
   const [username, setUsername] = useState('');
@@ -46,11 +51,35 @@ export default function LoginPage(): React.ReactElement {
     loginMutation.mutate({ username: username.trim(), password });
   };
 
+  // WHEREAS-POLISH-1 effect A: flowing-ink canvas behind the card + the "Whereas," foil wordmark, ONLY when
+  // UI_SHADER_POLISH_ENABLED. OFF (default) → byte-for-byte the established login page.
+  const polish = SHADER_POLISH_ENABLED;
   return (
-    <div className="min-h-screen bg-firm-light flex items-center justify-center">
-      <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-sm">
+    <div
+      className={
+        'min-h-screen bg-firm-light flex items-center justify-center' +
+        (polish ? ' relative overflow-hidden' : '')
+      }
+    >
+      {polish && (
+        <ShaderCanvas
+          fragmentShader={INK_LANDING_FRAG}
+          intensity={SHADER_POLISH.effects.inkLanding.intensity}
+          interactive="mouse"
+          className="absolute inset-0 w-full h-full"
+          fallbackVar="--wa-paper"
+        />
+      )}
+      <div className={'bg-white rounded-lg shadow-md p-8 w-full max-w-sm' + (polish ? ' relative z-10' : '')}>
         <h1 className="text-2xl font-garamond text-firm-navy mb-6 text-center">
-          Lex Law Next
+          {polish ? (
+            <span data-testid="whereas-foil">
+              <span className="wa-foil-wordmark">Whereas</span>
+              <span className="wa-foil-comma">,</span>
+            </span>
+          ) : (
+            'Lex Law Next'
+          )}
         </h1>
 
         <form onSubmit={handleSubmit} noValidate>
