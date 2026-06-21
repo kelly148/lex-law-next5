@@ -257,13 +257,18 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
       });
       if (isAsync) {
         // Terminalize the lane from job completion (condition 3), AFTER insertFeedback (condition 10).
-        // Best-effort: a lane-write failure must not break feedback persistence; the deadline sweep backstops.
-        void markReviewerLaneTerminal(reviewSessionId, reviewerRole, userId, {
+        // Best-effort: a lane-write failure must not break feedback persistence (feedback is already
+        // committed above); the deadline sweep backstops. AWAIT the lane write BEFORE finalize so
+        // finalize's lane SELECT is guaranteed to observe THIS reviewer's terminal — un-awaited (the prior
+        // `void`/`void` pair) raced on the shared pool, letting finalize read the pre-update state, hit the
+        // `!allTerminal` early-return, and PERMANENTLY DROP the review-ready emit for a single-lane session
+        // (no read-time backstop). Mirrors the onBlocked handler, which already awaits both.
+        await markReviewerLaneTerminal(reviewSessionId, reviewerRole, userId, {
           status: suggestions.length > 0 ? 'completed_with_feedback' : 'completed_without_feedback',
           suggestionCount: suggestions.length,
           feedbackRowId,
         }).catch((e) => console.error(`[reviewer-outbox] lane commit-update failed (${reviewerRole}):`, e));
-        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
+        await finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
       }
       void emitTelemetry(
         'generation_completed',
@@ -278,11 +283,13 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
         { userId, matterId, documentId, jobId },
       );
       if (isAsync) {
-        void markReviewerLaneTerminal(reviewSessionId, reviewerRole, userId, {
+        // AWAIT the lane write before finalize (same race fix as txn2Commit): finalize must observe this
+        // lane's terminal status, or the last-lane settle drops the review-ready emit.
+        await markReviewerLaneTerminal(reviewSessionId, reviewerRole, userId, {
           status: errorClass === 'timeout' ? 'timed_out' : 'failed',
           failureReason: errorClass,
         }).catch((e) => console.error(`[reviewer-outbox] lane revert-update failed (${reviewerRole}):`, e));
-        void finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
+        await finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);
       }
     },
     telemetryCtx: { userId, matterId, documentId, jobId: null },

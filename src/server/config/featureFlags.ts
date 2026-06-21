@@ -488,6 +488,22 @@ export function isNotificationsEnabled(): boolean {
 }
 
 /**
+ * In-app "completion" notification SOUND — the gavel (NOTIFY-SOUND-1). DEFAULT OFF.
+ *
+ * A CLIENT-ONLY, best-effort audio cue: when a "something is ready" notification (draft-ready /
+ * review-ready) arrives while the app is open, the browser synthesizes a gavel ×3 via the Web Audio
+ * API (no bundled asset). When OFF (the default), ZERO sound code path runs — no AudioContext is
+ * created — and the client is byte-for-byte unchanged. When exactly "true", the client MAY play the
+ * sound, still gated by the per-user notificationPreferences.sound toggle (default ON when this flag is
+ * on, user-switchable in Settings). Layered ABOVE NOTIFICATIONS_ENABLED: the sound only ever
+ * accompanies an in-app notification, so it is moot unless notifications are also enabled. No migration;
+ * no producer/server-behavior change — purely a client cue. Reversible.
+ */
+export function isNotifySoundEnabled(): boolean {
+  return process.env['NOTIFY_SOUND_ENABLED'] === 'true';
+}
+
+/**
  * Draft token streaming (F3 / DRAFT-STREAMING-1). DEFAULT OFF.
  *
  * When OFF (the default), draft_generation/regeneration jobs run the established blocking generate()

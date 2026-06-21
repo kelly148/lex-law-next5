@@ -146,11 +146,16 @@ describe('FOLD-NOTIFY-1 — flag gate (default OFF, fail-closed, zero store I/O)
     await expect(u1.notifications.markSeen({ id: U1 })).rejects.toThrow(/NOTIFICATIONS_DISABLED/);
   });
 
-  it('isEnabled reports the flag state (ungated)', async () => {
+  it('isEnabled reports the flag state (ungated); soundEnabled reflects NOTIFY_SOUND_ENABLED', async () => {
+    // NOTIFY-SOUND-1 added the additive `soundEnabled` field (the gavel flag) to this probe.
     delete process.env[FLAG];
-    expect(await caller(U1).notifications.isEnabled()).toEqual({ enabled: false });
+    delete process.env['NOTIFY_SOUND_ENABLED'];
+    expect(await caller(U1).notifications.isEnabled()).toEqual({ enabled: false, soundEnabled: false });
     process.env[FLAG] = 'true';
-    expect(await caller(U1).notifications.isEnabled()).toEqual({ enabled: true });
+    expect(await caller(U1).notifications.isEnabled()).toEqual({ enabled: true, soundEnabled: false });
+    process.env['NOTIFY_SOUND_ENABLED'] = 'true';
+    expect(await caller(U1).notifications.isEnabled()).toEqual({ enabled: true, soundEnabled: true });
+    delete process.env['NOTIFY_SOUND_ENABLED'];
   });
 });
 

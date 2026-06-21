@@ -135,6 +135,16 @@ describe('NOTIFY-PRODUCERS-1 — emit-site wiring (source-audit)', () => {
     expect(src).toContain('await emitReviewReadyNotification({ reviewSessionId: sessionId, userId, matterId: doc.matterId });');
   });
 
+  it('the ASYNC finalize AWAITS the lane write before finalize (race closed — no dropped emit)', () => {
+    const src = read('src/server/jobs/reviewerJobFactory.ts');
+    // The lane terminalize must be AWAITED before finalize so finalize's lane SELECT observes this lane's
+    // terminal status. A fire-and-forget `void finalizeSessionLifecycleIfSettled(` could race ahead of the
+    // un-committed lane write, hit the !allTerminal early-return, and PERMANENTLY drop the review-ready emit.
+    expect(src).toContain('await markReviewerLaneTerminal(');
+    expect(src).toContain('await finalizeSessionLifecycleIfSettled(reviewSessionId, userId, matterId);');
+    expect(src).not.toContain('void finalizeSessionLifecycleIfSettled(');
+  });
+
   it('draft-ready fires on the committed version in generate + regenerate (document + review-loop)', () => {
     const docs = read('src/server/procedures/documents4a.ts');
     const rs = read('src/server/procedures/reviewSession.ts');

@@ -17,11 +17,12 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell } from 'lucide-react';
+import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { trpc } from '../trpc.js';
+import { playGavel } from '../utils/gavelSound.js';
 import CommandPalette from './CommandPalette.js';
 
 interface AppShellProps {
@@ -39,19 +40,86 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   // FOLD-NOTIFY-1 — probe the notifications flag (default OFF -> bell hidden, no poll).
   const notificationsFlag = trpc.notifications.isEnabled.useQuery();
   const notificationsEnabled = notificationsFlag.data?.enabled === true;
+  // NOTIFY-SOUND-1 — the gavel-sound flag (default OFF). The sound only ever accompanies an in-app
+  // notification, so it is moot unless notifications are also on.
+  const soundFlagEnabled = notificationsFlag.data?.soundEnabled === true;
   // Lightweight poll: ONLY enabled when the flag is ON (so flag-OFF makes ZERO extra
-  // requests). One owner-scoped read powers the unread badge; refetch every 60s.
+  // requests). One owner-scoped read powers the unread badge + the dropdown feed; refetch every 60s,
+  // and on window focus so returning to the tab surfaces a just-completed review/draft promptly.
   const notificationsQuery = trpc.notifications.list.useQuery(undefined, {
     enabled: notificationsEnabled,
     refetchInterval: notificationsEnabled ? 60_000 : false,
+    refetchOnWindowFocus: notificationsEnabled,
   });
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
-  // NOTIFY-SUITE-1 N1 — "while you were away": one derived digest, fetched once on return (no poll — the
-  // bell badge above carries the live count). Dismissible for the session; informational only.
+  const notifItems = notificationsQuery.data?.items ?? [];
+  // NOTIFY-SUITE-1 N1 — "while you were away": the derived "N matters have results" digest line. Item 1
+  // fix: it MUST refresh like the bell (poll + on-focus) — previously it was fetched ONCE on mount and
+  // never invalidated, so a review/draft that completed in-session never moved the matters-with-results
+  // line (the observed gap). Dismissible for the session; informational only.
   const [digestDismissed, setDigestDismissed] = React.useState(false);
-  const digestQuery = trpc.notifications.digest.useQuery(undefined, { enabled: notificationsEnabled });
+  const digestQuery = trpc.notifications.digest.useQuery(undefined, {
+    enabled: notificationsEnabled,
+    refetchInterval: notificationsEnabled ? 60_000 : false,
+    refetchOnWindowFocus: notificationsEnabled,
+  });
   const digest = digestQuery.data;
   const showDigest = notificationsEnabled && !digestDismissed && (digest?.total ?? 0) > 0;
+
+  // ── Item 2: a working "mark seen" path (the persistent nav count must be clearable) ──────────────
+  // The bell opens a dropdown of recent notices; clicking one marks it seen + opens its matter, and
+  // "Mark all as read" clears the whole count. Reuses the already-unit-tested markSeen / markAllSeen
+  // mutations; on success we invalidate the feed + the digest so the badge and banner refresh.
+  const [bellOpen, setBellOpen] = React.useState(false);
+  const refreshNotifications = React.useCallback(() => {
+    void utils.notifications.list.invalidate();
+    void utils.notifications.digest.invalidate();
+  }, [utils]);
+  const markAllSeenMutation = useGuardedMutation(
+    () => utils.client.notifications.markAllSeen.mutate(),
+    { onSuccess: refreshNotifications },
+  );
+  const markSeenMutation = useGuardedMutation(
+    (id: string) => utils.client.notifications.markSeen.mutate({ id }),
+    { onSuccess: refreshNotifications },
+  );
+  const markAllSeen = (): void => markAllSeenMutation.mutate(undefined);
+  const openNotification = (n: { id: string; matterId: string | null; readAt: string | null }): void => {
+    if (n.readAt == null) markSeenMutation.mutate(n.id);
+    setBellOpen(false);
+    navigate(n.matterId ? `/matters/${n.matterId}` : '/matters');
+  };
+
+  // ── Item 3: the gavel cue on a NEWLY-ARRIVED unseen notification ──────────────────────────────────
+  // Plays only when NOTIFY_SOUND_ENABLED is on AND the per-user sound toggle is on; otherwise zero sound
+  // code runs (no AudioContext). The per-user toggle lives in notificationPreferences.sound; read it only
+  // when the sound path is actually possible (so flag-OFF prod makes ZERO extra requests).
+  const soundSettingsQuery = trpc.settings.get.useQuery(undefined, {
+    enabled: notificationsEnabled && soundFlagEnabled,
+  });
+  const userSoundOn = soundSettingsQuery.data?.notificationPreferences?.sound === true;
+  const soundAllowed = notificationsEnabled && soundFlagEnabled && userSoundOn;
+  // Ids we've already observed across polls. null until the FIRST successful load — that first load SEEDS
+  // the set WITHOUT playing, so pre-existing unseen notices never replay; only ids that appear in a later
+  // poll are "newly arrived". Dedupe-by-id means a 60s re-fetch never replays, and a burst plays once.
+  const seenNotifIdsRef = React.useRef<Set<string> | null>(null);
+  React.useEffect(() => {
+    const data = notificationsQuery.data;
+    if (!data) return;
+    const items = data.items;
+    if (seenNotifIdsRef.current === null) {
+      seenNotifIdsRef.current = new Set(items.map((i) => i.id));
+      return; // first load: seed only, never play
+    }
+    const known = seenNotifIdsRef.current;
+    const newlyArrivedUnread = items.filter((i) => !known.has(i.id) && i.readAt == null);
+    for (const i of items) known.add(i.id); // record every id now so re-polls can't replay
+    if (newlyArrivedUnread.length > 0 && soundAllowed) {
+      // A fresh "ready" notice landed this poll — strike the gavel ONCE (burst-debounced). Best-effort:
+      // playGavel never throws and no-ops silently if the browser still blocks audio.
+      playGavel();
+    }
+  }, [notificationsQuery.data, soundAllowed]);
 
   const logoutMutation = useGuardedMutation(
     () => utils.client.auth.logout.mutate(),
@@ -123,31 +191,98 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
           </NavLink>
           {/* FOLD-NOTIFY-1 — bell + unread badge. Rendered only when NOTIFICATIONS_ENABLED
               is ON (default OFF -> absent). INFORMATIONAL: the badge surfaces a count; it
-              never acts. The dot/count appears only when there are unread notices. */}
+              never acts. The dot/count appears only when there are unread notices. Item 2: the
+              bell is now a button that opens a dropdown so the count can actually be cleared. */}
           {notificationsEnabled && (
-            <div
-              data-testid="notifications-bell"
-              className={clsx(
-                'flex items-center gap-2 px-3 py-2 rounded text-sm font-medium',
-                'text-ink-secondary'
-              )}
-            >
-              <span className="relative flex-shrink-0">
-                <Bell className="w-4 h-4" aria-hidden />
-                {unreadCount > 0 && (
-                  <span
-                    data-testid="notifications-badge"
-                    aria-label={`${unreadCount} unread notifications`}
-                    className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] leading-4 text-center"
-                  >
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
+            <div className="relative">
+              <button
+                type="button"
+                data-testid="notifications-bell"
+                aria-haspopup="menu"
+                aria-expanded={bellOpen}
+                onClick={() => setBellOpen((o) => !o)}
+                className={clsx(
+                  'flex items-center gap-2 px-3 py-2 w-full rounded text-sm font-medium transition-colors',
+                  'text-ink-secondary hover:text-ink hover:bg-surface'
                 )}
-              </span>
-              <span data-rail-label>
-                Notifications
-                {unreadCount > 0 ? ` (${unreadCount > 99 ? '99+' : unreadCount})` : ''}
-              </span>
+              >
+                <span className="relative flex-shrink-0">
+                  <Bell className="w-4 h-4" aria-hidden />
+                  {unreadCount > 0 && (
+                    <span
+                      data-testid="notifications-badge"
+                      aria-label={`${unreadCount} unread notifications`}
+                      className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] leading-4 text-center"
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </span>
+                <span data-rail-label>
+                  Notifications
+                  {unreadCount > 0 ? ` (${unreadCount > 99 ? '99+' : unreadCount})` : ''}
+                </span>
+              </button>
+
+              {bellOpen && (
+                <>
+                  {/* click-away backdrop */}
+                  <div className="fixed inset-0 z-40" aria-hidden onClick={() => setBellOpen(false)} />
+                  <div
+                    data-testid="notifications-panel"
+                    role="menu"
+                    className="absolute left-full top-0 ml-2 z-50 w-72 max-h-96 overflow-auto rounded-lg border border-line bg-surface shadow-lg"
+                  >
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-line">
+                      <span className="text-sm font-semibold text-ink">Notifications</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          data-testid="notifications-mark-all"
+                          onClick={markAllSeen}
+                          disabled={markAllSeenMutation.isPending || unreadCount === 0}
+                          className="inline-flex items-center gap-1 text-xs text-ink-secondary hover:text-ink disabled:opacity-40"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" aria-hidden />
+                          Mark all as read
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Close notifications"
+                          onClick={() => setBellOpen(false)}
+                          className="text-ink-secondary hover:text-ink"
+                        >
+                          <X className="w-4 h-4" aria-hidden />
+                        </button>
+                      </div>
+                    </div>
+                    {notifItems.length === 0 ? (
+                      <p className="px-3 py-6 text-sm text-ink-hint text-center">No notifications.</p>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {notifItems.map((n) => (
+                          <li key={n.id}>
+                            <button
+                              type="button"
+                              data-testid="notification-item"
+                              onClick={() => openNotification(n)}
+                              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-2"
+                            >
+                              {n.readAt == null && (
+                                <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-accent" aria-label="unread" />
+                              )}
+                              <span className={clsx('flex-1 text-sm', n.readAt == null ? 'text-ink font-medium' : 'text-ink-secondary')}>
+                                {n.title}
+                                {n.body ? <span className="block text-xs text-ink-hint font-normal">{n.body}</span> : null}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </nav>
@@ -179,15 +314,27 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
               {' — '}
               {digest.summaryLine || `${digest.total} new notification${digest.total === 1 ? '' : 's'}`}
             </span>
-            <button
-              type="button"
-              data-testid="notify-digest-dismiss"
-              onClick={() => setDigestDismissed(true)}
-              aria-label="Dismiss the while-you-were-away digest"
-              className="text-ink-secondary hover:text-ink underline whitespace-nowrap"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-3 whitespace-nowrap">
+              {/* Primary action: actually CLEAR the unread count (not just hide the banner). */}
+              <button
+                type="button"
+                data-testid="notify-digest-mark-all"
+                onClick={() => { markAllSeen(); setDigestDismissed(true); }}
+                disabled={markAllSeenMutation.isPending}
+                className="text-ink-secondary hover:text-ink underline disabled:opacity-40"
+              >
+                Mark all read
+              </button>
+              <button
+                type="button"
+                data-testid="notify-digest-dismiss"
+                onClick={() => setDigestDismissed(true)}
+                aria-label="Dismiss the while-you-were-away digest"
+                className="text-ink-secondary hover:text-ink underline"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
         {children}

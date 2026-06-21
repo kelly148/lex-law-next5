@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
-import { isNotificationsEnabled } from '../config/featureFlags.js';
+import { isNotificationsEnabled, isNotifySoundEnabled } from '../config/featureFlags.js';
 import {
   listNotificationsForOwner,
   listUnreadForOwner,
@@ -37,7 +37,13 @@ function assertEnabled(): void {
 
 export const notificationsRouter = router({
   // Ungated probe so the client can decide whether to mount the bell + start polling.
-  isEnabled: protectedProcedure.query(() => ({ enabled: isNotificationsEnabled() })),
+  // soundEnabled exposes the NOTIFY_SOUND_ENABLED flag (gavel cue) read-only; the client still
+  // ANDs it with the per-user notificationPreferences.sound toggle (read via settings.get) before
+  // playing. Pure/sync — no DB read here; OFF (default) keeps the client's sound path fully dark.
+  isEnabled: protectedProcedure.query(() => ({
+    enabled: isNotificationsEnabled(),
+    soundEnabled: isNotifySoundEnabled(),
+  })),
 
   // ── Read: the owner feed + unread count + per-matter "ready" badge data ────
   // One owner-scoped read powers the bell badge (unreadCount), the dropdown list (items),
