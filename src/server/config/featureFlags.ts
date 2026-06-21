@@ -504,6 +504,35 @@ export function isNotifySoundEnabled(): boolean {
 }
 
 /**
+ * Async draft dispatch (F3 / ASYNC-DRAFT-DISPATCH-1). DEFAULT OFF.
+ *
+ * When OFF (the default), document.generateDraft / document.regenerate run the established SYNCHRONOUS
+ * path byte-for-byte: executeCanonicalMutation enqueues + runs the job INLINE and the mutation returns
+ * { jobId, status } only AFTER the draft is committed. (This is why F3 token streaming never reaches the
+ * client today — the seam publishes deltas to a bus with no subscriber, because the client only learns the
+ * jobId after the stream is already torn down; see docs/engagements/DRAFT-STREAMING-GAP-1-investigation.md.)
+ *
+ * When exactly "true", the two draft mutations DISPATCH ASYNC exactly like the proven F2 reviewer path:
+ * enqueue the job 'queued', return its jobId IMMEDIATELY (status 'queued'), and run it in the background.
+ * That opens the live window in which the client (the existing JobBanner poll keeps the shared job cache
+ * fresh while the job is queued/running) holds the jobId and can subscribe to GET /api/stream/draft/:jobId —
+ * so with DRAFT_STREAMING_ENABLED also on, initial-draft tokens render incrementally; either flag off is
+ * safe. ORTHOGONAL to DRAFT_STREAMING_ENABLED (this is the TIMING fix; that gates whether runJob opens the
+ * bus at all). The committed version stays the durable source of truth (the two-transaction commit is
+ * unchanged) — streaming is only a delivery overlay.
+ *
+ * v1 LIMITATIONS (documented, accepted — same posture as REVIEWER_ASYNC_ENABLED): the background run is
+ * in-process fire-and-forget, so a server restart mid-draft loses the in-flight LLM call (the jobs row is
+ * left non-terminal for the reaper); and the draft-stream bus is per-process, so the SSE GET must hit the
+ * SAME Railway replica that ran the job (safe on a single replica — the operator-confirmed prod topology;
+ * a scale-out would need a shared transport). A draft FAILURE surfaces via job state (like F2), not a
+ * thrown mutation error. Activation is operator-gated; ships dark.
+ */
+export function isAsyncDraftDispatchEnabled(): boolean {
+  return process.env['ASYNC_DRAFT_DISPATCH_ENABLED'] === 'true';
+}
+
+/**
  * Draft token streaming (F3 / DRAFT-STREAMING-1). DEFAULT OFF.
  *
  * When OFF (the default), draft_generation/regeneration jobs run the established blocking generate()
