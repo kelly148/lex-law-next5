@@ -21,11 +21,12 @@
  * store is the real Drizzle-backed implementation.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../connection.js';
 import { notifications, type NewNotification } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
+import { isNotificationsEnabled } from '../../config/featureFlags.js';
 import {
   NotificationRowSchema,
   type NotificationRow,
@@ -52,6 +53,13 @@ export interface CreateNotificationArgs {
 // ── store seam ─────────────────────────────────────────────────────────────
 export interface NotificationStore {
   insert(row: NewNotification): Promise<NotificationRow>;
+  /**
+   * NOTIFY-PRODUCERS-1: insert IFF the row's id is not already present; returns true when a NEW row
+   * was created, false when an identical-id row already existed. This is the single-emit / idempotency
+   * primitive — producers pass a DETERMINISTIC id (uuidv5 of a stable source key), so a re-fired
+   * state-transition (or a concurrent F2 lane finishing the same session) writes exactly ONE row.
+   */
+  insertIfAbsent(row: NewNotification): Promise<boolean>;
   listForOwner(userId: string, limit: number): Promise<NotificationRow[]>;
   /** owner-scoped UNREAD notices only (readAt IS NULL), newest first, capped. Powers the N1 digest. */
   listUnread(userId: string, limit: number): Promise<NotificationRow[]>;
@@ -64,6 +72,13 @@ export interface NotificationStore {
   markSeen(id: string, userId: string, at: Date): Promise<void>;
 }
 
+// ER_DUP_ENTRY (MySQL/TiDB errno 1062): a deterministic-id insert that lost the single-emit race.
+function isDuplicateKeyError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: string; errno?: number };
+  return e.code === 'ER_DUP_ENTRY' || e.errno === 1062;
+}
+
 const drizzleStore: NotificationStore = {
   async insert(row: NewNotification): Promise<NotificationRow> {
     await db.insert(notifications).values(row);
@@ -74,6 +89,16 @@ const drizzleStore: NotificationStore = {
       .limit(1);
     if (!rows[0]) throw new Error('notification insert did not materialize');
     return parse(rows[0]);
+  },
+
+  async insertIfAbsent(row: NewNotification): Promise<boolean> {
+    try {
+      await db.insert(notifications).values(row);
+      return true;
+    } catch (err) {
+      if (isDuplicateKeyError(err)) return false; // an identical-id row already exists -> single-emit holds
+      throw err;
+    }
   },
 
   async listForOwner(userId: string, limit: number): Promise<NotificationRow[]> {
@@ -161,6 +186,96 @@ export async function createNotification(args: CreateNotificationArgs): Promise<
     body: args.body ?? null,
   };
   return store().insert(row);
+}
+
+// ============================================================
+// NOTIFY-PRODUCERS-1 — outbox-emit producers (review-ready, draft-generated)
+// ============================================================
+// IN-APP ONLY (these never leave the app — no email/push/external), so the EGRESS Inc 3b dependency that
+// deferred the HOLD/ACK notification types does NOT gate these informational producers (there is no
+// external egress to govern). Each fires at a canonical completion chokepoint and is IDEMPOTENT via a
+// DETERMINISTIC id (uuidv5 of a stable source key) + insertIfAbsent, so a re-fired transition, the 60s
+// client poll, a re-render, or a concurrent F2 lane finishing the same session can never write a
+// duplicate. Gated on NOTIFICATIONS_ENABLED (the same flag that renders the bell/badge/poll); OFF -> the
+// producers no-op (fully reversible). BEST-EFFORT: a producer failure is logged and swallowed — emitting
+// an informational badge must never break a review or a draft commit. CONTENT is NO-NPI: a type + a
+// matter reference + a fixed title only ("Review ready" / "Draft ready"), never client data.
+
+// Fixed namespace for deterministic notification ids (uuidv5). Not a secret; must never change (changing
+// it re-keys dedup and could double-emit already-emitted events once).
+const NOTIFICATION_DEDUP_NAMESPACE = '1b671a64-40d5-491e-99b0-da01ff1f3341';
+
+/**
+ * Emit exactly ONE notification for a stable source event. `dedupKey` is the source identity (e.g.
+ * `review_ready:<sessionId>`); it is hashed (uuidv5) into the row's PRIMARY KEY id, so a second emit for
+ * the same event is a PK no-op. Returns true when a NEW row was created. Gated on NOTIFICATIONS_ENABLED
+ * (OFF -> no-op, returns false).
+ */
+export async function emitNotificationOnce(args: {
+  dedupKey: string;
+  userId: string;
+  matterId?: string | null;
+  type?: NotificationType;
+  title: string;
+  body?: string | null;
+}): Promise<boolean> {
+  if (!isNotificationsEnabled()) return false;
+  const row: NewNotification = {
+    id: uuidv5(args.dedupKey, NOTIFICATION_DEDUP_NAMESPACE),
+    userId: args.userId,
+    matterId: args.matterId ?? null,
+    type: args.type ?? 'generic',
+    title: args.title,
+    body: args.body ?? null,
+  };
+  return store().insertIfAbsent(row);
+}
+
+/**
+ * Producer: a review SESSION has RETURNED (reached its terminal/ready state — all lanes terminal, NOT a
+ * hold). One matter-scoped 'matter_ready' notice -> the per-matter "ready" badge + the global unread
+ * badge. BEST-EFFORT (swallows errors). The CALLER must invoke this only on the non-hold ready settle
+ * (see finalizeSessionLifecycleIfSettled and the sync settle); a held/running session must NOT call it.
+ */
+export async function emitReviewReadyNotification(args: {
+  reviewSessionId: string;
+  userId: string;
+  matterId: string;
+}): Promise<void> {
+  try {
+    await emitNotificationOnce({
+      dedupKey: `review_ready:${args.reviewSessionId}`,
+      userId: args.userId,
+      matterId: args.matterId,
+      type: 'matter_ready',
+      title: 'Review ready',
+    });
+  } catch (e) {
+    console.error(`[notify-producers] review-ready emit failed (session ${args.reviewSessionId}):`, e);
+  }
+}
+
+/**
+ * Producer: a DRAFT version has been COMMITTED (initial generation or regeneration). One matter-scoped
+ * 'matter_ready' notice -> the per-matter "ready" badge + the global unread badge. BEST-EFFORT. Keyed on
+ * the new versionId so each committed version emits exactly one notice.
+ */
+export async function emitDraftReadyNotification(args: {
+  versionId: string;
+  userId: string;
+  matterId: string;
+}): Promise<void> {
+  try {
+    await emitNotificationOnce({
+      dedupKey: `draft_ready:${args.versionId}`,
+      userId: args.userId,
+      matterId: args.matterId,
+      type: 'matter_ready',
+      title: 'Draft ready',
+    });
+  } catch (e) {
+    console.error(`[notify-producers] draft-ready emit failed (version ${args.versionId}):`, e);
+  }
 }
 
 export async function listNotificationsForOwner(
