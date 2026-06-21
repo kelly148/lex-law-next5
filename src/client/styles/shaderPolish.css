@@ -1,0 +1,43 @@
+/* WHEREAS-POLISH-1 — foil wordmark (spec §5.A). CSS-only specular sweep across the serif "Whereas,"
+   via background-clip:text. Reduced-motion → the sweep stops and the wordmark is solid accent. The comma
+   (the oxblood recital mark) is rendered as a separate accent span so the foil never washes it out. */
+
+.wa-foil-wordmark {
+  font-family: var(--wa-font-serif);
+  font-weight: 500;
+  color: var(--wa-accent);
+  background-image: linear-gradient(
+    100deg,
+    var(--wa-accent) 0%,
+    var(--wa-accent) 40%,
+    #cda6ab 50%,
+    var(--wa-accent) 60%,
+    var(--wa-accent) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: wa-foil-sweep 6s linear infinite;
+}
+
+.wa-foil-comma {
+  color: var(--wa-accent);
+  -webkit-text-fill-color: var(--wa-accent);
+}
+
+@keyframes wa-foil-sweep {
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-foil-wordmark {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: var(--wa-accent);
+    color: var(--wa-accent);
+  }
+}
