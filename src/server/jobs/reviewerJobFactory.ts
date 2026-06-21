@@ -28,7 +28,7 @@
  * everything the subject needs (matterId / documentId / documentVersionId / jobId / userId / modelString).
  * Inc 3b (the hold-blocked-partial send-gate acknowledgment) is OUT of scope here.
  */
-import { parseModelString, resolveReviewerLatencyTuning } from '../llm/config.js';
+import { parseModelString, resolveReviewerLatencyTuning, resolveReviewerReasoningCap } from '../llm/config.js';
 import { getPromptVersionForJobType } from '../llm/promptVersions.js';
 import { parseFeedbackOutput, RawSuggestionsArraySchema } from '../llm/parsers/feedbackParser.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
@@ -168,9 +168,13 @@ export function buildReviewerCanonicalParams(input: ReviewerDurableInput): Canon
       temperature,
       structuredOutputSchema: RawSuggestionsArraySchema,
       maxTokens,
-      // Flag-gated, gpt-5-reviewer-only latency knobs; null (spread adds nothing) otherwise — re-derived,
-      // so a tuning flip applies on the NEXT run without re-storing input (matches the pre-outbox path).
-      ...(resolveReviewerLatencyTuning(REVIEWER_JOB_TYPE, modelString) ?? {}),
+      // Flag-gated, gpt-5-reviewer-only reasoning/latency knobs; re-derived per run (a flip applies on the
+      // NEXT run without re-storing input). Latency tuning (speed) wins when on; otherwise the
+      // GPT5-REASONING-CAP-1 truncation insurance supplies a bounded reasoning_effort; both off → spread
+      // adds nothing (byte-for-byte).
+      ...(resolveReviewerLatencyTuning(REVIEWER_JOB_TYPE, modelString) ??
+        resolveReviewerReasoningCap(REVIEWER_JOB_TYPE, modelString) ??
+        {}),
     }),
     ...(isAsync
       ? {
