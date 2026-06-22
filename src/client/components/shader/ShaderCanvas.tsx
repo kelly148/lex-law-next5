@@ -74,6 +74,36 @@ function prefersReducedMotion(): boolean {
     : false;
 }
 
+/** Parse a CSS color string (#rgb, #rrggbb, rgb()/rgba()) to a 0..1 RGB triple; null if unrecognized.
+ *  Exported for unit coverage of the hex/rgb branches (the prod cream-floor path). */
+export function parseCssColor(s: string): [number, number, number] | null {
+  const v = s.trim();
+  if (!v) return null;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+  if (hex) {
+    const g = hex[1] ?? '';
+    const h = g.length === 3 ? g.replace(/./g, (c) => c + c) : g; // #abc → #aabbcc
+    const n = parseInt(h, 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/i.exec(v);
+  if (rgb) return [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255];
+  return null;
+}
+
+/** Resolve the fallbackVar CSS custom property (the surface this canvas sits on) to a 0..1 RGB triple so the
+ *  WebGL clear/initial fill matches the static fallback cream — never the default opaque black. Falls back to
+ *  --wa-paper cream if the property can't be read/parsed (e.g. jsdom, an unset var). */
+function fallbackRgb(el: HTMLElement, varName: string): [number, number, number] {
+  const CREAM: [number, number, number] = [0.98, 0.973, 0.949]; // --wa-paper #FAF8F2
+  if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return CREAM;
+  try {
+    return parseCssColor(window.getComputedStyle(el).getPropertyValue(varName)) ?? CREAM;
+  } catch {
+    return CREAM;
+  }
+}
+
 const VERTEX_SRC = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }';
 const STD_UNIFORMS =
   'uniform vec2 u_res; uniform float u_time; uniform float u_intensity; uniform float u_motion; uniform vec2 u_mouse;';
@@ -143,7 +173,15 @@ export default function ShaderCanvas({
 
     let gl: WebGLRenderingContext | null = null;
     try {
-      gl = canvas.getContext('webgl', { alpha: false, antialias: true }) as WebGLRenderingContext | null;
+      // preserveDrawingBuffer keeps the last drawn frame on the buffer. Without it, WebGL auto-clears the
+      // drawing buffer to (0,0,0,0) after each composite — which, under alpha:false, reads as OPAQUE BLACK —
+      // so any throttled/skipped rAF frame (or the window before the first draw) composited a black band over
+      // the cream UI. (The auto-clear ignores gl.clearColor, so a cream clearColor alone is not enough.)
+      gl = canvas.getContext('webgl', {
+        alpha: false,
+        antialias: true,
+        preserveDrawingBuffer: true,
+      }) as WebGLRenderingContext | null;
     } catch {
       gl = null;
     }
@@ -197,6 +235,16 @@ export default function ShaderCanvas({
     const mouse: [number, number] = [0.5, 0.5];
     const mouseTarget: [number, number] = [0.5, 0.5];
 
+    // Cream floor color (the SAME surface color as the static fallback). Resolved once and re-applied on
+    // every real buffer resize: reassigning canvas.width/height RESETS the drawing buffer to opaque black,
+    // and preserveDrawingBuffer does NOT protect against an explicit size change — so without re-clearing, a
+    // resize while paused offscreen would revert to a black band.
+    const [cr, cg, cb] = fallbackRgb(canvas, fallbackVar);
+    const clearToCream = (): void => {
+      gl.clearColor(cr, cg, cb, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    };
+
     const resize = (): void => {
       const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 1.5);
       const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
@@ -204,10 +252,14 @@ export default function ShaderCanvas({
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
+        clearToCream(); // the size change blanked the buffer to black — restore the cream floor
       }
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
     resize();
+
+    // Cream floor before the first draw (and for the case the first resize() didn't change the buffer size).
+    clearToCream();
 
     const render = (now: number): void => {
       if (!visible || contextLost) return;
@@ -232,6 +284,10 @@ export default function ShaderCanvas({
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
     addTicker(render);
+    // Draw one frame immediately (synchronously, while visible is still true) so the surface paints its real
+    // output at once instead of waiting on the first throttled rAF tick — and so an instance the Intersection
+    // observer pauses right away (e.g. just offscreen) still shows a real frame, retained by preserveDrawingBuffer.
+    render(start);
 
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
     ro?.observe(canvas);
@@ -275,7 +331,7 @@ export default function ShaderCanvas({
       gl.deleteProgram(program);
       gl.deleteBuffer(buf);
     };
-  }, [fragmentShader, intensity, interactive, themeTick, restoreTick]);
+  }, [fragmentShader, intensity, interactive, fallbackVar, themeTick, restoreTick]);
 
   return (
     <div data-testid="shader-mount" aria-hidden="true" className={className}>

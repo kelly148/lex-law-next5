@@ -144,7 +144,10 @@ function DeedGateForm({ documentId, initial, kb }: { documentId: string; initial
             className="absolute inset-0"
             fallbackVar="--wa-surface-2"
           />
-          <div className="relative z-10 flex items-center justify-between gap-2">
+          {/* Left-anchored (NOT justify-between): the ring sits immediately beside the title so it stays
+              on-screen. SHADER-RENDER-BUG-1: pushed to the far right, it landed off the right edge of a
+              wide/overflowing panel → offscreen → the IntersectionObserver paused it → it never drew. */}
+          <div className="relative z-10 flex items-center gap-2">
             <div className="flex items-center gap-2">
               <Scale className="w-5 h-5 text-firm-navy" />
               <h2 className="text-base font-semibold text-firm-navy">Deed recordability</h2>
