@@ -18,10 +18,17 @@ import { httpBatchLink } from '@trpc/client';
 import { BrowserRouter } from 'react-router-dom';
 import { trpc } from './trpc.js';
 import App from './App.js';
+import { SHADER_POLISH_ENABLED } from './config/shaderPolish.js';
 // Whereas design tokens (verbatim R0 source of truth) load before globals so the
 // --wa-* CSS variables exist when Tailwind utilities reference them.
 import './styles/whereas-tokens.css';
 import './styles/globals.css';
+
+// SHADER-BUILD-FLAG-FIX-1: ground-truth verifiability tell. Logs the CLIENT-baked shader-polish flag —
+// the exact constant every shader mount gates on, so it can never disagree with what actually renders.
+// Confirms the shader state from the browser console (and the literal survives minification) instead of
+// grepping 20 chunks. Non-secret, present in both states by design (that is the point of the tell).
+console.info(`[shader-polish] baked enabled = ${SHADER_POLISH_ENABLED}`);
 
 const trpcClient = trpc.createClient({
   links: [

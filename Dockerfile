@@ -40,6 +40,17 @@ COPY . .
 ARG RAILWAY_GIT_COMMIT_SHA=local
 RUN echo "client/server build for commit ${RAILWAY_GIT_COMMIT_SHA}"
 
+# SHADER-BUILD-FLAG-FIX-1: make the client shader-polish flag reach `vite build`.
+# Vite inlines import.meta.env.VITE_* ONLY from the environment present DURING the build. A Railway
+# service/runtime variable does NOT reach a Docker build unless the Dockerfile declares a matching ARG
+# (Railway passes service vars as --build-arg; Docker exposes a build-arg only when an ARG declares it).
+# Without this, VITE_UI_SHADER_POLISH_ENABLED resolves undefined → `=== 'true'` is false → the entire
+# shader path is tree-shaken out and the client ships dark even when the operator "sets" the variable.
+# Promote the build-arg to ENV so `vite build` (below) sees it. Default empty → OFF preserved: an unset/
+# empty value bakes the same disabled client as today (only the exact string "true" enables shaders).
+ARG VITE_UI_SHADER_POLISH_ENABLED
+ENV VITE_UI_SHADER_POLISH_ENABLED=$VITE_UI_SHADER_POLISH_ENABLED
+
 # Build client (Vite) + server (esbuild) in one step
 # Uses local binaries from node_modules/.bin via pnpm exec
 RUN pnpm exec tsc --noEmit && \
@@ -96,7 +107,12 @@ RUN test -f ./prompts/manifest.json && test -f ./prompts/assets/TE_Master_Instru
 # report exactly which commit and build is running (stale-deploy detection).
 # Referencing the commit SHA keeps this layer fresh per commit.
 ARG RAILWAY_GIT_COMMIT_SHA=local
-RUN printf '{"commit":"%s","builtAt":"%s"}\n' "${RAILWAY_GIT_COMMIT_SHA}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ./dist/version.json
+# SHADER-BUILD-FLAG-FIX-1: also stamp the build-env shader flag so /api/version reports the value the
+# build saw (a curl-able, headless tell that the build-arg plumbing reached the build). This re-declares
+# the ARG because the runner is a separate build stage. It is the RAW build-env string ("true" / "" /
+# absent), distinct from the client-baked ground truth (the main.tsx console tell). Default empty.
+ARG VITE_UI_SHADER_POLISH_ENABLED
+RUN printf '{"commit":"%s","builtAt":"%s","shaderPolishBuildFlag":"%s"}\n' "${RAILWAY_GIT_COMMIT_SHA}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${VITE_UI_SHADER_POLISH_ENABLED}" > ./dist/version.json
 
 # Railway injects PORT at runtime; default to 3001 for local testing
 ENV PORT=3001
