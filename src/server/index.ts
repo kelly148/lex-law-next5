@@ -113,13 +113,17 @@ app.get('/api/health', (_req, res) => {
 // Defaults gracefully when version.json is absent (local dev / pre-build).
 // ============================================================
 app.get('/api/version', (_req, res) => {
-  let version: { commit: string; builtAt: string } = {
+  // shaderPolishBuildFlag (SHADER-BUILD-FLAG-FIX-1): the RAW VITE_UI_SHADER_POLISH_ENABLED value the
+  // build env saw, baked into version.json by the Dockerfile runner stage. A curl-able tell that the
+  // shader build-arg plumbing reached the build. 'unknown' until a build with the fix produces version.json.
+  let version: { commit: string; builtAt: string; shaderPolishBuildFlag?: string } = {
     commit: 'unknown',
     builtAt: 'unknown',
+    shaderPolishBuildFlag: 'unknown',
   };
   try {
     const raw = readFileSync(path.join(process.cwd(), 'dist', 'version.json'), 'utf8');
-    version = JSON.parse(raw) as { commit: string; builtAt: string };
+    version = JSON.parse(raw) as { commit: string; builtAt: string; shaderPolishBuildFlag?: string };
   } catch {
     // version.json absent (local dev or pre-build) — return defaults.
   }
