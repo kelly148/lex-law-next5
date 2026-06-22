@@ -43,6 +43,7 @@ import {
   Footer,
   Header,
   HighlightColor,
+  ImportedXmlComponent,
   LineRuleType,
   PageNumber,
   PageOrientation,
@@ -131,6 +132,21 @@ function stripWholeBold(line: string): { text: string; wasBold: boolean } {
   const m = /^\*{2}(.+?)\*{2}$/.exec(t);
   if (m && m[1]) return { text: m[1].trim(), wasBold: true };
   return { text: t, wasBold: false };
+}
+
+/**
+ * Strip inline emphasis MARKERS (keeping inner text) from a line of heading text. Heading/title builders
+ * render a single plain run, so without this any partial/inline **bold** or __bold__ marker in an all-caps
+ * heading line (e.g. "**DATE OF EXECUTION:** ____") survives as literal asterisks/underscores in the DOCX
+ * (SHADER-/EXPORT-FORMAT-FIX-1 #2). Pairs only — lone underscores (signature/fill-in lines like "____")
+ * are left untouched.
+ */
+function stripInlineEmphasis(text: string): string {
+  return text
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1') // ***bold italic***
+    .replace(/\*\*(.+?)\*\*/g, '$1') // **bold**
+    .replace(/(?<!_)__(?!_)(.+?)(?<!_)__(?!_)/g, '$1') // __bold__ — NOT a longer underscore run (fill-in lines)
+    .replace(/\*([^*\s][^*]*?)\*/g, '$1'); // *italic*
 }
 
 /**
@@ -307,7 +323,9 @@ function parseInline(line: string, opts?: { bodyFont?: boolean; color?: string }
   const useBodyFont = opts?.bodyFont ?? false;
   const defaultColor = opts?.color;
   const segments: TextSegment[] = [];
-  const pattern = /(\[\[([^\]]*)\]\]|\*{3}(.+?)\*{3}|\*{2}(.+?)\*{2}|\*([^*\n]+?)\*)/g;
+  // Spans: [[placeholder]], ***bold-italic***, **bold**, __bold__, *italic*. Inner text is taken by slicing
+  // the matched span (no numbered capture groups), so adding a span never renumbers the others.
+  const pattern = /(\[\[[^\]]*\]\]|\*{3}.+?\*{3}|\*{2}.+?\*{2}|(?<!_)__(?!_).+?(?<!_)__(?!_)|\*[^*\n]+?\*)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(line)) !== null) {
@@ -327,23 +345,23 @@ function parseInline(line: string, opts?: { bodyFont?: boolean; color?: string }
       });
     } else if (full.startsWith('***')) {
       segments.push({
-        text: match[3] ?? '',
+        text: full.slice(3, -3),
         bold: true,
         italics: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
         ...(defaultColor ? { color: defaultColor } : {}),
       });
-    } else if (full.startsWith('**')) {
-      // Inline bold in body: body charcoal, not navy
+    } else if (full.startsWith('**') || full.startsWith('__')) {
+      // Inline bold in body (** or __): body charcoal, not navy
       segments.push({
-        text: match[4] ?? '',
+        text: full.slice(2, -2),
         bold: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
         color: defaultColor ?? BODY_CHARCOAL,
       });
     } else {
       segments.push({
-        text: match[5] ?? '',
+        text: full.slice(1, -1),
         italics: true,
         ...(useBodyFont ? { font: BODY_FONT, size: BODY_SIZE } : {}),
         ...(defaultColor ? { color: defaultColor } : {}),
@@ -400,10 +418,13 @@ function segmentsToTextRuns(segments: TextSegment[]): TextRun[] {
  * Returns [headingParagraph, goldRuleParagraph].
  */
 function buildSectionHeader(text: string): [Paragraph, Paragraph] {
+  // Strip any residual inline markdown markers — headings render one plain run, so partial **/__ markers
+  // would otherwise leak as literal characters into the heading text.
+  const clean = stripInlineEmphasis(text);
   const headingParagraph = new Paragraph({
     children: [
       new TextRun({
-        text,
+        text: clean,
         bold: true,
         color: FIRM_NAVY,
         font: BODY_FONT,
@@ -916,6 +937,68 @@ export function markdownToDocxParagraphs(markdown: string): DocxFileChild[] {
 
 // ── Running header/footer builders ───────────────────────────────────────────
 
+/** Escape a string for safe inclusion in an XML attribute value. */
+function xmlAttrEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Build a TRUE Word watermark (VML w:pict diagonal WordArt) for a page header.
+ *
+ * EXPORT-FORMAT-FIX-1 #3: the previous "watermark" was only red running-header TEXT, so a privileged/draft
+ * notice rendered as inline text and `hasWatermark` was false (no v:shape/w:pict). This injects the canonical
+ * Word watermark VML (the `_x0000_t136` text-path shapetype + a rotated, half-opacity text shape) via the
+ * docx ImportedXmlComponent escape hatch — the library has no native watermark. Namespaces (v:, o:) are
+ * declared on the root <w:p> so the shape is self-contained regardless of how the header part declares its.
+ *
+ * The shape floats (position:absolute, z-index negative) BEHIND the body content on every page. Visual
+ * rendering must be verified in Word — it cannot be asserted from the XML alone.
+ */
+function buildWatermarkPict(text: string, color: string): Paragraph {
+  const s = xmlAttrEscape(text);
+  const xml =
+    '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' +
+    ' xmlns:v="urn:schemas-microsoft-com:vml"' +
+    ' xmlns:o="urn:schemas-microsoft-com:office:office"' +
+    ' xmlns:w10="urn:schemas-microsoft-com:office:word">' +
+    '<w:r><w:rPr><w:noProof/></w:rPr><w:pict>' +
+    '<v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800"' +
+    ' path="m@7,0l@8,0m@5,21600l@6,21600e">' +
+    '<v:formulas>' +
+    '<v:f eqn="sum #0 0 10800"/><v:f eqn="prod #0 2 1"/><v:f eqn="sum 21600 0 @1"/>' +
+    '<v:f eqn="sum 0 0 @2"/><v:f eqn="sum 21600 0 @3"/><v:f eqn="if @0 @3 0"/>' +
+    '<v:f eqn="if @0 21600 @1"/><v:f eqn="if @0 0 @2"/><v:f eqn="if @0 @4 21600"/>' +
+    '<v:f eqn="mid @5 @6"/><v:f eqn="mid @8 @5"/><v:f eqn="mid @7 @8"/>' +
+    '<v:f eqn="mid @6 @7"/><v:f eqn="sum @6 0 @5"/>' +
+    '</v:formulas>' +
+    '<v:path textpathok="t" o:connecttype="custom"' +
+    ' o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>' +
+    '<v:textpath on="t" fitshape="t"/>' +
+    '<v:handles><v:h position="#0,bottomRight" xrange="6629,14971"/></v:handles>' +
+    '<o:lock v:ext="edit" text="t" shapetype="t"/>' +
+    '</v:shapetype>' +
+    '<v:shape id="SatterwhiteWatermark" o:spid="_x0000_s2049" type="#_x0000_t136"' +
+    ' style="position:absolute;margin-left:0;margin-top:0;width:468pt;height:140pt;rotation:315;' +
+    'z-index:-251654144;mso-position-horizontal:center;mso-position-horizontal-relative:margin;' +
+    'mso-position-vertical:center;mso-position-vertical-relative:margin"' +
+    ` fillcolor="#${color}" stroked="f">` +
+    '<v:fill opacity=".5"/>' +
+    `<v:textpath style="font-family:&quot;Calibri&quot;;font-size:1pt" string="${s}"/>` +
+    '</v:shape></w:pict></w:r></w:p>';
+  // fromXmlString wraps the parsed XML in a DOCUMENT-ROOT component whose rootKey is `undefined`; returning
+  // it directly would serialize an invalid `<undefined>` element under <w:hdr> (Word repair / dropped
+  // watermark). Return the real parsed <w:p> child instead, so the pict-bearing paragraph is a direct
+  // child of the header. (Caught by adversarial review — the docx lib has no public unwrap helper.)
+  const imported = ImportedXmlComponent.fromXmlString(xml);
+  const root = (imported as unknown as { root?: unknown[] }).root;
+  const child = root && root.length > 0 ? root[0] : imported;
+  return child as unknown as Paragraph;
+}
+
 /**
  * Build the running header paragraph per spec:
  * Right-aligned, Calibri italic 8pt navy, bottom border navy sz=4 space=4.
@@ -1035,6 +1118,12 @@ export function buildSatterwhiteSection(
 
   const headerParagraph = buildRunningHeader(headerText, isWatermark);
   const footerParagraph = buildRunningFooter();
+  // EXPORT-FORMAT-FIX-1 #3: when a watermark applies, render a TRUE diagonal w:pict watermark BEHIND the
+  // content (floats; does not disturb the running-header line, which is kept as a belt-and-suspenders text
+  // marker so the page is marked even if a viewer ignores VML).
+  const headerChildren: Paragraph[] = isWatermark
+    ? [buildWatermarkPict(headerText, DRAFTER_RED), headerParagraph]
+    : [headerParagraph];
 
   // ── Cover page for fiduciary instruments ────────────────────────────────────
   const hasCoverPage = !isWatermark && isFiduciaryInstrument(markdown);
@@ -1060,7 +1149,7 @@ export function buildSatterwhiteSection(
         },
       },
       headers: {
-        default: new Header({ children: [headerParagraph] }),
+        default: new Header({ children: headerChildren }),
       },
       footers: {
         default: new Footer({ children: [footerParagraph] }),
@@ -1084,7 +1173,7 @@ export function buildSatterwhiteSection(
       },
     },
     headers: {
-      default: new Header({ children: [headerParagraph] }),
+      default: new Header({ children: headerChildren }),
     },
     footers: {
       default: new Footer({ children: [footerParagraph] }),

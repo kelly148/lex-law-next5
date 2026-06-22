@@ -59,13 +59,16 @@ async function sectionToXml(
   // Header and footer files may be named header1.xml / footer1.xml
   let headerXml = '';
   let footerXml = '';
+  // Cross-platform: plain `unzip -p` (the part always exists for a full section). The previous
+  // `2>/dev/null || echo ""` produced a literal `""` on Windows cmd.exe (the redirect is invalid there),
+  // making these assertions falsely red locally though green on Linux CI. A missing part still throws → ''.
   try {
-    headerXml = execSync(`unzip -p "${tmpPath}" word/header1.xml 2>/dev/null || echo ""`).toString();
+    headerXml = execSync(`unzip -p "${tmpPath}" word/header1.xml`).toString();
   } catch {
     headerXml = '';
   }
   try {
-    footerXml = execSync(`unzip -p "${tmpPath}" word/footer1.xml 2>/dev/null || echo ""`).toString();
+    footerXml = execSync(`unzip -p "${tmpPath}" word/footer1.xml`).toString();
   } catch {
     footerXml = '';
   }
