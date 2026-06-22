@@ -4,6 +4,22 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-22c (FULL SEND pass — WHEREAS-POLISH-1 anchor complete + GPT5 cap + 5C diagnostics; 5 merges to main, head eea9435; all flag-dark, auto-merged Rule 15)
+
+**Disposition.** Autonomous Monster-Build continuation. All reversible build-and-PR, default-OFF flags, auto-merged on green CI; nothing deployed (merge ≠ deploy); no migrations. Each adversarially reviewed (Inc 1) or pattern-proven + locally gated. `main` advanced abc968b → **eea9435**.
+
+**Merges.**
+1. **STATE/spec bookkeeping** (#382, `d7b97b9`) — NOTIFY-UX-1 + F3 STATE entries; committed `docs/WHEREAS-POLISH-1_SPEC_FINAL.md`.
+2. **WHEREAS-POLISH-1 Inc 1** (#383, `fd05619`) — the reusable `ShaderCanvas` WebGL harness (shared 30fps ticker, DPR≤1.5, IntersectionObserver/ResizeObserver pause, reduced-motion, dark/no-WebGL/context-loss → static fallback, theme/restore re-probe) + flag `VITE_UI_SHADER_POLISH_ENABLED` + config + **effect A** (ink landing + Fraunces foil wordmark) on the login hero. Adversarial review: zero blockers; 2 LOW harness fixes applied.
+3. **WHEREAS-POLISH-1 Inc 2** (#384, `b148469`) — **effect B** (guilloché) on the DeedGatePanel section header (surface-2 strip; form stays flat §6).
+4. **WHEREAS-POLISH-1 Inc 3** (#385, `349664f`) — **effect G** (generating shimmer behind the DocumentCanvas wait card) + **effect D** (recordability ring beside the DeedGatePanel, `u_prog` from the REAL three-gate eval per acceptance #8; `u_alert`=0 in v1 per operator lock, TODO for the live-conflict follow-up). Completes the anchor.
+5. **GPT5-REASONING-CAP-1** (#386, `997aaaa`) — bounded `reasoning_effort` truncation insurance for the GPT-5 reviewer lane, flag `GPT5_REASONING_CAP_ENABLED` (default OFF, env-overridable effort), DECOUPLED from REVIEWER_LATENCY_TUNING_ENABLED (a fallback in the reviewerJobFactory spread). Built fresh (the "Gemini insurance" doesn't exist in code).
+6. **REVIEWER-HEALTH-VIEW-1 / 5C** (#387, `eea9435`) — read-only owner-scoped diagnostics panel at `/diagnostics` (SUPERVISION-VIEW-1 pattern): reviewer_feedback job-status counts over a window + active/stuck sessions. Flag `REVIEWER_HEALTH_VIEW_ENABLED` (default OFF); no mutation/egress/migration. (Per-model reviewer return/empty/error rates = noted fast-follow.)
+
+**Deploy-pending flags (operator-gated):** `VITE_UI_SHADER_POLISH_ENABLED` (set on the Railway BUILD env + redeploy — Vite bakes it; Cowork verifies A/B/G/D cross-browser §9), `GPT5_REASONING_CAP_ENABLED`, `REVIEWER_HEALTH_VIEW_ENABLED`. **Open queue (next pass):** 5A reviewer reliability R2 (sensitive — structured-output repair + stuck-session reaper); FOLD-INTEG-1 §3.1 FIRE design+packet; BUILD-STATE-AUDIT-1.
+
+---
+
 ## 2026-06-22b (ASYNC-DRAFT-DISPATCH-1 / F3 — async draft dispatch so streaming reaches the client; merged to main abc968b; auto-merged Rule 15)
 
 **Disposition.** Fixes the diagnosed DRAFT-STREAMING-GAP-1 (2026-06-21e). Reversible build-and-PR; no decision/residual surfaced → auto-merged per Rule 15 on green CI (PR #381, squash **abc968b**); branch deleted. Not deployed (merge ≠ deploy); Cowork live-verifies post-deploy. New flag **`ASYNC_DRAFT_DISPATCH_ENABLED`** (default OFF). No migration.
