@@ -35,7 +35,9 @@ import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 function readSrc(relPath: string): string {
-  return fs.readFileSync(path.join(ROOT, 'src', relPath), 'utf-8');
+  // Normalize CRLF → LF so the source-audit `\n`-bearing assertions match on Windows checkouts too
+  // (the file is CRLF locally, LF on Linux CI). No-op on LF; makes these source greps OS-independent.
+  return fs.readFileSync(path.join(ROOT, 'src', relPath), 'utf-8').replace(/\r\n/g, '\n');
 }
 
 // ============================================================
