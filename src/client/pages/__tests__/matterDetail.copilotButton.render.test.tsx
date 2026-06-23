@@ -40,6 +40,8 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // DEED-DRAFT-AGENT-1 Inc-1c — the page probes this flag; default OFF so the Gift Deed Draft entry is absent.
+      deedDraftAgent: { isEnabled: query({ enabled: false }) },
     },
   };
 });
