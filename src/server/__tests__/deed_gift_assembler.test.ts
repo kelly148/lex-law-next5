@@ -166,12 +166,12 @@ describe('vesting rule (§11.2): single -> sole owner; married -> TBE; multiple 
       granteesAreMarriedCouple: true,
     });
     expect(d.vesting.key).toBe('tenants_by_entirety');
-    expect(d.text).toContain('as tenants by the entirety with the common law right of survivorship');
+    expect(d.text).toContain('as tenants by the entirety with the full common law right of survivorship'); // operator-ratified 2026-06-23
   });
-  it('multiple non-spouse grantees -> JTWROS with the §4 Mason gift phrasing ("the full common law")', () => {
+  it('multiple non-spouse grantees -> JTWROS with the operator-ratified phrasing ("the common law")', () => {
     const d = assembleGiftDeed(facts, { ...base, grantees: [{ name: 'Owen Park' }, { name: 'Jenna Park' }] });
     expect(d.vesting.key).toBe('jtwros');
-    expect(d.text).toContain('as joint tenants with the full common law right of survivorship and not as tenants in common');
+    expect(d.text).toContain('as joint tenants with the common law right of survivorship and not as tenants in common');
   });
   it('a married couple supplied as ONE grantee entry still vests TBE (flag not dropped), with a surfaced warning', () => {
     const d = assembleGiftDeed(facts, {
