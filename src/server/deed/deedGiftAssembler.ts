@@ -1,0 +1,348 @@
+/**
+ * deedGiftAssembler.ts — DEED-DRAFT-AGENT-1 Inc 1: DETERMINISTIC house-style Deed of Gift assembler.
+ *
+ * PURE + deterministic + NO-EGRESS — NO LLM in the gift path (Inc 1 architecture, operator-confirmed). Takes
+ * the consolidated DeedSourceFacts (property facts from the packet) + an attorney-provided GiftDeedInput
+ * (the donor/donee identities and matter facts the document text cannot supply) and assembles the Mason
+ * house-style Deed of Gift (DEED_KB_SEED §11.2 / spec §11.2/§11.3), grounded on the verified VA KB
+ * (deedKbVa.ts — never model memory).
+ *
+ * The FIRE §7 spine, enforced structurally:
+ *  1. LEGAL DESCRIPTION VERBATIM — the legal description is inserted EXACTLY as extracted; it is never
+ *     paraphrased or regenerated. A withheld/absent legal becomes a [[ ]] placeholder, never a guess.
+ *  2. NO FABRICATED FACTS — every genuinely-missing fact becomes a [[ ]] placeholder WITH a research lead.
+ *  3. EXEMPTION-SAFE — the granting verb is hardcoded "grant and convey" (NOT "grant, bargain, sell, and
+ *     convey") and the instrument states it is a "Deed of Gift" on its face; both are required for the
+ *     § 58.1-811(D) exemption (P.D. 93-212). These are NOT parameterized.
+ *  4. ATTORNEY DECIDES — the warranty is parameterized (default = Mason house §11.2; B1 override-able); the
+ *     draft is a starting point the attorney edits/approves; this module never finalizes, records, or sends.
+ *  5. HONESTY FLOOR — a withheld legal description is surfaced as withheld -> placeholder.
+ *
+ * The output uses NO markdown syntax (no hash, asterisk, or pipe): a fact-complete deed therefore passes the B6 annotation-leak
+ * gate (deedDraftGates.checkAnnotationLeak), while a placeholder-bearing draft FAILS B6 on the [[ ]] tokens —
+ * i.e. a draft with unresolved facts is fail-closed and not yet recordable, by design. Execution fields (date,
+ * notary, signatures) intentionally remain blank "___" (a draft is not executed); underscores legitimately
+ * pass B6.
+ */
+
+import type { DeedSourceFacts } from './deedSourceFacts.js';
+import { VA_DEED_TYPES, isVaVestingValidated } from './deedKbVa.js';
+import { checkAnnotationLeak } from './deedDraftGates.js';
+
+/** Mason house-style warranty for a gift deed (DEED_KB_SEED §11.2). DIVERGES from the general VA training-guide
+ *  norm ("gift = typically no warranty", deedKbVa gift.warranty) — §11.2 is the operator's explicit house
+ *  choice for this agent. Parameterized per the B1 default+override ruling. */
+export const DEFAULT_GIFT_WARRANTY = 'General Warranty and English Covenants of title';
+
+/**
+ * GIFT-SPECIFIC vesting language — the Mason house gift build-target forms (DEED_KB_SEED §4 / §11.2). These
+ * carry the gift-corpus phrasing ("the full common law right of survivorship") which DIVERGES from the generic
+ * state-level deedKbVa VA_VESTING_OPTIONS phrasing ("right of survivorship"). The §4 form is the gift build
+ * target + eval-set oracle, so the gift assembler grounds on IT (not the generic list). The two-KB divergence
+ * is surfaced as a note for operator reconciliation. The canonical language omits the leading "as " (added
+ * uniformly by vestingPhrase). Keys match VA_VESTING_OPTIONS so an override validated against that KB resolves.
+ */
+const GIFT_VESTING: Record<string, { key: string; language: string }> = {
+  sole_owner: { key: 'sole_owner', language: 'sole owner' },
+  jtwros: { key: 'jtwros', language: 'joint tenants with the full common law right of survivorship and not as tenants in common' },
+  tenants_by_entirety: { key: 'tenants_by_entirety', language: 'tenants by the entirety with the common law right of survivorship' },
+  tenants_in_common: { key: 'tenants_in_common', language: 'tenants in common' },
+};
+
+export interface GiftDeedPartyInput {
+  /** Full current legal name as the attorney wants it on the instrument (attorney-provided; B4 evidence rule). */
+  name: string;
+  /** Optional descriptor — grantor marital status ("an unmarried man", "husband and wife") or grantee
+   *  relationship to the Grantor (gift convention, "the Grantor's son"). Placed verbatim after the name. */
+  descriptor?: string | undefined;
+}
+
+export interface GiftDeedInput {
+  /** Donor(s) — the new deed's grantor(s). Attorney-provided. */
+  grantors: GiftDeedPartyInput[];
+  /** Donee(s) — the new deed's grantee(s). Attorney-provided. */
+  grantees: GiftDeedPartyInput[];
+  /** Married-couple grantees -> TBE default; otherwise (multiple) -> JTWROS (the §11.2 gift vesting rule). */
+  granteesAreMarriedCouple?: boolean | undefined;
+  /** Explicit vesting override (a VA_VESTING_OPTIONS key); validated, else the derived default is used. */
+  vestingOverride?: string | null | undefined;
+  /** Warranty phrase; default = Mason house §11.2. B1 override-able. */
+  warranty?: string | undefined;
+  /** Mason file number (36-YYYY-NNNN); [[ ]] if absent. */
+  fileNumber?: string | null | undefined;
+  /** Grantee mailing / return address; [[ ]] if absent. */
+  granteeAddress?: string | null | undefined;
+  /** Recording locality (County / independent City); falls back to facts.propertyLocality, else [[ ]]. */
+  locality?: string | null | undefined;
+  /** Derivation-of-title reference (where the donor's vesting deed is recorded); [[ ]] (with candidates) if absent. */
+  derivationReference?: string | null | undefined;
+  /** After-recording return-to; defaults to Universal Title. */
+  returnTo?: string | null | undefined;
+}
+
+export interface GiftDeedPlaceholder {
+  /** The literal [[ ... ]] token as it appears in the draft. */
+  token: string;
+  /** The field key the placeholder stands for. */
+  field: string;
+  /** A concrete research lead for resolving it. */
+  researchLead: string;
+}
+
+export interface GiftDeedDraft {
+  /** The assembled house-style Deed of Gift (plain text; feeds the review/finalize + .docx export path). */
+  text: string;
+  /** Every unresolved [[ ]] placeholder + its research lead. */
+  placeholders: GiftDeedPlaceholder[];
+  /** The exact verbatim legal description inserted, or null when withheld/absent (-> placeholder). */
+  verbatimLegalUsed: string | null;
+  /** The applied vesting key + canonical language. */
+  vesting: { key: string; language: string };
+  /** The applied warranty phrase. */
+  warranty: string;
+  /** false while ANY [[ ]] placeholder remains, the legal description is withheld/absent, OR the assembled text
+   *  fails the B6 annotation-leak floor — fail-closed: the draft is not fact-complete and not recordable.
+   *  (Execution fields stay blank "___" by design even when true.) Binds to the SAME recordability floor the
+   *  gate enforces, so factsResolved and checkAnnotationLeak agree. */
+  factsResolved: boolean;
+  /** The B6 annotation-leak verdict over the assembled text (the recordability floor): ok=false lists every
+   *  stray marker/markup char (including the [[ ]] placeholders themselves, and any stray char in a value). */
+  b6: { ok: boolean; failures: string[] };
+  /** Reconciliation / divergence notes the attorney should resolve (NOT the Inc-2 advisory layer — just facts). */
+  notes: string[];
+  warnings: string[];
+}
+
+const GIFT_TYPE = VA_DEED_TYPES.find((t) => t.key === 'gift');
+
+function vestingByKey(key: string): { key: string; language: string } {
+  // GIFT_VESTING carries every key used below; the fallback is defensive only.
+  return GIFT_VESTING[key] ?? { key, language: key };
+}
+
+/** Map an override (a VA vesting key OR its canonical language, any case — validated against the verified KB
+ *  via isVaVestingValidated) to a GIFT_VESTING key. Returns null if it is not a verified VA option at all. */
+function resolveOverrideKey(override: string): string | null {
+  if (!isVaVestingValidated(override)) return null;
+  const norm = override.toLowerCase().replace(/\s+/g, ' ').replace(/[.,;]/g, '').trim();
+  const byKey = norm.replace(/ /g, '_');
+  if (GIFT_VESTING[byKey]) return byKey;
+  // match by canonical language (either the gift form or the generic deedKbVa form the validator accepts)
+  for (const [k, v] of Object.entries(GIFT_VESTING)) {
+    if (v.language.toLowerCase().replace(/[.,;]/g, '') === norm || `as ${v.language}`.toLowerCase().replace(/[.,;]/g, '') === norm) return k;
+  }
+  // a validated VA option whose language we don't gift-map (e.g. "as joint tenants ...") -> fall back by keyword
+  if (/joint\s+tenant/.test(norm)) return 'jtwros';
+  if (/entiret/.test(norm)) return 'tenants_by_entirety';
+  if (/tenants\s+in\s+common/.test(norm)) return 'tenants_in_common';
+  if (/sole\s+owner/.test(norm)) return 'sole_owner';
+  return null;
+}
+
+/** Derive the vesting per the §11.2 gift rule: single grantee -> sole owner; married couple -> TBE; otherwise
+ *  (multiple non-spouse donees) -> JTWROS. A validated override wins (key OR canonical language). */
+function resolveVesting(input: GiftDeedInput, warnings: string[]): { key: string; language: string } {
+  const override = input.vestingOverride;
+  if (override) {
+    const key = resolveOverrideKey(override);
+    if (key) return vestingByKey(key);
+    warnings.push(`vesting_override_unrecognized:${override}`);
+  }
+  // A "married couple" supplied as a SINGLE grantee entry (e.g. one entry "Owen and Jenna Park") must still
+  // vest TBE — the cardinality short-circuit must NOT silently drop the explicit marital flag (the wrong
+  // sole_owner default). Honor the flag and surface the shape for human confirmation.
+  if (input.granteesAreMarriedCouple === true && input.grantees.length < 2) {
+    warnings.push('married_couple_flag_with_single_grantee_entry');
+    return vestingByKey('tenants_by_entirety');
+  }
+  if (input.grantees.length <= 1) return vestingByKey('sole_owner');
+  if (input.granteesAreMarriedCouple === true) return vestingByKey('tenants_by_entirety');
+  return vestingByKey('jtwros');
+}
+
+/** "in fee simple, <vesting>" — prefix "as " when the canonical language omits it (sole owner). */
+function vestingPhrase(language: string): string {
+  return language.startsWith('as ') ? language : `as ${language}`;
+}
+
+function partyClause(parties: GiftDeedPartyInput[]): string {
+  return parties
+    .map((p) => {
+      const name = p.name.trim();
+      const desc = (p.descriptor ?? '').trim();
+      return desc ? `${name}, ${desc}` : name;
+    })
+    .join(' and ');
+}
+
+function signatureName(p: GiftDeedPartyInput): string {
+  return p.name.trim();
+}
+
+/**
+ * PURE: deterministically assemble a house-style Deed of Gift from the consolidated facts + attorney input.
+ * Never throws; never fabricates; the verbatim legal is inserted exactly or withheld -> placeholder.
+ */
+export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): GiftDeedDraft {
+  const placeholders: GiftDeedPlaceholder[] = [];
+  const notes: string[] = [];
+  const warnings: string[] = [];
+
+  /** Emit a [[ ]] placeholder token and record it. */
+  const ph = (field: string, researchLead: string): string => {
+    const token = `[[ ${field} ]]`;
+    placeholders.push({ token, field, researchLead });
+    return token;
+  };
+  /** Use `value` if present/non-empty, else a placeholder. */
+  const resolve = (value: string | null | undefined, field: string, lead: string): string => {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : ph(field, lead);
+  };
+
+  // ── exemption-critical KB constants (NOT parameterized) ──
+  const gift = GIFT_TYPE;
+  const exemptionCitation = gift?.exemptionCitation ?? 'Va. Code § 58.1-811(D)';
+  const grantingVerb = 'grant and convey'; // P.D. 93-212: NOT "grant, bargain, sell, and convey"
+  const warranty = (input.warranty ?? '').trim() || DEFAULT_GIFT_WARRANTY;
+
+  // ── parties ──
+  const grantorCount = input.grantors.length;
+  const granteeCount = input.grantees.length;
+  if (grantorCount === 0) warnings.push('no_grantor_provided');
+  if (granteeCount === 0) warnings.push('no_grantee_provided');
+  const grantorLabel = grantorCount > 1 ? 'Grantors' : 'Grantor';
+  const granteeLabel = granteeCount > 1 ? 'Grantees' : 'Grantee';
+  const grantorVerb = grantorCount > 1 ? 'do' : 'does';
+
+  const grantorClause =
+    grantorCount > 0
+      ? partyClause(input.grantors)
+      : ph('Grantor (donor)', 'Grantor (donor) full current legal name(s) + marital status — from the matter; reconcile against the vesting-deed grantee of record (the current owner): ' + (facts.granteeOfRecord.value ?? (facts.granteeOfRecord.values.join(', ') || 'not surfaced from the packet')));
+  const granteeClause =
+    granteeCount > 0
+      ? partyClause(input.grantees)
+      : ph('Grantee (donee)', "Grantee (donee) full legal name(s) + relationship to the Grantor — from the matter.");
+
+  // ── vesting ──
+  const vesting = resolveVesting(input, warnings);
+
+  // ── property facts ──
+  const locality = resolve(
+    input.locality ?? facts.propertyLocality.value,
+    'Recording locality',
+    'Recording locality (County / independent City) where the property sits.',
+  );
+  const parcelId = resolve(
+    facts.parcelId.value,
+    'Tax I.D. (GPIN/Map) number',
+    'Tax map / parcel (GPIN) number — copy EXACTLY from the locality tax record; do not normalize (KB §8). OCR did not surface it.',
+  );
+  const assessedValue = resolve(
+    facts.assessedValue.value,
+    'Assessed value',
+    'Current assessed value from the locality assessment record (recordation-tax basis, Va. Code § 58.1-801) — include even on exempt deeds.',
+  );
+  const fileNumber = resolve(input.fileNumber, 'File number', 'Assign the Mason file number (format 36-YYYY-NNNN).');
+  const granteeAddress = resolve(
+    input.granteeAddress,
+    "Grantee's address",
+    "Grantee's mailing address for tax bills/notices (Va. Code § 17.1-223 indexing).",
+  );
+  const returnTo = (input.returnTo ?? '').trim() || 'Universal Title';
+
+  // Legal description — VERBATIM or withheld -> placeholder. Never regenerated. The honesty floor is gated on
+  // the WITHHELD flag (not just nullness): a withheld legal becomes a placeholder even if a low-confidence
+  // value were present, so the honesty floor holds structurally, independent of the upstream value coupling.
+  const legalWithheld = facts.legalDescription.withheld || facts.legalDescription.value === null;
+  const verbatimLegalUsed = facts.legalDescription.withheld ? null : facts.legalDescription.value;
+  const legalBlock = verbatimLegalUsed
+    ? verbatimLegalUsed
+    : ph(
+        'Legal description (VERBATIM)',
+        facts.legalDescription.withheld
+          ? 'Legal description — OCR WITHHELD it (low-confidence/truncated). Paste it VERBATIM from the prior vesting deed (the short tax-record legal is a fallback only, KB §8).'
+          : 'Legal description — not found in the packet. Paste it VERBATIM from the prior vesting deed.',
+      );
+
+  // Derivation reference — attorney-confirmed, with packet candidates as a lead (never auto-used).
+  const derivCandidate = facts.derivationCandidates.value ?? facts.derivationCandidates.values.join(', ');
+  const derivationReference = resolve(
+    input.derivationReference,
+    'Derivation (Being) reference',
+    `Derivation ("Being") reference — the Deed Book/Page or Instrument No. where the prior vesting deed (into the Grantor) is recorded; from the recording stamp or a chain-of-title source. Candidate(s) surfaced from the packet: ${derivCandidate || 'none'}.`,
+  );
+
+  // ── reconciliation notes (facts the attorney should confirm — not advisory) ──
+  if (grantorCount > 0 && (facts.granteeOfRecord.value || facts.granteeOfRecord.values.length > 0)) {
+    notes.push(
+      `Confirm the Grantor(s) match the vesting-deed grantee of record (current owner): ${facts.granteeOfRecord.value ?? facts.granteeOfRecord.values.join(', ')} (B4: assert any name change only with affirmative corroboration).`,
+    );
+  }
+  if (facts.legalDescription.flags.includes('truncated')) {
+    notes.push('The packet legal description was flagged truncated — verify it is complete and verbatim against the prior vesting deed before finalizing.');
+  }
+  notes.push(
+    `Warranty applied: "${warranty}". This is the Mason house gift convention (§11.2) and DIVERGES from the general VA training-guide norm ("gift = typically no warranty"); confirm the firm's intent or override.`,
+  );
+  notes.push(
+    `Vesting applied: "${vesting.language}" (key ${vesting.key}), per the Mason gift build-target form (DEED_KB_SEED §4/§11.2). NOTE: §4's gift phrasing diverges from the generic state-level KB (deedKbVa VA_VESTING_OPTIONS); the two KB layers should be reconciled by the operator. Survivorship is expressly stated either way (Va. Code § 55.1-135).`,
+  );
+
+  // ── assemble (DEED_KB_SEED §11.2 structure; plain text, no markdown) ──
+  const paragraphs: string[] = [
+    `Exempt from recordation tax pursuant to ${exemptionCitation}, 1950 Code of Virginia, as amended.`,
+    `Prepared by: Kelly Satterwhite, Esq. (VSB #91049), The Mason Law Firm, PLC.`,
+    [
+      `File Number: ${fileNumber}`,
+      `Grantee's Address: ${granteeAddress}`,
+      `Tax I.D. Number: ${parcelId}`,
+      `Assessed Value: ${assessedValue}`,
+      `Consideration: $0.00`,
+    ].join('\n'),
+    `THIS DEED PREPARED WITHOUT THE BENEFIT OF TITLE EXAMINATION — NO TITLE INSURANCE.`,
+    `DEED OF GIFT`,
+    `THIS DEED OF GIFT, made this ___ day of ____________, 20___, by and between ${grantorClause}, (the "${grantorLabel}"), and ${granteeClause}, (the "${granteeLabel}"),`,
+    `WITNESSETH:`,
+    `That for and in consideration of good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, the ${grantorLabel} ${grantorVerb} hereby ${grantingVerb}, with ${warranty}, unto the said ${granteeLabel}, in fee simple, ${vestingPhrase(vesting.language)}, all of the following described real property, together with the improvements thereon and the appurtenances thereunto belonging, located in ${locality}, Commonwealth of Virginia, to wit:`,
+    legalBlock,
+    `For derivation of title see Deed recorded ${derivationReference}.`,
+    `This conveyance is made subject to covenants, conditions, restrictions, easements and rights of way of record, to the extent the same lawfully apply.`,
+    `WITNESS the following signature(s) and seal(s):`,
+    ...(grantorCount > 0
+      ? input.grantors.map((g) => `_______________________________ (SEAL)\n${signatureName(g)}`)
+      : ['_______________________________ (SEAL)']),
+    `COMMONWEALTH OF VIRGINIA\nCITY/COUNTY OF ____________________, to-wit:`,
+    `The foregoing instrument was acknowledged before me this ___ day of ____________, 20___, by ${grantorCount > 0 ? input.grantors.map(signatureName).join(' and ') : 'the Grantor(s)'}.`,
+    `My commission expires: ____________________\n_______________________________\nNotary Public`,
+    `After recording, return to: ${returnTo}.`,
+  ];
+
+  const text = paragraphs.join('\n\n');
+
+  // Bind factsResolved to the SAME B6 recordability floor the gate enforces, so the assembler's "resolved"
+  // claim cannot disagree with checkAnnotationLeak: a stray denylist char / marker word in the verbatim legal
+  // OR any attorney-provided value (an address "[Unit B]", a "TBD", a "???") drives factsResolved=false too —
+  // not just the [[ ]] placeholders. (The [[ ]] placeholders themselves also trip B6, so a placeholder-bearing
+  // draft is doubly fail-closed.)
+  const b6 = checkAnnotationLeak(text);
+  const factsResolved = placeholders.length === 0 && !legalWithheld && b6.ok;
+
+  if (legalWithheld) warnings.push('legal_description_unresolved');
+  if (placeholders.length > 0) warnings.push(`unresolved_placeholders:${placeholders.length}`);
+  // A B6 failure NOT explained by the [[ ]] placeholders means a stray char/marker leaked from a value or the
+  // legal — surface it explicitly so the offending content is corrected before finalize.
+  if (!b6.ok && placeholders.length === 0) warnings.push(`annotation_leak_in_values:${b6.failures.length}`);
+
+  return {
+    text,
+    placeholders,
+    verbatimLegalUsed,
+    vesting,
+    warranty,
+    factsResolved,
+    b6: { ok: b6.ok, failures: b6.failures },
+    notes,
+    warnings,
+  };
+}

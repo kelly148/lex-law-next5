@@ -166,6 +166,26 @@ export function isDeedGateEnabled(): boolean {
 }
 
 /**
+ * Deed-draft agent (DEED-DRAFT-AGENT-1, Inc 1 — extraction + chain-of-title + deed-of-gift assembly). DEFAULT OFF.
+ *
+ * When OFF (the default), the deed-draft-agent surface is entirely dormant: the agent procedures refuse
+ * (PRECONDITION_FAILED) except an ungated isEnabled probe, no deed-packet consolidation or gift assembly runs,
+ * and no new behavior ships — a byte-for-byte behavior-preserving merge. When exactly "true", the agent
+ * consolidates the OCR-B1 deed-ingest facts across a matter's materials and DETERMINISTICALLY assembles a
+ * house-style Deed of Gift draft (verbatim legal description; [[ ]] placeholders + research leads for missing
+ * facts), which lands in the existing review/finalize + house-style .docx export path.
+ *
+ * INVARIANTS (the FIRE §7 spine): the legal description is carried VERBATIM (never regenerated); no fact is
+ * fabricated (missing -> [[ ]] + lead); the attorney is the final decision-maker; the conflicts-at-intake gate
+ * is retained; it NEVER auto-records, files, or sends. The assembler is PURE + deterministic + no-egress (no
+ * LLM in the gift path for Inc 1). Inc 1 has no advisory/notes layer (that is Inc 2) and does NOT wire B2
+ * (retired -> input contract, blocked on operator D1/D2).
+ */
+export function isDeedDraftAgentEnabled(): boolean {
+  return process.env['DEED_DRAFT_AGENT_ENABLED'] === 'true';
+}
+
+/**
  * Deadline / tickler engine (FOLD-PM-1, Phase-4 head). DEFAULT OFF.
  *
  * When OFF (the default), the deadline engine is entirely dormant: the data-core tables exist but
