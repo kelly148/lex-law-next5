@@ -42,6 +42,7 @@ import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { conflictPolicyRouter } from './procedures/conflictPolicy.js';
 import { deedGateRouter } from './procedures/deedGate.js';
+import { deedDraftAgentRouter } from './procedures/deedDraftAgent.js';
 import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
@@ -152,6 +153,13 @@ export const appRouter = router({
   // STORE + READ + DISPLAY tier only — the outbox-emit producers are DEFERRED to after
   // EGRESS Inc 3b, so the table may legitimately sit empty until then.
   notifications: notificationsRouter,
+  // DEED-DRAFT-AGENT-1 (Inc 1c) — the deed-draft agent wiring. createGiftDraft consolidates the OCR-B1
+  // extraction across a matter's materials + attorney input and DETERMINISTICALLY assembles a house-style
+  // Deed of Gift, persisted as a standard documents/versions draft (so it flows through the existing
+  // review/finalize + .docx export). Gated behind DEED_DRAFT_AGENT_ENABLED (default OFF, refuses when OFF) +
+  // the conflicts-at-intake gate + matter ownership. The FIRE §7 spine lives in the assembler (verbatim legal,
+  // [[ ]] placeholders never fabricated, exemption-safe, attorney decides); never auto-records/files/sends.
+  deedDraftAgent: deedDraftAgentRouter,
 });
 
 export type AppRouter = typeof appRouter;
