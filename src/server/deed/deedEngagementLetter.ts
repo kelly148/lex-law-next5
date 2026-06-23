@@ -151,14 +151,18 @@ export interface EngagementLetterDraft {
 
 const GIFT_TYPE = VA_DEED_TYPES.find((t) => t.key === 'gift');
 
-/** Fields whose [[ ]] placeholder, if unresolved, sits INSIDE a protected-spine clause (so it must drive
- *  spine.intact=false — the disclaimer/representation/fee spine is not complete). */
+/** Fields whose [[ ]] placeholder, if unresolved, sits INSIDE a protected-spine / substantive representation
+ *  clause (so it must drive spine.intact=false — the disclaimer/representation/fee spine is not complete).
+ *  'grantee(s)' is the title-holder in the §3.3 vesting REPRESENTATION ("title ... will be held by [[ ... ]],
+ *  as <vesting>") — a load-bearing slot, so an unresolved title-holder fail-closes spine.intact like every
+ *  other substantive slot (it is NOT mere addressee boilerplate). */
 const SPINE_FIELDS: ReadonlySet<string> = new Set([
   'client name (separate representation)',
   'recipient name (separate representation)',
   'recipient pronoun (subject)',
   'recipient pronoun (possessive)',
   'deed type',
+  'grantee(s)',
   'fee amount',
   'recording locality',
   'recordation-exemption citation',
