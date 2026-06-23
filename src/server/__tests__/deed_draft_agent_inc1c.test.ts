@@ -153,6 +153,14 @@ describe('deedDraftAgent.createGiftDraft — fail-closed gates + persistence', (
     expect(res.documentId).toBe('doc-1');
     expect(res.factsResolved).toBe(true);
     expect(res.placeholders).toEqual([]);
+
+    // Inc 2: the deterministic drafter's notes are returned AND stored in the document NOTES field (delete
+    // before recording) — NOT in the recordable version content (B6 stays clean).
+    expect(res.drafterNotes.length).toBeGreaterThan(0);
+    expect(res.drafterNotes.some((n) => n.category === 'exemption')).toBe(true);
+    const docArg = (insertDocument as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(docArg.notes).toContain("DRAFTER'S NOTES — DELETE BEFORE RECORDING");
+    expect(versionArg.content).not.toContain("DRAFTER'S NOTES"); // notes are not in the deed body
   });
 
   it('happy path with a missing fact: still creates the draft, surfaces placeholders, factsResolved=false', async () => {
