@@ -45,6 +45,7 @@ import { Document as DocxDocument, Packer } from 'docx';
 import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
 import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
+import { buildEngagementLetterSection, isEngagementLetterDocType } from './deed/engagementLetterFormatter.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
@@ -576,7 +577,12 @@ app.get(
     // buildSatterwhiteSection returns a complete ISectionOptions object with
     // Satterwhite house-style header, footer (with PAGE field), and rendered
     // content children. All style logic lives in markdownToDocx.ts.
-    const section = buildSatterwhiteSection(version.content, { watermarkText });
+    // DEED-DRAFT-AGENT-1 Inc 3: a companion engagement letter (documentType 'engagement_letter') renders with
+    // the Bien-Aime Mason letterhead/formatting; every other document keeps the Satterwhite house style
+    // byte-for-byte (this branch is keyed on a brand-new type, so no existing document is affected).
+    const section = isEngagementLetterDocType(doc.documentType)
+      ? buildEngagementLetterSection(version.content, { watermarkText })
+      : buildSatterwhiteSection(version.content, { watermarkText });
     const docxFile = new DocxDocument({ sections: [section] });
 
     const buffer = await Packer.toBuffer(docxFile);
