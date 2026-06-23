@@ -78,6 +78,16 @@ describe('buildEngagementLetter — verbatim protected spine', () => {
     expect(letter.spine.intact).toBe(true);
     expect(letter.placeholders).toEqual([]);
   });
+
+  it('an UNFILLED title-holder (grantee) fail-closes the spine — the §3.3 vesting representation is load-bearing, not boilerplate', () => {
+    const letter = buildEngagementLetter(facts, jtwrosDeed(), { ...FULL_INPUT, granteeNames: [] });
+    expect(letter.text).toContain('title to the Property will be held by [[ grantee(s) ]]');
+    expect(letter.placeholders.some((p) => p.field === 'grantee(s)')).toBe(true);
+    expect(letter.spine.unresolvedFields).toContain('grantee(s)');
+    expect(letter.spine.intact).toBe(false);
+    // and the "all spine slots resolved" reassurance must NOT be emitted for such a draft
+    expect(letter.notes.some((n) => n.includes('all spine slots resolved'))).toBe(false);
+  });
 });
 
 describe('buildEngagementLetter — deed cross-link (letter and deed cannot disagree)', () => {
