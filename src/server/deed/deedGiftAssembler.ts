@@ -29,23 +29,23 @@ import type { DeedSourceFacts } from './deedSourceFacts.js';
 import { VA_DEED_TYPES, isVaVestingValidated } from './deedKbVa.js';
 import { checkAnnotationLeak } from './deedDraftGates.js';
 
-/** Mason house-style warranty for a gift deed (DEED_KB_SEED §11.2). DIVERGES from the general VA training-guide
- *  norm ("gift = typically no warranty", deedKbVa gift.warranty) — §11.2 is the operator's explicit house
- *  choice for this agent. Parameterized per the B1 default+override ruling. */
+/** Mason house-style warranty for a gift deed — OPERATOR-RATIFIED 2026-06-23 as the authoritative gift form
+ *  (DEED_KB_SEED §11.2). The general VA training-guide norm (deedKbVa: "gift = typically no warranty") is the
+ *  generic state-level fallback; the firm's settled gift convention controls here. Parameterized per the B1
+ *  default+override ruling. */
 export const DEFAULT_GIFT_WARRANTY = 'General Warranty and English Covenants of title';
 
 /**
- * GIFT-SPECIFIC vesting language — the Mason house gift build-target forms (DEED_KB_SEED §4 / §11.2). These
- * carry the gift-corpus phrasing ("the full common law right of survivorship") which DIVERGES from the generic
- * state-level deedKbVa VA_VESTING_OPTIONS phrasing ("right of survivorship"). The §4 form is the gift build
- * target + eval-set oracle, so the gift assembler grounds on IT (not the generic list). The two-KB divergence
- * is surfaced as a note for operator reconciliation. The canonical language omits the leading "as " (added
- * uniformly by vestingPhrase). Keys match VA_VESTING_OPTIONS so an override validated against that KB resolves.
+ * GIFT-SPECIFIC vesting language — OPERATOR-RATIFIED phrasings (2026-06-23): joint tenants take "the common
+ * law right of survivorship"; tenants by the entirety take "the full common law right of survivorship". These
+ * are the authoritative Mason gift forms for this agent (the generic state-level deedKbVa VA_VESTING_OPTIONS is
+ * the fallback for other features). The canonical language omits the leading "as " (added uniformly by
+ * vestingPhrase). Keys match VA_VESTING_OPTIONS so an override validated against that KB resolves.
  */
 const GIFT_VESTING: Record<string, { key: string; language: string }> = {
   sole_owner: { key: 'sole_owner', language: 'sole owner' },
-  jtwros: { key: 'jtwros', language: 'joint tenants with the full common law right of survivorship and not as tenants in common' },
-  tenants_by_entirety: { key: 'tenants_by_entirety', language: 'tenants by the entirety with the common law right of survivorship' },
+  jtwros: { key: 'jtwros', language: 'joint tenants with the common law right of survivorship and not as tenants in common' },
+  tenants_by_entirety: { key: 'tenants_by_entirety', language: 'tenants by the entirety with the full common law right of survivorship' },
   tenants_in_common: { key: 'tenants_in_common', language: 'tenants in common' },
 };
 
@@ -283,10 +283,10 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
     notes.push('The packet legal description was flagged truncated — verify it is complete and verbatim against the prior vesting deed before finalizing.');
   }
   notes.push(
-    `Warranty applied: "${warranty}". This is the Mason house gift convention (§11.2) and DIVERGES from the general VA training-guide norm ("gift = typically no warranty"); confirm the firm's intent or override.`,
+    `Warranty applied: "${warranty}" — the Mason house gift convention (§11.2), operator-ratified 2026-06-23 as the authoritative gift form. B1 override-able on instruction.`,
   );
   notes.push(
-    `Vesting applied: "${vesting.language}" (key ${vesting.key}), per the Mason gift build-target form (DEED_KB_SEED §4/§11.2). NOTE: §4's gift phrasing diverges from the generic state-level KB (deedKbVa VA_VESTING_OPTIONS); the two KB layers should be reconciled by the operator. Survivorship is expressly stated either way (Va. Code § 55.1-135).`,
+    `Vesting applied: "${vesting.language}" (key ${vesting.key}) — operator-ratified Mason gift phrasing (2026-06-23). Survivorship is expressly stated (Va. Code § 55.1-135).`,
   );
 
   // ── assemble (DEED_KB_SEED §11.2 structure; plain text, no markdown) ──
