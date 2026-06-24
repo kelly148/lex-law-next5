@@ -20,8 +20,10 @@ import { resolveDeedKbAvailability } from '../deed/deedKb.js';
 import { appRouter } from '../router.js';
 
 describe('FOLD-DEED-1 Inc 2 — verified VA KB content (transcribed from the primer)', () => {
-  it('seeds the six VA deed types with verified citations/granting language', () => {
-    expect(VA_DEED_TYPES.map((t) => t.key)).toEqual(['bargain_and_sale', 'gift', 'into_trust', 'confirmation', 'transfer_on_death', 'distribution']);
+  it('seeds the VA deed types with verified citations/granting language (incl. the grounded into/out-of-LLC types)', () => {
+    // into_llc + out_of_llc added under MONSTER-v2 (grounded §C3/§C4; cites verified verbatim against Va. Code
+    // § 58.1-811(A)(10)/(A)(11), operator-supplied 2026-06-24).
+    expect(VA_DEED_TYPES.map((t) => t.key)).toEqual(['bargain_and_sale', 'gift', 'into_trust', 'confirmation', 'transfer_on_death', 'distribution', 'into_llc', 'out_of_llc']);
     const gift = VA_DEED_TYPES.find((t) => t.key === 'gift')!;
     expect(gift.exemptionCitation).toBe('Va. Code § 58.1-811(D)');
     expect(gift.grantingLanguage).toBe('grant and convey'); // NOT "grant, bargain, sell, and convey" (P.D. 93-212)
@@ -89,7 +91,7 @@ describe('FOLD-DEED-1 Inc 2 — deedGate.referenceKb procedure', () => {
     process.env[FLAG] = 'true';
     const kb = await caller(U).deedGate.referenceKb();
     expect(kb.provenance.source).toBe('docs/Deed_Drafting_Training_Guide_Virginia.docx');
-    expect(kb.deedTypes.length).toBe(6);
+    expect(kb.deedTypes.length).toBe(8); // 6 primer-seeded + into_llc/out_of_llc (grounded, MONSTER-v2)
     expect(kb.localities.length).toBe(5);
     expect(kb.escalationTriggers.length).toBeGreaterThan(0);
     expect(kb.exemptions.length).toBeGreaterThan(0);
