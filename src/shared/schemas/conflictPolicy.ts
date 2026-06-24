@@ -45,6 +45,16 @@ export const ConflictPolicySchema = z.object({
   // opts into ADVISORY explicitly (an audited relaxation). NOT 'SANDBOX' — sandbox is a per-matter internal
   // election, never a firm transactional default.
   transactionalPosture: z.enum(['ENFORCED', 'ADVISORY']).default('ENFORCED'),
+  // DEED-DRAFT-AGENT-1 QD-2 — the firm-level "enforce the conflicts-at-intake gate for Quick Deed" toggle.
+  // SCHEMA-FREE: this field rides INSIDE the existing firm_conflict_policy JSON blob (no new column/table/
+  // migration). DEFAULTED to false, so OLD rows written before QD-2 (which lack this key) parse to false —
+  // i.e. they keep QD-1's default-OFF "conflicts bypassed + stamp" behavior. A firm opts IN to enforcement
+  // (true) explicitly through the Settings toggle (Quick Deed then runs the real conflicts gate, no bypass,
+  // no stamp). Independent of transactionalPosture: this is the Quick-Deed-surface gate, not the per-capacity
+  // posture. Default-safe direction is the OPPOSITE of an ethics relaxation — false is the LESS-enforcing
+  // default by the operator's deliberate self-use-stage decision (spec §5), so it is NOT an isPolicyRelaxation
+  // axis.
+  deedConflictsEnforced: z.boolean().default(false),
 });
 export type ConflictPolicy = z.infer<typeof ConflictPolicySchema>;
 

@@ -28,6 +28,9 @@ vi.mock('../db/queries/versions.js', () => ({
 }));
 vi.mock('../conflicts/postureGate.js', () => ({ resolvePostureDraftingGate: vi.fn() }));
 vi.mock('../db/queries/conflicts.js', () => ({ hasUndispositionedBlocker: vi.fn() }));
+// QD-2: generate now reads the firm toggle via the query layer; mock it to the default (toggle OFF) so QD-1's
+// conflicts-bypassed assertions still hold (deedConflictsEnforced:false === QD-1's default-OFF behavior).
+vi.mock('../db/queries/conflictPolicy.js', () => ({ getFirmConflictPolicy: vi.fn(), setFirmConflictPolicy: vi.fn() }));
 
 import {
   quickDeedRouter,
@@ -40,6 +43,7 @@ import { insertDocument, updateDocumentCurrentVersion } from '../db/queries/docu
 import { getNextVersionNumber, insertVersion } from '../db/queries/versions.js';
 import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
+import { getFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 
 const U1 = '11111111-1111-1111-1111-111111111111';
 const M1 = '22222222-2222-2222-2222-222222222222';
@@ -84,6 +88,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env['DEED_DRAFT_AGENT_ENABLED'];
   delete process.env['CONFLICT_GATE_ENABLED'];
+  // QD-2 default: the firm toggle is OFF (deedConflictsEnforced:false) -> QD-1's conflicts-bypassed behavior.
+  (getFirmConflictPolicy as ReturnType<typeof vi.fn>).mockResolvedValue({
+    policy: { schemaVersion: 1, transactionalPosture: 'ENFORCED', deedConflictsEnforced: false },
+    source: 'default',
+  });
 });
 afterEach(() => {
   if (origDeed === undefined) delete process.env['DEED_DRAFT_AGENT_ENABLED'];

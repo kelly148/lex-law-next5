@@ -26,6 +26,7 @@ import { insertDocument, updateDocumentCurrentVersion, updateDocumentNotes, getD
 import { getNextVersionNumber, insertVersion, getLatestVersionForDocument } from '../db/queries/versions.js';
 import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
+import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
 import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../deed/deedGiftAssembler.js';
 import { buildGiftDrafterNotes } from '../deed/deedGiftNotes.js';
@@ -231,13 +232,24 @@ export function buildEngagementLetterDraft(
  *  default-OFF conflicts posture (spec §5): the auto-created lightweight record never has a confirmed
  *  client party, so enforcing the gate would hard-block every Quick Deed. The matter-scoped procedures
  *  (createGiftDraft / regenerateDeedDraft / createEngagementLetter) NEVER pass this and IGNORE the
- *  return — their conflicts enforcement is byte-for-byte unchanged. QD-2 will wire a firm-level toggle
- *  that flips the caller's `bypassConflicts`; because quickDeed.generate writes the "no conflicts check"
- *  stamp IFF this returns `conflictsBypassed`, the skip and the stamp can never drift. */
+ *  return — their conflicts enforcement is byte-for-byte unchanged. QD-2 wires the caller's
+ *  `bypassConflicts` to a firm-level toggle (quickDeed.generate reads firmPolicy.deedConflictsEnforced);
+ *  because quickDeed.generate writes the "no conflicts check" stamp IFF this returns `conflictsBypassed`,
+ *  the skip and the stamp can never drift.
+ *
+ *  `forceAffirmativeConflicts` (QD-2 — HONEST-ON seam) — when true, the AFFIRMATIVE posture gate
+ *  (resolvePostureDraftingGate) runs UNCONDITIONALLY, regardless of isConflictGateEnabled(). Without this,
+ *  withdrawing the bypass while the GLOBAL conflict gate is OFF (the prod default) would fall through to the
+ *  WEAK legacy hasUndispositionedBlocker check, which a fresh check-less Quick Deed auto-matter passes
+ *  VACUOUSLY — so an "enforced" Quick Deed would silently GENERATE with no real clearance and no stamp,
+ *  contradicting the Settings promise. With it forced, an "enforced" Quick Deed runs the real fail-closed
+ *  gate and the check-less auto-matter is BLOCKED with CONFLICTS_NOT_CLEARED (honest). The matter-scoped
+ *  procedures pass NEITHER seam (both undefined) → their `if (isConflictGateEnabled())` behavior is
+ *  byte-for-byte unchanged. */
 async function assertDeedDraftingAllowed(
   userId: string,
   matterId: string,
-  opts: { bypassConflicts?: boolean } = {},
+  opts: { bypassConflicts?: boolean; forceAffirmativeConflicts?: boolean } = {},
 ): Promise<{ conflictsBypassed: boolean }> {
   if (!isDeedDraftAgentEnabled()) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'DEED_DRAFT_AGENT_DISABLED: the deed-draft agent is not enabled.' });
@@ -250,7 +262,10 @@ async function assertDeedDraftingAllowed(
   if (opts.bypassConflicts) return { conflictsBypassed: true };
 
   // Advance-to-drafting conflicts gate — identical to document.create (the only retained gate). Fail-closed.
-  if (isConflictGateEnabled()) {
+  // QD-2 HONEST-ON: forceAffirmativeConflicts makes the affirmative posture gate run regardless of the global
+  // flag, so an "enforced" Quick Deed can never fall through to the vacuous legacy-blocker path. Existing
+  // callers pass forceAffirmativeConflicts=undefined → this reads exactly `if (isConflictGateEnabled())`.
+  if (opts.forceAffirmativeConflicts || isConflictGateEnabled()) {
     const gate = await resolvePostureDraftingGate(matterId, userId);
     if (!gate.allowed) {
       throw new TRPCError({
@@ -584,12 +599,24 @@ export const quickDeedRouter = router({
    * "No conflicts check performed (Quick Deed mode)." note into the existing free-text document notes field.
    */
   generate: protectedProcedure.input(quickDeedGenerateInput).mutation(async ({ ctx, input }) => {
-    // QD-1 conflicts posture: ALWAYS bypass in v1. The caller's `bypassConflicts` is the seam QD-2 will wire
-    // to a firm-level toggle. The gate RETURNS whether it actually bypassed; the stamp + the return field are
-    // both driven from that ONE value so "skipped" and "stamped" can never drift (audit-honest).
-    const quickDeedConflictsEnforced = false;
+    // QD-2 conflicts posture: the firm-level toggle drives `bypassConflicts`. Read the firm policy via the
+    // QUERY LAYER directly (getFirmConflictPolicy) — NOT the gated conflictPolicy router — because Quick Deed's
+    // DEFAULT state is conflict-gate-OFF, so this read MUST work even when isConflictGateEnabled() is false.
+    // The read is fail-closed-SAFE by construction (no row / malformed → DEFAULT_CONFLICT_POLICY, where
+    // deedConflictsEnforced defaults to false = QD-1's bypass-and-stamp behavior). When the firm has turned
+    // the toggle ON, the bypass is withdrawn and the real conflicts-at-intake gate runs.
+    //
+    // LOCKSTEP (unchanged from QD-1): assertDeedDraftingAllowed RETURNS whether it actually bypassed; the stamp
+    // and the return field are both driven from that ONE value, so "skipped" and "stamped" can never drift.
+    const firmPolicy = (await getFirmConflictPolicy(ctx.userId)).policy;
+    const quickDeedConflictsEnforced = firmPolicy.deedConflictsEnforced;
+    // Pass BOTH seams from the one firm toggle: OFF → bypass the gate + stamp (QD-1); ON → withdraw the bypass
+    // AND force the affirmative posture gate to run REGARDLESS of isConflictGateEnabled() — so an "enforced"
+    // Quick Deed can never silently fall through to the vacuous legacy-blocker check on the check-less
+    // auto-matter (it is honestly BLOCKED with CONFLICTS_NOT_CLEARED, no unstamped deed).
     const { conflictsBypassed } = await assertDeedDraftingAllowed(ctx.userId, input.matterId, {
       bypassConflicts: !quickDeedConflictsEnforced,
+      forceAffirmativeConflicts: quickDeedConflictsEnforced,
     });
 
     // Deed-type dispatch gate: the surface lists the whole registry, but v1 generation wires ONLY gift. The
@@ -665,4 +692,53 @@ export const quickDeedRouter = router({
       warnings: [...facts.warnings, ...draft.warnings],
     };
   }),
+
+  // ── QD-2: the firm-level "enforce conflicts for Quick Deed" admin toggle ──────────────────────────────────
+  //
+  // A deed-SPECIFIC, UNGATED-by-the-conflict-gate read/write of the deedConflictsEnforced firm field. CRITICAL
+  // NUANCE: the existing conflictPolicy router gates every op behind isConflictGateEnabled(), but Quick Deed's
+  // DEFAULT state is conflict-gate-OFF — so this toggle MUST be settable/readable EVEN WHEN that global gate is
+  // off. We therefore add this deed-specific path here, gated ONLY on isDeedDraftAgentEnabled() (flag-dark) +
+  // the firm/owner scope, reusing getFirmConflictPolicy / setFirmConflictPolicy under the hood. We do NOT relax
+  // the conflictPolicy router's own gating — its posture-admin surface stays dark on prod independently.
+  //
+  // SAFEGUARD (a): firm-level, NOT per-user — the write goes through setFirmConflictPolicy keyed by the firm
+  // owner (firmOwnerUserId = ctx.userId in single-tenant v1), the same firm scope the posture policy uses.
+
+  /** Read the firm's current Quick-Deed conflicts-enforcement setting. Flag-gated (fail-closed); works
+   *  regardless of isConflictGateEnabled() (reads the firm policy directly via the query layer, which is
+   *  fail-closed-safe: no/malformed row → default, where deedConflictsEnforced defaults to false). */
+  getConflictsSetting: protectedProcedure.query(async ({ ctx }) => {
+    if (!isDeedDraftAgentEnabled()) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'DEED_DRAFT_AGENT_DISABLED: the deed-draft agent is not enabled.' });
+    }
+    const { policy } = await getFirmConflictPolicy(ctx.userId); // v1: firmOwnerUserId = ctx.userId (firm scope)
+    return { enforced: policy.deedConflictsEnforced };
+  }),
+
+  /**
+   * Set the firm's Quick-Deed conflicts-enforcement toggle. Flag-gated (fail-closed); works regardless of
+   * isConflictGateEnabled(). Reads the CURRENT firm policy (so we preserve transactionalPosture / schemaVersion
+   * and only flip the deed field), then appends a new firm_conflict_policy version through setFirmConflictPolicy
+   * — the SAME append-only audit path the posture admin uses (changedByUserId + createdAt history). When
+   * `enforced` is true, every subsequent quickDeed.generate withdraws the conflicts bypass (the real gate runs +
+   * no "no conflicts check" stamp); when false, QD-1's default-OFF bypass-and-stamp behavior. Firm-scoped
+   * (safeguard a) — keyed by the firm owner, never per-user.
+   */
+  setConflictsEnforced: protectedProcedure
+    .input(z.object({ enforced: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!isDeedDraftAgentEnabled()) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'DEED_DRAFT_AGENT_DISABLED: the deed-draft agent is not enabled.' });
+      }
+      const current = (await getFirmConflictPolicy(ctx.userId)).policy;
+      const resolved = await setFirmConflictPolicy({
+        firmOwnerUserId: ctx.userId,
+        changedByUserId: ctx.userId,
+        // Preserve every other policy field; flip ONLY the deed toggle.
+        policy: { ...current, deedConflictsEnforced: input.enforced },
+        reasonText: `Quick Deed conflicts enforcement set to ${input.enforced ? 'ON' : 'OFF'}`,
+      });
+      return { enforced: resolved.policy.deedConflictsEnforced };
+    }),
 });

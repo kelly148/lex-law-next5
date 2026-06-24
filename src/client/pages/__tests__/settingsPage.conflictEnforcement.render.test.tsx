@@ -67,6 +67,10 @@ vi.mock('../../trpc.js', async () => {
         get: { useQuery: () => { React.useRef(null); return mockState.policy; } },
         history: { useQuery: () => { React.useRef(null); return mockState.history; } },
       },
+      // DEED-DRAFT-AGENT-1 QD-2: the QuickDeedConflictsSection self-gates on this — OFF here, so it renders null.
+      deedDraftAgent: {
+        isEnabled: { useQuery: () => { React.useRef(null); return { data: { enabled: false } }; } },
+      },
     },
   };
 });

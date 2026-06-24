@@ -24,7 +24,7 @@
  * remounted via `key` when server data changes, avoiding useEffect+setState.
  */
 import React, { useState, useRef } from 'react';
-import { Settings, Mic, Users, Lock, Bell, ShieldAlert } from 'lucide-react';
+import { Settings, Mic, Users, Lock, Bell, ShieldAlert, FileSignature } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import type { NotificationPreferences } from '../../shared/schemas/matters.js';
@@ -601,6 +601,124 @@ function ConflictEnforcementPanel(): React.ReactElement {
 }
 
 // ============================================================
+// QuickDeedConflictsSection (DEED-DRAFT-AGENT-1 QD-2 — firm-level Quick Deed conflicts toggle)
+// ============================================================
+// The admin/firm-level "Enforce conflicts check for Quick Deed" toggle (spec §5 safeguard a — firm-level, NOT
+// per-user). Self-gates on deedDraftAgent.isEnabled so the whole control is DARK on prod until the deed agent
+// is enabled (flag-dark). It is INDEPENDENT of the conflict-gate-enabled posture admin above: Quick Deed's
+// default state is conflict-gate-OFF, so this toggle reads/writes through the deed-specific UNGATED procedures
+// (quickDeed.getConflictsSetting / setConflictsEnforced), which work even when the global conflict gate is off.
+// DEFAULT OFF (safeguard b — self-use stage): when OFF, Quick Deed skips the conflicts-at-intake gate and
+// stamps "no conflicts check performed"; when ON, the backend forces the affirmative posture gate (regardless
+// of the global conflict flag), so the check-less auto-matter is BLOCKED — i.e. ON effectively blocks Quick
+// Deed generation until conflicts are cleared via the full matter workflow (the quick screen has no clearance
+// step yet). The copy says this honestly.
+function QuickDeedConflictsSection(): React.ReactElement | null {
+  const flagQ = trpc.deedDraftAgent.isEnabled.useQuery();
+  // Dark until the deed-draft agent is enabled (prod default OFF). The hook is called unconditionally above.
+  if (!flagQ.data?.enabled) return null;
+  return <QuickDeedConflictsPanel />;
+}
+
+function QuickDeedConflictsPanel(): React.ReactElement {
+  const { data, isLoading } = trpc.quickDeed.getConflictsSetting.useQuery();
+  const utils = trpc.useUtils();
+  const [enforced, setEnforced] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const prevRef = useRef<boolean>(false);
+
+  // The effective value: the optimistic local override if set, else the server value.
+  const effective = enforced ?? data?.enforced ?? false;
+
+  const setMutation = useGuardedMutation(
+    (input: { enforced: boolean }) => utils.client.quickDeed.setConflictsEnforced.mutate(input),
+    {
+      onSuccess: () => {
+        void utils.quickDeed.getConflictsSetting.invalidate();
+        // Clear the optimistic override so the invalidate-driven refetch becomes authoritative (else
+        // `effective = enforced ?? data?.enforced` would permanently ignore the fresh server value).
+        setEnforced(null);
+        setError(null);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      },
+      onError: (err) => {
+        setEnforced(prevRef.current); // roll back the optimistic toggle
+        setError(err.message);
+      },
+    },
+  );
+
+  const wrap = (inner: React.ReactNode): React.ReactElement => (
+    <div className="bg-white border border-gray-200 rounded-lg p-6" data-testid="quick-deed-conflicts">
+      <div className="flex items-center gap-2 mb-4">
+        <FileSignature className="w-5 h-5 text-firm-navy" />
+        <h2 className="text-base font-semibold text-firm-navy">Quick Deed conflicts check</h2>
+      </div>
+      {inner}
+    </div>
+  );
+
+  if (isLoading) return wrap(<p className="text-sm text-gray-400">Loading…</p>);
+  if (!data) return wrap(<p className="text-sm text-red-600">Failed to load the Quick Deed setting.</p>);
+
+  const toggle = (): void => {
+    // Guard the OPTIMISTIC path too, not just the server write: a second click while a write is in flight must
+    // be a full no-op, else it would corrupt prevRef (capturing the optimistic value as the rollback target)
+    // while only one server write fires.
+    if (setMutation.isPending) return;
+    const next = !effective;
+    prevRef.current = effective;
+    setEnforced(next); // optimistic
+    setError(null);
+    setMutation.mutate({ enforced: next });
+  };
+
+  return wrap(
+    <>
+      <p className="text-sm text-gray-500 mb-4">
+        This is a firm-level setting. <span className="font-medium">When OFF</span> (the default), Quick Deed
+        skips the conflicts-at-intake check and records a non-blocking &ldquo;no conflicts check performed&rdquo;
+        note on the deed.{' '}
+        <span className="font-medium">When ON</span>, Quick Deed requires conflict clearance before generating.
+        The quick screen has no clearance step yet, so with this ON, Quick Deed generation is blocked until you
+        clear conflicts in the full matter workflow.
+      </p>
+      <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+        <div>
+          <span className="text-sm font-medium text-gray-800">Enforce conflicts check for Quick Deed</span>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {effective
+              ? 'On — Quick Deed runs the conflicts gate; generation is blocked until conflicts are cleared in the full matter workflow.'
+              : 'Off — Quick Deed skips the conflicts gate and stamps the deed.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          data-testid="quick-deed-conflicts-toggle"
+          onClick={toggle}
+          disabled={setMutation.isPending}
+          role="switch"
+          aria-checked={effective}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+            effective ? 'bg-firm-navy' : 'bg-gray-300'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              effective ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+      {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+      {saved && <p className="text-green-600 text-sm mt-3">Saved.</p>}
+    </>,
+  );
+}
+
+// ============================================================
 // ChangePasswordSection (FOLD-AUTH-CHANGEPW)
 // ============================================================
 // UI half of FOLD-AUTH-1's self-serve password change. Wraps the existing,
@@ -777,6 +895,9 @@ export default function SettingsPage(): React.ReactElement {
         {/* CONFLICT-TOGGLE-1 Inc 3: the firm conflict-enforcement admin. Self-gates on conflictPolicy.isEnabled
             (dark on prod), so it is rendered unconditionally and returns null when the gate is off. */}
         <ConflictEnforcementSection />
+        {/* DEED-DRAFT-AGENT-1 QD-2: the firm-level Quick Deed conflicts toggle. Self-gates on
+            deedDraftAgent.isEnabled (dark on prod), so it renders unconditionally and returns null when off. */}
+        <QuickDeedConflictsSection />
         {/* Password change is independent of settings.get — always available. */}
         <ChangePasswordSection />
       </div>

@@ -19,7 +19,9 @@ import {
 } from '../../shared/schemas/conflictPolicy.js';
 
 function pol(transactionalPosture: 'ENFORCED' | 'ADVISORY'): ConflictPolicy {
-  return { schemaVersion: 1, transactionalPosture };
+  // deedConflictsEnforced (QD-2) defaults false; included so this is a complete ConflictPolicy. The posture
+  // resolvers read only transactionalPosture, so the deed field is inert here.
+  return { schemaVersion: 1, transactionalPosture, deedConflictsEnforced: false };
 }
 
 // ── pure composition ────────────────────────────────────────────────────────
