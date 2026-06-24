@@ -28,7 +28,12 @@ export type DrafterNoteCategory =
   | 'name_reconciliation'
   | 'unresolved_facts'
   | 'title_caveat'
-  | 'diligence';
+  | 'diligence'
+  // ── Inc 4: deepened §3.6 issue-spotting catalog ──
+  | 'warranty' // warranty general-vs-special (a decision point; the note never picks)
+  | 'estate_window' // estate-lien / creditor / will-contest diligence windows (conditional, estate source)
+  | 'cross_source_name' // a name mismatch ACROSS sources (conditional; never silently resolved)
+  | 'legal_mismatch'; // commitment-vs-vesting legal-description discrepancy (conditional; never resolved)
 
 export interface DrafterNote {
   category: DrafterNoteCategory;
@@ -67,6 +72,20 @@ const ENTITY_RE =
 
 function partyNames(input: GiftDeedInput): string[] {
   return [...input.grantors, ...input.grantees].map((p) => p.name);
+}
+
+/** Normalize a person name for a CONSERVATIVE cross-source equality check: lowercase, collapse whitespace,
+ *  drop punctuation. Deliberately loose so trivial case/spacing/period differences do NOT surface a false
+ *  mismatch; a genuine spelling difference (different tokens) still differs. Used ONLY to detect a mismatch to
+ *  SURFACE for attorney reconciliation — never to assert two names are "the same" and silently resolve them. */
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Normalize a legal-description block for a CONSERVATIVE equality check (whitespace + case + trailing period).
+ *  Loose enough that an OCR-whitespace/case difference is not flagged; a real textual divergence still differs. */
+function normalizeLegal(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').replace(/\.\s*$/, '').trim();
 }
 
 /**
@@ -113,6 +132,16 @@ export function buildGiftDrafterNotes(
     'A gift of real property may require a federal gift-tax return (IRS Form 709) if its value exceeds the annual exclusion, and the donee takes a CARRYOVER basis (no date-of-death step-up). Gift-tax/basis advice is OUTSIDE the deed engagement — advise the client to consult on the gift-tax and basis consequences.',
   );
 
+  // 3b. Warranty general-vs-special (Inc 4 §3.6(1)) — SURFACE the decision; the note NEVER picks. The gift
+  // default is the Mason house general-warranty form (already applied by the assembler, B1-overridable to
+  // Special by setting input.warranty); the note flags the choice + its consequence so the attorney decides.
+  add(
+    'warranty',
+    'caution',
+    `Warranty is the attorney's decision. This draft applies "${draft.warranty}" (the Mason house gift default is General Warranty, B1-overridable to Special). General warranty binds the Grantor to defend title against ALL claims (including pre-ownership); a Special Warranty limits the covenant to claims arising during the Grantor's own ownership. The warranty phrases are statutory shorthand — do not paraphrase. Confirm whether General or Special warranty is intended for this gift; the agent does not pick the warranty.`,
+    [kbCite('Warranty phrases')],
+  );
+
   // 4. TODD alternative (retain control during life; record-before-death) — grounded.
   add(
     'alternative',
@@ -142,12 +171,62 @@ export function buildGiftDrafterNotes(
   }
 
   // 6. Name reconciliation (B4) — the record owner vs the named grantor.
-  const recordOwner = facts.granteeOfRecord.value ?? facts.granteeOfRecord.values.join(', ');
+  const recordOwnerNames = facts.granteeOfRecord.values.length > 0
+    ? facts.granteeOfRecord.values
+    : facts.granteeOfRecord.value
+      ? [facts.granteeOfRecord.value]
+      : [];
+  const recordOwner = recordOwnerNames.join(', ');
   if (recordOwner && input.grantors.length > 0) {
     add(
       'name_reconciliation',
       'caution',
       `Confirm the Grantor(s) match the current owner of record (per the prior vesting deed: ${recordOwner}). Assert any name change only with affirmative corroboration (marriage certificate / court order / underwriter requirement / client confirmation) — name similarity alone is never sufficient (B4).`,
+    );
+  }
+
+  // 6b. Cross-source name discrepancy (Inc 4 §3.6(6)) — CONDITIONAL. Beyond the always-on reconciliation note,
+  // FIRE a specific mismatch when the attorney's named Grantor(s) do NOT match the vesting-deed record-owner
+  // name(s) across sources. SURFACE the discrepancy for attorney reconciliation; NEVER silently resolve it, and
+  // NEVER assert the names are the same on similarity alone (B4).
+  if (recordOwnerNames.length > 0 && input.grantors.length > 0) {
+    const recordSet = new Set(recordOwnerNames.map(normalizeName));
+    const inputGrantorNames = input.grantors.map((g) => g.name.trim()).filter((n) => n.length > 0);
+    const unmatched = inputGrantorNames.filter((n) => !recordSet.has(normalizeName(n)));
+    if (unmatched.length > 0) {
+      add(
+        'cross_source_name',
+        'escalate',
+        `Cross-source name discrepancy: the named Grantor(s) [${unmatched.join('; ')}] do not match the owner of record across the source documents (vesting-deed record owner: ${recordOwner}). This must be reconciled before recording — establish the connection with affirmative corroboration (recorded name-change instrument, marriage certificate, court order, or a confirmation-deed recital); a name similarity is NEVER sufficient to treat them as the same person (B4). Do not silently proceed on the assumption they are the same party.`,
+      );
+    }
+  }
+
+  // 6c. Estate-lien / creditor / will-contest windows (Inc 4 §3.6(4)) — CONDITIONAL on an estate/decedent
+  // source in the packet (deedSourceFacts.estateSource). Dormant for a pure inter-vivos gift. SURFACES the
+  // timing/risk windows as diligence to rule out; it does NOT advise on or resolve them.
+  if (facts.estateSource.signaled) {
+    const who = facts.estateSource.decedentName ? ` (decedent of record: ${facts.estateSource.decedentName})` : '';
+    add(
+      'estate_window',
+      'escalate',
+      `An estate / decedent source is present in this packet${who} (signals: ${facts.estateSource.signals.join(', ')}). A transfer sourced from a decedent's estate carries diligence windows to RULE OUT before recording: estate-debt / creditor claims against the estate property, recorded liens or judgments, and any will-contest or qualification period that could unwind the chain — together with the surviving-spouse elective-share interest. Determining who may sign for the estate and whether these windows are clear is a supervising-attorney judgment; confirm them and route any decedent-grantor / estate chain by a supervising attorney. The agent surfaces these windows; it does not advise on or resolve them.`,
+      // Cite ONLY the squarely on-point authority — the surviving-spouse elective-share statute. (The heir-affidavit
+      // statute § 64.2-510 is tangential to the creditor/lien/will-contest/elective-share propositions and is dropped.)
+      [kbCite('elective-share')],
+    );
+  }
+
+  // 6d. Commitment-vs-vesting legal-description mismatch (Inc 4 §3.6(7)) — CONDITIONAL on a title commitment
+  // legal being present in the packet AND differing from the vesting-deed legal. SURFACES the discrepancy; it is
+  // NEVER silently resolved — the verbatim legal is the attorney's call.
+  const vestingLegal = facts.legalDescription.sourceDocType === 'vesting_deed' ? facts.legalDescription.value : null;
+  const commitmentLegal = facts.commitmentLegalDescription.value;
+  if (vestingLegal && commitmentLegal && normalizeLegal(vestingLegal) !== normalizeLegal(commitmentLegal)) {
+    add(
+      'legal_mismatch',
+      'escalate',
+      'Legal-description discrepancy: the title commitment\'s Exhibit A legal description differs from the prior vesting deed\'s legal description. The two must be reconciled before recording — a deed that does not match the commitment\'s insured description can be rejected or leave a gap in coverage. Confirm which description is correct against the recorded chain of title; the agent surfaces the discrepancy and does NOT resolve it (the verbatim legal is carried from the vesting deed and is never silently rewritten).',
     );
   }
 
@@ -160,12 +239,13 @@ export function buildGiftDrafterNotes(
     );
   }
 
-  // 8. No title examination caveat (always, for a gift).
+  // 8. No title examination caveat (always, for a gift). NO grounded cite: this advisory is about title
+  // examination / no title insurance / verbatim legal / liens — § 58.1-801 (the recordation-tax base) supports
+  // none of those propositions, so per the no-hallucinated-/off-point-cite rule the note carries no citation.
   add(
     'title_caveat',
     'caution',
     'Prepared WITHOUT title examination — NO title insurance. The legal description is carried VERBATIM from the prior vesting deed and has NOT been verified against a current title commitment. Before recording, confirm the legal description, the derivation ("Being") reference, and any liens/encumbrances of record.',
-    [kbCite('recordation tax')],
   );
 
   // 9. Diligence checklist — the escalation triggers to rule out (grounded on the verified KB list).

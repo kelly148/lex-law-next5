@@ -51,6 +51,26 @@ export interface DeedSourceFacts {
    *  — LEADS for the attorney to confirm the true derivation reference (where the donor's vesting deed is
    *  recorded), never auto-used. */
   derivationCandidates: DeedSourceFact;
+  /** Inc 4 — the TITLE-COMMITMENT Exhibit A legal description, surfaced SEPARATELY from the consolidated winner
+   *  (`legalDescription`, which prefers the vesting deed). Carried so the Inc-4 issue-spotter can compare the
+   *  commitment legal against the vesting-deed legal and surface a mismatch (it never resolves the mismatch).
+   *  Absent (the absent fact) when no title commitment is in the packet. */
+  commitmentLegalDescription: DeedSourceFact;
+  /** Inc 4 — a CONDITIONAL estate/decedent-source signal, derived deterministically: fires when the packet
+   *  carries a probate/authority document, OR a vesting deed whose grantor is a decedent's estate (a surfaced
+   *  decedent name / fiduciary-capacity clause). For a pure inter-vivos gift this stays dormant (signaled:false).
+   *  Surfaces the signal for the issue-spotter to flag diligence; it NEVER decides who may sign for an estate
+   *  (that is B2 / the supervising attorney's call). */
+  estateSource: {
+    /** true when ANY estate/decedent-source signal is present in the packet. */
+    signaled: boolean;
+    /** The deterministic signal tags that fired (e.g. 'probate_authority_document', 'vesting_grantor_decedent'). */
+    signals: string[];
+    /** The decedent name surfaced from the packet (probate authority or vesting estate caption), if any. */
+    decedentName: string | null;
+    /** The fiduciary-capacity clause surfaced from the packet, if any (e.g. "Executor of the Estate of …"). */
+    fiduciaryCapacity: string | null;
+  };
   /** Per-material classification + routing summary (transparency). */
   materials: { materialId: string; docType: DeedDocType; lowConfidence: boolean; warnings: string[] }[];
   /** Document-level consolidation warnings (e.g. no vesting deed found; legal withheld). */
@@ -160,6 +180,44 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     { type: 'title_commitment', key: 'priorDeedRef' },
   ]);
 
+  // Inc 4 — the title-commitment Exhibit A legal, surfaced SEPARATELY (so a vesting-vs-commitment mismatch can
+  // be spotted). Distinct from the consolidated winner above, which prefers the vesting-deed legal.
+  const commitmentLegalDescription = pickFact(classified, [{ type: 'title_commitment', key: 'exhibitALegal' }]);
+
+  // Inc 4 — the CONDITIONAL estate/decedent-source signal. Derived deterministically from the packet; it NEVER
+  // decides authority — it only surfaces that an estate/decedent source is present so the issue-spotter can flag
+  // the timing/creditor/will-contest diligence windows. Dormant (signaled:false) for a pure inter-vivos gift.
+  const estateSignals: string[] = [];
+  let decedentName: string | null = null;
+  let fiduciaryCapacity: string | null = null;
+  for (const m of classified) {
+    // (a) a probate/authority document in the packet is the strongest estate signal.
+    if (m.result.docType === 'probate_authority' && !estateSignals.includes('probate_authority_document')) {
+      estateSignals.push('probate_authority_document');
+    }
+    // (b) a vesting deed whose grantor is a decedent's estate (a surfaced decedent name / fiduciary capacity).
+    const dec = fieldOf(m, 'decedentName');
+    const cap = fieldOf(m, 'fiduciaryCapacity');
+    const decValue = dec && !dec.withheld ? dec.value : null;
+    const capValue = cap && !cap.withheld ? cap.value : null;
+    if (decValue && decedentName === null) decedentName = decValue;
+    if (capValue && fiduciaryCapacity === null) fiduciaryCapacity = capValue;
+    if (m.result.docType === 'vesting_deed' && (decValue || capValue) && !estateSignals.includes('vesting_grantor_decedent')) {
+      estateSignals.push('vesting_grantor_decedent');
+    }
+    // a probate doc's own decedent/capacity also seed the surfaced values.
+    if (m.result.docType === 'probate_authority') {
+      if (decValue && decedentName === null) decedentName = decValue;
+      if (capValue && fiduciaryCapacity === null) fiduciaryCapacity = capValue;
+    }
+  }
+  const estateSource = {
+    signaled: estateSignals.length > 0,
+    signals: estateSignals,
+    decedentName,
+    fiduciaryCapacity,
+  };
+
   if (!firstOfType(classified, 'vesting_deed')) warnings.push('no_vesting_deed_in_packet');
   if (legalDescription.value === null) {
     warnings.push(legalDescription.withheld ? 'legal_description_withheld' : 'legal_description_absent');
@@ -173,6 +231,8 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     assessedValue,
     propertyLocality,
     derivationCandidates,
+    commitmentLegalDescription,
+    estateSource,
     materials: classified.map((m) => ({
       materialId: m.materialId,
       docType: m.result.docType,
