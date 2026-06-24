@@ -9,3 +9,8 @@ tools/calibration/*.mjs text eol=lf
 # INSTR-1A0: prompt assets are hash-pinned (manifest SHA-256 validated at boot) — their
 # bytes must be identical on every platform, so pin LF and never let autocrlf rewrite them.
 prompts/** text eol=lf
+
+# DEED-DRAFT-AGENT-1: the deed category fixture packs are parsed with literal "
+" anchors and asserted
+# byte-for-byte; pin them LF so autocrlf never rewrites the working tree (CI is LF, local Windows is not).
+docs/deed/*.md text eol=lf
