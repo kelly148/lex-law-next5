@@ -27,6 +27,9 @@ const notificationsFlagData: { data: { enabled: boolean; soundEnabled?: boolean 
 const settingsData: { data: { notificationPreferences: { sound: boolean } } } = {
   data: { notificationPreferences: { sound: true } },
 };
+// DEED-DRAFT-AGENT-1 QD-1: the render mock returns this for trpc.deedDraftAgent.isEnabled.useQuery — AppShell
+// reads it to decide the top-level "Deed" nav link. A test mutates it (then restores) to exercise flag ON/OFF.
+const deedAgentFlagData: { data: { enabled: boolean } } = { data: { enabled: false } };
 // NOTIFY-SUITE-1 N1: the render mock returns this for trpc.notifications.digest.useQuery (the "while you
 // were away" banner). A test mutates it (then restores) to exercise the banner path.
 const notificationsDigestData: {
@@ -77,6 +80,15 @@ vi.mock('../../trpc.js', async () => {
           useQuery: () => {
             React.useRef(null);
             return { data: { enabled: false }, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
+      // DEED-DRAFT-AGENT-1 QD-1: AppShell probes this flag for the top-level "Deed" nav link.
+      deedDraftAgent: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { ...deedAgentFlagData, isLoading: false, isError: false, error: null };
           },
         },
       },
@@ -361,5 +373,29 @@ describe('AppShell — Item 3: gavel cue on a newly-arrived notification', () =>
     notificationsListData.data = { items: [NEW_ITEM], unreadCount: 1, unreadMatterIds: [NEW_ITEM.matterId] };
     rerender(<MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>);
     expect(vi.mocked(playGavel)).not.toHaveBeenCalled();
+  });
+});
+
+describe('AppShell — DEED-DRAFT-AGENT-1 QD-1 "Deed" nav link (flag-gated)', () => {
+  afterEach(() => {
+    deedAgentFlagData.data = { enabled: false };
+  });
+
+  it('with DEED_DRAFT_AGENT_ENABLED OFF (default), the Deed nav link is ABSENT', () => {
+    deedAgentFlagData.data = { enabled: false };
+    const { queryByText } = render(
+      <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
+    );
+    expect(queryByText('Deed')).toBeNull();
+  });
+
+  it('with the flag ON, the top-level Deed nav link renders linking to /deed', () => {
+    deedAgentFlagData.data = { enabled: true };
+    const { getByText } = render(
+      <MemoryRouter><AppShell><div>Main content</div></AppShell></MemoryRouter>
+    );
+    const link = getByText('Deed').closest('a');
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute('href')).toBe('/deed');
   });
 });

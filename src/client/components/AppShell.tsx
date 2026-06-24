@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X, Activity } from 'lucide-react';
+import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X, Activity, Stamp } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -39,6 +39,9 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   const supervisionFlag = trpc.supervision.isEnabled.useQuery();
   // REVIEWER-HEALTH-VIEW-1 (5C) — show the Diagnostics nav link only when enabled (default OFF -> hidden).
   const reviewerHealthFlag = trpc.reviewerHealth.isEnabled.useQuery();
+  // DEED-DRAFT-AGENT-1 QD-1 — show the top-level "Deed" (Quick Deed) nav link only when the deed-draft
+  // agent is enabled (default OFF -> hidden). Reuses the existing deedDraftAgent.isEnabled probe.
+  const deedAgentFlag = trpc.deedDraftAgent.isEnabled.useQuery();
   // FOLD-NOTIFY-1 — probe the notifications flag (default OFF -> bell hidden, no poll).
   const notificationsFlag = trpc.notifications.isEnabled.useQuery();
   const notificationsEnabled = notificationsFlag.data?.enabled === true;
@@ -183,6 +186,14 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             <NavLink to="/diagnostics" className={navLinkClass}>
               <Activity className="w-4 h-4 flex-shrink-0" />
               <span data-rail-label>Diagnostics</span>
+            </NavLink>
+          )}
+          {/* DEED-DRAFT-AGENT-1 QD-1 — top-level "Deed" fast-lane entry. Rendered only when the deed-draft
+              agent flag is ON (default OFF -> absent). The /deed page also self-guards on the same flag. */}
+          {deedAgentFlag.data?.enabled === true && (
+            <NavLink to="/deed" className={navLinkClass}>
+              <Stamp className="w-4 h-4 flex-shrink-0" />
+              <span data-rail-label>Deed</span>
             </NavLink>
           )}
           <NavLink to="/templates" className={navLinkClass}>

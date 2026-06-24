@@ -42,7 +42,7 @@ import { deadlineRouter } from './procedures/deadlines.js';
 import { gateOverrideRouter } from './procedures/gateOverride.js';
 import { conflictPolicyRouter } from './procedures/conflictPolicy.js';
 import { deedGateRouter } from './procedures/deedGate.js';
-import { deedDraftAgentRouter } from './procedures/deedDraftAgent.js';
+import { deedDraftAgentRouter, quickDeedRouter } from './procedures/deedDraftAgent.js';
 import { chatUiRouter } from './procedures/chatUi.js';
 import { chatDispatchRouter } from './procedures/chatDispatch.js';
 import { chatCopilotRouter } from './procedures/chatCopilot.js';
@@ -160,6 +160,13 @@ export const appRouter = router({
   // the conflicts-at-intake gate + matter ownership. The FIRE §7 spine lives in the assembler (verbatim legal,
   // [[ ]] placeholders never fabricated, exemption-safe, attorney decides); never auto-records/files/sends.
   deedDraftAgent: deedDraftAgentRouter,
+  // DEED-DRAFT-AGENT-1 QUICK DEED (QD-1) — the deed-type-agnostic fast-lane surface backend. Auto-creates a
+  // lightweight owning matter (so the doc persists through the standard documents/versions path), BYPASSES the
+  // conflicts-at-intake gate by default (spec §5; the bypass is a single seam for QD-2 to flip), and reuses the
+  // EXACT gift core (verbatim legal / [[ ]] placeholders / never-send preserved). v1 generates ONLY the Deed of
+  // Gift; the type selector lists the whole registry (others disabled). Gated behind DEED_DRAFT_AGENT_ENABLED
+  // (default OFF, refuses when OFF). Schema-free: no new column/table/enum/migration.
+  quickDeed: quickDeedRouter,
 });
 
 export type AppRouter = typeof appRouter;

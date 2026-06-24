@@ -33,6 +33,7 @@ const CopilotPage = lazy(() => import("./pages/CopilotPage.js"));
 const MattersOverview = lazy(() => import("./pages/MattersOverview.js"));
 const SupervisionView = lazy(() => import("./pages/SupervisionView.js"));
 const ReviewerHealthView = lazy(() => import("./pages/ReviewerHealthView.js"));
+const QuickDeedPage = lazy(() => import("./pages/QuickDeedPage.js"));
 
 function PageLoader(): React.ReactElement {
   return (
@@ -76,6 +77,9 @@ export default function App(): React.ReactElement {
       <Route path="/supervision" element={<ProtectedLayout><SupervisionView /></ProtectedLayout>} />
       {/* REVIEWER-HEALTH-VIEW-1 (5C) — read-only; the page self-gates on reviewerHealth.isEnabled (redirects when OFF). */}
       <Route path="/diagnostics" element={<ProtectedLayout><ReviewerHealthView /></ProtectedLayout>} />
+      {/* DEED-DRAFT-AGENT-1 QD-1 — Quick Deed fast lane. Always registered; QuickDeedPage self-guards on
+          deedDraftAgent.isEnabled (default OFF) and redirects to /matters when the flag is off. */}
+      <Route path="/deed" element={<ProtectedLayout><QuickDeedPage /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />
