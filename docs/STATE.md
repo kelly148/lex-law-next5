@@ -4,6 +4,14 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-24d (DEPLOY — operator deploying `main` `e412864`; deed program ships DARK; activation pending)
+
+**Disposition.** Operator-asserted manual Railway deploy of `main` `e412864` (the deed-fence-complete HEAD), 2026-06-24. Deploy is operator-gated (Railway auto-deploy-on-merge is OFF); not run by the agent. **The deed program ships DARK** — `DEED_DRAFT_AGENT_ENABLED` is OFF — so the deploy is **behavior-neutral** (no user-visible change) until the flag is flipped. **No pending deed migrations** (the fence is schema-free). Deploy success / smoke result not independently verified by the agent (operator-driven).
+
+**State after deploy.** Code is on prod but the deed agent has NO live caller until activation. **Activation chain (operator-gated, pending):** flip `DEED_DRAFT_AGENT_ENABLED`=true on prod → Pattern-16 live-verify on synthetic data (categories render faithfully; B2 fail-closes; Inc 4 notes surface + refine loop regenerates; Quick Deed creates→generates→review/export; QD-2 toggle ON blocks / OFF bypasses+stamps) → **NOT client-facing until the conflicts-at-intake gate is live-verified** (self-use only). Also updated `CLAUDE.md`'s "Current state" briefing to reflect the deed-fence completion + this deploy (the prior briefing was the stale 2026-06-02 MR-CAL snapshot). Open deed follow-ups unchanged (see 2026-06-24c): seller-side→B2 wiring, the 6 non-gift Quick-Deed dispatches, the QD-2 on-quick-screen clearance step, the Inc-4 regenerate UI, calibrated-reviewers-on-deeds.
+
+---
+
 ## 2026-06-24c (DEED-DRAFT-AGENT-1 — Quick Deed QD-1 + QD-2; PRs #416, #417; ★ MONSTER-v2 DEED FENCE COMPLETE; flag-dark, nothing deployed)
 
 **Disposition.** The final two fence items — the Quick Deed surface + its firm-level conflicts toggle — both flag-dark behind `DEED_DRAFT_AGENT_ENABLED` (default OFF), SCHEMA-FREE, accept-gated (`operator approve accept:DEED-QD1` and `:DEED-QD2` given). SEPARATE track (not in `MR_CAL_engagement_state.json`). `main` 01c5f7d -> **#416 `dd34baf`** (QD-1) -> **#417 `2977c27`** (QD-2). **The MONSTER-v2 deed fence is now COMPLETE.** Nothing deployed (merge != deploy); no migration; the deed agent has NO live caller until activation.

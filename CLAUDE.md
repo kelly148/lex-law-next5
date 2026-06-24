@@ -28,30 +28,24 @@ Eventual architecture (not yet built; do not start without authorization): matte
 
 ---
 
-## Current state (as of 2026-06-02) — MR-CAL COMPLETE
+## Current state (as of 2026-06-24) — WHEREAS FOLD in progress; DEED-DRAFT-AGENT-1 fence COMPLETE
 
-- **`main` is at `9a0ebc3`** plus the CAL-7B-CLOSEOUT docs PR (program-complete). `docs/MR_CAL_engagement_state.json` is the authoritative HEAD/queue source.
-- **MR-CAL completion program COMPLETE — 30 engagements across Phases 0–8.** Queue empty.
-- **Features now live + production-verified:** native feedback-card *display* (MR-CAL-4C); multi-reviewer + advisory evaluator, toggleable/default-safe (MR-CAL-5D; `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` currently true); document-scoped **locked decisions** (MR-CAL-6C, migration 0002); cumulative **adopt ledger** (MR-CAL-7C, migration 0003); advisory **sendability** classifier (MR-CAL-8C, no table).
-- **Calibration posture (CAL-7B-LIVE):** live system behaves acceptably — a live behavioral snapshot, NOT a locked regression suite; re-derived-baseline fixtures. P8-T10 & P8-T7 strong, P8-T1 good, **P8-T6 the soft spot** (taxonomy under-tagging). Offline harness: `tools/calibration/cal7b_harness.mjs`.
-- **Accepted risks:** GPT-P8-T1 (parse — but observed PASSING/improved in CAL-7B-LIVE, flagged), GPT-P8-T6 (substance).
-- **Dev environment:** Serena MCP + CodeGraph configured; PreToolUse Bash guard hook. **Node v24 + `npx` ARE installed; `pnpm`/`tsc`/`vitest` are NOT** — local quality gates can't run; **CI is the authoritative gate.** Railway auto-deploys `main` (~30–90s) but does **NOT** run DB migrations (apply schema to prod TiDB out-of-band).
+- **`main` is at `e412864`.** `docs/STATE.md` (newest-first, mirrored to `…\_progress\STATE.md`) is the authoritative running narrative; the latest phase-boundary brief is `…\_progress\HANDOFF_BRIEF_2026-06-24_deed-fence-complete.md`. The MR-CAL program (the prior arc) is complete; the project has since run the **WHEREAS FOLD** queue and a separate **DEED-DRAFT-AGENT-1** track — see STATE.md for the engagement-by-engagement log.
+- **DEED-DRAFT-AGENT-1 — MONSTER-v2 fence COMPLETE (2026-06-24).** A FIRE-gated, flag-dark (`DEED_DRAFT_AGENT_ENABLED`, default OFF), deterministic VA deed-drafting agent on a SEPARATE track (NOT in `docs/MR_CAL_engagement_state.json`, operator ruling 2026-06-23). On `main`, all flag-dark with no live caller and **zero migrations** (the fence is schema-free; it rides existing tables): 7 deterministic Mason deed assemblers (gift, seller-side, Into-LLC C3, TOD C5, Confirmation C1, Out-of-LLC C4, Into-Trust C2 — registered in `deedTypeRegistry`, cites KB-verified in `deedKbVa`); the B2 estate-grantor input contract; Inc 4 issue-spotting depth + the attorney-driven refine loop; and the Quick Deed surface (QD-1 gift-only) + its firm-level conflicts toggle (QD-2). The DEED-DRAFT-AGENT-1 arc is PRs #404–#418. Pure/deterministic/no-egress/no-LLM; fail-closed; surface-not-decide; never auto-records/sends.
+- **Deploy posture:** **Railway auto-deploy-on-merge is OFF** — `main` advances without touching prod (merge ≠ deploy); deploy is operator-gated + manual. **Operator deploying `e412864` (2026-06-24).** The deed program ships **dark** (flag OFF), so the deploy is behavior-neutral until `DEED_DRAFT_AGENT_ENABLED` is flipped; **not client-facing until the conflicts-at-intake gate is live-verified** (self-use only). No pending deed migrations.
+- **Local gates ARE runnable** in the build worktree (`node_modules/.bin` tsc/eslint/vitest via a node_modules junction) — pre-validate CI locally despite older "not installed" notes; **CI remains the authoritative gate.**
 
 ### Immediate next action
 
-**MR-CAL complete; the WHEREAS FOLD queue is OPEN** (roadmap `docs/WHEREAS_FOLD_master_plan.md`; governance `docs/EXTERNAL_TRIAD_REVIEW_CHECKPOINTS.md` + `docs/AUTOPILOT_NEXT_SPEC.md`; entry gates `docs/WHEREAS_PREFOLD_GATE_CHECKLIST.md`). G1 closed (auth bypass off). FOLD-REBASELINE-1 re-baseline map accepted → `docs/engagements/FOLD-REBASELINE-1-investigation.md`. **Queue head = FOLD-AUTH-1** — but it is a §3.1 FIRE: the re-baseline map must get external triad review (GPT + Claude) before FOLD-AUTH-1 implementation begins.
+**DEED-DRAFT-AGENT-1 fence complete; operator deploying `e412864`.** After deploy: flip `DEED_DRAFT_AGENT_ENABLED` on prod → Pattern-16 live-verify on synthetic data → not client-facing until conflicts-at-intake is live. **Open deed follow-ups (each a future engagement, none blocking):** seller-side→B2 wiring (step #7); wiring the 6 non-gift categories into Quick Deed Generate (QD-1 is gift-only); an on-quick-screen conflicts-clearance step for QD-2 enforced-mode; the Inc-4 regenerate UI; calibrated-reviewers-on-deeds. The broader WHEREAS FOLD queue continues per `docs/WHEREAS_FOLD_master_plan.md` (consult STATE.md for the current head).
 
 ### Open carryforwards (non-blocking unless noted)
 
-- **SECURITY:** `AUTH_BYPASS_ENABLED` **disabled** on prod 2026-06-02 (G1 closed) — real auth required (verified: unauthenticated API → 401; incognito login works). Stopgap single-account `kelly` credential to be **rotated at FOLD-AUTH-1**; `AUTH_BYPASS_USER_ID` now inert. `MULTI_REVIEWER_ENABLED`/`EVALUATOR_ENABLED` remain true (now behind auth).
-- **Reviewer reliability:** GPT-5 intermittent empties; Gemini invalid JSON for structured output; Claude intermittent non-strict JSON; a failed/empty review leaves the session `active` (stuck-session), blocking the next create.
-- **P8-T6 taxonomy precision:** the one substantive calibration soft spot (candidate prompt-calibration engagement).
-- **LLN-PROD-CLEANUP-1:** synthetic test data on prod (matters/docs/sessions; locks; adopt-ledger entries; many versions on doc `cbf83ad7`). Operator-approved cleanup only.
-- **DEPLOY-MIGRATIONS-NOT-AUTOMATIC:** schema-bearing work needs a manual prod migrate.
-- **Fixtures reconciliation:** CAL-7B used re-derived fixtures; reconcile to the `20260528T122851Z` originals for a true regression if the bundle is supplied.
-- **`docs/Claude Code Project Handoff.docx`** predates this arc and may need a manual refresh (it is not editable from Claude Code).
-
-**Deferred (not started):** native feedback-card *runtime* (only additive display shipped); per-matter granularity (Option 2); true offline reproducible regression suite.
+- **SECURITY:** `AUTH_BYPASS_ENABLED` disabled on prod (G1 closed) — real auth required.
+- **Reviewer reliability:** GPT-5 intermittent empties; Gemini invalid JSON for structured output; Claude intermittent non-strict JSON; a failed/empty review can leave the session `active` (stuck-session).
+- **LLN-PROD-CLEANUP-1:** synthetic test data on prod (operator-approved cleanup only); once the deed flag is on, any Quick Deed "Quick Deed — DATE" auto-matters join this class.
+- **DEPLOY-MIGRATIONS-NOT-AUTOMATIC:** schema-bearing work needs a manual prod migrate (the deed fence added none).
+- **`docs/Claude Code Project Handoff.docx`** predates this arc and may need a manual refresh (not editable from Claude Code).
 
 ---
 
