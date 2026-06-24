@@ -32,8 +32,8 @@ export const DEED_TYPE_REGISTRY: readonly DeedTypeRegistryEntry[] = [
   { key: 'seller_side', title: 'Seller-Side Conveyance', category: 'seller-side', exemptionCitation: null, warranty: 'General Warranty (default) | Special (B1 override)', status: 'available' },
   { key: 'deed_into_llc', title: 'Deed Into an LLC', category: 'C3', exemptionCitation: 'Va. Code § 58.1-811(A)(10)', warranty: 'none (quitclaim)', status: 'available' },
   { key: 'deed_tod', title: 'Transfer on Death Deed', category: 'C5', exemptionCitation: 'Va. Code § 58.1-811(J)', warranty: 'none (death-effective)', status: 'available' },
+  { key: 'deed_of_confirmation', title: 'Deed of Confirmation', category: 'C1', exemptionCitation: 'Va. Code § 58.1-810(1)', warranty: 'General Warranty', status: 'available' },
   // Planned (grounded; assembler build in progress under MONSTER-v2):
-  { key: 'deed_of_confirmation', title: 'Deed of Confirmation', category: 'C1', exemptionCitation: 'Va. Code § 58.1-810(1)', warranty: 'General Warranty', status: 'planned' },
   { key: 'deed_into_trust', title: 'Deed Into Trust', category: 'C2', exemptionCitation: 'Va. Code § 58.1-811(A)(12)', warranty: 'General Warranty', status: 'planned' },
   { key: 'deed_out_of_llc', title: 'Deed Out of an LLC', category: 'C4', exemptionCitation: 'Va. Code § 58.1-811(A)(11)', warranty: 'Special Warranty', status: 'planned' },
 ];
