@@ -91,6 +91,24 @@ export const VA_DEED_TYPES: readonly VaDeedType[] = [
     mustStateTitleInDeed: true,
     notes: 'Transfer from an estate or trust to ORIGINAL beneficiaries when no consideration passes. Must state on the front page that it is a "Deed of Distribution".',
   },
+  {
+    key: 'into_llc',
+    title: 'Deed Into an LLC',
+    grantingLanguage: "quitclaim release and convey (all of the Grantor's right, title and interest)",
+    warranty: 'none (quitclaim)',
+    exemptionCitation: 'Va. Code § 58.1-811(A)(10)',
+    mustStateTitleInDeed: false,
+    notes: 'Transfer TO a Virginia partnership/LLC where the GRANTORS are entitled to >=50% of profits and surplus (§ 58.1-811(A)(10)); not a precursor to a control transfer to avoid recordation tax. Plain "DEED" title; quitclaim, NO warranty. Cite verified verbatim against Va. Code § 58.1-811(A)(10) (operator-supplied 2026-06-24); grounded §C3.',
+  },
+  {
+    key: 'out_of_llc',
+    title: 'Deed Out of an LLC',
+    grantingLanguage: 'grant and convey, with Special Warranty',
+    warranty: 'special warranty',
+    exemptionCitation: 'Va. Code § 58.1-811(A)(11)',
+    mustStateTitleInDeed: false,
+    notes: 'Transfer FROM a Virginia partnership/LLC to its members where the GRANTEES are entitled to >=50% of profits and surplus (§ 58.1-811(A)(11)); not subsequent to a control transfer to avoid recordation tax. Special Warranty; members take as tenants in common. Cite verified verbatim against Va. Code § 58.1-811(A)(11) (operator-supplied 2026-06-24); grounded §C4.',
+  },
 ];
 
 // ── Vesting / tenancy — the controlled list (primer §4 vesting + §§ 55.1-134/135/136) ───────────────────
@@ -139,7 +157,8 @@ export interface VaExemption {
   watchOuts: string;
 }
 export const VA_EXEMPTIONS: readonly VaExemption[] = [
-  { citation: 'Va. Code § 58.1-811(A)(11)', transferType: 'Transfer to a partnership or LLC where grantees are entitled to receive at least 50% of profits and surplus.', watchOuts: 'Confirm the 50% threshold against the operating agreement. Cannot be used following a recent transfer of control.' },
+  { citation: 'Va. Code § 58.1-811(A)(10)', transferType: 'To a partnership or limited liability company, when the grantors are entitled to receive not less than 50 percent of the profits and surplus of such partnership or limited liability company, provided that the transfer to a limited liability company is not a precursor to a transfer of control of the assets of the company to avoid recordation taxes.', watchOuts: 'INTO-entity direction (the GRANTORS receive >=50%). Mason "Deed Into an LLC": title "DEED", quitclaim, NO warranty. The anti-avoidance proviso bars using it as a precursor to a control transfer. Verbatim from Va. Code § 58.1-811(A)(10) (operator-supplied 2026-06-24); grounded §C3.' },
+  { citation: 'Va. Code § 58.1-811(A)(11)', transferType: 'From a partnership or limited liability company, when the grantees are entitled to receive not less than 50 percent of the profits and surplus of such partnership or limited liability company, provided that the transfer from a limited liability company is not subsequent to a transfer of control of the assets of the company to avoid recordation taxes.', watchOuts: 'OUT-of-entity direction (the GRANTEES receive >=50%) — CORRECTED 2026-06-24 from a prior entry that mis-stated the direction as "to a partnership or LLC where grantees"; now verbatim from Va. Code § 58.1-811(A)(11) (operator-supplied). Mason "Deed Out of an LLC": Special Warranty; members take as tenants in common. Grounded §C4.' },
   { citation: 'Va. Code § 58.1-811(A)(12)', transferType: 'Transfer to trustees of a revocable inter vivos trust where the grantors are also beneficiaries, regardless of whether other beneficiaries may also be named, with no consideration passing.', watchOuts: 'Title "Deed Into Trust." Review the trust before recordation; fails only if a grantor is not a beneficiary at all.' },
   { citation: 'Va. Code § 58.1-811(D)', transferType: 'Deed of gift where no consideration has passed between grantor(s) and grantee(s).', watchOuts: 'Two parts: (i) the deed must state on its face it is a Deed of Gift, and (ii) the body must use "grant and convey". Both required (P.D. 93-212). Run any non-individual party by a supervising attorney.' },
   { citation: 'Va. Code § 58.1-811(J)', transferType: 'Transfer-on-death deeds and revocations under the Uniform Real Property Transfer on Death Act.', watchOuts: 'Title as "Transfer on Death Deed" or "Revocation." See Va. Code § 64.2-621 et seq. for form requirements.' },
