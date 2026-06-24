@@ -366,6 +366,17 @@ describe('seller-side assembler — estate B2 fail-closed scope', () => {
     expect(d.failures.some((f) => /non-executor|intestate/i.test(f))).toBe(true);
   });
 
+  it('co-executor (co-fiduciary requiring joinder) fails closed — F1', () => {
+    const d = assembleSellerSideDeed({
+      ...GOLD_C,
+      powerOfSale: true,
+      grantors: [{ name: 'Dana Rae WHITFIELD', capacity: 'Co-Executor of Estate of Raymond Earl Whitfield' }],
+    });
+    expect(d.failedClosed).toBe(true);
+    expect(d.text).toBe('');
+    expect(d.failures.some((f) => /co-fiduciary|co-executor|single-qualified-Executor/i.test(f))).toBe(true);
+  });
+
   it('sellerType:"individual" can NOT suppress B2 when a grantor carries a fiduciary capacity (no over-render)', () => {
     const d = assembleSellerSideDeed({
       ...GOLD_C,
@@ -424,6 +435,32 @@ describe('seller-side assembler — warranty override (FIRE-B1) + count combos',
     const { warrantyType: _omit, ...noWar } = GOLD_A;
     const d = assembleSellerSideDeed(noWar as SellerSideDeedInput);
     expect(d.warranty).toBe('General Warranty');
+  });
+});
+
+describe('seller-side assembler — E0 behavior fixes (S1 independent city + F3 fiduciary-warranty note)', () => {
+  it('S1/F2 — an independent-city deed renders "City of <X>" in the granting clause, never "<X> County"', () => {
+    const d = assembleSellerSideDeed({ ...GOLD_A, localityType: 'city', localityName: 'Alexandria' });
+    expect(d.failedClosed).toBe(false);
+    expect(d.parts!.grantingClause).toContain('located in City of Alexandria, Commonwealth of Virginia, to wit:');
+    expect(d.parts!.grantingClause).not.toMatch(/Alexandria County/);
+  });
+
+  it('S1 — the county path is unchanged (byte-identical): localityType omitted renders "<county> County"', () => {
+    const d = assembleSellerSideDeed(GOLD_A); // county: 'Fairfax'
+    expect(d.parts!.grantingClause).toContain('located in Fairfax County, Commonwealth of Virginia, to wit:');
+  });
+
+  it('F3 — an estate deed on DEFAULT General Warranty emits the standing fiduciary-warranty risk note', () => {
+    const d = assembleSellerSideDeed(GOLD_C); // estate, default General Warranty, express power of sale
+    expect(d.failedClosed).toBe(false);
+    expect(d.warranty).toBe('General Warranty');
+    expect(d.notes.some((n) => /Fiduciary-warranty risk/i.test(n))).toBe(true);
+  });
+
+  it('F3 — a non-estate (individual) deed does NOT emit the fiduciary-warranty note', () => {
+    const d = assembleSellerSideDeed(GOLD_A);
+    expect(d.notes.some((n) => /Fiduciary-warranty risk/i.test(n))).toBe(false);
   });
 });
 

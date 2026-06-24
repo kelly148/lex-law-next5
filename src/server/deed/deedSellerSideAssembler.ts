@@ -29,6 +29,7 @@
 import {
   checkAnnotationLeak,
   checkFormatLints,
+  renderLocality,
   type GateResult,
 } from './deedDraftGates.js';
 
@@ -80,6 +81,12 @@ export interface SellerSideDeedInput {
   tenancy: string;
   /** Recording locality WITHOUT the trailing "County" (the template appends " County"). */
   county: string;
+  /** Recording-locality discriminator for the granting clause: 'city' renders "City of <Name>" for a Virginia
+   *  independent city (Alexandria, Fairfax, Falls Church, Manassas, Manassas Park); default/omitted 'county'
+   *  renders "<Name> County" from `county`. (S1/F2.) */
+  localityType?: 'county' | 'city';
+  /** Locality name for the 'city' case (defaults to `county`). */
+  localityName?: string;
   /** Legal description, VERBATIM (multi-line preserved). */
   legalDescription: string;
   /** "BEING the same property…" vesting/derivation recital, VERBATIM (carries any estate-authority recital). */
@@ -271,8 +278,8 @@ export function assembleSellerSideDeed(input: SellerSideDeedInput): SellerSideDe
     const parsed = cap ? parseFiduciaryCapacity(cap) : null;
     if (!parsed) {
       failures.push('B2 fail-closed: the fiduciary capacity is not the grounded "Executor of Estate of <decedent>" form — refuse + escalate');
-    } else if (!/^(co-)?execut(or|rix)$/i.test(parsed.role)) {
-      failures.push(`B2 fail-closed: a non-executor fiduciary ("${parsed.role}") signals intestate/other administration — outside the grounded testate scope; refuse + escalate`);
+    } else if (!/^execut(or|rix)$/i.test(parsed.role)) {
+      failures.push(`B2 fail-closed: "${parsed.role}" is outside the grounded single-qualified-Executor scope — a co-fiduciary (e.g. co-executor requiring joinder), successor, non-executor, or intestate/other administration; refuse + escalate`);
     } else if (NAME_BLEED_RE.test(parsed.estateName)) {
       failures.push(`B2 fail-closed: the decedent/estate name parsed from the capacity ("${parsed.estateName}") carries a label/connective/markup token — malformed capacity; refuse + escalate`);
     } else {
@@ -310,15 +317,18 @@ export function assembleSellerSideDeed(input: SellerSideDeedInput): SellerSideDe
   ].join('\n');
 
   // ── granting clause (§2.1.1, verbatim Mason boilerplate) ──
-  // Defensive: the contract is to pass the locality WITHOUT the trailing "County"; strip it if a caller includes
-  // it, so the template's " County" suffix never doubles to "County County".
-  const county = input.county.replace(/\s*,?\s*County\s*$/i, '').trim();
+  // Locality via the shared renderer (S2): "<Name> County" for a county, "City of <Name>" for a Virginia
+  // independent city (S1/F2). Defaults to the `county` field so existing county deeds render byte-identically.
+  const localityToken = renderLocality({
+    type: input.localityType ?? 'county',
+    name: input.localityName ?? input.county,
+  });
   const grantingClause =
     `For and in consideration of the sum of ${input.amountWords} DOLLARS (${input.considerationFigs}), ` +
     'and other good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, ' +
     `the ${grantorActor} hereby grant, bargain, sell and convey, with ${warranty} and English Covenants of title, ` +
     `unto the said ${granteeLabel}, in fee simple, ${input.tenancy}, all of the following parcel of real property, ` +
-    `with improvements thereon, located in ${county} County, Commonwealth of Virginia, to wit:`;
+    `with improvements thereon, located in ${localityToken}, Commonwealth of Virginia, to wit:`;
 
   // ── signature block ──
   let signatureBlock: string;
@@ -341,6 +351,9 @@ export function assembleSellerSideDeed(input: SellerSideDeedInput): SellerSideDe
     notes.push(`Warranty override applied: "${warranty}" (FIRE-B1). Confirm the authority recital in the vesting/derivation block conforms (warranty limited to acts by, through, or under the fiduciary/decedent only, where applicable).`);
   }
   if (isEstate) {
+    // F3 — standing fiduciary-warranty risk note (KB §2.1.0/B1), emitted whenever the seller is an estate,
+    // INDEPENDENT of warranty type — the risk is highest precisely on the default General Warranty path.
+    notes.push(`Fiduciary-warranty risk (KB §2.1.0/B1): a general warranty from a fiduciary exposes the estate to pre-existing (pre-decedent) title defects and a claims-tail surviving distribution. Confirm the estate's risk tolerance; consider limiting the conveyance to a Special/Fiduciary warranty.`);
     notes.push(`Estate branch (grounded B2 path): ${estateRole} of the Estate of ${estateName}, express power of sale confirmed. Any other estate fact pattern (no power of sale, intestate, closed/distributed, co/successor/non-qualified PR) is out of scope and fails closed.`);
   }
 

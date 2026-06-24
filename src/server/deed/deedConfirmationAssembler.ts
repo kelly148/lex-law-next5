@@ -37,6 +37,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
+import { renderLocality } from './deedDraftGates.js';
 
 /** The verified exemption cite for this category (validated against the KB; no-hallucinated-cite discipline). */
 const C1_EXEMPTION_CODE = 'Va. Code § 58.1-810(1)';
@@ -137,6 +138,9 @@ export interface DeedConfirmationInput {
   grantingVerb: string; // "grant and convey" / "grant, confirm, and convey"
   warranty: string; // "General Warranty and English Covenants of title" / "...of Title"
   locality: string; // "Prince William" / "Fairfax"
+  /** Recording-locality discriminator: 'city' renders "the City of <X>" for a Virginia independent city;
+   *  default/omitted 'county' renders "the County of <X>" from `locality`. (S1/F2.) */
+  localityType?: 'county' | 'city';
   legalDescription: string; // verbatim
 
   // ── C1-a survivorship ──
@@ -354,7 +358,7 @@ function assembleSurvivorship(input: DeedConfirmationInput, advisories: string[]
     `For good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, ` +
     `the Grantor does hereby ${input.grantingVerb.trim()}, with ${input.warranty.trim()}, unto the said Grantee, ` +
     `in fee simple, as ${input.vesting.trim()}, all of the following parcel of real property, with improvements ` +
-    `thereon, located in the County of ${input.locality.trim()}, Commonwealth of Virginia, to wit:`;
+    `thereon, located in the ${renderLocality({ type: input.localityType ?? 'county', name: input.locality, style: 'of' })}, Commonwealth of Virginia, to wit:`;
 
   const beingRecital =
     `BEING the same property conveyed unto ${owners[0]} and ${owners[1]}, as ${c.tookTitleAs.trim()} by Deed ` +
@@ -491,7 +495,7 @@ function assembleTestateDevise(input: DeedConfirmationInput, advisories: string[
     `For good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, ` +
     `the Grantor does hereby ${input.grantingVerb.trim()}, with ${input.warranty.trim()}, unto the said Grantee, ` +
     `in fee simple, as ${input.vesting.trim()}, all of the following described real property, with the improvements ` +
-    `thereon and the appurtenances thereunto belonging, situate, lying and being in the County of ${input.locality.trim()}, ` +
+    `thereon and the appurtenances thereunto belonging, situate, lying and being in the ${renderLocality({ type: input.localityType ?? 'county', name: input.locality, style: 'of' })}, ` +
     `Commonwealth of Virginia, to wit:`;
 
   const beingRecital =

@@ -289,3 +289,34 @@ export function runRecordabilityGates(input: RecordabilityGateInput): Recordabil
   ];
   return { ok: results.every((r) => r.ok), results };
 }
+
+// ── S2 — shared recording-locality renderer (Mason house phrasing) ────────────
+
+/**
+ * S2 — render a Virginia recording locality (a county or an independent city) in Mason house phrasing.
+ *
+ * Virginia independent cities (Alexandria, Fairfax, Falls Church, Manassas, Manassas Park, …) record in the
+ * City, not a county — a hardcoded "<X> County" form prints a nonexistent "Alexandria County" on a recordable
+ * instrument (seller-side F2 / sweep S1). One shared contract so the category assemblers stop hand-rolling
+ * locality strings; the caller embeds the returned token in its own granting-clause phrase.
+ *
+ *   style 'bare' (default): "<Name> County" | "City of <Name>"    (seller-side "located in <...>" form)
+ *   style 'of':             "County of <Name>" | "City of <Name>" (Confirmation "located in the <...>" form)
+ *
+ * Any "County"/"City"/"County of"/"City of" affix already on the supplied name is stripped first so the form
+ * never doubles (matching the assemblers' prior defensive strip).
+ */
+export function renderLocality(input: {
+  type: 'county' | 'city';
+  name: string;
+  style?: 'bare' | 'of';
+}): string {
+  const name = (input.name ?? '')
+    .replace(/^(?:the\s+)?(?:County|City)\s+of\s+/i, '')
+    .replace(/\s*,?\s*(?:County|City)\s*$/i, '')
+    .trim();
+  if (input.style === 'of') {
+    return input.type === 'city' ? `City of ${name}` : `County of ${name}`;
+  }
+  return input.type === 'city' ? `City of ${name}` : `${name} County`;
+}

@@ -142,6 +142,23 @@ describe('Confirmation (C1) — fixture pack parsed', () => {
   });
 });
 
+describe('Confirmation (C1) — E0 S1/F2 independent-city locality', () => {
+  it('renders "the City of <X>" when localityType is "city" (never "the County of <X>")', () => {
+    const j = grabInput('G1');
+    const result = assembleConfirmationDeed({ ...toInput(j), localityType: 'city' });
+    expect(result.status).toBe('OK');
+    const body = result.deed!.fullText;
+    expect(body).toContain(`the City of ${j.locality}`);
+    expect(body).not.toContain(`the County of ${j.locality}`);
+  });
+
+  it('the county path is unchanged (byte-identical): localityType omitted renders "the County of <X>"', () => {
+    const j = grabInput('G1');
+    const result = assembleConfirmationDeed(toInput(j));
+    expect(result.deed!.fullText).toContain(`the County of ${j.locality}`);
+  });
+});
+
 describe('Confirmation (C1) — GOLDEN fixtures reproduce the fixture pack exactly', () => {
   for (const id of GOLD_IDS) {
     it(`${id} — full body byte-for-byte + segment contract`, () => {

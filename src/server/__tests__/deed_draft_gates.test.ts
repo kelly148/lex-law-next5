@@ -14,7 +14,25 @@ import {
   checkAnnotationLeak,
   checkFormatLints,
   runRecordabilityGates,
+  renderLocality,
 } from '../deed/deedDraftGates.js';
+
+describe('renderLocality (S2 shared locality contract)', () => {
+  it('bare style (default): county -> "<Name> County", city -> "City of <Name>"', () => {
+    expect(renderLocality({ type: 'county', name: 'Fairfax' })).toBe('Fairfax County');
+    expect(renderLocality({ type: 'city', name: 'Alexandria' })).toBe('City of Alexandria');
+  });
+  it('"of" style: county -> "County of <Name>", city -> "City of <Name>"', () => {
+    expect(renderLocality({ type: 'county', name: 'Prince William', style: 'of' })).toBe('County of Prince William');
+    expect(renderLocality({ type: 'city', name: 'Falls Church', style: 'of' })).toBe('City of Falls Church');
+  });
+  it('strips an existing County / City / "County of" / "City of" affix so the form never doubles', () => {
+    expect(renderLocality({ type: 'county', name: 'Fairfax County' })).toBe('Fairfax County');
+    expect(renderLocality({ type: 'county', name: 'County of Fairfax' })).toBe('Fairfax County');
+    expect(renderLocality({ type: 'city', name: 'City of Manassas' })).toBe('City of Manassas');
+    expect(renderLocality({ type: 'county', name: 'the County of Loudoun', style: 'of' })).toBe('County of Loudoun');
+  });
+});
 
 // ── SYNTHETIC fixtures ────────────────────────────────────────────────────────
 
