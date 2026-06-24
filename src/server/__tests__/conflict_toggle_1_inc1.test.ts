@@ -38,7 +38,9 @@ function caller(userId: string | undefined) {
   return appRouter.createCaller({ req: {} as Request, res: {} as Response, userId });
 }
 function pol(transactionalPosture: 'ENFORCED' | 'ADVISORY'): ConflictPolicy {
-  return { schemaVersion: 1, transactionalPosture };
+  // deedConflictsEnforced defaults false (QD-2). Included so the object is a complete ConflictPolicy and so the
+  // setPolicy .toHaveBeenCalledWith assertions match the Zod-parsed (defaulted) input the router forwards.
+  return { schemaVersion: 1, transactionalPosture, deedConflictsEnforced: false };
 }
 
 // ── the pure resolver (default-safe) ────────────────────────────────────────
@@ -76,8 +78,34 @@ describe('CONFLICT-TOGGLE-1 — resolveEffectivePosture (pure, default-safe)', (
 // ── the schema (defaults + relaxation) ──────────────────────────────────────
 describe('CONFLICT-TOGGLE-1 — ConflictPolicySchema (default-safe shape)', () => {
   it('DEFAULT_CONFLICT_POLICY is the SAFE policy and an empty object parses to it', () => {
-    expect(DEFAULT_CONFLICT_POLICY).toEqual({ schemaVersion: 1, transactionalPosture: 'ENFORCED' });
+    // QD-2 added the defaulted deedConflictsEnforced:false field — old/empty blobs still parse to the safe default.
+    expect(DEFAULT_CONFLICT_POLICY).toEqual({ schemaVersion: 1, transactionalPosture: 'ENFORCED', deedConflictsEnforced: false });
     expect(ConflictPolicySchema.parse({})).toEqual(DEFAULT_CONFLICT_POLICY);
+  });
+
+  it('QD-2: deedConflictsEnforced defaults to false on an OLD policy (parse-default; no DDL) and round-trips', () => {
+    // An old persisted row written before QD-2 has NO deedConflictsEnforced key; parsing applies the default.
+    const oldRow = { schemaVersion: 1, transactionalPosture: 'ADVISORY' };
+    expect(ConflictPolicySchema.parse(oldRow).deedConflictsEnforced).toBe(false);
+    // A new explicit true round-trips and is preserved alongside the other fields.
+    const enforced = ConflictPolicySchema.parse({ schemaVersion: 1, transactionalPosture: 'ENFORCED', deedConflictsEnforced: true });
+    expect(enforced.deedConflictsEnforced).toBe(true);
+    expect(enforced.transactionalPosture).toBe('ENFORCED');
+    // Flipping only the deed field preserves the rest (the setConflictsEnforced spread pattern).
+    const flipped = ConflictPolicySchema.parse({ ...ConflictPolicySchema.parse({ transactionalPosture: 'ADVISORY' }), deedConflictsEnforced: true });
+    expect(flipped).toEqual({ schemaVersion: 1, transactionalPosture: 'ADVISORY', deedConflictsEnforced: true });
+  });
+
+  it('QD-2: a MALFORMED policy blob fails safeParse, and the safe DEFAULT it falls back to has deedConflictsEnforced=false', () => {
+    // getFirmConflictPolicy fail-closes a malformed persisted blob to DEFAULT_CONFLICT_POLICY (never throws,
+    // never relaxes). The deed toggle must inherit that safe default — an unreadable policy can NEVER read as
+    // "enforced=... whatever the corrupt blob said"; it reads as the safe default (false here = QD-1 bypass).
+    expect(ConflictPolicySchema.safeParse({ transactionalPosture: 'GARBAGE', deedConflictsEnforced: 'yes' }).success).toBe(false);
+    expect(ConflictPolicySchema.safeParse('not even an object').success).toBe(false);
+    // A deedConflictsEnforced that is not a boolean is rejected (not silently coerced):
+    expect(ConflictPolicySchema.safeParse({ schemaVersion: 1, transactionalPosture: 'ENFORCED', deedConflictsEnforced: 1 }).success).toBe(false);
+    // The fallback the query layer uses carries the safe deed default:
+    expect(DEFAULT_CONFLICT_POLICY.deedConflictsEnforced).toBe(false);
   });
 
   it('rejects a bad posture and never allows SANDBOX as a firm transactional default', () => {
