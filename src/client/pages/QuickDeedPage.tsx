@@ -23,6 +23,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 
 const QUICK_DEED_GIFT_TYPE = 'deed_of_gift';
+const QUICK_DEED_SELLER_TYPE = 'seller_side';
 
 interface PartyRow {
   name: string;
@@ -61,7 +62,16 @@ export default function QuickDeedPage(): React.ReactElement {
       utils.client.quickDeed.generate.mutate(input),
     {
       onSuccess: (res) => {
-        navigate(`/matters/${res.matterId}/documents/${res.documentId}`);
+        if (res.documentId) {
+          navigate(`/matters/${res.matterId}/documents/${res.documentId}`);
+          return;
+        }
+        // Seller-side can fail closed (truncated legal / name bleed / estate scope): no void deed is persisted.
+        setError(
+          res.failures && res.failures.length > 0
+            ? `The deed could not be generated: ${res.failures.join('; ')}`
+            : 'The deed could not be generated from the provided facts.',
+        );
       },
       onError: (err) => setError(err.message),
     },
@@ -131,8 +141,24 @@ export default function QuickDeedPage(): React.ReactElement {
   const [locality, setLocality] = useState('');
   const [derivationReference, setDerivationReference] = useState('');
   const [vestingOverride, setVestingOverride] = useState('');
+  // Seller-side-only fields (the new-transaction facts the prior document cannot supply). Surfaced only when the
+  // seller-side deed type is selected; the doc-derived legal/locality/taxId/assessedValue/grantee-address default
+  // from extraction server-side (override-able via the shared inputs below).
+  const [warrantyType, setWarrantyType] = useState('');
+  const [considerationFigs, setConsiderationFigs] = useState('');
+  const [amountWords, setAmountWords] = useState('');
+  const [grantorDescriptor, setGrantorDescriptor] = useState('');
+  const [granteeDescriptor, setGranteeDescriptor] = useState('');
+  const [tenancy, setTenancy] = useState('');
+  const [vestingRecital, setVestingRecital] = useState('');
+  const [venue, setVenue] = useState('');
+  const [returnTo, setReturnTo] = useState('');
+  const [titleInsurer, setTitleInsurer] = useState('');
+  const [sellerType, setSellerType] = useState<'individual' | 'estate'>('individual');
   const [error, setError] = useState<string | null>(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
+
+  const isSeller = deedType === QUICK_DEED_SELLER_TYPE;
 
   // Quick Deed Layer 1 (E1b): once the owning matter exists, read the consolidated facts from the uploaded
   // materials and PRE-FILL the empty form fields (recording locality, grantee's address) so the attorney
@@ -181,23 +207,54 @@ export default function QuickDeedPage(): React.ReactElement {
     e.preventDefault();
     const cleanGrantors = cleanParties(grantors);
     const cleanGrantees = cleanParties(grantees);
-    if (cleanGrantors.length === 0) { setError('At least one grantor (donor) name is required.'); return; }
-    if (cleanGrantees.length === 0) { setError('At least one grantee (donee) name is required.'); return; }
+    if (cleanGrantors.length === 0) {
+      setError(`At least one ${isSeller ? 'grantor (seller)' : 'grantor (donor)'} name is required.`);
+      return;
+    }
+    if (cleanGrantees.length === 0) {
+      setError(`At least one ${isSeller ? 'grantee (buyer)' : 'grantee (donee)'} name is required.`);
+      return;
+    }
     setError(null);
     // Validate synchronously, then lazily ensure the owning matter exists and generate. The matterId is
-    // injected from the freshly-created (or existing) matter — never baked into the captured payload.
-    const payload: GeneratePayload = {
-      deedType,
-      grantors: cleanGrantors,
-      grantees: cleanGrantees,
-      granteesAreMarriedCouple,
-      fileNumber: fileNumber.trim() || null,
-      granteeAddress: granteeAddress.trim() || null,
-      locality: locality.trim() || null,
-      derivationReference: derivationReference.trim() || null,
-      vestingOverride: vestingOverride.trim() || null,
-      title: 'Deed of Gift',
-    };
+    // injected from the freshly-created (or existing) matter — never baked into the captured payload. The
+    // payload shape is the discriminated-union member for the selected deed type (the server validates the same).
+    const payload: GeneratePayload = isSeller
+      ? {
+          deedType: QUICK_DEED_SELLER_TYPE,
+          grantors: cleanGrantors,
+          grantees: cleanGrantees,
+          granteeAddress: granteeAddress.trim() || null,
+          // Seller-only facts nested (the shared party/grantee-address fields stay at the top level).
+          sellerSide: {
+            warrantyType: warrantyType.trim() || undefined,
+            considerationFigs: considerationFigs.trim(),
+            amountWords: amountWords.trim(),
+            titleInsurer: titleInsurer.trim(),
+            grantorDescriptor: grantorDescriptor.trim() || undefined,
+            granteeDescriptor: granteeDescriptor.trim() || undefined,
+            tenancy: tenancy.trim(),
+            vestingRecital: vestingRecital.trim(),
+            venue: venue.trim(),
+            returnTo: returnTo.trim(),
+            sellerType,
+            fileNumber: fileNumber.trim(),
+            county: locality.trim() || null,
+            title: 'Seller-Side Deed',
+          },
+        }
+      : {
+          deedType: QUICK_DEED_GIFT_TYPE,
+          grantors: cleanGrantors,
+          grantees: cleanGrantees,
+          granteesAreMarriedCouple,
+          fileNumber: fileNumber.trim() || null,
+          granteeAddress: granteeAddress.trim() || null,
+          locality: locality.trim() || null,
+          derivationReference: derivationReference.trim() || null,
+          vestingOverride: vestingOverride.trim() || null,
+          title: 'Deed of Gift',
+        };
     ensureMatterThen({ kind: 'generate', payload });
   };
 
@@ -328,25 +385,113 @@ export default function QuickDeedPage(): React.ReactElement {
         {/* Structured gift fields (mirror GiftDraftForm). */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Grantor(s) — donor(s) <span className="text-red-500">*</span>
+            {isSeller ? 'Grantor(s) — seller(s)' : 'Grantor(s) — donor(s)'} <span className="text-red-500">*</span>
           </label>
           {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Grantee(s) — donee(s) <span className="text-red-500">*</span>
+            {isSeller ? 'Grantee(s) — buyer(s)' : 'Grantee(s) — donee(s)'} <span className="text-red-500">*</span>
           </label>
-          {renderPartyRows(grantees, setGrantees, "Relationship (e.g. “the Grantors’ daughter”)")}
+          {renderPartyRows(grantees, setGrantees, isSeller ? 'Descriptor (optional)' : "Relationship (e.g. “the Grantors’ daughter”)")}
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={granteesAreMarriedCouple}
-            onChange={(e) => setGranteesAreMarriedCouple(e.target.checked)}
-            className="rounded"
-          />
-          Grantees are a married couple (&rarr; tenancy by the entirety)
-        </label>
+        {!isSeller && (
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={granteesAreMarriedCouple}
+              onChange={(e) => setGranteesAreMarriedCouple(e.target.checked)}
+              className="rounded"
+            />
+            Grantees are a married couple (&rarr; tenancy by the entirety)
+          </label>
+        )}
+
+        {/* Seller-side new-transaction facts (only when the seller-side deed type is selected). */}
+        {isSeller && (
+          <div data-testid="quick-deed-seller-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+            <p className="text-xs text-ink-secondary">
+              The conveyance facts the prior document can&apos;t supply. The legal description, parcel/tax id, and
+              assessed value resolve from your uploads (override below if needed).
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Warranty</label>
+                <input type="text" value={warrantyType} onChange={(e) => setWarrantyType(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="e.g. Special Warranty" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Seller type</label>
+                <select value={sellerType} onChange={(e) => setSellerType(e.target.value === 'estate' ? 'estate' : 'individual')}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-firm-navy">
+                  <option value="individual">Individual</option>
+                  <option value="estate">Estate / fiduciary</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Consideration (figures)</label>
+                <input type="text" value={considerationFigs} onChange={(e) => setConsiderationFigs(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="$612,000.00" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Consideration (words)</label>
+                <input type="text" value={amountWords} onChange={(e) => setAmountWords(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="SIX HUNDRED TWELVE THOUSAND AND 00/100" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Grantor descriptor</label>
+                <input type="text" value={grantorDescriptor} onChange={(e) => setGrantorDescriptor(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="e.g. a married couple" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Grantee descriptor</label>
+                <input type="text" value={granteeDescriptor} onChange={(e) => setGranteeDescriptor(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="e.g. a single man" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tenancy / vesting</label>
+              <input type="text" value={tenancy} onChange={(e) => setTenancy(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="e.g. as tenants by the entirety with the right of survivorship" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vesting (&ldquo;Being&rdquo;) recital</label>
+              <textarea value={vestingRecital} onChange={(e) => setVestingRecital(e.target.value)} rows={2}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="BEING the same property conveyed unto … by Deed recorded in Deed Book … at Page …" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Venue (acknowledgment)</label>
+                <input type="text" value={venue} onChange={(e) => setVenue(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="COUNTY OF PRINCE WILLIAM" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title insurer</label>
+                <input type="text" value={titleInsurer} onChange={(e) => setTitleInsurer(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="e.g. Stewart Title Guaranty Company" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Return to (after recording)</label>
+              <input type="text" value={returnTo} onChange={(e) => setReturnTo(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="e.g. Universal Title, 1320 Old Chain Bridge Rd, McLean, VA 22101" />
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">File number</label>
@@ -381,31 +526,35 @@ export default function QuickDeedPage(): React.ReactElement {
             placeholder="Mailing address for tax bills / notices"
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Derivation (&ldquo;Being&rdquo;) reference</label>
-          <input
-            type="text"
-            value={derivationReference}
-            onChange={(e) => setDerivationReference(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-            placeholder="e.g. in Deed Book 5500 at Page 12 (where the prior deed is recorded)"
-          />
-          {previewFacts.data?.derivationCandidate && (
-            <p data-testid="quick-deed-derivation-candidate" className="text-xs text-ink-hint mt-1">
-              Candidate from your uploads (confirm before use): {previewFacts.data.derivationCandidate}
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Vesting override (optional)</label>
-          <input
-            type="text"
-            value={vestingOverride}
-            onChange={(e) => setVestingOverride(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-            placeholder="Defaults from grantee count + marital status"
-          />
-        </div>
+        {!isSeller && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Derivation (&ldquo;Being&rdquo;) reference</label>
+              <input
+                type="text"
+                value={derivationReference}
+                onChange={(e) => setDerivationReference(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="e.g. in Deed Book 5500 at Page 12 (where the prior deed is recorded)"
+              />
+              {previewFacts.data?.derivationCandidate && (
+                <p data-testid="quick-deed-derivation-candidate" className="text-xs text-ink-hint mt-1">
+                  Candidate from your uploads (confirm before use): {previewFacts.data.derivationCandidate}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vesting override (optional)</label>
+              <input
+                type="text"
+                value={vestingOverride}
+                onChange={(e) => setVestingOverride(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="Defaults from grantee count + marital status"
+              />
+            </div>
+          </>
+        )}
 
         {error && <p data-testid="quick-deed-error" className="text-red-600 text-sm">{error}</p>}
         <div className="flex justify-end pt-1">
