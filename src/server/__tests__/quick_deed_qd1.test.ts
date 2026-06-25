@@ -106,14 +106,17 @@ describe('quickDeed.listDeedTypes', () => {
     await expect(quick().listDeedTypes()).rejects.toThrow(/DEED_DRAFT_AGENT_DISABLED/);
   });
 
-  it('listDeedTypes returns the registry with only gift wired for generation', async () => {
+  it('listDeedTypes returns the registry with gift + seller-side wired for generation', async () => {
     process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
     const types = await quick().listDeedTypes();
     const gift = types.find((t) => t.key === 'deed_of_gift');
+    const seller = types.find((t) => t.key === 'seller_side');
     expect(gift?.quickDeedGenerates).toBe(true);
-    // every non-gift registered type is listed but NOT wired for generation
-    expect(types.filter((t) => t.key !== 'deed_of_gift').every((t) => t.quickDeedGenerates === false)).toBe(true);
-    expect(types.length).toBeGreaterThan(1); // the surface enumerates the whole built set
+    expect(seller?.quickDeedGenerates).toBe(true); // seller-side is now wired for Quick Deed generation
+    // every OTHER registered type is listed but NOT wired for generation
+    const wired = new Set(['deed_of_gift', 'seller_side']);
+    expect(types.filter((t) => !wired.has(t.key)).every((t) => t.quickDeedGenerates === false)).toBe(true);
+    expect(types.length).toBeGreaterThan(2); // the surface enumerates the whole built set
   });
 });
 
@@ -148,11 +151,12 @@ describe('quickDeed.generate — gift-only, conflicts BYPASSED, stamp in notes',
     expect(insertDocument).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-gift deed type with QUICK_DEED_TYPE_NOT_WIRED (registered but unwired)', async () => {
+  it('rejects a registered-but-unwired deed type with QUICK_DEED_TYPE_NOT_WIRED', async () => {
+    // (seller_side is now wired, so a still-unwired registered key is used as the example here.)
     process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
     (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
-    await expect(quick().generate(fullGenerate({ deedType: 'seller_side' }))).rejects.toThrow(
-      /QUICK_DEED_TYPE_NOT_WIRED: seller_side is registered but not yet wired/,
+    await expect(quick().generate(fullGenerate({ deedType: 'deed_into_llc' }))).rejects.toThrow(
+      /QUICK_DEED_TYPE_NOT_WIRED: deed_into_llc is registered but not yet wired/,
     );
     expect(insertDocument).not.toHaveBeenCalled();
   });
@@ -252,6 +256,82 @@ describe('quickDeed.generate — gift-only, conflicts BYPASSED, stamp in notes',
     const docArg = (insertDocument as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     // The stamp's presence in the persisted notes equals the returned conflictsBypassed flag — one source.
     expect(docArg.notes.includes(QUICK_DEED_NO_CONFLICTS_NOTE)).toBe(res.conflictsBypassed);
+  });
+});
+
+// ── Quick Deed multi-category dispatch: seller-side now generates (the first non-gift category) ──
+describe('quickDeed.generate — seller-side dispatch (wired)', () => {
+  // A complete seller-side generate: shared party/grantee-address at the top level; the new-transaction facts
+  // nested under sellerSide. The doc-derived legal/taxId/locality/assessedValue default from MATERIAL_ROWS.
+  function fullSellerGenerate(over: Record<string, unknown> = {}) {
+    return {
+      matterId: M1,
+      deedType: 'seller_side',
+      grantors: [{ name: 'Marcus T. Ellison' }, { name: 'Priya Ellison' }],
+      grantees: [{ name: 'Daniel Wong' }],
+      granteeAddress: '123 Cedar Run Lane, Manassas, Virginia 20109',
+      sellerSide: {
+        warrantyType: 'Special Warranty',
+        considerationFigs: '$612,000.00',
+        amountWords: 'SIX HUNDRED TWELVE THOUSAND AND 00/100',
+        titleInsurer: 'STEWART TITLE GUARANTY COMPANY',
+        grantorDescriptor: 'a married couple',
+        tenancy: 'as sole owner',
+        vestingRecital:
+          'BEING the same property conveyed unto Marcus T. Ellison and Priya Ellison by Deed recorded in Deed Book 6011 at Page 244, among the Land Records of Prince William County, Virginia.',
+        venue: 'COUNTY OF PRINCE WILLIAM',
+        returnTo: 'Universal Title',
+        sellerType: 'individual' as const,
+        fileNumber: '26-00091-K',
+      },
+      ...over,
+    };
+  }
+
+  it('happy path: dispatches the seller-side core, persists a deed doc/version with VERBATIM legal + the stamp', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+    (listMaterialsForMatter as ReturnType<typeof vi.fn>).mockResolvedValue(MATERIAL_ROWS.map((m) => ({ ...m })));
+    (insertDocument as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'doc-s', documentType: 'deed' });
+    (getNextVersionNumber as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+    (insertVersion as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ver-s', versionNumber: 1 });
+    (updateDocumentCurrentVersion as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'doc-s' });
+
+    const res = await quick().generate(fullSellerGenerate());
+
+    expect(res.failedClosed).toBe(false);
+    expect(res.documentId).toBe('doc-s');
+    expect(res.recordableFloorOk).not.toBeNull(); // a seller-side-specific result field
+
+    const docArg = (insertDocument as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(docArg.documentType).toBe('deed');
+    expect(docArg.notes).toContain(QUICK_DEED_NO_CONFLICTS_NOTE); // stamp threaded into the seller-side notes
+
+    const verArg = (insertVersion as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(verArg.content).toContain(GIFT_LEGAL); // verbatim legal resolved from the uploaded vesting deed
+    expect(verArg.content).toContain('Daniel Wong'); // the new grantee (buyer)
+    expect(verArg.content).not.toContain(QUICK_DEED_NO_CONFLICTS_NOTE); // stamp is in notes, not the deed body
+    expect(updateDocumentCurrentVersion).toHaveBeenCalledWith('doc-s', U1, 'ver-s');
+  });
+
+  it('fails CLOSED (no void deed) when the only legal available is truncated — documentId null, no persist', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+    const truncated = VESTING_DEED.replace(
+      'among the Land Records of Prince William County, Virginia.',
+      'among the',
+    );
+    (listMaterialsForMatter as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'mat-vesting', textContent: truncated },
+      { id: 'mat-tax', textContent: TAX_RECORD },
+    ]);
+
+    const res = await quick().generate(fullSellerGenerate());
+
+    expect(res.failedClosed).toBe(true);
+    expect(res.documentId).toBeNull();
+    expect(res.failures.some((f: string) => /truncat/i.test(f))).toBe(true);
+    expect(insertDocument).not.toHaveBeenCalled();
   });
 });
 

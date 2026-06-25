@@ -151,6 +151,29 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(c.textContent).toContain('Grantee(s)');
   });
 
+  it('seller-side wired: the option is enabled and selecting it reveals the seller-side fields', () => {
+    mockState.enabled = true;
+    mockState.deedTypes = [
+      { key: 'deed_of_gift', title: 'Deed of Gift', category: 'gift', status: 'available', quickDeedGenerates: true },
+      { key: 'seller_side', title: 'Seller-Side Conveyance', category: 'seller-side', status: 'available', quickDeedGenerates: true },
+    ];
+    const c = renderPage();
+    const select = c.querySelector('[data-testid="quick-deed-type-select"]') as HTMLSelectElement;
+    const seller = Array.from(select.querySelectorAll('option')).find((o) => o.value === 'seller_side');
+    expect(seller!.disabled).toBe(false); // wired -> selectable
+
+    // gift is selected by default -> the seller-side block is not shown
+    expect(c.querySelector('[data-testid="quick-deed-seller-fields"]')).toBeNull();
+    expect(c.textContent).toContain('Grantor(s) — donor(s)');
+
+    // select seller-side -> the seller-only fields appear, the labels switch, the gift-only fields hide
+    fireEvent.change(select, { target: { value: 'seller_side' } });
+    expect(c.querySelector('[data-testid="quick-deed-seller-fields"]')).toBeTruthy();
+    expect(c.textContent).toContain('Grantor(s) — seller(s)');
+    expect(c.textContent).toContain('Grantee(s) — buyer(s)');
+    expect(c.textContent).toContain('Consideration (figures)');
+  });
+
   it('ORPHAN GUARD: merely viewing the page (no interaction) does NOT fire quickDeed.create', () => {
     mockState.enabled = true;
     mockState.deedTypes = FULL_REGISTRY;
