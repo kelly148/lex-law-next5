@@ -29,6 +29,7 @@ import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
 import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../deed/deedGiftAssembler.js';
+import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import { buildGiftDrafterNotes } from '../deed/deedGiftNotes.js';
 import {
   buildEngagementLetter,
@@ -148,6 +149,124 @@ export const WIRED_QUICK_DEED_TYPES: ReadonlySet<string> = new Set([QUICK_DEED_G
 /** Whether Quick Deed can generate the given deed-type key today (selector + dispatch share this predicate). */
 export function isQuickDeedTypeWired(deedType: string): boolean {
   return WIRED_QUICK_DEED_TYPES.has(deedType);
+}
+
+// ── E4: seller-side category wiring (mirrors the gift path; extraction already covered) ──────────────────────
+
+const sellerPartySchema = z.object({
+  name: z.string().min(1).max(200),
+  descriptor: z.string().max(200).optional(),
+  formerlyOfRecord: z.string().max(200).optional(),
+  variants: z.array(z.string().min(1).max(200)).max(10).optional(),
+  capacity: z.string().max(200).optional(),
+});
+
+/** Quick Deed / matter-scoped seller-side input. The doc-derived fields (legalDescription, county, taxId,
+ *  assessedValue, granteeAddress) are OPTIONAL — defaulted from the extracted facts when omitted, attorney-
+ *  override-able (Quick Deed Layer 1 convention). The rest are attorney-provided (the document cannot supply
+ *  the new transaction's warranty/consideration/parties/venue/vesting recital). */
+const createSellerSideDraftInput = z.object({
+  matterId: z.string().uuid(),
+  warrantyType: z.string().max(200).optional(),
+  fileNumber: z.string().max(120).default(''),
+  titleInsurer: z.string().max(200).default(''),
+  considerationFigs: z.string().max(120).default(''),
+  amountWords: z.string().max(300).default(''),
+  grantors: z.array(sellerPartySchema).max(20).default([]),
+  grantorDescriptor: z.string().max(200).optional(),
+  grantees: z.array(sellerPartySchema).max(20).default([]),
+  granteeDescriptor: z.string().max(200).optional(),
+  tenancy: z.string().max(300).default(''),
+  vestingRecital: z.string().max(8000).default(''),
+  venue: z.string().max(200).default(''),
+  returnTo: z.string().max(400).default(''),
+  sellerType: z.enum(['individual', 'estate']).optional(),
+  powerOfSale: z.boolean().optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  legalDescription: z.string().max(20000).nullable().optional(),
+  county: z.string().max(200).nullable().optional(),
+  localityType: z.enum(['county', 'city']).optional(),
+  localityName: z.string().max(200).nullable().optional(),
+  taxId: z.string().max(120).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  granteeAddress: z.string().max(400).nullable().optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateSellerSideDraftInput = z.infer<typeof createSellerSideDraftInput>;
+
+/** First non-empty trimmed value among the candidates (the doc-derived-fact default chain), else ''. */
+function firstNonEmpty(...vals: (string | null | undefined)[]): string {
+  for (const v of vals) {
+    const t = (v ?? '').trim();
+    if (t.length > 0) return t;
+  }
+  return '';
+}
+
+/** PURE: map the validated seller-side input + extracted facts onto SellerSideDeedInput. The doc-derived fields
+ *  (legal, locality, tax id, assessed value, grantee-address-defaults-to-situs) fall back to the consolidated
+ *  facts; the verbatim legal is taken from facts ONLY when not WITHHELD (honesty floor). Exported for testing. */
+export function toSellerSideInput(input: CreateSellerSideDraftInput, facts: DeedSourceFacts): SellerSideDeedInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const out: SellerSideDeedInput = {
+    warrantyType: input.warrantyType,
+    fileNumber: firstNonEmpty(input.fileNumber),
+    granteeAddress: firstNonEmpty(input.granteeAddress, facts.propertyAddress.value),
+    titleInsurer: firstNonEmpty(input.titleInsurer),
+    taxId: firstNonEmpty(input.taxId, facts.parcelId.value),
+    considerationFigs: firstNonEmpty(input.considerationFigs),
+    amountWords: firstNonEmpty(input.amountWords),
+    assessedValue: firstNonEmpty(input.assessedValue, facts.assessedValue.value),
+    grantors: input.grantors.map((p) => ({
+      name: p.name,
+      descriptor: p.descriptor,
+      formerlyOfRecord: p.formerlyOfRecord,
+      variants: p.variants,
+      capacity: p.capacity,
+    })),
+    grantorDescriptor: input.grantorDescriptor,
+    grantees: input.grantees.map((p) => ({ name: p.name, descriptor: p.descriptor })),
+    granteeDescriptor: input.granteeDescriptor,
+    tenancy: firstNonEmpty(input.tenancy),
+    county: firstNonEmpty(input.county, input.localityName, facts.propertyLocality.value),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    vestingRecital: firstNonEmpty(input.vestingRecital),
+    venue: firstNonEmpty(input.venue),
+    returnTo: firstNonEmpty(input.returnTo),
+    sellerType: input.sellerType,
+    powerOfSale: input.powerOfSale,
+  };
+  // localityType / localityName are exact-optional ('county'|'city' / string with no explicit undefined) — set
+  // them ONLY when supplied (the city override), so the default county path is unchanged.
+  if (input.localityType !== undefined) out.localityType = input.localityType;
+  const localityName = (input.localityName ?? '').trim();
+  if (localityName.length > 0) out.localityName = localityName;
+  return out;
+}
+
+/** PURE: consolidate a matter's materials + assemble the seller-side draft. Exported for direct (no-DB) testing. */
+export function buildSellerSideDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateSellerSideDraftInput,
+): { facts: DeedSourceFacts; draft: SellerSideDeedDraft } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleSellerSideDeed(toSellerSideInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: the seller-side document `notes` body (delete-before-recording header + the assembler's reconciliation
+ *  notes + a recordability-floor status line + the rendered deed). Exported for testing. */
+export function buildSellerSideDocNotes(draft: SellerSideDeedDraft): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.notes,
+    draft.recordableFloorOk
+      ? 'Emitted; passes the B6 + format recordability floor (subject to the C1/C2 reconciliation gates + execution).'
+      : `Recordability floor flagged: ${[...draft.b6.failures, ...draft.format.failures].join('; ') || '(none)'}.`,
+    '',
+    draft.text,
+  ].join('\n');
 }
 
 // ── Inc 3: companion engagement letter ──────────────────────────────────────────────
@@ -351,6 +470,84 @@ export const deedDraftAgentRouter = router({
       b6: draft.b6,
       notes: draft.notes,
       drafterNotes: drafterNotes.notes,
+      warnings: [...facts.warnings, ...draft.warnings],
+    };
+  }),
+
+  /**
+   * E4 — assemble a Seller-Side conveyance draft from the matter's materials + attorney input, persisted as a
+   * draft document. Mirrors createGiftDraft: fail-closed on the flag + ownership; the doc-derived facts
+   * (legal / locality / tax-id / assessed-value / grantee-address) default from extraction (attorney-override-
+   * able). The seller-side assembler CAN fail closed (truncated legal, name-bleed, the B2 estate scope) — on a
+   * fail-closed result we do NOT persist a void deed: we return the failure reasons for the attorney to fix +
+   * retry. Never finalizes, records, or sends. (Quick-Deed generate enablement for this category is a separate
+   * increment; this is the matter-scoped capability, the gift sibling.)
+   */
+  createSellerSideDraft: protectedProcedure.input(createSellerSideDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildSellerSideDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.failedClosed) {
+      // Fail-closed (truncated legal / name bleed / B2 estate scope): do NOT persist a void deed; surface why.
+      return {
+        failedClosed: true,
+        failures: draft.failures,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        recordableFloorOk: false,
+        notes: draft.notes,
+        warnings: [...facts.warnings, ...draft.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Seller-Side Deed';
+    const docNotes = buildSellerSideDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.text,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      failedClosed: false,
+      failures: [] as string[],
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      recordableFloorOk: draft.recordableFloorOk,
+      notes: draft.notes,
       warnings: [...facts.warnings, ...draft.warnings],
     };
   }),
