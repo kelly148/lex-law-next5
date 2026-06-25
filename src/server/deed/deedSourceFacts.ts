@@ -67,6 +67,17 @@ export interface DeedSourceFacts {
   llcEntityId: DeedSourceFact;
   /** E5 — the LLC formation / registration date (SCC record). */
   llcFormationDate: DeedSourceFact;
+  /** E6 — the trust legal name (label-anchored, verbatim) from a certificate_of_trust document. A trustees-recital
+   *  LEAD only — the load-bearing trusteesRecital the into-trust assembler consumes is ATTORNEY-SUPPLIED. */
+  trustLegalName: DeedSourceFact;
+  /** E6 — the trustee individual names from a certificate_of_trust document. A trustees-recital + notary LEAD; the
+   *  attorney provides the verbatim recital (never auto-fabricated from these parts). */
+  trusteeNames: DeedSourceFact;
+  /** E6 — the trust date from a certificate_of_trust document. A trustees-recital LEAD only. */
+  trustDate: DeedSourceFact;
+  /** E6 — an OPTIONAL low-confidence reference to the trust's powers article/section. NON-load-bearing (the
+   *  assembler emits the canonical trustee-powers block); surfaced as a research lead only. */
+  trustPowersReference: DeedSourceFact;
   /** Inc 4 — the TITLE-COMMITMENT Exhibit A legal description, surfaced SEPARATELY from the consolidated winner
    *  (`legalDescription`, which prefers the vesting deed). Carried so the Inc-4 issue-spotter can compare the
    *  commitment legal against the vesting-deed legal and surface a mismatch (it never resolves the mismatch).
@@ -209,6 +220,14 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
   const llcEntityId = pickFact(classified, [{ type: 'llc_authority', key: 'llcEntityId' }]);
   const llcFormationDate = pickFact(classified, [{ type: 'llc_authority', key: 'llcFormationDate' }]);
 
+  // E6 — the certificate-of-trust facts. The trust legal name + trustee set + trust date are surfaced as LEADS
+  // (the load-bearing trusteesRecital the into-trust assembler consumes is attorney-supplied, never fabricated from
+  // these); the powers reference is a non-load-bearing research lead. All from the certificate_of_trust doc type.
+  const trustLegalName = pickFact(classified, [{ type: 'certificate_of_trust', key: 'trustLegalName' }]);
+  const trusteeNames = pickFact(classified, [{ type: 'certificate_of_trust', key: 'trusteeNames' }]);
+  const trustDate = pickFact(classified, [{ type: 'certificate_of_trust', key: 'trustDate' }]);
+  const trustPowersReference = pickFact(classified, [{ type: 'certificate_of_trust', key: 'trustPowersReference' }]);
+
   // Inc 4 — the title-commitment Exhibit A legal, surfaced SEPARATELY (so a vesting-vs-commitment mismatch can
   // be spotted). Distinct from the consolidated winner above, which prefers the vesting-deed legal.
   const commitmentLegalDescription = pickFact(classified, [{ type: 'title_commitment', key: 'exhibitALegal' }]);
@@ -266,6 +285,10 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     llcFormationState,
     llcEntityId,
     llcFormationDate,
+    trustLegalName,
+    trusteeNames,
+    trustDate,
+    trustPowersReference,
     commitmentLegalDescription,
     estateSource,
     materials: classified.map((m) => ({

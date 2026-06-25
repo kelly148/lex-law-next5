@@ -51,6 +51,11 @@ import {
   type DeedOutOfLlcInput,
   type DeedOutOfLlcResult,
 } from '../deed/deedOutOfLlcAssembler.js';
+import {
+  assembleIntoTrustDeed,
+  type DeedIntoTrustInput,
+  type DeedIntoTrustResult,
+} from '../deed/deedIntoTrustAssembler.js';
 import { buildGiftDrafterNotes } from '../deed/deedGiftNotes.js';
 import {
   buildEngagementLetter,
@@ -846,6 +851,163 @@ export function buildOutOfLlcDocNotes(draft: DeedOutOfLlcResult): string {
   ].join('\n');
 }
 
+// ── E6: Into-Trust category wiring (Tier-3) — Deed INTO a revocable living trust (C2) ─────────────────────────
+//
+// One matter-scoped procedure wrapping the already-built deterministic into-trust assembler. The doc-derived
+// fields (legalDescription, taxId, assessedValue, granteeReturnAddress->situs, jurisdictionSitus->locality) default
+// from the consolidated facts; the NEW certificate_of_trust facts (E6 extractor) surface the trust legal name /
+// trustee names / trust date as available LEADS — but the load-bearing `trusteesRecital` is ATTORNEY-SUPPLIED
+// VERBATIM (never auto-fabricated from the extracted parts; the assembler keys the GRANTEES party block off it).
+// The attorney supplies the exemplar / exemption basis / marital status / heldAs / trust structure / TBE-note
+// selector / granting verb / instrument date / notary jurisdiction / preparer / derivation / being recital. The
+// assembler returns {status:'OK'|'WITHHELD', deed?} (NOT seller-side's failedClosed). NO Quick-Deed enablement
+// (WIRED_QUICK_DEED_TYPES intentionally NOT touched). There is only INTO-trust (no out-of-trust assembler exists).
+
+const intoTrustPreparerSchema = z.object({
+  name: z.string().max(200).default(''),
+  vsb: z.string().max(60).default(''),
+  firm: z.string().max(200).default(''),
+});
+
+const intoTrustGrantorSchema = z.object({
+  full: z.string().min(1).max(200),
+});
+
+const intoTrustInstrumentDateSchema = z.object({
+  day: z.string().max(60),
+  month: z.string().max(60),
+  year: z.string().max(20),
+});
+
+const intoTrustNotaryJurisdictionSchema = z.object({
+  type: z.enum(['CITY', 'COUNTY']),
+  name: z.string().max(200),
+});
+
+const intoTrustBeingRecitalSchema = z.object({
+  priorConveyance: z.string().max(4000),
+  divorceOrder: z.string().max(2000),
+  msa: z.string().max(2000),
+});
+
+const intoTrustReturnBlockSchema = z.object({
+  lines: z.array(z.string().max(400)).max(20),
+});
+
+/** Quick-Deed/matter-scoped Deed-INTO-TRUST input. The doc-derived fields (legalDescription, taxId, assessedValue,
+ *  granteeReturnAddress, jurisdictionSitus) are OPTIONAL — defaulted from the extracted facts when omitted,
+ *  attorney-override-able. The `trusteesRecital` is REQUIRED + attorney-supplied (load-bearing VERBATIM; never
+ *  defaulted from the extracted trust facts). The exemplar / exemption basis / marital status / heldAs / trust
+ *  structure / TBE-note selector / granting verb / instrument date / notary jurisdiction are attorney-provided
+ *  (the document cannot supply THIS transaction's variant or recital choices). */
+const createIntoTrustDraftInput = z.object({
+  matterId: z.string().uuid(),
+  exemplar: z.enum(['A', 'B', 'C']),
+  exemptionBasis: z.array(z.string().max(60)).max(4).default([]),
+  titleSearchPerformed: z.boolean().default(false),
+  preparer: intoTrustPreparerSchema,
+  consideration: z.string().max(120).optional(),
+  fileNumber: z.string().max(120).optional(),
+  instrumentDate: intoTrustInstrumentDateSchema,
+  grantors: z.array(intoTrustGrantorSchema).max(20).default([]),
+  grantorMaritalStatus: z.string().max(200).default(''),
+  heldAs: z.string().max(200).default(''),
+  trustStructure: z.string().max(120).default(''),
+  trusteesRecital: z.string().max(4000).default(''),
+  granteeObjectPlurality: z.enum(['GRANTEE', 'GRANTEES']).optional(),
+  grantingVerb: z.string().max(200).default(''),
+  lceIdentificationFootnote: z.boolean().optional(),
+  derivation: z.string().max(2000).optional(),
+  beingRecital: intoTrustBeingRecitalSchema.optional(),
+  tbeImmunityNote: z.string().max(60).nullable().default(null),
+  notaryJurisdiction: intoTrustNotaryJurisdictionSchema,
+  returnBlock: intoTrustReturnBlockSchema.optional(),
+  notaryBlockRaw: z.string().max(8000).optional(),
+  trusteePowersClauseRaw: z.string().max(8000).optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  taxId: z.string().max(120).nullable().optional(),
+  granteeReturnAddress: z.string().max(400).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  jurisdictionSitus: z.string().max(200).nullable().optional(),
+  legalDescription: z.string().max(20000).nullable().optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateIntoTrustDraftInput = z.infer<typeof createIntoTrustDraftInput>;
+
+/** PURE: map the validated Deed-INTO-TRUST input + extracted facts onto DeedIntoTrustInput. The doc-derived fields
+ *  default from the consolidated facts (verbatim legal only when not WITHHELD — honesty floor); the load-bearing
+ *  `trusteesRecital` is taken AS-SUPPLIED by the attorney (never defaulted from the extracted trust facts — those
+ *  are leads only). The `tbeImmunityNote` maps null/'Exemplar-A'/'Exemplar-C' straight through (the assembler
+ *  validates the closed selector set). Optionals use the exact-optional idiom (an omitted field is absent, never an
+ *  explicit `undefined`). Exported for direct (no-DB) testing. */
+export function toIntoTrustInput(input: CreateIntoTrustDraftInput, facts: DeedSourceFacts): DeedIntoTrustInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const out: DeedIntoTrustInput = {
+    exemplar: input.exemplar,
+    exemptionBasis: input.exemptionBasis,
+    titleSearchPerformed: input.titleSearchPerformed,
+    preparer: { name: input.preparer.name, vsb: input.preparer.vsb, firm: input.preparer.firm },
+    taxId: firstNonEmpty(input.taxId, facts.parcelId.value),
+    granteeReturnAddress: firstNonEmpty(input.granteeReturnAddress, facts.propertyAddress.value),
+    assessedValue: firstNonEmpty(input.assessedValue, facts.assessedValue.value),
+    instrumentDate: {
+      day: input.instrumentDate.day,
+      month: input.instrumentDate.month,
+      year: input.instrumentDate.year,
+    },
+    grantors: (input.grantors ?? []).map((g) => ({ full: g.full })),
+    grantorMaritalStatus: input.grantorMaritalStatus,
+    heldAs: input.heldAs,
+    trustStructure: input.trustStructure,
+    // LOAD-BEARING VERBATIM — attorney-supplied; never auto-fabricated from the extracted trust facts.
+    trusteesRecital: input.trusteesRecital,
+    grantingVerb: input.grantingVerb,
+    jurisdictionSitus: firstNonEmpty(input.jurisdictionSitus, facts.propertyLocality.value),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    tbeImmunityNote: input.tbeImmunityNote,
+    notaryJurisdiction: { type: input.notaryJurisdiction.type, name: input.notaryJurisdiction.name },
+  };
+  if (input.consideration !== undefined) out.consideration = input.consideration;
+  if (input.fileNumber !== undefined) out.fileNumber = input.fileNumber;
+  if (input.granteeObjectPlurality !== undefined) out.granteeObjectPlurality = input.granteeObjectPlurality;
+  if (input.lceIdentificationFootnote !== undefined) out.lceIdentificationFootnote = input.lceIdentificationFootnote;
+  if (input.derivation !== undefined) out.derivation = input.derivation;
+  if (input.beingRecital !== undefined) {
+    out.beingRecital = {
+      priorConveyance: input.beingRecital.priorConveyance,
+      divorceOrder: input.beingRecital.divorceOrder,
+      msa: input.beingRecital.msa,
+    };
+  }
+  if (input.returnBlock !== undefined) out.returnBlock = { lines: input.returnBlock.lines };
+  if (input.notaryBlockRaw !== undefined) out.notaryBlockRaw = input.notaryBlockRaw;
+  if (input.trusteePowersClauseRaw !== undefined) out.trusteePowersClauseRaw = input.trusteePowersClauseRaw;
+  return out;
+}
+
+/** PURE: consolidate a matter's materials + assemble the into-trust draft. Exported for direct (no-DB) testing. */
+export function buildIntoTrustDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateIntoTrustDraftInput,
+): { facts: DeedSourceFacts; draft: DeedIntoTrustResult } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleIntoTrustDeed(toIntoTrustInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: the into-trust document `notes` body. Called only on an OK result (we never persist a WITHHELD void deed).
+ *  Exported for testing. */
+export function buildIntoTrustDocNotes(draft: DeedIntoTrustResult): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.advisories,
+    'Deed INTO a revocable living trust — the trustees recital + the verbatim legal are load-bearing and attorney-supplied; the §55.1-136(C) TBE-immunity note (married/TBE) and the canonical trustee-powers block are house-style. Confirm before recordation.',
+    '',
+    draft.deed ? draft.deed.fullText : '',
+  ].join('\n');
+}
+
 // ── Inc 3: companion engagement letter ──────────────────────────────────────────────
 
 const engagementLetterFields = z
@@ -1394,6 +1556,85 @@ export const deedDraftAgentRouter = router({
 
     const title = (input.title ?? '').trim() || 'Deed Out of an LLC';
     const docNotes = buildOutOfLlcDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.deed.fullText,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      withheld: false,
+      flags: draft.flags,
+      advisories: draft.advisories,
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      warnings: [...facts.warnings],
+    };
+  }),
+
+  /**
+   * E6 — assemble a Deed INTO a revocable living trust (C2) draft from the matter's materials + attorney input,
+   * persisted as a draft document. Mirrors createIntoLlcDraft/createOutOfLlcDraft (same {status:'OK'|'WITHHELD',
+   * deed?} branch). The doc-derived facts (legal / tax-id / assessed-value / grantee-return-address / situs) default
+   * from extraction; the NEW certificate_of_trust facts surface the trust legal name / trustee names / trust date
+   * as LEADS — but the load-bearing `trusteesRecital` is ATTORNEY-SUPPLIED VERBATIM (never auto-fabricated). The
+   * exemplar / exemption basis / marital status / heldAs / trust structure / TBE-note selector / granting verb /
+   * instrument date / notary jurisdiction / preparer / derivation / being recital are attorney-supplied. Fails
+   * closed (no void deed) on a truncated legal, a missing trustees recital, an unverified/mismatched exemption
+   * basis, a garbled trustee-powers clause, or a mis-placed §55.1-136(C) note. Never finalizes, records, or sends.
+   */
+  createIntoTrustDraft: protectedProcedure.input(createIntoTrustDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildIntoTrustDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.status === 'WITHHELD' || !draft.deed) {
+      // Fail-closed (truncated legal / missing trustees recital / exemption mismatch / garbled powers / mis-placed
+      // TBE note): do NOT persist a void deed; surface the flags for the attorney to fix + retry.
+      return {
+        withheld: true,
+        flags: draft.flags,
+        advisories: draft.advisories,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        warnings: [...facts.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Deed Into Trust';
+    const docNotes = buildIntoTrustDocNotes(draft);
 
     const doc = await insertDocument({
       userId: ctx.userId,

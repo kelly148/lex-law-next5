@@ -45,6 +45,7 @@ export type DeedDocType =
   | 'probate_authority'
   | 'tax_record'
   | 'llc_authority'
+  | 'certificate_of_trust'
   | 'unknown';
 
 /** One extracted §2.1 candidate field. */
@@ -433,6 +434,14 @@ const S = {
   llcFormationState: { key: 'llcFormationState', label: 'LLC formation jurisdiction', mapsTo: 'Exemption basis ((A)(10)/(A)(11) assumes a Virginia LLC)' },
   llcEntityId: { key: 'llcEntityId', label: 'SCC / entity ID', mapsTo: 'LLC entity identifier (SCC record)' },
   llcFormationDate: { key: 'llcFormationDate', label: 'LLC formation / registration date', mapsTo: 'LLC formation date (SCC record)' },
+  // certificate of trust (E6). The trust legal name is the load-bearing send-vehicle capture (label-anchored,
+  // verbatim — NOT via splitPeople, which fail-closes on the trust token); the trustee individual names seed the
+  // signature/notary leads; the trust date + powers reference are surfaced as research LEADS. The trusteesRecital
+  // the assembler needs is ATTORNEY-SUPPLIED, never fabricated from these parts.
+  trustLegalName: { key: 'trustLegalName', label: 'Trust legal name (verbatim)', mapsTo: 'Trust legal name (label-anchored, verbatim) — trustees-recital LEAD (attorney supplies the recital)' },
+  trusteeNames: { key: 'trusteeNames', label: 'Trustee names', mapsTo: 'Trustee individual names — trustees-recital + notary LEAD (attorney supplies the recital)' },
+  trustDate: { key: 'trustDate', label: 'Trust date', mapsTo: 'Trust date — trustees-recital LEAD (attorney supplies the recital)' },
+  trustPowersReference: { key: 'trustPowersReference', label: 'Trust powers reference (low-confidence lead)', mapsTo: 'Powers article reference (NON-load-bearing — the assembler emits the canonical powers block)' },
 } as const;
 
 // ── classification ────────────────────────────────────────────────────────────
@@ -486,6 +495,20 @@ const TYPE_SIGNALS: TypeSignal[] = [
       /\bSCC\s+ID\b|\bEntity\s+(?:ID|Number)\b/i,
       /\bLimited\s+Liability\s+Company\b/i,
       /\bformation\s+date\b/i,
+    ],
+  },
+  {
+    // CERTIFICATE OF TRUST (E6) — the trust send-vehicle (Va. Code § 64.2-775). Its "Certificate/Certification of
+    // Trust" caption + the revocable-living-trust + trust/trustee signals classify it distinctly from a
+    // probate_authority (which the bare "trustee" token would otherwise also score) or a vesting_deed.
+    type: 'certificate_of_trust',
+    patterns: [
+      /\bcertificate\s+of\s+trust\b/i,
+      /\bcertification\s+of\s+trust\b/i,
+      /\brevocable\s+(?:living\s+)?trust\b/i,
+      /\btrustee(?:s)?\b/i,
+      /\btrust\b/i,
+      /pursuant\s+to\b.{0,20}\b55\.1-136\b/i,
     ],
   },
   {
@@ -1012,6 +1035,139 @@ function extractLlcAuthority(text: string): DeedIngestField[] {
   return fields;
 }
 
+// A trust legal name VERY OFTEN leads with the determiner "The" ("The Jane A. Doe Revocable Living Trust"); the
+// DETERMINER_LEAD_RE reject would otherwise fail-close every such name. This is the fail-closed clean gate for the
+// label-anchored trustLegalName capture (a trust name is NOT run through splitPeople, which would fail-close on the
+// very Trust token that makes it a valid trust name — mirrors llcLegalNameIsClean). A single leading "The " that
+// introduces the trust caption is legitimate (it is part of the trust's legal name), unlike the prose "the current
+// record owner"; a determiner OTHER than that leading "The" is prose and is rejected.
+function trustNameCandidateClean(raw: string): boolean {
+  const t = raw.trim();
+  // Allow a single leading "The " (the trust caption determiner), then re-run the clean gate on the remainder
+  // logic by checking the non-leading-determiner version directly.
+  const withoutLead = /^the\s+/i.test(t) ? t.replace(/^the\s+/i, '') : t;
+  if (t.length < 3 || t.length > 160) return false;
+  if (/[\n\r]/.test(t)) return false;
+  if (!/\bTrust\b/i.test(t)) return false;
+  if (/\b(?:Settlors?|Trustees?|established|known\s+as)\b/i.test(t)) return false; // a label/clause bled in
+  // a determiner OTHER than the leading "The" is prose (e.g. "said", "a certain") -> reject on the remainder.
+  if (DETERMINER_LEAD_RE.test(withoutLead)) return false;
+  if (!/[A-Za-z]/.test(t)) return false;
+  return true;
+}
+
+function extractCertificateOfTrust(text: string): DeedIngestField[] {
+  const fields: DeedIngestField[] = [];
+
+  // ── trust legal name (label-anchored, VERBATIM) ──
+  // Try, in priority order: the "Trust Name and Date:" recital ("The Trust is known as <NAME>, established by..."),
+  // a generic "Trust Name:" label, and the "...to certify the existence and terms of <NAME> (the \"Trust\")"
+  // recital. The name is captured VERBATIM and boundary-validated (NOT via splitPeople, which fail-closes on the
+  // Trust token). A label present but unclean is WITHHELD (honesty floor).
+  let trustName: string | null = null;
+  let trustNameLabelSeen = false;
+  // (a) "The Trust is known as <NAME>, established by ..." (or ", dated ...", or end of line).
+  const knownAs = /\bThe\s+Trust\s+is\s+known\s+as\s+(.+?)(?=,\s*(?:established|dated)\b|\r?\n|$)/i.exec(text);
+  if (knownAs && knownAs[1] !== undefined) {
+    trustNameLabelSeen = true;
+    const cand = normalizeWs(knownAs[1]);
+    if (trustNameCandidateClean(cand)) trustName = cand;
+  }
+  // (b) a generic "Trust Name:" labeled line (NOT the combined "Trust Name and Date:" recital head, which the
+  //     (a) branch already handles; the labeledLineValue here only fires on a bare "Trust Name:" cell value).
+  if (trustName === null) {
+    const labeled = labeledLineValue(text, /\bTrust\s+Name\s*[:#]/i);
+    if (labeled !== null) {
+      trustNameLabelSeen = true;
+      const cand = normalizeWs(labeled);
+      if (trustNameCandidateClean(cand)) trustName = cand;
+    }
+  }
+  // (c) "...to certify the existence and terms of <NAME> (the \"Trust\")" recital.
+  if (trustName === null) {
+    const certifyRecital = /\bexistence\s+and\s+terms\s+of\s+(.+?)\s*\(\s*the\s+["'“”]?\s*Trust\b/i.exec(text);
+    if (certifyRecital && certifyRecital[1] !== undefined) {
+      trustNameLabelSeen = true;
+      const cand = normalizeWs(certifyRecital[1]);
+      if (trustNameCandidateClean(cand)) trustName = cand;
+    }
+  }
+  fields.push(
+    trustName !== null ? single(S.trustLegalName, trustName)
+    : trustNameLabelSeen ? withheld(S.trustLegalName, ['trust_legal_name_unclean'])
+    : notFound(S.trustLegalName),
+  );
+
+  // ── trustee names (individual names; splitPeople — a/k/a variants preserved) ──
+  // The "Current Trustees:" recital ("The currently acting Trustees are X and Y, serving as Co-Trustees...") and
+  // the bare "Trustees:" label. Trustees are INDIVIDUALS, so splitPeople applies (it fail-closes only on
+  // entity-shaped spans). A span that cannot be cleanly isolated is WITHHELD (never emitted as junk). A trailing
+  // capacity clause ("serving as Co-Trustees...") is peeled before splitting so it is not glued into a name.
+  let trusteePeople: Person[] = [];
+  let trusteeLabelSeen = false;
+  // "The currently acting Trustee(s) is/are <NAMES>, serving as ..." — both the plural ("Trustees are") and the
+  // single-trustee ("Trustee is") forms; bounded before the ", serving"/", as Co-Trustees" capacity tail.
+  const currentTrustees =
+    /\b(?:currently\s+)?acting\s+Trustees?\s+(?:is|are)\s+(.+?)(?=,\s*serving\b|,\s*as\s+(?:Co-)?Trustees?\b|,\s*sole\s+Trustee\b|\r?\n|$)/i.exec(
+      text,
+    );
+  if (currentTrustees && currentTrustees[1] !== undefined) {
+    trusteeLabelSeen = true;
+    const { people, ok } = splitPeople(currentTrustees[1]);
+    if (ok) trusteePeople = people;
+  }
+  if (trusteePeople.length === 0) {
+    const labeled =
+      labeledLineValue(text, /\bCurrent\s+Trustees?\s*[:#]/i) ??
+      labeledLineValue(text, /\bTrustees?\s*[:#]/i);
+    if (labeled !== null) {
+      trusteeLabelSeen = true;
+      // peel a leading "(The )(currently )acting Trustee(s) is/are " prose lead, then a trailing "serving as ..." /
+      // ", as Co-Trustees ..." / ", sole Trustee" capacity tail, before splitting into distinct people.
+      const portion = labeled
+        .replace(/^\s*(?:the\s+)?(?:currently\s+)?acting\s+Trustees?\s+(?:is|are)\s+/i, '')
+        .replace(/,\s*(?:serving\b|as\s+(?:Co-)?Trustees?\b|sole\s+Trustee\b).*$/i, '');
+      const { people, ok } = splitPeople(portion);
+      if (ok) trusteePeople = people;
+    }
+  }
+  fields.push(
+    trusteePeople.length > 0 ? peopleField(S.trusteeNames, trusteePeople)
+    : trusteeLabelSeen ? withheld(S.trusteeNames, ['isolation_failed'])
+    : notFound(S.trusteeNames),
+  );
+
+  // ── trust date (label-anchored: "dated <DATE>" / "Date of Trust:" / "as of this <Nth> day of <Month>, <Year>") ──
+  let trustDate: string | null = null;
+  const datedClause =
+    /\bestablished\s+by\s+a\s+Trust\s+Agreement\s+dated\s+/i.exec(text) ??
+    /\bTrust\s+Agreement\s+dated\s+/i.exec(text) ??
+    /\bdate\s+of\s+trust\s*[:#]\s*/i.exec(text) ??
+    /\bdated\s+/i.exec(text);
+  if (datedClause) {
+    const dm = DATE_RE.exec(text.slice(datedClause.index + datedClause[0].length));
+    if (dm && dm[1] !== undefined) trustDate = normalizeWs(dm[1]);
+  }
+  fields.push(trustDate !== null ? single(S.trustDate, trustDate) : notFound(S.trustDate));
+
+  // ── trust powers reference (OPTIONAL, low-confidence, NEVER load-bearing) ──
+  // A reference to the powers article/section (e.g. "Article IX" or "full power to sell"). The assembler ALWAYS
+  // emits the canonical powers block, so this is a non-binding research lead only. Surfaced at OK confidence when
+  // a clear article reference is present; absent otherwise (never withheld — it is not a critical field).
+  const powersArticle =
+    /\b(?:broad\s+powers\s+under\s+(Article\s+[IVXLC]+)|powers?\s+(?:are\s+)?(?:set\s+forth\s+|described\s+)?in\s+(Article\s+[IVXLC]+))\b/i.exec(text);
+  const powersPhrase = /\b(full\s+power\s+to\s+sell(?:\s+and\s+convey)?|power\s+to\s+sell\s+and\s+convey|power\s+of\s+sale)\b/i.exec(text);
+  const powersRef =
+    powersArticle && (powersArticle[1] ?? powersArticle[2]) !== undefined
+      ? normalizeWs((powersArticle[1] ?? powersArticle[2])!)
+      : powersPhrase && powersPhrase[1] !== undefined
+        ? normalizeWs(powersPhrase[1])
+        : null;
+  fields.push(powersRef !== null ? single(S.trustPowersReference, powersRef) : notFound(S.trustPowersReference));
+
+  return fields;
+}
+
 // The C1/C2-feeding source field(s) per document type: if one is withheld or absent, the WHOLE document is
 // routed to human review (it cannot be a confident extraction without its load-bearing field) (#37).
 const CRITICAL_KEYS: Record<Exclude<DeedDocType, 'unknown'>, string[]> = {
@@ -1021,6 +1177,9 @@ const CRITICAL_KEYS: Record<Exclude<DeedDocType, 'unknown'>, string[]> = {
   tax_record: [],
   // A missing member set OR legal name forces document review (the load-bearing LLC captures).
   llc_authority: ['llcMembers', 'llcLegalName'],
+  // A missing trust legal name OR trustee set forces document review (the load-bearing trust captures). The
+  // trustees recital the assembler needs is attorney-supplied, but these are the source-of-truth LEADS.
+  certificate_of_trust: ['trustLegalName', 'trusteeNames'],
 };
 
 /**
@@ -1045,6 +1204,7 @@ export function extractDeedIngest(text: string): DeedIngestResult {
     : type === 'title_commitment' ? extractTitleCommitment(t)
     : type === 'probate_authority' ? extractProbateAuthority(t)
     : type === 'llc_authority' ? extractLlcAuthority(t)
+    : type === 'certificate_of_trust' ? extractCertificateOfTrust(t)
     : extractTaxRecord(t);
 
   const surfaced = fields.filter((f) => f.value !== null || f.values.length > 0);
