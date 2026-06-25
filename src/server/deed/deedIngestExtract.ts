@@ -44,6 +44,7 @@ export type DeedDocType =
   | 'title_commitment'
   | 'probate_authority'
   | 'tax_record'
+  | 'llc_authority'
   | 'unknown';
 
 /** One extracted §2.1 candidate field. */
@@ -424,6 +425,14 @@ const S = {
   // tax record
   parcelId: { key: 'parcelId', label: 'Parcel / tax ID', mapsTo: 'Tax I.D. (GPIN/Map)' },
   propertyAddress: { key: 'propertyAddress', label: 'Property (situs) address', mapsTo: 'Grantee-address default (situs)' },
+  // LLC authority (operating agreement + SCC entity record). The legal name is the load-bearing capture for the
+  // LLC grantee (into) / grantor (out-of); the member set seeds the out-of-LLC signature block. The formation
+  // state is a fail-closed gate (the (A)(10)/(A)(11) exemption basis assumes a VIRGINIA LLC).
+  llcLegalName: { key: 'llcLegalName', label: 'LLC legal name (verbatim)', mapsTo: 'LLC grantee/grantor legal name (label-anchored, verbatim)' },
+  llcMembers: { key: 'llcMembers', label: 'LLC member set', mapsTo: 'Out-of-LLC member grantees / signature block' },
+  llcFormationState: { key: 'llcFormationState', label: 'LLC formation jurisdiction', mapsTo: 'Exemption basis ((A)(10)/(A)(11) assumes a Virginia LLC)' },
+  llcEntityId: { key: 'llcEntityId', label: 'SCC / entity ID', mapsTo: 'LLC entity identifier (SCC record)' },
+  llcFormationDate: { key: 'llcFormationDate', label: 'LLC formation / registration date', mapsTo: 'LLC formation date (SCC record)' },
 } as const;
 
 // ── classification ────────────────────────────────────────────────────────────
@@ -460,6 +469,23 @@ const TYPE_SIGNALS: TypeSignal[] = [
       /\b(assessed\s+value|assessment\s+(year|record)|tax\s+assessment|real\s+estate\s+assessment)\b/i,
       /\b(real\s+estate\s+tax|property\s+tax\s+(card|record)|tax\s+map|GPIN)\b/i,
       /\b(land\s+value|improvement\s+value|total\s+(assessed|assessment))\b/i,
+    ],
+  },
+  {
+    // LLC AUTHORITY — covers BOTH the operating agreement and the SCC entity record. The OA signals (operating
+    // agreement / member / managing member / percentage interest) and the SCC-record signals (State Corporation
+    // Commission / SCC ID / Entity ID / Limited Liability Company / Formation Date) score together; either
+    // document classifies as 'llc_authority'.
+    type: 'llc_authority',
+    patterns: [
+      /\boperating\s+agreement\b/i,
+      /\bmanaging\s+member\b/i,
+      /\bmembers?\b/i,
+      /\bpercentage\s+interest\b|\bownership\s+interest\b/i,
+      /\bState\s+Corporation\s+Commission\b/i,
+      /\bSCC\s+ID\b|\bEntity\s+(?:ID|Number)\b/i,
+      /\bLimited\s+Liability\s+Company\b/i,
+      /\bformation\s+date\b/i,
     ],
   },
   {
@@ -854,6 +880,138 @@ function extractTaxRecord(text: string): DeedIngestField[] {
   return fields;
 }
 
+// An LLC legal name must read like an entity name (a corporate designator somewhere in it) and be clean: no
+// label/bridge bleed, no line crossing, plausible length. This is the fail-closed gate for the label-anchored
+// llcLegalName capture (the legal name is NOT run through splitPeople, which would fail-close on the very
+// LLC/Inc/Trust designator that makes it a valid entity name).
+function llcLegalNameIsClean(n: string): boolean {
+  const t = n.trim();
+  if (t.length < 3 || t.length > 160) return false;
+  if (/[\n\r]/.test(t)) return false; // crossed a line boundary
+  if (new RegExp(String.raw`\(\s*the\s+${Q}`, 'i').test(t)) return false; // a parenthetical label bled in
+  if (/\)\s*,\s*and\b/i.test(t)) return false; // a `"), and` bridge bled in
+  if (!ENTITY_RE.test(t)) return false; // no corporate designator -> not an LLC/entity legal name
+  if (!/[A-Za-z]/.test(t)) return false;
+  return true;
+}
+
+// A formation/registration jurisdiction is VIRGINIA iff it reads "Virginia" or the bare "VA" state code. Any
+// other named jurisdiction (Delaware, Maryland, "DE", …) is NON-VA and the (A)(10)/(A)(11) exemption basis no
+// longer holds -> the formation-state field is WITHHELD + flagged (a foreign-state LLC surfaced as confident
+// would feed a wrong exemption cite).
+function isVirginiaFormation(state: string): boolean {
+  const t = state.trim();
+  return /^Virginia$/i.test(t) || /^VA$/.test(t) || /\bVirginia\b/i.test(t) || /(^|[,\s])VA([,\s]|$)/.test(t);
+}
+
+function extractLlcAuthority(text: string): DeedIngestField[] {
+  const fields: DeedIngestField[] = [];
+
+  // ── LLC legal name (label-anchored, VERBATIM) ──
+  // Try, in priority order, the SCC "Entity Name:" label, the OA "OPERATING AGREEMENT OF <name>" caption, and a
+  // generic "Company/LLC Name:" label. The name is captured VERBATIM and boundary-validated (NOT via splitPeople,
+  // which fail-closes on the entity designator). A label present but unclean is WITHHELD (honesty floor).
+  let llcName: string | null = null;
+  let llcNameLabelSeen = false;
+  const entityLabel = labeledLineValue(text, /\bEntity\s+Name\s*[:#]/i) ?? labeledLineValue(text, /\b(?:Company|LLC)\s+Name\s*[:#]/i);
+  if (entityLabel !== null) {
+    llcNameLabelSeen = true;
+    if (llcLegalNameIsClean(entityLabel)) llcName = normalizeWs(entityLabel);
+  }
+  if (llcName === null) {
+    const oa = /\bOPERATING\s+AGREEMENT\s+OF\s+(.+?)(?=\r?\n|$)/i.exec(text);
+    if (oa && oa[1] !== undefined) {
+      llcNameLabelSeen = true;
+      const cand = normalizeWs(oa[1]);
+      if (llcLegalNameIsClean(cand)) llcName = cand;
+    }
+  }
+  fields.push(
+    llcName !== null ? single(S.llcLegalName, llcName)
+    : llcNameLabelSeen ? withheld(S.llcLegalName, ['llc_legal_name_unclean'])
+    : notFound(S.llcLegalName),
+  );
+
+  // ── LLC members (individual names; splitPeople — a/k/a variants preserved) ──
+  // Two member-bearing forms: the SCHEDULE A member row(s), and the OA "entered into by <Person> (the "Member")"
+  // recital. Members are INDIVIDUALS, so splitPeople applies (it fail-closes only on entity-shaped spans, which a
+  // member name is not). A member span that cannot be cleanly isolated is WITHHELD (never emitted as junk).
+  let memberPeople: Person[] = [];
+  let memberLabelSeen = false;
+  const memberLine =
+    labeledLineValue(text, /\bMembers?\s*[:#]/i) ??
+    labeledLineValue(text, /\bManaging\s+Members?\s*[:#]/i);
+  if (memberLine !== null) {
+    memberLabelSeen = true;
+    const { people, ok } = splitPeople(memberLine);
+    if (ok) memberPeople = people;
+  }
+  if (memberPeople.length === 0) {
+    const enteredBy = /\bentered\s+into\s+by\s+(.+?)\s*\(\s*the\s+["'“”]?\s*Members?\b/i.exec(text);
+    if (enteredBy && enteredBy[1] !== undefined) {
+      memberLabelSeen = true;
+      const { people, ok } = splitPeople(enteredBy[1]);
+      if (ok) memberPeople = people;
+    }
+  }
+  fields.push(
+    memberPeople.length > 0 ? peopleField(S.llcMembers, memberPeople)
+    : memberLabelSeen ? withheld(S.llcMembers, ['isolation_failed'])
+    : notFound(S.llcMembers),
+  );
+
+  // ── LLC formation state (VA gate) ──
+  // The formation jurisdiction anchors the exemption basis. Captured from an explicit "Jurisdiction:"/"Formation
+  // State:" label, the SCC "VA Qualification" context, or the OA "a Virginia limited liability company" recital.
+  // A NON-Virginia jurisdiction is WITHHELD + flagged (never surfaced as a confident value that would feed a wrong
+  // cite); a present-but-Virginia value passes.
+  let formationState: string | null = null;
+  let formationLabelSeen = false;
+  const stateLabel =
+    labeledLineValue(text, /\b(?:Formation\s+State|State\s+of\s+Formation|Jurisdiction)\s*[:#]/i);
+  if (stateLabel !== null) {
+    formationLabelSeen = true;
+    if (isVirginiaFormation(stateLabel)) formationState = normalizeWs(stateLabel);
+  }
+  if (formationState === null && !formationLabelSeen) {
+    // OA recital "a Virginia limited liability company" — VA-only (a foreign recital would name its own state).
+    const recital = /\ba\s+(Virginia)\s+limited\s+liability\s+company\b/i.exec(text);
+    if (recital && recital[1] !== undefined) {
+      formationLabelSeen = true;
+      formationState = normalizeWs(recital[1]);
+    }
+  }
+  fields.push(
+    formationState !== null ? single(S.llcFormationState, formationState)
+    : formationLabelSeen ? withheld(S.llcFormationState, ['non_virginia_formation_state'])
+    : notFound(S.llcFormationState),
+  );
+
+  // ── SCC / entity ID ──
+  const idLabel =
+    labeledLineValue(text, /\bSCC\s+ID\s*[:#]/i) ??
+    labeledLineValue(text, /\bEntity\s+(?:ID|Number)\s*[:#]/i);
+  let entityId: string | null = null;
+  if (idLabel !== null) {
+    const m = /\b([A-Za-z]?\d[\d-]{3,})\b/.exec(idLabel);
+    if (m && m[1] !== undefined) entityId = m[1];
+  }
+  fields.push(entityId !== null ? single(S.llcEntityId, entityId) : notFound(S.llcEntityId));
+
+  // ── formation / registration date ──
+  const dateLabel =
+    labeledLineValue(text, /\b(?:Formation|Registration)\s+Date\s*[:#]/i) ??
+    labeledLineValue(text, /\bDate\s+of\s+Formation\s*[:#]/i);
+  let formationDate: string | null = null;
+  if (dateLabel !== null) {
+    const dm = DATE_RE.exec(dateLabel);
+    if (dm && dm[1] !== undefined) formationDate = normalizeWs(dm[1]);
+  }
+  fields.push(formationDate !== null ? single(S.llcFormationDate, formationDate) : notFound(S.llcFormationDate));
+
+  return fields;
+}
+
 // The C1/C2-feeding source field(s) per document type: if one is withheld or absent, the WHOLE document is
 // routed to human review (it cannot be a confident extraction without its load-bearing field) (#37).
 const CRITICAL_KEYS: Record<Exclude<DeedDocType, 'unknown'>, string[]> = {
@@ -861,6 +1019,8 @@ const CRITICAL_KEYS: Record<Exclude<DeedDocType, 'unknown'>, string[]> = {
   title_commitment: ['exhibitALegal', 'requiredParties'],
   probate_authority: [],
   tax_record: [],
+  // A missing member set OR legal name forces document review (the load-bearing LLC captures).
+  llc_authority: ['llcMembers', 'llcLegalName'],
 };
 
 /**
@@ -884,6 +1044,7 @@ export function extractDeedIngest(text: string): DeedIngestResult {
     type === 'vesting_deed' ? extractVestingDeed(t)
     : type === 'title_commitment' ? extractTitleCommitment(t)
     : type === 'probate_authority' ? extractProbateAuthority(t)
+    : type === 'llc_authority' ? extractLlcAuthority(t)
     : extractTaxRecord(t);
 
   const surfaced = fields.filter((f) => f.value !== null || f.values.length > 0);

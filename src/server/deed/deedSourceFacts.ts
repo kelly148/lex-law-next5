@@ -54,6 +54,19 @@ export interface DeedSourceFacts {
    *  — LEADS for the attorney to confirm the true derivation reference (where the donor's vesting deed is
    *  recorded), never auto-used. */
   derivationCandidates: DeedSourceFact;
+  /** E5 — the LLC legal name (label-anchored, verbatim) from an llc_authority document (SCC record or operating
+   *  agreement). The default grantee LLC (into) / grantor LLC (out-of) when the attorney does not override it. */
+  llcLegalName: DeedSourceFact;
+  /** E5 — the LLC member set (individual names) from an llc_authority document. The default member-grantee set
+   *  (out-of-LLC) when the attorney does not override it. */
+  llcMembers: DeedSourceFact;
+  /** E5 — the LLC formation jurisdiction; WITHHELD when non-Virginia (the (A)(10)/(A)(11) exemption basis assumes
+   *  a Virginia LLC). Surfaced so the issue-spotter can flag a foreign-state LLC. */
+  llcFormationState: DeedSourceFact;
+  /** E5 — the SCC / entity ID (SCC record). */
+  llcEntityId: DeedSourceFact;
+  /** E5 — the LLC formation / registration date (SCC record). */
+  llcFormationDate: DeedSourceFact;
   /** Inc 4 — the TITLE-COMMITMENT Exhibit A legal description, surfaced SEPARATELY from the consolidated winner
    *  (`legalDescription`, which prefers the vesting deed). Carried so the Inc-4 issue-spotter can compare the
    *  commitment legal against the vesting-deed legal and surface a mismatch (it never resolves the mismatch).
@@ -187,6 +200,15 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     { type: 'title_commitment', key: 'priorDeedRef' },
   ]);
 
+  // E5 — the LLC authority facts (operating agreement + SCC record). The legal name + member set default the
+  // into/out-of-LLC procedures; the formation state / entity id / formation date are surfaced for the
+  // issue-spotter. All taken from the llc_authority doc type (honesty floor preserved by pickFact).
+  const llcLegalName = pickFact(classified, [{ type: 'llc_authority', key: 'llcLegalName' }]);
+  const llcMembers = pickFact(classified, [{ type: 'llc_authority', key: 'llcMembers' }]);
+  const llcFormationState = pickFact(classified, [{ type: 'llc_authority', key: 'llcFormationState' }]);
+  const llcEntityId = pickFact(classified, [{ type: 'llc_authority', key: 'llcEntityId' }]);
+  const llcFormationDate = pickFact(classified, [{ type: 'llc_authority', key: 'llcFormationDate' }]);
+
   // Inc 4 — the title-commitment Exhibit A legal, surfaced SEPARATELY (so a vesting-vs-commitment mismatch can
   // be spotted). Distinct from the consolidated winner above, which prefers the vesting-deed legal.
   const commitmentLegalDescription = pickFact(classified, [{ type: 'title_commitment', key: 'exhibitALegal' }]);
@@ -239,6 +261,11 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     propertyLocality,
     propertyAddress,
     derivationCandidates,
+    llcLegalName,
+    llcMembers,
+    llcFormationState,
+    llcEntityId,
+    llcFormationDate,
     commitmentLegalDescription,
     estateSource,
     materials: classified.map((m) => ({
