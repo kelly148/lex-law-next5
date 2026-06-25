@@ -28,6 +28,7 @@ import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { DocumentExtractionPanel } from './DocumentExtractionPanel.js';
+import { isAcceptedUpload, ACCEPTED_UPLOAD_ATTR, ACCEPTED_UPLOAD_LABEL } from '../../shared/deedUploadFormats.js';
 
 interface MaterialsDrawerProps {
   matterId: string;
@@ -134,21 +135,11 @@ interface UploadFormProps {
   onDone: () => void;
 }
 
-// Accepted-type set, mirrored from the server upload contract (src/server/index.ts).
-// The server stores any file (50 MB cap) and extracts .docx/.txt/.pdf today; images
-// (PNG/JPEG) are accepted for storage now and read `not_supported` until MATERIALS-DROPZONE-1
-// Increment B (image OCR) lands — same shape the pre-fix PDFs had before MATERIALS-EXTRACTION-1.
-const ACCEPTED_EXTENSIONS = new Set(['docx', 'txt', 'pdf', 'png', 'jpg', 'jpeg']);
-const ACCEPTED_MIME = new Set([
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'text/plain',
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-]);
+// Accepted upload formats come from the SHARED contract (src/shared/deedUploadFormats.ts) so the dropzone and
+// the server upload endpoint cannot drift. E2 widened it: docx/txt/md/pdf + png/jpg/jpeg/tif/tiff/webp (image
+// OCR). .doc/.heic are excluded (each needs a new dependency — operator-gated).
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB — matches the server multer LIMIT_FILE_SIZE
 const MAX_FILE_LABEL = '50 MB';
-const ACCEPTED_LABEL = 'Word, PDF, text, PNG, JPEG';
 
 function fileExtension(name: string): string {
   const i = name.lastIndexOf('.');
@@ -157,8 +148,8 @@ function fileExtension(name: string): string {
 
 // Returns a friendly reason string if the file should be rejected, or null if it is accepted.
 function rejectReason(file: File): string | null {
-  const typeOk = ACCEPTED_MIME.has(file.type) || ACCEPTED_EXTENSIONS.has(fileExtension(file.name));
-  if (!typeOk) return `${file.name}: unsupported type — accepted: ${ACCEPTED_LABEL}.`;
+  const typeOk = isAcceptedUpload(file.type, fileExtension(file.name));
+  if (!typeOk) return `${file.name}: unsupported type — accepted: ${ACCEPTED_UPLOAD_LABEL}.`;
   if (file.size > MAX_FILE_BYTES) return `${file.name}: exceeds the ${MAX_FILE_LABEL} limit.`;
   return null;
 }
@@ -303,14 +294,14 @@ function UploadForm({ matterId, onDone }: UploadFormProps): React.ReactElement {
           ) : (
             <p className="text-sm text-gray-400">Drag &amp; drop files here, or click to browse</p>
           )}
-          <p className="text-xs text-gray-400 mt-1">{ACCEPTED_LABEL} · up to {MAX_FILE_LABEL} each</p>
+          <p className="text-xs text-gray-400 mt-1">{ACCEPTED_UPLOAD_LABEL} · up to {MAX_FILE_LABEL} each</p>
         </div>
         <input
           ref={fileInputRef}
           type="file"
           multiple
           disabled={uploading}
-          accept=".docx,.txt,.pdf,.png,.jpg,.jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/pdf,image/png,image/jpeg"
+          accept={ACCEPTED_UPLOAD_ATTR}
           className="hidden"
           onChange={(e) => {
             addFiles(Array.from(e.target.files ?? []));
