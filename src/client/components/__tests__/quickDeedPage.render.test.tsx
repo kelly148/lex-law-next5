@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { StrictMode } from 'react';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 interface PreviewFacts {
@@ -40,9 +40,10 @@ const mockState = vi.hoisted(() => ({
   },
 }));
 
-// Capture the create mutation fired on mount (the auto-matter).
-const createMutate = vi.hoisted(() => vi.fn());
+// The lazy-create matter mutation now resolves a matterId (ensureMatterAsync awaits it).
+const createMutate = vi.hoisted(() => vi.fn(() => Promise.resolve({ matterId: 'qd-matter-1' })));
 const generateMutate = vi.hoisted(() => vi.fn());
+const proposeMutate = vi.hoisted(() => vi.fn());
 
 vi.mock('../../trpc.js', async () => {
   const React = await import('react');
@@ -57,6 +58,7 @@ vi.mock('../../trpc.js', async () => {
           quickDeed: {
             create: { mutate: createMutate },
             generate: { mutate: generateMutate },
+            proposeIntake: { mutate: proposeMutate },
           },
         },
       }),
@@ -80,10 +82,25 @@ vi.mock('../../hooks/useGuardedMutation.js', () => ({
   }),
 }));
 
-// MaterialsDrawer has its own trpc surface — stub it so the page test stays focused.
-vi.mock('../../components/MaterialsDrawer.js', () => ({
-  default: () => null,
-}));
+// DEED-INTAKE-REDESIGN-1: the page (via DeedIntake, and the seller lane directly) renders MaterialsDropZone as
+// the PRIMARY upload affordance. It owns its own trpc surface (materials.list) + fetch, so stub it to a button
+// that fires resolveMatterId — this is the "first real interaction" that lazily creates the owning matter,
+// replacing the old "Upload…" button + modal. DeedIntake itself is NOT stubbed (the gift form must render).
+vi.mock('../../components/MaterialsDropZone.js', async () => {
+  const React = await import('react');
+  return {
+    default: (props: { resolveMatterId?: () => Promise<string> }) =>
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          'data-testid': 'quick-deed-dropzone',
+          onClick: () => { void props.resolveMatterId?.(); },
+        },
+        'dropzone',
+      ),
+  };
+});
 
 import QuickDeedPage from '../../pages/QuickDeedPage.js';
 
@@ -116,6 +133,7 @@ function renderPageStrict(): HTMLElement {
 beforeEach(() => {
   createMutate.mockClear();
   generateMutate.mockClear();
+  proposeMutate.mockClear();
 });
 afterEach(() => {
   cleanup();
@@ -144,9 +162,9 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(llc!.disabled).toBe(true);
     expect(seller!.textContent).toContain('wiring pending');
 
-    // structured gift fields + the Generate button + the materials entry point render.
+    // structured gift fields + the Generate button + the PRIMARY drop zone (DEED-INTAKE-REDESIGN-1) render.
     expect(c.querySelector('[data-testid="quick-deed-generate"]')).toBeTruthy();
-    expect(c.querySelector('[data-testid="quick-deed-materials-button"]')).toBeTruthy();
+    expect(c.querySelector('[data-testid="quick-deed-dropzone"]')).toBeTruthy();
     expect(c.textContent).toContain('Grantor(s)');
     expect(c.textContent).toContain('Grantee(s)');
   });
@@ -182,12 +200,12 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(createMutate).not.toHaveBeenCalled();
   });
 
-  it('LAZY create: the auto-matter is created on the FIRST interaction (opening Materials)', () => {
+  it('LAZY create: the auto-matter is created on the FIRST interaction (the primary drop zone)', () => {
     mockState.enabled = true;
     mockState.deedTypes = FULL_REGISTRY;
     const c = renderPage();
     expect(createMutate).not.toHaveBeenCalled();
-    fireEvent.click(c.querySelector('[data-testid="quick-deed-materials-button"]')!);
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-dropzone"]')!);
     expect(createMutate).toHaveBeenCalledTimes(1);
   });
 
@@ -195,9 +213,9 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     mockState.enabled = true;
     mockState.deedTypes = FULL_REGISTRY;
     const c = renderPage();
-    const btn = c.querySelector('[data-testid="quick-deed-materials-button"]')!;
-    fireEvent.click(btn);
-    fireEvent.click(btn); // a second click while the first create is "in flight" must not re-fire
+    const zone = c.querySelector('[data-testid="quick-deed-dropzone"]')!;
+    fireEvent.click(zone);
+    fireEvent.click(zone); // a second interaction while the first create is "in flight" must not re-fire
     expect(createMutate).toHaveBeenCalledTimes(1);
   });
 
@@ -206,7 +224,7 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     mockState.deedTypes = FULL_REGISTRY;
     const c = renderPageStrict();
     expect(createMutate).not.toHaveBeenCalled(); // StrictMode double-render must not auto-create
-    fireEvent.click(c.querySelector('[data-testid="quick-deed-materials-button"]')!);
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-dropzone"]')!);
     expect(createMutate).toHaveBeenCalledTimes(1);
   });
 
@@ -245,5 +263,53 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(c.querySelector('[data-testid="quick-deed-prefill-note"]')).toBeNull();
     const locality = c.querySelector('[data-testid="quick-deed-locality"]') as HTMLInputElement;
     expect(locality.value).toBe('');
+  });
+
+  it('gift lane: Generate wraps the cleaned facts with deedType + title and injects the lazily-created matterId', async () => {
+    mockState.enabled = true;
+    mockState.deedTypes = FULL_REGISTRY;
+    const c = renderPage();
+    // The gift form is collapsed (drop-first); expand it to fill the parties.
+    fireEvent.click(c.querySelector('[data-testid="deed-intake-form-toggle"]')!);
+    const names = Array.from(c.querySelectorAll('input[placeholder="Full legal name"]')) as HTMLInputElement[];
+    fireEvent.change(names[0]!, { target: { value: 'Marcus Ellison' } }); // grantor (donor)
+    fireEvent.change(names[1]!, { target: { value: 'Hannah Ellison' } });  // grantee (donee)
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
+
+    await waitFor(() => expect(generateMutate).toHaveBeenCalledTimes(1));
+    const arg = generateMutate.mock.calls[0]![0] as {
+      deedType: string; title: string; matterId: string; grantors: unknown[]; grantees: unknown[];
+    };
+    expect(arg.deedType).toBe('deed_of_gift');
+    expect(arg.title).toBe('Deed of Gift');
+    expect(arg.matterId).toBe('qd-matter-1'); // injected from the lazily-created matter, never baked into the payload
+    expect(arg.grantors).toEqual([{ name: 'Marcus Ellison' }]);
+    expect(arg.grantees).toEqual([{ name: 'Hannah Ellison' }]);
+  });
+
+  it('seller lane: Generate dispatches the nested sellerSide payload with the injected matterId', async () => {
+    mockState.enabled = true;
+    mockState.deedTypes = [
+      { key: 'deed_of_gift', title: 'Deed of Gift', category: 'gift', status: 'available', quickDeedGenerates: true },
+      { key: 'seller_side', title: 'Seller-Side Conveyance', category: 'seller-side', status: 'available', quickDeedGenerates: true },
+    ];
+    const c = renderPage();
+    fireEvent.change(c.querySelector('[data-testid="quick-deed-type-select"]')!, { target: { value: 'seller_side' } });
+    const names = Array.from(c.querySelectorAll('input[placeholder="Full legal name"]')) as HTMLInputElement[];
+    fireEvent.change(names[0]!, { target: { value: 'Seller Owner' } }); // grantor (seller)
+    fireEvent.change(names[1]!, { target: { value: 'Buyer Person' } }); // grantee (buyer)
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
+
+    await waitFor(() => expect(generateMutate).toHaveBeenCalledTimes(1));
+    const arg = generateMutate.mock.calls[0]![0] as {
+      deedType: string; matterId: string; grantors: unknown[]; grantees: unknown[];
+      sellerSide: { title: string };
+    };
+    expect(arg.deedType).toBe('seller_side');
+    expect(arg.matterId).toBe('qd-matter-1');
+    expect(arg.grantors).toEqual([{ name: 'Seller Owner' }]);
+    expect(arg.grantees).toEqual([{ name: 'Buyer Person' }]);
+    expect(arg.sellerSide).toBeTruthy();
+    expect(arg.sellerSide.title).toBe('Seller-Side Deed');
   });
 });
