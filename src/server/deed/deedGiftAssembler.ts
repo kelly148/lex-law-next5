@@ -244,8 +244,13 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
     'Current assessed value from the locality assessment record (recordation-tax basis, Va. Code § 58.1-801) — include even on exempt deeds.',
   );
   const fileNumber = resolve(input.fileNumber, 'File number', 'Assign the Mason file number (format 36-YYYY-NNNN).');
+  // Quick Deed Layer 1: the grantee's mailing address DEFAULTS to the property (situs) address when the attorney
+  // supplied none (operator rule) — attorney-override-able. A defaulted address is surfaced as a confirm/override
+  // note below; absent both the input and the situs -> [[ ]] placeholder (no fabrication).
+  const granteeAddressDefaulted =
+    (input.granteeAddress ?? '').trim().length === 0 && (facts.propertyAddress.value ?? '').trim().length > 0;
   const granteeAddress = resolve(
-    input.granteeAddress,
+    input.granteeAddress ?? facts.propertyAddress.value,
     "Grantee's address",
     "Grantee's mailing address for tax bills/notices (Va. Code § 17.1-223 indexing).",
   );
@@ -281,6 +286,11 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
   }
   if (facts.legalDescription.flags.includes('truncated')) {
     notes.push('The packet legal description was flagged truncated — verify it is complete and verbatim against the prior vesting deed before finalizing.');
+  }
+  if (granteeAddressDefaulted) {
+    notes.push(
+      `Grantee's address defaulted to the property (situs) address ("${(facts.propertyAddress.value ?? '').trim()}") from the tax record — confirm it is the donee's correct mailing address for tax notices, or override (Va. Code § 17.1-223).`,
+    );
   }
   notes.push(
     `Warranty applied: "${warranty}" — the Mason house gift convention (§11.2), operator-ratified 2026-06-23 as the authoritative gift form. B1 override-able on instruction.`,
