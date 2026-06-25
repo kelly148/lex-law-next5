@@ -123,6 +123,7 @@ describe('Out-of-LLC (C4) — GOLDEN fixtures reproduce the fixture pack exactly
     it(`${g.json.fixture_id} — full body byte-for-byte + segment contract`, () => {
       const result = assembleOutOfLlcDeed(toInput(g.json));
       expect(result.status).toBe('OK');
+      expect(result.recordableFloorOk).toBe(true); // S3 in-module B6 + format floor
       expect(result.deed).toBeDefined();
       const d = result.deed!;
 

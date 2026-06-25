@@ -165,6 +165,7 @@ describe('Confirmation (C1) — GOLDEN fixtures reproduce the fixture pack exact
       const j = grabInput(id);
       const result = assembleConfirmationDeed(toInput(j));
       expect(result.status).toBe('OK');
+      expect(result.recordableFloorOk).toBe(true); // S3 in-module B6 + format floor
       expect(result.deed).toBeDefined();
       const d = result.deed!;
 

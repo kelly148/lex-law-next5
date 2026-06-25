@@ -34,6 +34,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
+import { checkAnnotationLeak, checkFormatLints } from './deedDraftGates.js';
 
 /** The verified exemption cite for this category (validated against the KB; the face form is rendered verbatim). */
 const C5_EXEMPTION_CODE = 'Va. Code § 58.1-811(J)';
@@ -150,6 +151,7 @@ export interface DeedTodResult {
   status: 'OK' | 'WITHHELD';
   flags: string[];
   advisories: string[];
+  recordableFloorOk: boolean;
   deed?: DeedTodSegments;
 }
 
@@ -160,7 +162,7 @@ const COMMISSION_LINE =
   'My commission expires: _____________________Registration number: _______________________';
 
 function withheld(flags: string[], advisories: string[] = []): DeedTodResult {
-  return { status: 'WITHHELD', flags, advisories };
+  return { status: 'WITHHELD', flags, advisories, recordableFloorOk: false };
 }
 
 /** A legal description is truncated/missing if absent, lacks a recordable terminus (period optionally + closing
@@ -395,11 +397,13 @@ export function assembleTodDeed(input: DeedTodInput): DeedTodResult {
   }
 
   const fullText = lines.join('\n');
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
 
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title,

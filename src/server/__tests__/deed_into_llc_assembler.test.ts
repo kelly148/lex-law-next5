@@ -74,6 +74,7 @@ describe('Into-LLC (C3) — GOLDEN fixtures reproduce the fixture pack exactly',
     it(`${g.title} — full body byte-for-byte`, () => {
       const result = assembleDeedIntoLlc(toInput(g.input as Record<string, any>));
       expect(result.status).toBe('OK');
+      expect(result.recordableFloorOk).toBe(true); // S3 in-module B6 + format floor
       expect(result.deed).toBeDefined();
       // A11 — strongest: the entire assembled document equals the fixture's EXPECTED block.
       expect(result.deed!.fullText).toBe(g.expectedDeed);
