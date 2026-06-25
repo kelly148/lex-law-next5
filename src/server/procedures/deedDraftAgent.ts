@@ -41,6 +41,16 @@ import {
   type DeedConfirmationInput,
   type DeedConfirmationResult,
 } from '../deed/deedConfirmationAssembler.js';
+import {
+  assembleDeedIntoLlc,
+  type DeedIntoLlcInput,
+  type DeedIntoLlcResult,
+} from '../deed/deedIntoLlcAssembler.js';
+import {
+  assembleOutOfLlcDeed,
+  type DeedOutOfLlcInput,
+  type DeedOutOfLlcResult,
+} from '../deed/deedOutOfLlcAssembler.js';
 import { buildGiftDrafterNotes } from '../deed/deedGiftNotes.js';
 import {
   buildEngagementLetter,
@@ -613,6 +623,229 @@ export function buildConfirmationDocNotes(draft: DeedConfirmationResult): string
   ].join('\n');
 }
 
+// ── E5: LLC category wiring (Tier-3) — Deed INTO an LLC (C3) + Deed OUT OF an LLC (C4) ────────────────────────
+//
+// Two matter-scoped procedures wrapping the already-built deterministic assemblers. The doc-derived fields
+// (legalDescription, taxId, assessedValue, granteeAddress/Return, propertyJurisdiction/locality) default from the
+// consolidated facts; the LLC entity name + member set default from the NEW llc_authority facts (E5 extractor).
+// The attorney supplies the new-transaction facts (consideration, instrument date / execution month+year,
+// grantor cardinality / marital status, notary jurisdiction, return-to block, file number, preparer, derivation,
+// subject-to). Both assemblers return {status:'OK'|'WITHHELD', deed?} (NOT seller-side's failedClosed). Quick-Deed
+// enablement is a SEPARATE later pass (WIRED_QUICK_DEED_TYPES is intentionally NOT touched here).
+
+const intoLlcGrantorSchema = z.object({
+  name: z.string().min(1).max(200),
+  maritalStatus: z.string().max(120).default('unmarried'),
+});
+
+/** Quick-Deed/matter-scoped Deed-INTO-LLC input. The doc-derived fields (legalDescription, taxId,
+ *  assessedValue, granteeAddressReturn, propertyJurisdiction) are OPTIONAL — defaulted from the extracted facts
+ *  (and the LLC facts) when omitted, attorney-override-able. The rest are attorney-provided (the document cannot
+ *  supply THIS transaction's consideration / instrument date / cardinality / notary / derivation / subject-to). */
+const createIntoLlcDraftInput = z.object({
+  matterId: z.string().uuid(),
+  preparedBy: z.string().max(300).default(''),
+  titleSearch: z.string().max(300).default('Prepared without benefit of title search'),
+  consideration: z.string().max(120).default('$0.00'),
+  instrumentDatePhrase: z.string().max(200).default(''),
+  grantors: z.array(intoLlcGrantorSchema).max(20).default([]),
+  grantorCardinality: z.enum(['single', 'married_couple']).default('single'),
+  granteeLlc: z.string().max(300).nullable().optional(),
+  derivationOfTitle: z.string().max(2000).default(''),
+  subjectTo: z.string().max(8000).default(''),
+  notaryJurisdiction: z.object({ commonwealth: z.string().max(200), locality: z.string().max(200) }),
+  sourceGrantingBodyOverride: z.string().max(2000).optional(),
+  overrideMarkedAuthoritative: z.boolean().optional(),
+  grantingVerbOverride: z.string().max(600).optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  taxId: z.string().max(120).nullable().optional(),
+  granteeAddressReturn: z.string().max(400).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  propertyJurisdiction: z.string().max(200).nullable().optional(),
+  legalDescription: z.string().max(20000).nullable().optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateIntoLlcDraftInput = z.infer<typeof createIntoLlcDraftInput>;
+
+const outOfLlcMemberSchema = z.object({
+  name: z.string().min(1).max(200),
+  signatureTitle: z.string().max(120).optional(),
+});
+
+const outOfLlcReturnToSchema = z.object({
+  company: z.string().max(200),
+  line1: z.string().max(200),
+  line2: z.string().max(200).optional(),
+  cityStateZip: z.string().max(200),
+  phone: z.string().max(120),
+});
+
+/** Quick-Deed/matter-scoped Deed-OUT-OF-LLC input. The doc-derived fields (legalDescription, taxId,
+ *  assessedValue, granteeAddress) default from the extracted facts; the LLC entity name + member set default
+ *  from the LLC facts. The rest are attorney-provided (file number, execution month/year, locality, notary
+ *  locality, derivation instrument number, return-to block, consideration). */
+const createOutOfLlcDraftInput = z.object({
+  matterId: z.string().uuid(),
+  grantorLlc: z.string().max(300).nullable().optional(),
+  members: z.array(outOfLlcMemberSchema).max(20).default([]),
+  fileNumber: z.string().max(120).default(''),
+  consideration: z.string().max(120).default('0.00'),
+  executionMonth: z.string().max(60).default(''),
+  executionYear: z.string().max(20).default(''),
+  localityType: z.string().max(40).default('County'),
+  localityName: z.string().max(200).nullable().optional(),
+  derivationInstrumentNumber: z.string().max(120).default(''),
+  notaryLocality: z.string().max(200).default(''),
+  returnTo: outOfLlcReturnToSchema,
+  exemptionCiteRaw: z.string().max(200).optional(),
+  warrantyToken: z.string().max(300).optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  taxId: z.string().max(120).nullable().optional(),
+  granteeAddress: z.string().max(400).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  legalDescription: z.string().max(20000).nullable().optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateOutOfLlcDraftInput = z.infer<typeof createOutOfLlcDraftInput>;
+
+/** The required Virginia LLC designator the into-LLC grantee string must end with. */
+const VA_LLC_DESIGNATOR = ', a Virginia Limited Liability Company';
+
+/** Append the Virginia LLC designator to a bare LLC legal name IFF it is not already present (case-insensitive).
+ *  An empty name stays empty (so the assembler's INVALID_LLC_DESIGNATOR fail-closed still fires). */
+function withVaLlcDesignator(bare: string): string {
+  const t = bare.trim();
+  if (t === '') return '';
+  if (/,\s*a Virginia Limited Liability Company\s*$/i.test(t)) return t;
+  return `${t}${VA_LLC_DESIGNATOR}`;
+}
+
+/** PURE: map the validated Deed-INTO-LLC input + extracted facts onto DeedIntoLlcInput. The doc-derived fields
+ *  default from the consolidated facts (verbatim legal only when not WITHHELD — honesty floor); the grantee LLC
+ *  defaults from the llcLegalName fact (with the VA designator appended); optionals use the exact-optional idiom.
+ *  Exported for direct (no-DB) testing. */
+export function toIntoLlcInput(input: CreateIntoLlcDraftInput, facts: DeedSourceFacts): DeedIntoLlcInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const factLlcName = facts.llcLegalName.withheld ? '' : (facts.llcLegalName.value ?? '');
+  const granteeLlcBare = firstNonEmpty(input.granteeLlc, factLlcName);
+  const out: DeedIntoLlcInput = {
+    preparedBy: firstNonEmpty(input.preparedBy),
+    titleSearch: firstNonEmpty(input.titleSearch),
+    taxId: firstNonEmpty(input.taxId, facts.parcelId.value),
+    granteeAddressReturn: firstNonEmpty(input.granteeAddressReturn, facts.propertyAddress.value),
+    assessedValue: firstNonEmpty(input.assessedValue, facts.assessedValue.value),
+    consideration: firstNonEmpty(input.consideration),
+    instrumentDatePhrase: firstNonEmpty(input.instrumentDatePhrase),
+    grantors: (input.grantors ?? []).map((g) => ({ name: g.name, maritalStatus: g.maritalStatus })),
+    grantorCardinality: input.grantorCardinality,
+    granteeLlc: withVaLlcDesignator(granteeLlcBare),
+    propertyJurisdiction: firstNonEmpty(input.propertyJurisdiction, facts.propertyLocality.value),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    derivationOfTitle: firstNonEmpty(input.derivationOfTitle),
+    subjectTo: firstNonEmpty(input.subjectTo),
+    notaryJurisdiction: {
+      commonwealth: input.notaryJurisdiction.commonwealth,
+      locality: input.notaryJurisdiction.locality,
+    },
+  };
+  if (input.sourceGrantingBodyOverride !== undefined) out.sourceGrantingBodyOverride = input.sourceGrantingBodyOverride;
+  if (input.overrideMarkedAuthoritative !== undefined) out.overrideMarkedAuthoritative = input.overrideMarkedAuthoritative;
+  if (input.grantingVerbOverride !== undefined) out.grantingVerbOverride = input.grantingVerbOverride;
+  return out;
+}
+
+/** PURE: map the validated Deed-OUT-OF-LLC input + extracted facts onto DeedOutOfLlcInput. The doc-derived fields
+ *  default from the consolidated facts; the grantor LLC (BARE) defaults from the llcLegalName fact and the members
+ *  from the llcMembers fact (each a bare individual name, signatureTitle defaulting to "Member"). Optionals use
+ *  the exact-optional idiom. Exported for direct (no-DB) testing. */
+export function toOutOfLlcInput(input: CreateOutOfLlcDraftInput, facts: DeedSourceFacts): DeedOutOfLlcInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const factLlcName = facts.llcLegalName.withheld ? '' : (facts.llcLegalName.value ?? '');
+  const factMembers = facts.llcMembers.withheld ? [] : facts.llcMembers.values;
+  // Members: the attorney-supplied set wins; else the extracted member set (bare names, default "Member" title).
+  const suppliedMembers = input.members ?? [];
+  const members =
+    suppliedMembers.length > 0
+      ? suppliedMembers.map((m) => {
+          const out: DeedOutOfLlcInput['members'][number] = { name: m.name };
+          if (m.signatureTitle !== undefined) out.signatureTitle = m.signatureTitle;
+          return out;
+        })
+      : factMembers.map((n) => ({ name: n }));
+  const out: DeedOutOfLlcInput = {
+    grantorLlc: firstNonEmpty(input.grantorLlc, factLlcName),
+    members,
+    fileNumber: firstNonEmpty(input.fileNumber),
+    granteeAddress: firstNonEmpty(input.granteeAddress, facts.propertyAddress.value),
+    taxId: firstNonEmpty(input.taxId, facts.parcelId.value),
+    assessedValue: firstNonEmpty(input.assessedValue, facts.assessedValue.value),
+    consideration: firstNonEmpty(input.consideration),
+    executionMonth: firstNonEmpty(input.executionMonth),
+    executionYear: firstNonEmpty(input.executionYear),
+    localityType: firstNonEmpty(input.localityType),
+    localityName: firstNonEmpty(input.localityName, facts.propertyLocality.value),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    derivationInstrumentNumber: firstNonEmpty(input.derivationInstrumentNumber),
+    notaryLocality: firstNonEmpty(input.notaryLocality),
+    returnTo: {
+      company: input.returnTo.company,
+      line1: input.returnTo.line1,
+      cityStateZip: input.returnTo.cityStateZip,
+      phone: input.returnTo.phone,
+    },
+  };
+  if (input.returnTo.line2 !== undefined) out.returnTo.line2 = input.returnTo.line2;
+  if (input.exemptionCiteRaw !== undefined) out.exemptionCiteRaw = input.exemptionCiteRaw;
+  if (input.warrantyToken !== undefined) out.warrantyToken = input.warrantyToken;
+  return out;
+}
+
+/** PURE: consolidate a matter's materials + assemble the into-LLC draft. Exported for direct (no-DB) testing. */
+export function buildIntoLlcDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateIntoLlcDraftInput,
+): { facts: DeedSourceFacts; draft: DeedIntoLlcResult } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleDeedIntoLlc(toIntoLlcInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: consolidate a matter's materials + assemble the out-of-LLC draft. Exported for direct (no-DB) testing. */
+export function buildOutOfLlcDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateOutOfLlcDraftInput,
+): { facts: DeedSourceFacts; draft: DeedOutOfLlcResult } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleOutOfLlcDeed(toOutOfLlcInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: the into-LLC document `notes` body. Called only on an OK result (we never persist a WITHHELD void deed).
+ *  Exported for testing. */
+export function buildIntoLlcDocNotes(draft: DeedIntoLlcResult): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.advisories,
+    'Deed INTO an LLC — QUITCLAIM, no warranty; exempt under § 58.1-811(A)(10) (Virginia LLC). The grantee LLC designator + the verbatim legal are load-bearing; confirm before recordation.',
+    '',
+    draft.deed ? draft.deed.fullText : '',
+  ].join('\n');
+}
+
+/** PURE: the out-of-LLC document `notes` body. Called only on an OK result (we never persist a WITHHELD void
+ *  deed). Exported for testing. */
+export function buildOutOfLlcDocNotes(draft: DeedOutOfLlcResult): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.advisories,
+    'Deed OUT OF an LLC — Special Warranty; exempt under § 58.1-811(A)(11) (Virginia LLC). The member signature set + the verbatim legal are load-bearing; confirm before recordation.',
+    '',
+    draft.deed ? draft.deed.fullText : '',
+  ].join('\n');
+}
+
 // ── Inc 3: companion engagement letter ──────────────────────────────────────────────
 
 const engagementLetterFields = z
@@ -1007,6 +1240,160 @@ export const deedDraftAgentRouter = router({
 
     const title = (input.title ?? '').trim() || 'Deed of Confirmation';
     const docNotes = buildConfirmationDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.deed.fullText,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      withheld: false,
+      flags: draft.flags,
+      advisories: draft.advisories,
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      warnings: [...facts.warnings],
+    };
+  }),
+
+  /**
+   * E5 — assemble a Deed INTO an LLC (C3) draft from the matter's materials + attorney input, persisted as a
+   * draft document. Mirrors createTodDraft/createConfirmationDraft (same {status:'OK'|'WITHHELD', deed?} branch).
+   * QUITCLAIM, no warranty; § 58.1-811(A)(10) Virginia-LLC exemption. The doc-derived facts (legal / tax-id /
+   * assessed-value / grantee-return-address / property-jurisdiction) default from extraction; the grantee LLC
+   * defaults from the extracted llc_authority legal name (with the ", a Virginia Limited Liability Company"
+   * designator appended); the consideration / instrument date / grantor cardinality+marital status / notary /
+   * derivation / subject-to are attorney-supplied. Fails closed (no void deed) on a truncated legal, a warranty
+   * bleed, a missing/non-VA LLC designator, or an authoritative cardinality typo. Never finalizes, records, sends.
+   */
+  createIntoLlcDraft: protectedProcedure.input(createIntoLlcDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildIntoLlcDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.status === 'WITHHELD' || !draft.deed) {
+      // Fail-closed (truncated legal / warranty bleed / invalid LLC designator / cardinality typo): no void deed.
+      return {
+        withheld: true,
+        flags: draft.flags,
+        advisories: draft.advisories,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        warnings: [...facts.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Deed Into an LLC';
+    const docNotes = buildIntoLlcDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.deed.fullText,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      withheld: false,
+      flags: draft.flags,
+      advisories: draft.advisories,
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      warnings: [...facts.warnings],
+    };
+  }),
+
+  /**
+   * E5 — assemble a Deed OUT OF an LLC (C4) draft from the matter's materials + attorney input, persisted as a
+   * draft document. Mirrors createIntoLlcDraft (same {status:'OK'|'WITHHELD', deed?} branch). Special Warranty;
+   * § 58.1-811(A)(11) Virginia-LLC exemption; LLC-by-members signature block. The doc-derived facts (legal /
+   * tax-id / assessed-value / grantee-address / locality) default from extraction; the grantor LLC + member set
+   * default from the extracted llc_authority facts (bare names); the file number / execution month+year / notary
+   * locality / derivation instrument number / return-to block / consideration are attorney-supplied. Fails closed
+   * (no void deed) on a party-name label/bridge bleed, a truncated legal, a warranty mismatch, or a missing
+   * LLC/member set. Never finalizes, records, or sends.
+   */
+  createOutOfLlcDraft: protectedProcedure.input(createOutOfLlcDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildOutOfLlcDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.status === 'WITHHELD' || !draft.deed) {
+      // Fail-closed (name bleed / truncated legal / warranty mismatch / missing LLC or members): no void deed.
+      return {
+        withheld: true,
+        flags: draft.flags,
+        advisories: draft.advisories,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        warnings: [...facts.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Deed Out of an LLC';
+    const docNotes = buildOutOfLlcDocNotes(draft);
 
     const doc = await insertDocument({
       userId: ctx.userId,
