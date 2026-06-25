@@ -221,15 +221,42 @@ const B6_MARKERS: ReadonlyArray<{ label: string; re: RegExp }> = [
   { label: 'question-mark placeholder (???)', re: /\?{2,}/ },
 ];
 
+// ── B6 refinement (#421 disposition (a)): narrow allowlist of the KNOWN-LEGITIMATE recorded constructs whose
+//    marker chars would otherwise FALSE-trip the denylist. These are statutorily-grounded / house-standard
+//    RECORDED deed text, NOT annotation leaks. We MASK them (replace with spaces) BEFORE the denylist runs, so a
+//    STRAY asterisk / "NOTE:" elsewhere on the deed face still fails closed — the allowlist is NARROW BY
+//    CONSTRUCTION (only these two exact constructs, anchored on their distinctive phrasing). ──
+const RECORDABLE_ALLOWLIST: ReadonlyArray<{ label: string; re: RegExp }> = [
+  // The condo Limited-Common-Element identification footnote (into-trust / condo GOLDENs). The leading asterisk
+  // is part of the recorded footnote, not markdown. Anchored on the full distinctive phrase so a stray asterisk
+  // is never masked.
+  { label: 'condo LCE identification footnote', re: /\*\s*Reference to Parking Space\(s\) and Storage Space\(s\)[^\n]*/gi },
+  // The § 55.1-136(C) tenants-by-the-entirety creditor-immunity NOTE (statutorily grounded; the Exemplar-C
+  // phrasing carries a "NOTE:" prefix). Anchored on the TBE-immunity construct + the § 55.1-136 cite so a stray
+  // "NOTE:" (the corpus leak class) is never masked.
+  { label: 'TBE immunity NOTE (§ 55.1-136(C))', re: /\bNOTE\s*:[^\n]*tenants by the entirety[^\n]*55\.1-136[^\n]*/gi },
+];
+
+/** Mask the known-legitimate recorded constructs (see RECORDABLE_ALLOWLIST) so their marker chars do not
+ *  false-trip the B6 denylist. Masking (not deleting) preserves a STRAY marker elsewhere for detection. */
+function maskRecordableAllowlist(text: string): string {
+  let masked = text;
+  for (const { re } of RECORDABLE_ALLOWLIST) masked = masked.replace(re, ' ');
+  return masked;
+}
+
 /**
  * B6: the recordability annotation-leak floor. A to-be-recorded deed must contain ONLY resolved deed text —
  * any stray placeholder/markup char or annotation marker fails closed. Reproducible; no model in the loop.
  * (The allowlist render gate — only known-good deed sections render — is enforced at assembly; this is the
- * deterministic floor, cross-filed to EXPORT-FORMAT-FIX-1 as the single chokepoint for every category.)
+ * deterministic floor, cross-filed to EXPORT-FORMAT-FIX-1 as the single chokepoint for every category.) The
+ * narrow RECORDABLE_ALLOWLIST (B6 refinement #421(a)) masks the statutory §55.1-136(C) NOTE + the condo LCE
+ * "*Reference to Parking Space(s)…" footnote first, so those legitimate recorded constructs no longer
+ * false-positive while a stray NOTE:/asterisk elsewhere still fails closed.
  */
 export function checkAnnotationLeak(renderedDeedText: string): GateResult {
   const failures: string[] = [];
-  const text = renderedDeedText ?? '';
+  const text = maskRecordableAllowlist(renderedDeedText ?? '');
   for (const { label, re } of [...B6_STRAY_CHARS, ...B6_MARKERS]) {
     if (re.test(text)) failures.push(`annotation/markdown leak — ${label}`);
   }

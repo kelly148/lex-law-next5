@@ -48,6 +48,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
+import { checkAnnotationLeak, checkFormatLints } from './deedDraftGates.js';
 
 /** The verified exemption CODEs for this category (validated against the KB; the house FACE forms are rendered). */
 const C2_EXEMPTION_CODE_12 = 'Va. Code § 58.1-811(A)(12)';
@@ -179,11 +180,12 @@ export interface DeedIntoTrustResult {
   status: 'OK' | 'WITHHELD';
   flags: string[];
   advisories: string[];
+  recordableFloorOk: boolean;
   deed?: DeedIntoTrustSegments;
 }
 
 function withheld(flags: string[], advisories: string[] = []): DeedIntoTrustResult {
-  return { status: 'WITHHELD', flags, advisories };
+  return { status: 'WITHHELD', flags, advisories, recordableFloorOk: false };
 }
 
 /** A field is missing/blank if undefined, null, all-whitespace, or carries an unresolved "[[ … ]]" placeholder. */
@@ -585,12 +587,18 @@ function assembleExemplarAB(
   lines.push('', '', ...notaryLines);
 
   const fullText = lines.join('\n');
+  // ADVISORY floor (S3). NB: a VALID Into-Trust deed can read false here — B6 flags the legitimate condo
+  // "*Reference to Parking Space(s)..." footnote and the statutorily-required §55.1-136(C) "NOTE:". So
+  // recordableFloorOk must NOT gate emission for this category until B6 is refined to allowlist those
+  // constructs (operator-gated). It is exposed for human review only; the deed still assembles.
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
   const notaryBlock = notaryLines.join('\n');
 
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title: C2_TITLE,
@@ -701,11 +709,17 @@ function assembleExemplarC(
   lines.push('', '', 'After recording return to:', ...returnLines);
 
   const fullText = lines.join('\n');
+  // ADVISORY floor (S3). NB: a VALID Into-Trust deed can read false here — B6 flags the legitimate condo
+  // "*Reference to Parking Space(s)..." footnote and the statutorily-required §55.1-136(C) "NOTE:". So
+  // recordableFloorOk must NOT gate emission for this category until B6 is refined to allowlist those
+  // constructs (operator-gated). It is exposed for human review only; the deed still assembles.
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
 
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title: C2_TITLE,

@@ -37,7 +37,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
-import { renderLocality } from './deedDraftGates.js';
+import { renderLocality, checkAnnotationLeak, checkFormatLints } from './deedDraftGates.js';
 
 /** The verified exemption cite for this category (validated against the KB; no-hallucinated-cite discipline). */
 const C1_EXEMPTION_CODE = 'Va. Code § 58.1-810(1)';
@@ -182,11 +182,12 @@ export interface DeedConfirmationResult {
   status: 'OK' | 'WITHHELD';
   flags: string[];
   advisories: string[];
+  recordableFloorOk: boolean;
   deed?: DeedConfirmationSegments;
 }
 
 function withheld(flags: string[], advisories: string[] = []): DeedConfirmationResult {
-  return { status: 'WITHHELD', flags, advisories };
+  return { status: 'WITHHELD', flags, advisories, recordableFloorOk: false };
 }
 
 /** A field is missing/blank if undefined, null, all-whitespace, or carries a "[[ … ]]" placeholder marker
@@ -426,10 +427,12 @@ function assembleSurvivorship(input: DeedConfirmationInput, advisories: string[]
   ];
 
   const fullText = lines.join('\n');
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title: C1_TITLE,
@@ -546,10 +549,12 @@ function assembleTestateDevise(input: DeedConfirmationInput, advisories: string[
   ];
 
   const fullText = lines.join('\n');
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title: C1_TITLE,

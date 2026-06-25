@@ -189,6 +189,28 @@ describe('B6 — annotation-leak floor (deterministic, fail-closed)', () => {
     expect(checkAnnotationLeak('… **GENERAL WARRANTY** …').ok).toBe(false);
     expect(checkAnnotationLeak('| Column | Column |').ok).toBe(false);
   });
+
+  // ── B6 refinement (#421 disposition (a)): allowlist the legitimate statutory/condo recorded constructs ──
+  it('ALLOWLISTS the §55.1-136(C) TBE-immunity NOTE and the condo LCE "*Reference to Parking Space(s)" footnote', () => {
+    const tbeNote =
+      'NOTE: The Grantors herein wish to retain the same immunity from the claims of their separate creditors as they would if they had continued to hold the subject property as tenants by the entirety pursuant to VA Code Section 55.1-136(C).';
+    const condoFootnote =
+      '*Reference to Parking Space(s) and Storage Space(s) are for identification purposes only; right to use the space(s) is subject to the terms of the governing documents, and any and all amendments thereto.';
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\n${tbeNote}`).ok).toBe(true);
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\n${condoFootnote}`).ok).toBe(true);
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\n${tbeNote}\n${condoFootnote}`).ok).toBe(true);
+  });
+
+  it('the allowlist is NARROW — a STRAY NOTE: / asterisk (not the statutory/condo construct) still fails closed', () => {
+    // A NOTE: that does NOT carry the §55.1-136 TBE-immunity construct is still a leak.
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\nNOTE: confirm marital status before recording`).ok).toBe(false);
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\nNOTE: see file 36-2026-6684`).ok).toBe(false);
+    // An asterisk that is NOT the LCE parking/storage footnote is still markdown/markup.
+    expect(checkAnnotationLeak('… *see attached schedule …').ok).toBe(false);
+    expect(checkAnnotationLeak('… **GENERAL WARRANTY** …').ok).toBe(false);
+    // Defensive: the distinctive phrase WITHOUT a leading asterisk is untouched (still clean, no asterisk to mask).
+    expect(checkAnnotationLeak(`${CLEAN_DEED_TEXT}\nReference to Parking Space(s) and Storage Space(s) are noted.`).ok).toBe(true);
+  });
 });
 
 describe('format / typo lints (fail-closed)', () => {

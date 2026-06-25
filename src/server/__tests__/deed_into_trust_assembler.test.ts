@@ -123,6 +123,12 @@ describe('Into-Trust (C2) — GOLDEN fixtures reproduce the fixture pack exactly
       const j = grabGoldInput(n);
       const result = assembleIntoTrustDeed(toInput(j, GOLD_EXEMPLAR[n]!));
       expect(result.status).toBe('OK');
+      // S3 advisory recordability floor + the B6 refinement (#421 disposition (a)). The condo
+      // "*Reference to Parking Space(s)..." footnote (GOLDEN-1) and the §55.1-136(C) TBE-immunity "NOTE:"
+      // (GOLDEN-2) are LEGITIMATE recorded constructs — checkAnnotationLeak now allowlists them (masking the
+      // construct, not weakening the floor: a stray asterisk/NOTE: elsewhere still fails closed), so all three
+      // GOLDENs pass the floor. (GOLDEN-3 is a divorced SFH with no note.)
+      expect(result.recordableFloorOk).toBe(true);
       expect(result.deed).toBeDefined();
       const d = result.deed!;
 

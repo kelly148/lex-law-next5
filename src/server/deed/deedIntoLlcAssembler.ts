@@ -24,6 +24,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
+import { checkAnnotationLeak, checkFormatLints } from './deedDraftGates.js';
 
 /** The verified exemption cite for this category (validated against the KB; the house FACE form is rendered). */
 const C3_EXEMPTION_CODE = 'Va. Code § 58.1-811(A)(10)';
@@ -78,6 +79,7 @@ export interface DeedIntoLlcResult {
   flags: string[];
   /** Non-blocking lint advisories (e.g. the singular-possessive-with-two-grantors firm-standard note). */
   advisories: string[];
+  recordableFloorOk: boolean;
   deed?: DeedIntoLlcSegments;
 }
 
@@ -116,7 +118,7 @@ function llcDesignatorValid(granteeLlc: string | undefined): boolean {
 }
 
 function withheld(flags: string[]): DeedIntoLlcResult {
-  return { status: 'WITHHELD', flags, advisories: [] };
+  return { status: 'WITHHELD', flags, advisories: [], recordableFloorOk: false };
 }
 
 /**
@@ -248,11 +250,13 @@ export function assembleDeedIntoLlc(input: DeedIntoLlcInput): DeedIntoLlcResult 
   );
 
   const fullText = lines.join('\n');
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
 
   return {
     status: 'OK',
     flags: [],
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       title,
