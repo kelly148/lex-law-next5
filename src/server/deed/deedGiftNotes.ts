@@ -54,13 +54,16 @@ export interface GiftDrafterNotes {
 const GIFT = VA_DEED_TYPES.find((t) => t.key === 'gift');
 const GIFT_EXEMPTION = GIFT?.exemptionCitation ?? 'Va. Code § 58.1-811(D)';
 
-/** The verified statutory citation whose KB subject matches a keyword (e.g. "survivorship"); null if absent. */
-function kbCite(subjectKeyword: string): string | null {
+/** The verified statutory citation whose KB subject matches a keyword (e.g. "survivorship"); null if absent.
+ *  Exported so the category-notes builder (deedCategoryNotes.ts) cites from the SAME verified-KB lookup — never
+ *  model memory. */
+export function kbCite(subjectKeyword: string): string | null {
   const hit = VA_STATUTORY_CITATIONS.find((c) => c.subject.toLowerCase().includes(subjectKeyword.toLowerCase()));
   return hit ? hit.citation : null;
 }
-/** The verified exemption citation for a Va. Code subsection keyword (e.g. "transfer-on-death"); null if absent. */
-function kbExemptionCite(keyword: string): string | null {
+/** The verified exemption citation for a Va. Code subsection keyword (e.g. "transfer-on-death"); null if absent.
+ *  Exported for reuse by the category-notes builder. */
+export function kbExemptionCite(keyword: string): string | null {
   const hit = VA_EXEMPTIONS.find((e) => e.transferType.toLowerCase().includes(keyword.toLowerCase()));
   return hit ? hit.citation : null;
 }
@@ -77,15 +80,37 @@ function partyNames(input: GiftDeedInput): string[] {
 /** Normalize a person name for a CONSERVATIVE cross-source equality check: lowercase, collapse whitespace,
  *  drop punctuation. Deliberately loose so trivial case/spacing/period differences do NOT surface a false
  *  mismatch; a genuine spelling difference (different tokens) still differs. Used ONLY to detect a mismatch to
- *  SURFACE for attorney reconciliation — never to assert two names are "the same" and silently resolve them. */
-function normalizeName(s: string): string {
+ *  SURFACE for attorney reconciliation — never to assert two names are "the same" and silently resolve them.
+ *  Exported so the category-notes builder reconciles names identically. */
+export function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Normalize a legal-description block for a CONSERVATIVE equality check (whitespace + case + trailing period).
- *  Loose enough that an OCR-whitespace/case difference is not flagged; a real textual divergence still differs. */
-function normalizeLegal(s: string): string {
+ *  Loose enough that an OCR-whitespace/case difference is not flagged; a real textual divergence still differs.
+ *  Exported so the category-notes builder compares legals identically. */
+export function normalizeLegal(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').replace(/\.\s*$/, '').trim();
+}
+
+/**
+ * SHARED RENDER (extracted, byte-identical): a numbered, plain-text "DRAFTER'S NOTES — DELETE BEFORE RECORDING"
+ * page kept OUT of the recordable deed body. The gift builder and the category builder render through this one
+ * function so the two read identically. The gift output is unchanged (the same header lines + the same per-note
+ * `${i+1}. (${SEV}) ${text}${cite}` format).
+ */
+export function renderDrafterNotes(notes: readonly DrafterNote[]): string {
+  const sevTag: Record<DrafterNoteSeverity, string> = { info: 'INFO', caution: 'CAUTION', escalate: 'ESCALATE' };
+  const lines = notes.map((n, i) => {
+    const cite = n.citations.length > 0 ? ` [${n.citations.join('; ')}]` : '';
+    return `${i + 1}. (${sevTag[n.severity]}) ${n.text}${cite}`;
+  });
+  return [
+    'DRAFTER\'S NOTES — DELETE BEFORE RECORDING',
+    'These notes surface decision points and diligence for the supervising attorney; they are NOT part of the recordable instrument. The attorney is the final decision-maker.',
+    '',
+    ...lines,
+  ].join('\n');
 }
 
 /**
@@ -256,17 +281,9 @@ export function buildGiftDrafterNotes(
   );
 
   // ── render a numbered, plain-text notes page (kept OUT of the recordable deed body) ──
-  const sevTag: Record<DrafterNoteSeverity, string> = { info: 'INFO', caution: 'CAUTION', escalate: 'ESCALATE' };
-  const lines = notes.map((n, i) => {
-    const cite = n.citations.length > 0 ? ` [${n.citations.join('; ')}]` : '';
-    return `${i + 1}. (${sevTag[n.severity]}) ${n.text}${cite}`;
-  });
-  const rendered = [
-    'DRAFTER\'S NOTES — DELETE BEFORE RECORDING',
-    'These notes surface decision points and diligence for the supervising attorney; they are NOT part of the recordable instrument. The attorney is the final decision-maker.',
-    '',
-    ...lines,
-  ].join('\n');
+  // Byte-identical to the prior inline render — extracted to the shared renderDrafterNotes so the category
+  // builder renders the same way.
+  const rendered = renderDrafterNotes(notes);
 
   return { notes, rendered };
 }
