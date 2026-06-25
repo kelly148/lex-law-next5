@@ -29,6 +29,9 @@ import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
 import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../deed/deedGiftAssembler.js';
+import { VA_VESTING_OPTIONS } from '../deed/deedKbVa.js';
+import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
+import { EVALUATOR_MODEL } from '../llm/config.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import {
   assembleTodDeed,
@@ -1897,6 +1900,164 @@ function quickDeedDateStamp(now: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// DEED-DRAFT-AGENT-1 QUICK DEED LAYER 2 (E3) — AI FREE-ASSOCIATE INTAKE (the ONE LLM step on this track).
+//
+// The attorney free-associates the deal in one text box; a SINGLE model step PARSES → PROPOSES only the
+// irreducible intake fields (grantees, married-couple flag, an explicit vesting override, and any explicit
+// file-number / derivation / locality overrides the attorney stated). The deterministic assembler still does
+// ALL generation later, in a separate attorney-confirmed step — this procedure PROPOSES ONLY: it returns the
+// parsed structured intent for the attorney to confirm; it NEVER calls quickDeed.generate, never auto-records,
+// never sends, and NEVER authors a legal/property description (that stays EXTRACTION-ONLY, never model-authored).
+//
+// The LLM call runs through the EXISTING egress control plane (documentEgressSend) — NO new egress path, audit
+// table, provider-allowlist var, or env var. enforceProviderAllowlist stays TRUE (fail-closed): the allowlist
+// (GROUNDED_CHAT_PROVIDERS) ships INERT in prod, so the parse is inert until the operator populates it after
+// confirming no-train/ZDR/DPA terms. Fail-closed on ambiguity: a low-confidence / ambiguous / schema-invalid
+// model output returns a needs-clarification result — it NEVER default-fills a contested donee or vesting.
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** The set of valid VA vesting keys (deedKbVa) a proposed vestingOverride must match — the SAME controlled list
+ *  the gift assembler validates against, so a proposed override and the later deterministic generate cannot drift. */
+const VA_VESTING_KEYS: ReadonlySet<string> = new Set(VA_VESTING_OPTIONS.map((o) => o.key));
+
+/**
+ * The structured-output schema the model MUST emit for a propose-intake parse. Carries ONLY the irreducible
+ * intake fields that map 1:1 onto GiftDeedInput — and CARRIES NO legal-description / property-description field
+ * (the verbatim legal stays EXTRACTION-ONLY via extractDeedIngest/consolidateDeedSourceFacts; never model-
+ * authored). `confident` + `clarifyingQuestions` let the model fail closed: when it is unsure which "Jordan" or
+ * what tenancy was meant, it sets confident=false and asks rather than guessing. This schema is passed to the
+ * provider as the structured-output contract AND re-validated below (a provider that ignores it cannot smuggle
+ * extra fields past validateProposeIntakeOutput, which strips to exactly these keys).
+ */
+export const ProposeIntakeOutputSchema = z
+  .object({
+    grantees: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(200),
+          relationship: z.string().max(200).optional(),
+        }),
+      )
+      .max(20)
+      .default([]),
+    granteesAreMarriedCouple: z.boolean().optional(),
+    /** A VA_VESTING_OPTIONS key the attorney explicitly stated; validated against deedKbVa below. */
+    vestingOverride: z.string().max(120).nullable().optional(),
+    /** Explicit attorney-stated overrides only (never invented). */
+    fileNumber: z.string().max(120).nullable().optional(),
+    derivationReference: z.string().max(400).nullable().optional(),
+    locality: z.string().max(200).nullable().optional(),
+    /** The model's own confidence gate — false ⇒ fail closed to needs_clarification. */
+    confident: z.boolean().default(true),
+    /** Questions the model wants answered before the attorney should rely on the parse. */
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+  })
+  .strict();
+
+/** The attorney-confirmable proposal — the irreducible intake fields, mapping 1:1 onto GiftDeedInput. NO
+ *  legal/property-description field (model never authors the legal). */
+export interface ProposeIntakeProposal {
+  grantees: { name: string; relationship?: string }[];
+  granteesAreMarriedCouple?: boolean;
+  vestingOverride?: string | null;
+  overrides: {
+    fileNumber?: string | null;
+    derivationReference?: string | null;
+    locality?: string | null;
+  };
+}
+
+export type ProposeIntakeResult =
+  | { status: 'proposed'; proposal: ProposeIntakeProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+/** The advisory system prompt: extract ONLY the irreducible deed-intake fields the attorney stated; NEVER author
+ *  a legal/property description; if anything is ambiguous, ASK (set confident=false + clarifyingQuestions) rather
+ *  than guess. PROPOSE-ONLY — this never drafts, records, or sends. */
+export function buildProposeIntakeSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney. The attorney has free-associated the facts of a',
+    'gift-deed deal in one text box. Extract ONLY the irreducible intake fields the attorney EXPLICITLY stated:',
+    '  - grantees: the donee(s) — each a { name, relationship } where relationship is the donee\'s relationship',
+    '    to the grantor (e.g. "the Grantor\'s daughter") ONLY if the attorney stated it.',
+    '  - granteesAreMarriedCouple: true ONLY if the attorney said the grantees are a married couple.',
+    '  - vestingOverride: a vesting/tenancy KEY the attorney explicitly chose, one of exactly:',
+    `    ${[...VA_VESTING_KEYS].join(', ')}. Omit it unless the attorney stated the tenancy.`,
+    '  - fileNumber / derivationReference / locality: ONLY if the attorney explicitly stated each.',
+    '',
+    'HARD RULES:',
+    '  - Do NOT author, paraphrase, infer, or emit any legal description or property description. There is NO',
+    '    field for it; the verbatim legal is taken from the uploaded documents only, never from you.',
+    '  - Do NOT invent, default, or guess ANY field. A field you are unsure about must be OMITTED, not filled.',
+    '  - If anything load-bearing is ambiguous (which person is meant, what tenancy, who the donees are), set',
+    '    confident=false and put a specific question in clarifyingQuestions. NEVER guess a contested donee or',
+    '    tenancy — ask instead.',
+    '  - You only PROPOSE the parse for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object.',
+  ].join('\n');
+}
+
+/** PURE: validate + normalize the model\'s structured output into a propose-intake RESULT. Fail-closed:
+ *  schema-invalid, the model\'s own confident=false, a present-but-invalid vestingOverride (not a
+ *  VA_VESTING_OPTIONS key), or NO grantees all collapse to a needs_clarification result (NEVER a partial/
+ *  default-filled proposal). Exported for direct (no-LLM) testing. */
+export function validateProposeIntakeOutput(raw: unknown): ProposeIntakeResult {
+  const parsed = ProposeIntakeOutputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['The intake could not be parsed into the required fields. Please restate the donees and tenancy.'],
+    };
+  }
+  const out = parsed.data;
+  const questions: string[] = [...out.clarifyingQuestions];
+
+  // The model's own low-confidence gate fails closed.
+  let needsClarification = out.confident === false;
+
+  // A vestingOverride, IF present, must be a valid VA_VESTING_OPTIONS key — never passed through otherwise.
+  const vesting = (out.vestingOverride ?? '').trim();
+  if (vesting !== '' && !VA_VESTING_KEYS.has(vesting)) {
+    needsClarification = true;
+    questions.push(
+      `The stated tenancy "${vesting}" is not a recognized Virginia vesting option (${[...VA_VESTING_KEYS].join(', ')}). Which did you mean?`,
+    );
+  }
+
+  // A gift deed must have at least one donee; a parse with none is ambiguous, not a default.
+  const grantees = out.grantees.map((g) => {
+    const r = (g.relationship ?? '').trim();
+    return r === '' ? { name: g.name.trim() } : { name: g.name.trim(), relationship: r };
+  });
+  if (grantees.length === 0) {
+    needsClarification = true;
+    questions.push('Who are the donee(s) (the grantee(s)) of this gift deed?');
+  }
+
+  if (needsClarification) {
+    return {
+      status: 'needs_clarification',
+      questions: questions.length > 0 ? questions : ['The intake is ambiguous; please clarify the donees and tenancy.'],
+    };
+  }
+
+  const proposal: ProposeIntakeProposal = {
+    grantees,
+    overrides: {},
+  };
+  if (out.granteesAreMarriedCouple !== undefined) proposal.granteesAreMarriedCouple = out.granteesAreMarriedCouple;
+  if (vesting !== '') proposal.vestingOverride = vesting;
+  const fileNumber = (out.fileNumber ?? '').trim();
+  if (fileNumber !== '') proposal.overrides.fileNumber = fileNumber;
+  const derivation = (out.derivationReference ?? '').trim();
+  if (derivation !== '') proposal.overrides.derivationReference = derivation;
+  const locality = (out.locality ?? '').trim();
+  if (locality !== '') proposal.overrides.locality = locality;
+
+  return { status: 'proposed', proposal };
+}
+
 export const quickDeedRouter = router({
   /** The available deed types for the surface's type selector — the WHOLE registry so the UI can show the
    *  unbuilt categories as disabled, plus the per-entry status so the selector knows which to enable. Flag-
@@ -1953,6 +2114,68 @@ export const quickDeedRouter = router({
       warnings: facts.warnings,
     };
   }),
+
+  /**
+   * Quick Deed Layer 2 (E3) — AI FREE-ASSOCIATE INTAKE. The attorney free-associates the deal in one text box;
+   * a SINGLE model step PARSES → PROPOSES only the irreducible intake fields for the attorney to confirm. This
+   * is the ONE LLM call on the deed track, and it runs through the EXISTING egress control plane
+   * (documentEgressSend, surface 'intake', subject type 'matter') — NO new egress path / audit table / env var.
+   * enforceProviderAllowlist stays TRUE (fail-closed; the allowlist ships inert in prod, so the parse is inert
+   * until the operator populates GROUNDED_CHAT_PROVIDERS). PROPOSE-ONLY: returns the parsed proposal; NEVER
+   * calls quickDeed.generate / buildGiftDraft, never persists, never records, never sends, and never authors a
+   * legal/property description (the verbatim legal stays EXTRACTION-ONLY). Fail-closed on ambiguity: a
+   * low-confidence / ambiguous / schema-invalid model output → { status:'needs_clarification', questions } — it
+   * NEVER default-fills a contested donee or vesting. A DocumentEgressBlockedError (hold / uncertain hold /
+   * provider not allowlisted) degrades to a clean blocked result, never a partial proposal.
+   */
+  proposeIntake: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(async ({ ctx, input }) => {
+      // Flag + ownership (+ not-archived) gate — fail-closed. Quick Deed bypasses the conflicts-at-intake gate
+      // (this is a parse, not a draft; nothing is persisted). Mirrors quickDeed.previewFacts / generate posture.
+      await assertDeedDraftingAllowed(ctx.userId, input.matterId, { bypassConflicts: true });
+
+      const systemPrompt = buildProposeIntakeSystemPrompt();
+      const userPrompt = input.freeText;
+
+      try {
+        // Explicit 300s timeout (do not inherit a shorter default), matching the sendability classifier.
+        const signal = AbortSignal.timeout(300_000);
+        const llmResult = await documentEgressSend({
+          subject: {
+            type: 'matter',
+            subjectId: input.matterId,
+            matterId: input.matterId,
+            userId: ctx.userId,
+          },
+          surface: 'intake',
+          modelString: EVALUATOR_MODEL,
+          llmParams: {
+            systemPrompt,
+            userPrompt,
+            temperature: 0.1,
+            maxTokens: 2048,
+            structuredOutputSchema: ProposeIntakeOutputSchema,
+            signal,
+          },
+          // Store-by-reference: the audit row hashes this, never the attorney's free text.
+          serializedPayload: `${systemPrompt}\n\n${userPrompt}`,
+          // Fail-closed provider allowlist (default) — the parse is inert in prod until the operator populates
+          // GROUNDED_CHAT_PROVIDERS after confirming no-train/ZDR/DPA terms. Do NOT bypass.
+          enforceProviderAllowlist: true,
+        });
+        // Validate + normalize against the proposal contract + the VA_VESTING_OPTIONS check. Fail-closed on
+        // ambiguity / low confidence / invalid vesting / no donees → needs_clarification (never a partial proposal).
+        return validateProposeIntakeOutput(llmResult.content);
+      } catch (err) {
+        if (err instanceof DocumentEgressBlockedError) {
+          // The egress gate refused the send (a no_external hold, an uncertain hold check, or a provider not on
+          // the allowlist). Return a clean blocked result — NEVER a partial/guessed proposal.
+          return { status: 'blocked' as const, reason: err.blockReason };
+        }
+        throw err;
+      }
+    }),
 
   /**
    * Start a Quick Deed: AUTO-CREATE the lightweight owning matter (title "Quick Deed — YYYY-MM-DD") so the
