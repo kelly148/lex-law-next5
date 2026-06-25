@@ -410,6 +410,31 @@ export function isChatReviewPanelEnabled(): boolean {
 }
 
 /**
+ * EXPRESS auto-review loop — the deterministic LOCUS-GATE program (EXPRESS-AUTO-REVIEW-LOOP-1).
+ * DEFAULT OFF. Whole Express program is flag-dark behind this single flag.
+ *
+ * When OFF (the default), the entire Express auto-review surface is dormant: the protected-span
+ * model + the locus gate (E1) are PURE library code that nothing in the live review/adopt path
+ * consults, no reviewer suggestion is auto-routed, and behavior is byte-for-byte unchanged
+ * everywhere. (E1 ships the gate + span model in ISOLATION; wiring into the live loop is E2–E5.)
+ *
+ * When exactly "true" (a future, operator-gated, E8-ship-gated flip), the bounded auto-review loop
+ * may route reviewer suggestions through the deterministic locus gate. The single architectural
+ * ruling the gate enforces: a suggestion may AUTO-ADOPT only because of WHERE its change lands — it
+ * intersects NO protected legal span, is NOT a deletion, and does NOT edit a defined term/definition
+ * — NEVER because a model labeled it "safe". A model classification is ADDITIVE-ONLY: it may RAISE an
+ * escalation, it can NEVER authorize an auto-adopt. The gate is pure + deterministic (character-range
+ * intersection), no LLM.
+ *
+ * INVARIANT (the ship gate, E8): enabling this for real / clearing it for recordable instruments
+ * requires the E8 zero-false-negative result + operator approval — never autonomous. Flag OFF = no
+ * change anywhere.
+ */
+export function isAutoReviewLoopEnabled(): boolean {
+  return process.env['AUTO_REVIEW_LOOP_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
