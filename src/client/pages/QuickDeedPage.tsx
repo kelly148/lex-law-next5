@@ -16,7 +16,7 @@
  * default (spec §5) — the server stamps a non-blocking "no conflicts check performed" note into the document.
  * This screen never finalizes, records, or sends.
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
@@ -133,6 +133,30 @@ export default function QuickDeedPage(): React.ReactElement {
   const [vestingOverride, setVestingOverride] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
+
+  // Quick Deed Layer 1 (E1b): once the owning matter exists, read the consolidated facts from the uploaded
+  // materials and PRE-FILL the empty form fields (recording locality, grantee's address) so the attorney
+  // confirms extracted values instead of re-typing. Override-safe: a field the attorney has typed is NEVER
+  // clobbered, and each field is pre-filled at most once (prefilledRef) so a cleared field stays cleared.
+  const previewFacts = trpc.quickDeed.previewFacts.useQuery(
+    { matterId: matterId ?? '' },
+    { enabled: !!matterId },
+  );
+  const prefilledRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const p = previewFacts.data;
+    if (!p || !p.hasMaterials) return;
+    const loc = p.locality;
+    if (loc && !prefilledRef.current.has('locality')) {
+      prefilledRef.current.add('locality');
+      setLocality((cur) => (cur.trim() === '' ? loc : cur));
+    }
+    const addr = p.granteeAddress;
+    if (addr && !prefilledRef.current.has('granteeAddress')) {
+      prefilledRef.current.add('granteeAddress');
+      setGranteeAddress((cur) => (cur.trim() === '' ? addr : cur));
+    }
+  }, [previewFacts.data]);
 
   if (flagLoading) {
     return (
@@ -292,6 +316,15 @@ export default function QuickDeedPage(): React.ReactElement {
           </p>
         </div>
 
+        {/* Quick Deed Layer 1 (E1b): once materials are uploaded, the doc-derived facts pre-fill the fields below. */}
+        {previewFacts.data?.hasMaterials && (
+          <div data-testid="quick-deed-prefill-note" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-2 text-xs text-ink-secondary">
+            Read from your uploads — the recording locality and the grantee&apos;s address (defaulted to the
+            property) are pre-filled below; confirm or override. The legal description, parcel, and assessed value
+            resolve into the draft automatically.
+          </div>
+        )}
+
         {/* Structured gift fields (mirror GiftDraftForm). */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -329,6 +362,7 @@ export default function QuickDeedPage(): React.ReactElement {
             <label className="block text-sm font-medium text-gray-700 mb-1">Recording locality</label>
             <input
               type="text"
+              data-testid="quick-deed-locality"
               value={locality}
               onChange={(e) => setLocality(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
@@ -340,6 +374,7 @@ export default function QuickDeedPage(): React.ReactElement {
           <label className="block text-sm font-medium text-gray-700 mb-1">Grantee&apos;s address</label>
           <input
             type="text"
+            data-testid="quick-deed-grantee-address"
             value={granteeAddress}
             onChange={(e) => setGranteeAddress(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
@@ -355,6 +390,11 @@ export default function QuickDeedPage(): React.ReactElement {
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
             placeholder="e.g. in Deed Book 5500 at Page 12 (where the prior deed is recorded)"
           />
+          {previewFacts.data?.derivationCandidate && (
+            <p data-testid="quick-deed-derivation-candidate" className="text-xs text-ink-hint mt-1">
+              Candidate from your uploads (confirm before use): {previewFacts.data.derivationCandidate}
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Vesting override (optional)</label>
@@ -381,7 +421,13 @@ export default function QuickDeedPage(): React.ReactElement {
       </form>
 
       {materialsOpen && matterId && (
-        <MaterialsDrawer matterId={matterId} onClose={() => setMaterialsOpen(false)} />
+        <MaterialsDrawer
+          matterId={matterId}
+          onClose={() => {
+            setMaterialsOpen(false);
+            void previewFacts.refetch(); // re-read facts after an upload so the form pre-fills from extraction
+          }}
+        />
       )}
     </div>
   );

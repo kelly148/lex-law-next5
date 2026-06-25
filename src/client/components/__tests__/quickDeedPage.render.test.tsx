@@ -19,9 +19,25 @@ import { StrictMode } from 'react';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
+interface PreviewFacts {
+  hasMaterials: boolean;
+  locality: string | null;
+  granteeAddress: string | null;
+  derivationCandidate: string | null;
+  resolved: { legalDescription: boolean; parcelId: boolean; assessedValue: boolean; locality: boolean; propertyAddress: boolean };
+  warnings: string[];
+}
 const mockState = vi.hoisted(() => ({
   enabled: true,
   deedTypes: [] as Array<{ key: string; title: string; category: string; status: string; quickDeedGenerates: boolean }>,
+  previewFacts: null as null | {
+    hasMaterials: boolean;
+    locality: string | null;
+    granteeAddress: string | null;
+    derivationCandidate: string | null;
+    resolved: { legalDescription: boolean; parcelId: boolean; assessedValue: boolean; locality: boolean; propertyAddress: boolean };
+    warnings: string[];
+  },
 }));
 
 // Capture the create mutation fired on mount (the auto-matter).
@@ -49,6 +65,7 @@ vi.mock('../../trpc.js', async () => {
       },
       quickDeed: {
         listDeedTypes: { useQuery: q(() => mockState.deedTypes) },
+        previewFacts: { useQuery: q(() => mockState.previewFacts) },
       },
     },
   };
@@ -104,6 +121,7 @@ afterEach(() => {
   cleanup();
   mockState.enabled = true;
   mockState.deedTypes = [];
+  mockState.previewFacts = null;
 });
 
 describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
@@ -174,5 +192,35 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     const c = renderPage();
     expect(c.querySelector('[data-testid="quick-deed-page"]')).toBeNull();
     expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it('Layer 1 (E1b) pre-fill: extracted locality + situs grantee-address fill the empty fields + a candidate hint', () => {
+    mockState.enabled = true;
+    mockState.deedTypes = FULL_REGISTRY;
+    mockState.previewFacts = {
+      hasMaterials: true,
+      locality: 'Fairfax County',
+      granteeAddress: '4120 Cedar Run Lane, Manassas, VA 20109',
+      derivationCandidate: 'in Deed Book 3000 at Page 100',
+      resolved: { legalDescription: true, parcelId: true, assessedValue: true, locality: true, propertyAddress: true },
+      warnings: [],
+    } satisfies PreviewFacts;
+    const c = renderPage();
+    expect(c.querySelector('[data-testid="quick-deed-prefill-note"]')).toBeTruthy();
+    const locality = c.querySelector('[data-testid="quick-deed-locality"]') as HTMLInputElement;
+    const addr = c.querySelector('[data-testid="quick-deed-grantee-address"]') as HTMLInputElement;
+    expect(locality.value).toBe('Fairfax County');
+    expect(addr.value).toBe('4120 Cedar Run Lane, Manassas, VA 20109');
+    expect(c.querySelector('[data-testid="quick-deed-derivation-candidate"]')?.textContent).toContain('in Deed Book 3000 at Page 100');
+  });
+
+  it('Layer 1 (E1b) pre-fill: no materials -> no pre-fill banner, fields stay empty', () => {
+    mockState.enabled = true;
+    mockState.deedTypes = FULL_REGISTRY;
+    mockState.previewFacts = null;
+    const c = renderPage();
+    expect(c.querySelector('[data-testid="quick-deed-prefill-note"]')).toBeNull();
+    const locality = c.querySelector('[data-testid="quick-deed-locality"]') as HTMLInputElement;
+    expect(locality.value).toBe('');
   });
 });

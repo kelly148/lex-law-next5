@@ -572,6 +572,42 @@ export const quickDeedRouter = router({
   }),
 
   /**
+   * Quick Deed Layer 1 (E1b) — READ-ONLY pre-fill source for the Quick Deed form. Reads the matter's uploaded
+   * materials, consolidates the OCR-B1 facts, and returns the document-derived values the attorney would
+   * otherwise re-type — each ATTORNEY-OVERRIDE-ABLE in the form. Flag-gated (fail-closed); ownership-scoped via
+   * listMaterialsForMatter(ctx.userId). NEVER mutates and NEVER auto-uses anything beyond pre-populating the
+   * form fields the attorney confirms. The derivation reference is surfaced only as a CANDIDATE (a deed body
+   * never carries its own recording stamp), never pre-filled into the value. Mirrors the generate path's read +
+   * consolidate so the pre-filled values match what generation will resolve.
+   */
+  previewFacts: protectedProcedure.input(z.object({ matterId: z.string().min(1) })).query(async ({ ctx, input }) => {
+    if (!isDeedDraftAgentEnabled()) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'DEED_DRAFT_AGENT_DISABLED: the deed-draft agent is not enabled.' });
+    }
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+    const candidate = facts.derivationCandidates.value ?? (facts.derivationCandidates.values.join(', ') || null);
+    return {
+      hasMaterials: materials.length > 0,
+      // Pre-fillable form fields (attorney-override-able): the recording locality and the grantee's address
+      // (defaulted to the property situs per the operator rule). null = the packet did not supply it.
+      locality: facts.propertyLocality.value,
+      granteeAddress: facts.propertyAddress.value,
+      // Surfaced as a CANDIDATE only (a hint beneath the field) — never auto-filled into the derivation value.
+      derivationCandidate: candidate,
+      // Resolution transparency so the UI can show "read from your uploads" for what the packet supplies.
+      resolved: {
+        legalDescription: !facts.legalDescription.withheld && facts.legalDescription.value !== null,
+        parcelId: facts.parcelId.value !== null,
+        assessedValue: facts.assessedValue.value !== null,
+        locality: facts.propertyLocality.value !== null,
+        propertyAddress: facts.propertyAddress.value !== null,
+      },
+      warnings: facts.warnings,
+    };
+  }),
+
+  /**
    * Start a Quick Deed: AUTO-CREATE the lightweight owning matter (title "Quick Deed — YYYY-MM-DD") so the
    * existing matterId-keyed MaterialsDrawer can attach the vesting deed / tax record uploads (spec §3.1/§3.3)
    * and the document persists through the standard path. Flag-gated (fail-closed). Returns { matterId }. NO
