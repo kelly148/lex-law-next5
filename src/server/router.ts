@@ -53,6 +53,7 @@ import { reviewerHealthRouter } from './procedures/reviewerHealth.js';
 import { materialExtractionRouter } from './procedures/materialExtraction.js';
 import { matterEntityRouter } from './procedures/matterEntity.js';
 import { notificationsRouter } from './procedures/notifications.js';
+import { expressReviewLoopRouter } from './procedures/expressReviewLoop.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -160,6 +161,13 @@ export const appRouter = router({
   // the conflicts-at-intake gate + matter ownership. The FIRE §7 spine lives in the assembler (verbatim legal,
   // [[ ]] placeholders never fabricated, exemption-safe, attorney decides); never auto-records/files/sends.
   deedDraftAgent: deedDraftAgentRouter,
+  // EXPRESS-AUTO-REVIEW-LOOP-1 (E6) — the flag-gated LIVE wiring of the bounded anti-drift auto-review loop.
+  // run() reviews a matter's document THROUGH the EXISTING egress broker (surface 'reviewer', fail-closed,
+  // enforceProviderAllowlist) and returns a NON-FINAL candidate + ledger + escalations; the regenerate is a
+  // deterministic, no-egress splice of the adopted edits. Gated behind AUTO_REVIEW_LOOP_ENABLED (default OFF,
+  // refuses when OFF). FAIL-CLOSED on a held/sealed/no-external/conflicts matter -> { status:'blocked' }. NEVER
+  // finalizes/records/sends; no migration; no new EgressSurface.
+  expressReviewLoop: expressReviewLoopRouter,
   // DEED-DRAFT-AGENT-1 QUICK DEED (QD-1) — the deed-type-agnostic fast-lane surface backend. Auto-creates a
   // lightweight owning matter (so the doc persists through the standard documents/versions path), BYPASSES the
   // conflicts-at-intake gate by default (spec §5; the bypass is a single seam for QD-2 to flip), and reuses the

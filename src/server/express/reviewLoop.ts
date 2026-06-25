@@ -124,7 +124,7 @@ export interface LoopContext {
 export type ReviewPort = (
   candidateText: string,
   ctx: LoopContext,
-) => readonly LoopSuggestion[];
+) => readonly LoopSuggestion[] | Promise<readonly LoopSuggestion[]>;
 
 /**
  * THE REGENERATE PORT (injected). Given the ORIGINAL MATERIALS + the CUMULATIVE adopted set + the loop context,
@@ -137,7 +137,7 @@ export type RegeneratePort = (
   originalMaterials: string,
   adoptedChanges: readonly AdoptedChange[],
   ctx: LoopContext,
-) => string;
+) => string | Promise<string>;
 
 /**
  * A reviewer suggestion as the LOOP sees it: a routable suggestion (E2) optionally carrying an E3 classifier
@@ -224,8 +224,13 @@ export interface ExpressLoopResult {
 // ── the orchestrator ───────────────────────────────────────────────────────────────────────────────────
 
 /**
- * RUN the bounded anti-drift auto-review loop. PURE / DETERMINISTIC over the injected ports — E5 makes NO
+ * RUN the bounded anti-drift auto-review loop. DETERMINISTIC over the injected ports — E5 itself makes NO
  * egress / LLM / network / DB call; all I/O is the two injected ports (mocked in tests, egress-backed in E6).
+ *
+ * ASYNC (E6-widened): the ports may be synchronous OR return a Promise — the real E6 ReviewPort dispatches
+ * through the egress broker (async), so runExpressLoop is async and `await`s each port. This is a NON-behavioral
+ * signature widening: the loop logic, ordering, ledger, anti-drift, immutability, and convergence/cap rules are
+ * UNCHANGED — a synchronous port awaits to the same value, so every prior assertion holds (tests add `await`).
  *
  * THE PER-ROUND ALGORITHM (round = 1 .. cap, where cap = clampRounds(maxRounds), an absolute ceiling of 3):
  *   1. REVIEW: call reviewPort on the CURRENT candidate -> this pass's suggestions.
@@ -246,7 +251,7 @@ export interface ExpressLoopResult {
  * The candidate is handed back NON-FINAL (isFinal:false) with the full ledger, the risk-ranked escalations, the
  * cumulative adopted set, and the v1->candidate redline.
  */
-export function runExpressLoop(params: ExpressLoopParams): ExpressLoopResult {
+export async function runExpressLoop(params: ExpressLoopParams): Promise<ExpressLoopResult> {
   const cap = clampRounds(params.maxRounds);
 
   // E5 owns exactly ONE tracker + ONE ledger per loop, threaded through every pass (the single mutable state).
@@ -267,8 +272,10 @@ export function runExpressLoop(params: ExpressLoopParams): ExpressLoopResult {
   for (let round = 1; round <= cap; round++) {
     roundsRun = round;
 
-    // 1) REVIEW the CURRENT candidate (the reviewer always sees the latest draft).
-    const suggestions = params.reviewPort(candidate, ctx);
+    // 1) REVIEW the CURRENT candidate (the reviewer always sees the latest draft). `await` so an egress-backed
+    //    (async) ReviewPort works identically to a synchronous mock; a DocumentEgressBlockedError thrown by the
+    //    E6 port propagates out of runExpressLoop (the loop halts; the caller maps it to a blocked result).
+    const suggestions = await params.reviewPort(candidate, ctx);
 
     // The protected-span catalog for THIS round's candidate (caller-supplied or derived per round).
     const protectedSpans =
@@ -348,7 +355,7 @@ export function runExpressLoop(params: ExpressLoopParams): ExpressLoopResult {
 
     // 5) REGENERATE (ANTI-DRIFT) — rebuild the next candidate from the ORIGINAL MATERIALS + the cumulative
     //    adopted set. The prior candidate is NEVER passed — the loop cannot compound on a drift.
-    candidate = params.regeneratePort(params.originalMaterials, adopted.slice(), ctx);
+    candidate = await params.regeneratePort(params.originalMaterials, adopted.slice(), ctx);
     roundSummaries.push({
       round,
       suggestionCount: suggestions.length,

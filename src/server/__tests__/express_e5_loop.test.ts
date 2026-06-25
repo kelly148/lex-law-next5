@@ -153,12 +153,12 @@ describe('E5 — clampRounds enforces the absolute hard cap (3) and the default 
 // ── HARD CAP: an always-adoptable reviewer stops at the cap ────────────────────────────────────────────
 
 describe('E5 — HARD CAP: an always-auto-adoptable reviewer stops at the round cap', () => {
-  it('default cap: a reviewPort that ALWAYS returns a fresh auto-adoptable suggestion stops at 2 rounds', () => {
+  it('default cap: a reviewPort that ALWAYS returns a fresh auto-adoptable suggestion stops at 2 rounds', async () => {
     installFetchSpy();
     const reviewPort: ReviewPort = () => [plainAdoptSug()];
     const regenSpy = vi.fn((): string => PLAIN); // regenerate to the same clean candidate
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: PLAIN,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -175,12 +175,12 @@ describe('E5 — HARD CAP: an always-auto-adoptable reviewer stops at the round 
     expect(regenSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('hard cap absolute: maxRounds=99 is clamped to 3 — the loop never exceeds 3 rounds', () => {
+  it('hard cap absolute: maxRounds=99 is clamped to 3 — the loop never exceeds 3 rounds', async () => {
     installFetchSpy();
     const reviewPort: ReviewPort = () => [plainAdoptSug()];
     const regenSpy = vi.fn((): string => PLAIN);
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: PLAIN,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -201,7 +201,7 @@ describe('E5 — HARD CAP: an always-auto-adoptable reviewer stops at the round 
 // ── CONVERGENCE: a no-adopt round stops the loop ───────────────────────────────────────────────────────
 
 describe('E5 — CONVERGENCE: a round with no adopt stops the loop (efficiency only)', () => {
-  it('reviewPort adopts on round 1, returns nothing on round 2 -> stops at round 2, converged', () => {
+  it('reviewPort adopts on round 1, returns nothing on round 2 -> stops at round 2, converged', async () => {
     installFetchSpy();
     let call = 0;
     const reviewPort: ReviewPort = () => {
@@ -210,7 +210,7 @@ describe('E5 — CONVERGENCE: a round with no adopt stops the loop (efficiency o
     };
     const regenSpy = vi.fn((): string => PLAIN);
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: PLAIN,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -229,13 +229,13 @@ describe('E5 — CONVERGENCE: a round with no adopt stops the loop (efficiency o
     expect(result.isFinal).toBe(false);
   });
 
-  it('an immediate no-adopt round 1 (all escalations) converges at round 1 with no regenerate', () => {
+  it('an immediate no-adopt round 1 (all escalations) converges at round 1 with no regenerate', async () => {
     installFetchSpy();
     const legal = spanFor('legal_description');
     const reviewPort: ReviewPort = () => [sug(legal.start + 1, legal.start + 4)]; // inside legal desc -> escalate
     const regenSpy = vi.fn((): string => DEED);
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: DEED,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -255,7 +255,7 @@ describe('E5 — CONVERGENCE: a round with no adopt stops the loop (efficiency o
 // ── ANTI-DRIFT: regenerate is fed the ORIGINAL materials each round, never the prior candidate ─────────
 
 describe('E5 — ANTI-DRIFT: regeneratePort receives the ORIGINAL materials each round, not the prior candidate', () => {
-  it('captures regeneratePort args and proves the ORIGINAL materials are re-fed (never the candidate)', () => {
+  it('captures regeneratePort args and proves the ORIGINAL materials are re-fed (never the candidate)', async () => {
     installFetchSpy();
     const ORIGINAL_MATERIALS = 'THE-ORIGINAL-MATERIALS-AND-INSTRUCTION';
 
@@ -271,7 +271,7 @@ describe('E5 — ANTI-DRIFT: regeneratePort receives the ORIGINAL materials each
     // always one fresh auto-adoptable suggestion (so the loop runs to the cap and regenerates each round)
     const reviewPort: ReviewPort = () => [plainAdoptSug()];
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: candidates[0]!,
       originalMaterials: ORIGINAL_MATERIALS,
@@ -300,7 +300,7 @@ describe('E5 — ANTI-DRIFT: regeneratePort receives the ORIGINAL materials each
 // ── SAME-SPAN RE-TOUCH: a span escalated in round 1 is forced to escalate in round 2 ───────────────────
 
 describe('E5 — SAME-SPAN RE-TOUCH: an escalated span is immutable across rounds (anti-laundering)', () => {
-  it('round 1 escalates a span; round 2 re-touches it as "style" -> forced escalate, recorded in the ledger', () => {
+  it('round 1 escalates a span; round 2 re-touches it as "style" -> forced escalate, recorded in the ledger', async () => {
     installFetchSpy();
     // Round 1: an edit INSIDE the (synthetic) warranty span -> escalate (records the locus in the tracker),
     // PLUS a clean adopt FAR from the span so round 1 is NOT a convergence stop and the loop proceeds to round 2.
@@ -326,7 +326,7 @@ describe('E5 — SAME-SPAN RE-TOUCH: an escalated span is immutable across round
     // regenerate returns the SAME MIXED text so the warranty span offsets are stable across rounds.
     const regenSpy = vi.fn((): string => MIXED);
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: MIXED,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -351,7 +351,7 @@ describe('E5 — SAME-SPAN RE-TOUCH: an escalated span is immutable across round
 // ── LEDGER accumulation + NON-FINAL candidate + redline ────────────────────────────────────────────────
 
 describe('E5 — the ledger accumulates every decision across rounds; the candidate is NON-FINAL', () => {
-  it('records every suggestion from every round with per-round ids; returns a non-final candidate + redline', () => {
+  it('records every suggestion from every round with per-round ids; returns a non-final candidate + redline', async () => {
     installFetchSpy();
     let call = 0;
     const reviewPort: ReviewPort = () => {
@@ -365,7 +365,7 @@ describe('E5 — the ledger accumulates every decision across rounds; the candid
     };
     const regeneratePort: RegeneratePort = () => MIXED; // stable text -> stable span offsets
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: MIXED,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -398,7 +398,7 @@ describe('E5 — the ledger accumulates every decision across rounds; the candid
     expect(result.redline.unchanged).toBe(true);
   });
 
-  it('a candidate that drifts produces a non-empty cumulative redline (v1 -> candidate)', () => {
+  it('a candidate that drifts produces a non-empty cumulative redline (v1 -> candidate)', async () => {
     installFetchSpy();
     let call = 0;
     const reviewPort: ReviewPort = () => {
@@ -408,7 +408,7 @@ describe('E5 — the ledger accumulates every decision across rounds; the candid
     const DRIFTED = PLAIN + ' WITH A CHANGED TAIL.';
     const regeneratePort: RegeneratePort = () => DRIFTED;
 
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: PLAIN,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -432,7 +432,7 @@ describe('E5 — the ledger accumulates every decision across rounds; the candid
 // ── DETERMINISM + NO EGRESS ─────────────────────────────────────────────────────────────────────────────
 
 describe('E5 — determinism + no egress', () => {
-  it('is deterministic: identical inputs + ports -> byte-identical candidate, rounds, ledger ids, escalations', () => {
+  it('is deterministic: identical inputs + ports -> byte-identical candidate, rounds, ledger ids, escalations', async () => {
     installFetchSpy();
     const makeReview = (): ReviewPort => {
       let c = 0;
@@ -452,8 +452,8 @@ describe('E5 — determinism + no egress', () => {
         maxRounds: 3,
       });
 
-    const a = run();
-    const b = run();
+    const a = await run();
+    const b = await run();
     expect(a.candidate).toBe(b.candidate);
     expect(a.rounds).toBe(b.rounds);
     expect(a.converged).toBe(b.converged);
@@ -461,12 +461,12 @@ describe('E5 — determinism + no egress', () => {
     expect(a.escalations.map((e) => e.id)).toEqual(b.escalations.map((e) => e.id));
   });
 
-  it('makes NO network/egress call — the injected ports are the only I/O (fetch-spy stays at zero)', () => {
+  it('makes NO network/egress call — the injected ports are the only I/O (fetch-spy stays at zero)', async () => {
     const spy = installFetchSpy();
     const reviewPort: ReviewPort = () => [plainAdoptSug()];
     const regeneratePort: RegeneratePort = () => PLAIN;
 
-    runExpressLoop({
+    await runExpressLoop({
       documentType: 'deed',
       originalText: PLAIN,
       originalMaterials: 'ORIGINAL-MATERIALS',
@@ -479,13 +479,13 @@ describe('E5 — determinism + no egress', () => {
     expect(spy.calls()).toBe(0); // fetch was never invoked
   });
 
-  it('derives protected spans per round from the candidate when none is pinned (no caller catalog needed)', () => {
+  it('derives protected spans per round from the candidate when none is pinned (no caller catalog needed)', async () => {
     installFetchSpy();
     // No protectedSpans passed -> the loop derives them from the DEED candidate each round; an edit inside the
     // legal description must still escalate (proving the per-round derivation wires the real E1 recognizers).
     const legal = spanFor('legal_description');
     const reviewPort: ReviewPort = () => [sug(legal.start + 1, legal.start + 4)];
-    const result = runExpressLoop({
+    const result = await runExpressLoop({
       documentType: 'deed',
       originalText: DEED,
       originalMaterials: 'ORIGINAL-MATERIALS',
