@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-06-25b (MONSTER BUILD 2 — E2 + E4 seller-side merged; flag-dark, nothing deployed)
+
+**Disposition.** Continued the MONSTER BUILD 2 fence; reversible build-and-PR, all flag-dark. SEPARATE deed track. `main` `f0192f7` -> **#425 `8fb0ba5`** (E2) -> **#426 `7a8b290`** (E4 seller-side). Rule-16 STATE.md upkeep for E0/E1 landed as **#424**.
+
+**E2 — widen the deed-materials dropzone formats (PR #425).** FINDING (same pattern as E1): the any-format ingest was LARGELY ALREADY BUILT — MATERIALS-DROPZONE-1 wired the deed-materials upload to docx (mammoth) / txt / pdf (pdf.js text layer + scanned-PDF OCR fallback) / png+jpg+jpeg (tesseract OCR); the "PDF not supported" limit lives only in the SEPARATE "Upload & Format" feature, not the deed packet path. Net-new: `src/shared/deedUploadFormats.ts` — a single `routeUploadFormat(mime,ext)` + accepted lists consumed by BOTH the server upload endpoint (`src/server/index.ts`) and the client dropzone (`MaterialsDrawer`), no drift; widened to **+.md** (text) and **+.tif/.tiff/.webp** (image->OCR; tesseract decodes raster, fails CLOSED otherwise). **.doc + .heic excluded** (each needs a NEW dependency = operator-gated; surfaced via `UNSUPPORTED_NEEDS_DEP`, never silent — no new dep/egress added).
+
+**E4 seller-side (1/n) — createSellerSideDraft matter procedure (PR #426).** First E4 category vertical (the gift sibling): `createSellerSideDraftInput` + `toSellerSideInput` + `buildSellerSideDraft` + `buildSellerSideDocNotes` in `deedDraftAgent.ts` (pure helpers exported for no-DB testing). The doc-derived facts (verbatim legal, locality, tax id, assessed value, grantee-address -> property situs) DEFAULT from extraction (attorney-override-able); the attorney supplies the new-transaction facts. The seller-side assembler CAN fail closed (truncated legal / name bleed / B2 estate scope) — on fail-closed we do NOT persist a void deed; we return the failure reasons. `deed_seller_side_draft.test.ts` (4 tests) green.
+
+**Open / next.** Remaining E4: the **TOD + Confirmation** category verticals (same pattern; Confirmation is the most complex — archetypes + chain-of-title) and the **Quick-Deed `generate` multi-category dispatch** (today gift-only). Then **E7** (advisory generalization, depends on the wired categories), **E3** (Quick Deed Layer 2 AI intake — triad-waived, guardrails are the bar), **E8** (Express auto-review loop — largest; the E8 adversarial ship-gate clearance is OPERATOR-ONLY). **Owed operator decision (does not block the above):** `operator approve accept:` for S3 (#421) + the B6 (a) refine / (b) keep-advisory choice.
+
+---
+
 ## 2026-06-25a (MONSTER BUILD 2 — E0 + E1 merged; S3 accept-gated; flag-dark, nothing deployed)
 
 **Disposition.** Autopilot run of the MONSTER BUILD 2 fence (`docs/deed/_MONSTER_BUILD_2_overnight_dispatch.md`), reversible build-and-PR lane, all flag-dark (`DEED_DRAFT_AGENT_ENABLED` OFF — behavior-neutral; nothing deployed; no migration). SEPARATE deed track (not in `MR_CAL_engagement_state.json`). `main` `2fefbc97` -> **#420 `f288719`** (E0) -> **#422 `41ab65f`** (E1a) -> **#423 `f0192f7`** (E1b).
