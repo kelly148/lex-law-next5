@@ -21,6 +21,7 @@ import multer from 'multer';
 import mammoth from 'mammoth';
 import { extractPdfText } from './intake/pdfExtract.js';
 import { startMaterialOcrInBackground, pdfNeedsOcr, type OcrKind } from './intake/ocrPipeline.js';
+import { routeUploadFormat } from '../shared/deedUploadFormats.js';
 import { terminateOcrWorker } from './intake/ocrExtract.js';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
@@ -251,10 +252,12 @@ app.post(
     // MATERIALS-DROPZONE-1 Inc B: when set, OCR runs in the background after insert.
     let ocrKind: OcrKind | null = null;
 
-    if (
-      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      ext === 'docx'
-    ) {
+    // E2: the SINGLE shared router decides the extraction branch (server + client dropzone share it, no drift).
+    // Widens MATERIALS-DROPZONE-1: + .md (text) and + .tif/.tiff/.webp (image OCR). docx/txt/pdf/png/jpg/jpeg
+    // route exactly as before (byte-identical behavior). .doc/.heic stay 'unsupported' (need a new dep — gated).
+    const uploadBranch = routeUploadFormat(mimeType, ext);
+
+    if (uploadBranch === 'docx') {
       try {
         const result = await mammoth.extractRawText({ buffer: file.buffer });
         textContent = result.value ?? null;
@@ -265,7 +268,7 @@ app.post(
         extractionStatus = 'failed';
         extractionError = err instanceof Error ? err.message : String(err);
       }
-    } else if (mimeType === 'text/plain' || ext === 'txt') {
+    } else if (uploadBranch === 'text') {
       try {
         textContent = file.buffer.toString('utf-8');
         extractionStatus = 'extracted';
@@ -273,7 +276,7 @@ app.post(
         extractionStatus = 'failed';
         extractionError = err instanceof Error ? err.message : String(err);
       }
-    } else if (mimeType === 'application/pdf' || ext === 'pdf') {
+    } else if (uploadBranch === 'pdf') {
       // MATERIALS-EXTRACTION-1 (Bug B): digital PDF text-layer extraction via unpdf (pdf.js).
       const r = await extractPdfText(file.buffer);
       if (pdfNeedsOcr(r.extractionStatus)) {
@@ -287,14 +290,10 @@ app.post(
         extractionStatus = r.extractionStatus;
         extractionError = r.extractionError;
       }
-    } else if (
-      mimeType === 'image/png' ||
-      mimeType === 'image/jpeg' ||
-      ext === 'png' ||
-      ext === 'jpg' ||
-      ext === 'jpeg'
-    ) {
+    } else if (uploadBranch === 'image') {
       // MATERIALS-DROPZONE-1 Inc B: images -> OCR in the background; stored 'processing' until done.
+      // E2 widened the image set to .tif/.tiff/.webp (raster formats tesseract decodes; a format it cannot
+      // read fails CLOSED to 'failed' in runMaterialOcr — never a silent/garbled extraction).
       extractionStatus = 'processing';
       textContent = null;
       ocrKind = 'image';
