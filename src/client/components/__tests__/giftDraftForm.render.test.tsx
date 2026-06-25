@@ -9,12 +9,28 @@ import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
 const mutateMock = vi.fn();
 
-vi.mock('../../trpc.js', () => {
+// DEED-INTAKE-REDESIGN-1: GiftDraftForm is now a thin wrapper around the shared <DeedIntake>, which also reads
+// quickDeed.previewFacts (Layer-1 pre-fill) and quickDeed.proposeIntake (the AI free-associate box). The mocked
+// useQuery calls a real useRef so hook counts match production.
+vi.mock('../../trpc.js', async () => {
+  const React = await import('react');
+  const q = (data: unknown) => () => {
+    React.useRef(null);
+    return { data, isLoading: false, isError: false, error: null, refetch: () => {} };
+  };
   const utils = {
-    client: { deedDraftAgent: { createGiftDraft: { mutate: (...a: unknown[]) => mutateMock(...a) } } },
+    client: {
+      deedDraftAgent: { createGiftDraft: { mutate: (...a: unknown[]) => mutateMock(...a) } },
+      quickDeed: { proposeIntake: { mutate: () => undefined } },
+    },
     document: { list: { invalidate: () => undefined } },
   };
-  return { trpc: { useUtils: () => utils } };
+  return {
+    trpc: {
+      useUtils: () => utils,
+      quickDeed: { previewFacts: { useQuery: q(null) } },
+    },
+  };
 });
 
 // useGuardedMutation: run the thunk and route the result through onSuccess/onError (a faithful stand-in).
@@ -29,6 +45,9 @@ vi.mock('../../hooks/useGuardedMutation.js', () => ({
     },
   }),
 }));
+
+// MaterialsDropZone owns its own trpc surface + fetch — stub it; the gift-modal test focuses on the form body.
+vi.mock('../../components/MaterialsDropZone.js', () => ({ default: () => null }));
 
 import { GiftDraftForm } from '../GiftDraftForm.js';
 

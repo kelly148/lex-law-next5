@@ -3,24 +3,25 @@
  *
  * The attorney ducks in and makes a deed without opening a matter (spec docs/deed/DEED_QUICK_MODE_spec.md):
  *   1. the lightweight owning matter is LAZILY created (behind the screen) on the FIRST real interaction —
- *      opening Materials or clicking Generate — NOT on mount, so merely viewing /deed accumulates nothing.
- *      It persists the document through the standard documents/versions path (retention/audit preserved, §4);
- *   2. a deed-type SELECTOR (the whole registry; only the Deed of Gift is enabled — others show "wiring
- *      pending"; registry-driven so they enable here as they ship);
- *   3. the existing matterId-keyed MaterialsDrawer for the vesting deed / tax record upload + OCR (spec §3.3);
- *   4. the structured gift fields (mirrors GiftDraftForm);
- *   5. Generate -> quickDeed.generate -> navigate to the existing document review/finalize/.docx export surface.
+ *      dropping a file, proposing the facts, or clicking Generate — NOT on mount, so merely viewing /deed
+ *      accumulates nothing. It persists the document through the standard documents/versions path (§4);
+ *   2. a deed-type SELECTOR (the whole registry; only the Deed of Gift + seller-side generate today);
+ *   3. DEED-INTAKE-REDESIGN-1: for the gift lane the page renders the shared <DeedIntake> — a primary
+ *      drag-and-drop drop zone + an AI free-associate box + the structured form (the same component the matter
+ *      "Gift Deed Draft" modal uses, so the two surfaces never drift). The seller-side lane keeps its own
+ *      structured form (a distinct deed type) and the same primary drop zone;
+ *   4. Generate -> quickDeed.generate -> navigate to the existing document review/finalize/.docx export surface.
  *
  * Flag-dark: the page SELF-GUARDS on deedDraftAgent.isEnabled (default OFF -> redirects to /matters); the
  * server is the authority on every gate and the assembly. Conflicts-at-intake is BYPASSED for Quick Deed by
- * default (spec §5) — the server stamps a non-blocking "no conflicts check performed" note into the document.
- * This screen never finalizes, records, or sends.
+ * default (spec §5). This screen never finalizes, records, or sends.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
-import MaterialsDrawer from '../components/MaterialsDrawer.js';
+import MaterialsDropZone from '../components/MaterialsDropZone.js';
+import DeedIntake, { type DeedGiftIntakePayload } from '../components/DeedIntake.js';
 
 const QUICK_DEED_GIFT_TYPE = 'deed_of_gift';
 const QUICK_DEED_SELLER_TYPE = 'seller_side';
@@ -47,15 +48,41 @@ export default function QuickDeedPage(): React.ReactElement {
   const enabled = flag?.enabled === true;
 
   // LAZY auto-matter (spec §4): the owning matter is NOT created on mount — merely opening /deed and leaving
-  // persists nothing. It is created the FIRST time the attorney actually does something (opens Materials or
-  // clicks Generate), then the intended action proceeds. createFiredRef guards a double-fire but is RESET on
-  // error so a failed create can be retried (no permanent dead-end).
+  // persists nothing. It is created (and its id returned) the FIRST time the attorney actually does something
+  // (drops a file, proposes the facts, or clicks Generate). createPromiseRef dedupes concurrent callers (a drop
+  // + a generate must not both create) and is cleared on error so a failed create can be retried.
   const [matterId, setMatterId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const createFiredRef = useRef(false);
-  // What to do once the matter exists: open the materials drawer, or run the (already-validated) generate.
-  type PendingAction = { kind: 'materials' } | { kind: 'generate'; payload: GeneratePayload };
-  const pendingActionRef = useRef<PendingAction | null>(null);
+  const [creating, setCreating] = useState(false);
+  const createPromiseRef = useRef<Promise<string> | null>(null);
+
+  const ensureMatterAsync = (): Promise<string> => {
+    if (matterId) return Promise.resolve(matterId);
+    if (createPromiseRef.current) return createPromiseRef.current;
+    setCreateError(null);
+    setCreating(true);
+    const p = utils.client.quickDeed.create
+      .mutate()
+      .then((res) => {
+        setMatterId(res.matterId);
+        setCreating(false);
+        return res.matterId;
+      })
+      .catch((err: unknown) => {
+        // Clear the in-flight ref so the attorney can retry; surface an honest error (no dead-end).
+        createPromiseRef.current = null;
+        setCreating(false);
+        setCreateError(err instanceof Error ? err.message : 'Could not start the deed record.');
+        throw err;
+      });
+    createPromiseRef.current = p;
+    return p;
+  };
+
+  // Retry a failed create (the next real interaction will also retry, but a banner button is friendlier).
+  const handleRetryCreate = (): void => {
+    void ensureMatterAsync().catch(() => { /* error already surfaced via createError */ });
+  };
 
   const generate = useGuardedMutation(
     (input: Parameters<typeof utils.client.quickDeed.generate.mutate>[0]) =>
@@ -77,73 +104,26 @@ export default function QuickDeedPage(): React.ReactElement {
     },
   );
 
-  // Run a pending action against a now-known matterId.
-  const runPendingAction = (id: string): void => {
-    const pending = pendingActionRef.current;
-    pendingActionRef.current = null;
-    if (!pending) return;
-    if (pending.kind === 'materials') {
-      setMaterialsOpen(true);
-    } else {
-      generate.mutate({ ...pending.payload, matterId: id });
-    }
+  // Resolve the owning matter, then dispatch the validated generate payload against it (matterId injected here,
+  // never baked into the captured payload).
+  const runGenerate = (payload: GeneratePayload): void => {
+    void ensureMatterAsync()
+      .then((id) => generate.mutate({ ...payload, matterId: id } as Parameters<typeof generate.mutate>[0]))
+      .catch(() => { /* create error already surfaced via createError */ });
   };
 
-  const createMatter = useGuardedMutation(
-    () => utils.client.quickDeed.create.mutate(),
-    {
-      onSuccess: (res) => {
-        setMatterId(res.matterId);
-        runPendingAction(res.matterId);
-      },
-      onError: (err) => {
-        // Reset the guard so the attorney can retry. KEEP the pending action so Retry resumes what they were
-        // doing (open materials / generate). Surface an honest error with a Retry affordance (no dead-end).
-        createFiredRef.current = false;
-        setCreateError(err.message);
-      },
-    },
-  );
-
-  // Retry a failed create, resuming the pending action (or just creating if none was recorded).
-  const handleRetryCreate = (): void => {
-    setCreateError(null);
-    if (createFiredRef.current) return; // already retrying
-    createFiredRef.current = true;
-    createMatter.mutate(undefined);
-  };
-
-  // Ensure the owning matter exists, then perform `action`. If it already exists, act immediately; otherwise
-  // record the intent and lazily fire create (guarded against double-fire; the guard resets on error).
-  const ensureMatterThen = (action: PendingAction): void => {
-    setCreateError(null);
-    if (matterId) {
-      pendingActionRef.current = action;
-      runPendingAction(matterId);
-      return;
-    }
-    pendingActionRef.current = action;
-    if (createFiredRef.current) return; // a create is already in flight; the pending action will run on success
-    createFiredRef.current = true;
-    createMatter.mutate(undefined);
-  };
-
-  // The deed-type catalog (the whole registry; only gift generates). Enabled only when the flag is on.
+  // The deed-type catalog (the whole registry; gift + seller generate). Enabled only when the flag is on.
   const deedTypesQuery = trpc.quickDeed.listDeedTypes.useQuery(undefined, { enabled });
   const deedTypes = deedTypesQuery.data ?? [];
 
   const [deedType, setDeedType] = useState<string>(QUICK_DEED_GIFT_TYPE);
+  // Seller-side state (the gift lane lives entirely inside <DeedIntake>). The shared party/locality/address
+  // fields stay here for the seller form; the gift-only fields (married/derivation/vesting) moved to DeedIntake.
   const [grantors, setGrantors] = useState<PartyRow[]>([emptyRow()]);
   const [grantees, setGrantees] = useState<PartyRow[]>([emptyRow()]);
-  const [granteesAreMarriedCouple, setGranteesAreMarriedCouple] = useState(false);
   const [fileNumber, setFileNumber] = useState('');
   const [granteeAddress, setGranteeAddress] = useState('');
   const [locality, setLocality] = useState('');
-  const [derivationReference, setDerivationReference] = useState('');
-  const [vestingOverride, setVestingOverride] = useState('');
-  // Seller-side-only fields (the new-transaction facts the prior document cannot supply). Surfaced only when the
-  // seller-side deed type is selected; the doc-derived legal/locality/taxId/assessedValue/grantee-address default
-  // from extraction server-side (override-able via the shared inputs below).
   const [warrantyType, setWarrantyType] = useState('');
   const [considerationFigs, setConsiderationFigs] = useState('');
   const [amountWords, setAmountWords] = useState('');
@@ -156,14 +136,12 @@ export default function QuickDeedPage(): React.ReactElement {
   const [titleInsurer, setTitleInsurer] = useState('');
   const [sellerType, setSellerType] = useState<'individual' | 'estate'>('individual');
   const [error, setError] = useState<string | null>(null);
-  const [materialsOpen, setMaterialsOpen] = useState(false);
 
   const isSeller = deedType === QUICK_DEED_SELLER_TYPE;
 
-  // Quick Deed Layer 1 (E1b): once the owning matter exists, read the consolidated facts from the uploaded
-  // materials and PRE-FILL the empty form fields (recording locality, grantee's address) so the attorney
-  // confirms extracted values instead of re-typing. Override-safe: a field the attorney has typed is NEVER
-  // clobbered, and each field is pre-filled at most once (prefilledRef) so a cleared field stays cleared.
+  // Quick Deed Layer 1 (E1b) for the SELLER lane: pre-fill the recording locality + grantee address from the
+  // uploaded materials once the owning matter exists (override-safe, once-only). The gift lane runs the same
+  // pre-fill inside <DeedIntake>; react-query dedupes the shared previewFacts query key.
   const previewFacts = trpc.quickDeed.previewFacts.useQuery(
     { matterId: matterId ?? '' },
     { enabled: !!matterId },
@@ -172,15 +150,13 @@ export default function QuickDeedPage(): React.ReactElement {
   useEffect(() => {
     const p = previewFacts.data;
     if (!p || !p.hasMaterials) return;
-    const loc = p.locality;
-    if (loc && !prefilledRef.current.has('locality')) {
+    if (p.locality && !prefilledRef.current.has('locality')) {
       prefilledRef.current.add('locality');
-      setLocality((cur) => (cur.trim() === '' ? loc : cur));
+      setLocality((cur) => (cur.trim() === '' ? p.locality! : cur));
     }
-    const addr = p.granteeAddress;
-    if (addr && !prefilledRef.current.has('granteeAddress')) {
+    if (p.granteeAddress && !prefilledRef.current.has('granteeAddress')) {
       prefilledRef.current.add('granteeAddress');
-      setGranteeAddress((cur) => (cur.trim() === '' ? addr : cur));
+      setGranteeAddress((cur) => (cur.trim() === '' ? p.granteeAddress! : cur));
     }
   }, [previewFacts.data]);
 
@@ -193,8 +169,6 @@ export default function QuickDeedPage(): React.ReactElement {
   }
   if (!enabled) return <Navigate to="/matters" replace />;
 
-  const creating = createMatter.isPending;
-
   const cleanParties = (rows: PartyRow[]): { name: string; descriptor?: string }[] =>
     rows
       .filter((r) => r.name.trim().length > 0)
@@ -203,59 +177,59 @@ export default function QuickDeedPage(): React.ReactElement {
         return d.length > 0 ? { name: r.name.trim(), descriptor: d } : { name: r.name.trim() };
       });
 
-  const handleGenerate = (e: React.FormEvent): void => {
+  // Gift lane: <DeedIntake> validated the gift facts and emits them; build the gift generate payload + dispatch.
+  const handleGiftSubmit = (p: DeedGiftIntakePayload): void => {
+    setError(null);
+    runGenerate({
+      deedType: QUICK_DEED_GIFT_TYPE,
+      grantors: p.grantors,
+      grantees: p.grantees,
+      granteesAreMarriedCouple: p.granteesAreMarriedCouple,
+      fileNumber: p.fileNumber,
+      granteeAddress: p.granteeAddress,
+      locality: p.locality,
+      derivationReference: p.derivationReference,
+      vestingOverride: p.vestingOverride,
+      title: 'Deed of Gift',
+    } as GeneratePayload);
+  };
+
+  // Seller lane: validate the seller-side facts here, then dispatch.
+  const handleSellerSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     const cleanGrantors = cleanParties(grantors);
     const cleanGrantees = cleanParties(grantees);
     if (cleanGrantors.length === 0) {
-      setError(`At least one ${isSeller ? 'grantor (seller)' : 'grantor (donor)'} name is required.`);
+      setError('At least one grantor (seller) name is required.');
       return;
     }
     if (cleanGrantees.length === 0) {
-      setError(`At least one ${isSeller ? 'grantee (buyer)' : 'grantee (donee)'} name is required.`);
+      setError('At least one grantee (buyer) name is required.');
       return;
     }
     setError(null);
-    // Validate synchronously, then lazily ensure the owning matter exists and generate. The matterId is
-    // injected from the freshly-created (or existing) matter — never baked into the captured payload. The
-    // payload shape is the discriminated-union member for the selected deed type (the server validates the same).
-    const payload: GeneratePayload = isSeller
-      ? {
-          deedType: QUICK_DEED_SELLER_TYPE,
-          grantors: cleanGrantors,
-          grantees: cleanGrantees,
-          granteeAddress: granteeAddress.trim() || null,
-          // Seller-only facts nested (the shared party/grantee-address fields stay at the top level).
-          sellerSide: {
-            warrantyType: warrantyType.trim() || undefined,
-            considerationFigs: considerationFigs.trim(),
-            amountWords: amountWords.trim(),
-            titleInsurer: titleInsurer.trim(),
-            grantorDescriptor: grantorDescriptor.trim() || undefined,
-            granteeDescriptor: granteeDescriptor.trim() || undefined,
-            tenancy: tenancy.trim(),
-            vestingRecital: vestingRecital.trim(),
-            venue: venue.trim(),
-            returnTo: returnTo.trim(),
-            sellerType,
-            fileNumber: fileNumber.trim(),
-            county: locality.trim() || null,
-            title: 'Seller-Side Deed',
-          },
-        }
-      : {
-          deedType: QUICK_DEED_GIFT_TYPE,
-          grantors: cleanGrantors,
-          grantees: cleanGrantees,
-          granteesAreMarriedCouple,
-          fileNumber: fileNumber.trim() || null,
-          granteeAddress: granteeAddress.trim() || null,
-          locality: locality.trim() || null,
-          derivationReference: derivationReference.trim() || null,
-          vestingOverride: vestingOverride.trim() || null,
-          title: 'Deed of Gift',
-        };
-    ensureMatterThen({ kind: 'generate', payload });
+    runGenerate({
+      deedType: QUICK_DEED_SELLER_TYPE,
+      grantors: cleanGrantors,
+      grantees: cleanGrantees,
+      granteeAddress: granteeAddress.trim() || null,
+      sellerSide: {
+        warrantyType: warrantyType.trim() || undefined,
+        considerationFigs: considerationFigs.trim(),
+        amountWords: amountWords.trim(),
+        titleInsurer: titleInsurer.trim(),
+        grantorDescriptor: grantorDescriptor.trim() || undefined,
+        granteeDescriptor: granteeDescriptor.trim() || undefined,
+        tenancy: tenancy.trim(),
+        vestingRecital: vestingRecital.trim(),
+        venue: venue.trim(),
+        returnTo: returnTo.trim(),
+        sellerType,
+        fileNumber: fileNumber.trim(),
+        county: locality.trim() || null,
+        title: 'Seller-Side Deed',
+      },
+    } as GeneratePayload);
   };
 
   const renderPartyRows = (
@@ -307,9 +281,9 @@ export default function QuickDeedPage(): React.ReactElement {
       <div className="mb-5">
         <h1 className="text-2xl font-serif font-medium text-ink">Deed</h1>
         <p className="text-sm text-ink-secondary mt-0.5">
-          Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record,
-          fill the party facts, and generate the house-style draft. The draft is never auto-recorded or sent —
-          you review and finalize it.
+          Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record (or
+          describe the deal), confirm the facts, and generate the house-style draft. The draft is never
+          auto-recorded or sent — you review and finalize it.
         </p>
       </div>
 
@@ -328,87 +302,66 @@ export default function QuickDeedPage(): React.ReactElement {
         </div>
       )}
 
-      <form onSubmit={handleGenerate} className="space-y-6">
-        {/* Deed type selector — the whole registry; only the Deed of Gift generates today. */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="quick-deed-type">
-            Deed type <span className="text-red-500">*</span>
-          </label>
-          <select
-            id="quick-deed-type"
-            data-testid="quick-deed-type-select"
-            value={deedType}
-            onChange={(e) => setDeedType(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-firm-navy"
-          >
-            {deedTypes.length === 0 && (
-              <option value={QUICK_DEED_GIFT_TYPE}>Deed of Gift</option>
-            )}
-            {deedTypes.map((t) => (
-              <option key={t.key} value={t.key} disabled={!t.quickDeedGenerates}>
-                {t.title}
-                {t.quickDeedGenerates ? '' : ' — wiring pending'}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-ink-hint mt-1">
-            Other deed types are listed but not yet wired for Quick Deed generation.
-          </p>
-        </div>
+      {/* Deed type selector — the whole registry; gift + seller-side generate today. */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="quick-deed-type">
+          Deed type <span className="text-red-500">*</span>
+        </label>
+        <select
+          id="quick-deed-type"
+          data-testid="quick-deed-type-select"
+          value={deedType}
+          onChange={(e) => { setError(null); setDeedType(e.target.value); }}
+          className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-firm-navy"
+        >
+          {deedTypes.length === 0 && <option value={QUICK_DEED_GIFT_TYPE}>Deed of Gift</option>}
+          {deedTypes.map((t) => (
+            <option key={t.key} value={t.key} disabled={!t.quickDeedGenerates}>
+              {t.title}
+              {t.quickDeedGenerates ? '' : ' — wiring pending'}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-ink-hint mt-1">
+          Other deed types are listed but not yet wired for Quick Deed generation.
+        </p>
+      </div>
 
-        {/* Supporting documents — the existing matterId-keyed materials surface (upload + OCR). */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Supporting documents</label>
-          <button
-            type="button"
-            data-testid="quick-deed-materials-button"
-            disabled={creating}
-            onClick={() => ensureMatterThen({ kind: 'materials' })}
-            className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
-          >
-            {creating ? 'Preparing…' : 'Upload vesting deed / tax record…'}
-          </button>
-          <p className="text-xs text-ink-hint mt-1">
-            The property facts (legal description, parcel, assessed value) are read from these uploads.
-          </p>
-        </div>
-
-        {/* Quick Deed Layer 1 (E1b): once materials are uploaded, the doc-derived facts pre-fill the fields below. */}
-        {previewFacts.data?.hasMaterials && (
-          <div data-testid="quick-deed-prefill-note" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-2 text-xs text-ink-secondary">
-            Read from your uploads — the recording locality and the grantee&apos;s address (defaulted to the
-            property) are pre-filled below; confirm or override. The legal description, parcel, and assessed value
-            resolve into the draft automatically.
-          </div>
-        )}
-
-        {/* Structured gift fields (mirror GiftDraftForm). */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {isSeller ? 'Grantor(s) — seller(s)' : 'Grantor(s) — donor(s)'} <span className="text-red-500">*</span>
-          </label>
-          {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {isSeller ? 'Grantee(s) — buyer(s)' : 'Grantee(s) — donee(s)'} <span className="text-red-500">*</span>
-          </label>
-          {renderPartyRows(grantees, setGrantees, isSeller ? 'Descriptor (optional)' : "Relationship (e.g. “the Grantors’ daughter”)")}
-        </div>
-        {!isSeller && (
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={granteesAreMarriedCouple}
-              onChange={(e) => setGranteesAreMarriedCouple(e.target.checked)}
-              className="rounded"
+      {isSeller ? (
+        // ── Seller-side lane: the primary drop zone + the seller-side structured form. ──
+        <form onSubmit={handleSellerSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Drop the prior vesting deed &amp; tax record</label>
+            <MaterialsDropZone
+              matterId={matterId ?? undefined}
+              resolveMatterId={ensureMatterAsync}
+              onUploaded={() => { void previewFacts.refetch(); }}
             />
-            Grantees are a married couple (&rarr; tenancy by the entirety)
-          </label>
-        )}
+            <p className="text-xs text-ink-hint mt-1">
+              The legal description, parcel, and assessed value are read from these uploads.
+            </p>
+          </div>
 
-        {/* Seller-side new-transaction facts (only when the seller-side deed type is selected). */}
-        {isSeller && (
+          {previewFacts.data?.hasMaterials && (
+            <div data-testid="quick-deed-prefill-note" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-2 text-xs text-ink-secondary">
+              Read from your uploads — the recording locality and the grantee&apos;s address are pre-filled below;
+              confirm or override. The legal description, parcel, and assessed value resolve into the draft automatically.
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Grantor(s) — seller(s) <span className="text-red-500">*</span>
+            </label>
+            {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Grantee(s) — buyer(s) <span className="text-red-500">*</span>
+            </label>
+            {renderPartyRows(grantees, setGrantees, 'Descriptor (optional)')}
+          </div>
+
           <div data-testid="quick-deed-seller-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
             <p className="text-xs text-ink-secondary">
               The conveyance facts the prior document can&apos;t supply. The legal description, parcel/tax id, and
@@ -491,91 +444,49 @@ export default function QuickDeedPage(): React.ReactElement {
                 placeholder="e.g. Universal Title, 1320 Old Chain Bridge Rd, McLean, VA 22101" />
             </div>
           </div>
-        )}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">File number</label>
-            <input
-              type="text"
-              value={fileNumber}
-              onChange={(e) => setFileNumber(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-              placeholder="36-YYYY-NNNN"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recording locality</label>
-            <input
-              type="text"
-              data-testid="quick-deed-locality"
-              value={locality}
-              onChange={(e) => setLocality(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-              placeholder="County / City (else read from the packet)"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Grantee&apos;s address</label>
-          <input
-            type="text"
-            data-testid="quick-deed-grantee-address"
-            value={granteeAddress}
-            onChange={(e) => setGranteeAddress(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-            placeholder="Mailing address for tax bills / notices"
-          />
-        </div>
-        {!isSeller && (
-          <>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Derivation (&ldquo;Being&rdquo;) reference</label>
-              <input
-                type="text"
-                value={derivationReference}
-                onChange={(e) => setDerivationReference(e.target.value)}
+              <label className="block text-sm font-medium text-gray-700 mb-1">File number</label>
+              <input type="text" value={fileNumber} onChange={(e) => setFileNumber(e.target.value)}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-                placeholder="e.g. in Deed Book 5500 at Page 12 (where the prior deed is recorded)"
-              />
-              {previewFacts.data?.derivationCandidate && (
-                <p data-testid="quick-deed-derivation-candidate" className="text-xs text-ink-hint mt-1">
-                  Candidate from your uploads (confirm before use): {previewFacts.data.derivationCandidate}
-                </p>
-              )}
+                placeholder="36-YYYY-NNNN" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Vesting override (optional)</label>
-              <input
-                type="text"
-                value={vestingOverride}
-                onChange={(e) => setVestingOverride(e.target.value)}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Recording locality</label>
+              <input type="text" data-testid="quick-deed-locality" value={locality} onChange={(e) => setLocality(e.target.value)}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-                placeholder="Defaults from grantee count + marital status"
-              />
+                placeholder="County / City (else read from the packet)" />
             </div>
-          </>
-        )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Grantee&apos;s address</label>
+            <input type="text" data-testid="quick-deed-grantee-address" value={granteeAddress} onChange={(e) => setGranteeAddress(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+              placeholder="Mailing address for tax bills / notices" />
+          </div>
 
-        {error && <p data-testid="quick-deed-error" className="text-red-600 text-sm">{error}</p>}
-        <div className="flex justify-end pt-1">
-          <button
-            type="submit"
-            data-testid="quick-deed-generate"
-            disabled={generate.isPending || creating}
-            className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:opacity-90 disabled:opacity-50"
-          >
-            {generate.isPending ? 'Generating…' : creating ? 'Preparing…' : 'Generate draft'}
-          </button>
-        </div>
-      </form>
-
-      {materialsOpen && matterId && (
-        <MaterialsDrawer
-          matterId={matterId}
-          onClose={() => {
-            setMaterialsOpen(false);
-            void previewFacts.refetch(); // re-read facts after an upload so the form pre-fills from extraction
-          }}
+          {error && <p data-testid="quick-deed-error" className="text-red-600 text-sm">{error}</p>}
+          <div className="flex justify-end pt-1">
+            <button
+              type="submit"
+              data-testid="quick-deed-generate"
+              disabled={generate.isPending || creating}
+              className="px-4 py-2 text-sm bg-firm-navy text-white rounded hover:opacity-90 disabled:opacity-50"
+            >
+              {generate.isPending ? 'Generating…' : creating ? 'Preparing…' : 'Generate draft'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        // ── Gift lane: the shared intake experience (drop zone + free-associate + structured form). ──
+        <DeedIntake
+          matterId={matterId ?? undefined}
+          resolveMatterId={ensureMatterAsync}
+          onSubmit={handleGiftSubmit}
+          submitting={generate.isPending || creating}
+          submitError={error}
+          submitLabel="Generate draft"
         />
       )}
     </div>
