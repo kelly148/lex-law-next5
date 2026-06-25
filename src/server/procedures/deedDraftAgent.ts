@@ -30,6 +30,17 @@ import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conf
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
 import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../deed/deedGiftAssembler.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
+import {
+  assembleTodDeed,
+  type DeedTodInput,
+  type DeedTodResult,
+  type TodPrimaryBeneficiaryInput,
+} from '../deed/deedTodAssembler.js';
+import {
+  assembleConfirmationDeed,
+  type DeedConfirmationInput,
+  type DeedConfirmationResult,
+} from '../deed/deedConfirmationAssembler.js';
 import { buildGiftDrafterNotes } from '../deed/deedGiftNotes.js';
 import {
   buildEngagementLetter,
@@ -266,6 +277,318 @@ export function buildSellerSideDocNotes(draft: SellerSideDeedDraft): string {
       : `Recordability floor flagged: ${[...draft.b6.failures, ...draft.format.failures].join('; ') || '(none)'}.`,
     '',
     draft.text,
+  ].join('\n');
+}
+
+// ── E4-rest: TOD (C5) category wiring (gift-shaped; no new extractor) ─────────────────────────────────────────
+
+const todTransferorSchema = z.object({
+  name: z.string().min(1).max(200),
+  capacity: z.string().max(200).default(''),
+});
+
+const todPrimaryBeneficiariesSchema = z.object({
+  persons: z.array(z.string().min(1).max(200)).max(20),
+  vesting: z.string().max(200),
+  relationship: z.string().max(200).nullable().optional(),
+});
+
+const todPrimaryBeneficiarySchema = z.object({
+  person: z.string().max(200).optional(),
+  relationship: z.string().max(200).optional(),
+  designation: z.string().max(300).optional(),
+  trust: z.string().max(300).optional(),
+  vesting: z.string().max(200),
+  commonlyKnownAs: z.string().max(400).optional(),
+});
+
+/** Quick Deed / matter-scoped TOD input. The doc-derived fields (legalDescription, taxId, taxMapReference,
+ *  propertyAddress, assessedValue) are OPTIONAL — defaulted from the extracted facts when omitted, attorney-
+ *  override-able (Quick Deed Layer 1 convention). The rest are attorney-provided (the document cannot supply the
+ *  transferor capacity / beneficiary designation / notary layout / dates of THIS instrument). */
+const createTodDraftInput = z.object({
+  matterId: z.string().uuid(),
+  preparer: z.string().max(300).default(''),
+  returnTo: z.string().max(400).default(''),
+  deedDatePhrase: z.string().max(200).default(''),
+  transferor: todTransferorSchema,
+  signatoryName: z.string().max(200).optional(),
+  granteeNamedInPremise: z.boolean().optional(),
+  granteePremiseName: z.string().max(400).optional(),
+  primaryBeneficiaries: todPrimaryBeneficiariesSchema.optional(),
+  primaryBeneficiary: todPrimaryBeneficiarySchema.optional(),
+  legalDescriptionPreamble: z.string().max(2000).optional(),
+  condoSubjectTo: z.string().max(8000).nullable().optional(),
+  derivationOfTitle: z.string().max(2000).optional(),
+  beingRecital: z.string().max(2000).optional(),
+  preparedWithoutTitleExam: z.boolean().optional(),
+  notaryCountyBlank: z.boolean().optional(),
+  notaryCity: z.string().max(200).optional(),
+  acknowledgmentMonthYear: z.string().max(200).default(''),
+  revocationBlock: z.string().max(20000).optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  taxId: z.string().max(120).nullable().optional(),
+  propertyAddress: z.string().max(400).nullable().optional(),
+  taxMapReference: z.string().max(200).nullable().optional(),
+  legalDescription: z.string().max(20000).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateTodDraftInput = z.infer<typeof createTodDraftInput>;
+
+/** PURE: map the validated TOD input + extracted facts onto DeedTodInput. The doc-derived fields default from
+ *  the consolidated facts (verbatim legal taken ONLY when not WITHHELD — honesty floor); the optional union /
+ *  notary-layout fields are assigned CONDITIONALLY (exactOptionalPropertyTypes) so an omitted field is absent,
+ *  never an explicit `undefined`. Exported for direct (no-DB) testing. */
+export function toTodInput(input: CreateTodDraftInput, facts: DeedSourceFacts): DeedTodInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const parcel = facts.parcelId.value ?? '';
+  const out: DeedTodInput = {
+    preparer: firstNonEmpty(input.preparer),
+    returnTo: firstNonEmpty(input.returnTo),
+    taxId: firstNonEmpty(input.taxId, parcel),
+    deedDatePhrase: firstNonEmpty(input.deedDatePhrase),
+    transferor: { name: input.transferor.name, capacity: firstNonEmpty(input.transferor.capacity) },
+    propertyAddress: firstNonEmpty(input.propertyAddress, facts.propertyAddress.value),
+    taxMapReference: firstNonEmpty(input.taxMapReference, parcel),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    acknowledgmentMonthYear: firstNonEmpty(input.acknowledgmentMonthYear),
+  };
+  if (input.signatoryName !== undefined) out.signatoryName = input.signatoryName;
+  if (input.granteeNamedInPremise !== undefined) out.granteeNamedInPremise = input.granteeNamedInPremise;
+  if (input.granteePremiseName !== undefined) out.granteePremiseName = input.granteePremiseName;
+  if (input.primaryBeneficiaries !== undefined) {
+    out.primaryBeneficiaries = {
+      persons: input.primaryBeneficiaries.persons,
+      vesting: input.primaryBeneficiaries.vesting,
+      relationship: input.primaryBeneficiaries.relationship ?? null,
+    };
+  }
+  if (input.primaryBeneficiary !== undefined) {
+    const b = input.primaryBeneficiary;
+    const pb: TodPrimaryBeneficiaryInput = { vesting: b.vesting };
+    if (b.person !== undefined) pb.person = b.person;
+    if (b.relationship !== undefined) pb.relationship = b.relationship;
+    if (b.designation !== undefined) pb.designation = b.designation;
+    if (b.trust !== undefined) pb.trust = b.trust;
+    if (b.commonlyKnownAs !== undefined) pb.commonlyKnownAs = b.commonlyKnownAs;
+    out.primaryBeneficiary = pb;
+  }
+  if (input.legalDescriptionPreamble !== undefined) out.legalDescriptionPreamble = input.legalDescriptionPreamble;
+  if (input.condoSubjectTo !== undefined) out.condoSubjectTo = input.condoSubjectTo;
+  if (input.derivationOfTitle !== undefined) out.derivationOfTitle = input.derivationOfTitle;
+  if (input.beingRecital !== undefined) out.beingRecital = input.beingRecital;
+  if (input.assessedValue !== undefined || facts.assessedValue.value) {
+    const av = firstNonEmpty(input.assessedValue, facts.assessedValue.value);
+    if (av !== '') out.assessedValue = av;
+  }
+  if (input.preparedWithoutTitleExam !== undefined) out.preparedWithoutTitleExam = input.preparedWithoutTitleExam;
+  if (input.notaryCountyBlank !== undefined) out.notaryCountyBlank = input.notaryCountyBlank;
+  if (input.notaryCity !== undefined) out.notaryCity = input.notaryCity;
+  if (input.revocationBlock !== undefined) out.revocationBlock = input.revocationBlock;
+  return out;
+}
+
+/** PURE: consolidate a matter's materials + assemble the TOD draft. Exported for direct (no-DB) testing. */
+export function buildTodDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateTodDraftInput,
+): { facts: DeedSourceFacts; draft: DeedTodResult } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleTodDeed(toTodInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: the TOD document `notes` body (delete-before-recording header + the assembler advisories + a status
+ *  line + the rendered deed). Called only on an OK result (we never persist a WITHHELD void deed). Exported for
+ *  testing. */
+export function buildTodDocNotes(draft: DeedTodResult): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.advisories,
+    'Revocable Transfer on Death Deed — unexecuted, death-effective (no consideration, no warranty). Subject to execution + recordation before the transferor’s death.',
+    '',
+    draft.deed ? draft.deed.fullText : '',
+  ].join('\n');
+}
+
+// ── E4-rest: Confirmation (C1) category wiring (no new extractor; locality via shared renderLocality) ──────────
+
+const confirmationChainSurvivorshipSchema = z.object({
+  tookTitleAs: z.string().max(300),
+  coOwners: z.array(z.string().min(1).max(200)).max(10),
+  vestingDeedDate: z.string().max(120),
+  vestingDeedRecorded: z.string().max(120),
+  vestingInstrumentNumber: z.string().max(120),
+  recordsCounty: z.string().max(200),
+});
+
+const confirmationDecedentSchema = z.object({
+  name: z.string().max(200),
+  aka: z.string().max(200).optional(),
+  dateOfDeath: z.string().max(120),
+});
+
+const confirmationChainTestateSchema = z.object({
+  originalGrantors: z.string().max(400),
+  originalDeedDate: z.string().max(120),
+  originalDeedRecorded: z.string().max(120),
+  originalDeedBookPage: z.string().max(200),
+  originalGrantees: z.string().max(400),
+  originalGranteesTenancy: z.string().max(300),
+});
+
+const confirmationFirstDecedentSchema = z.object({
+  name: z.string().max(200),
+  dateOfDeath: z.string().max(120),
+  survivor: z.string().max(200),
+});
+
+const confirmationTestatorSchema = z.object({
+  name: z.string().max(200),
+  diedTestateDate: z.string().max(120),
+  willDate: z.string().max(120),
+  probateCourt: z.string().max(300),
+  fiduciaryNumber: z.string().max(120),
+  possessivePronoun: z.string().max(40),
+  subjectPronoun: z.string().max(40),
+});
+
+const confirmationDeviseSchema = z.object({
+  article: z.string().max(120),
+  devisee: z.string().max(200),
+  deviseeStatus: z.string().max(200),
+  deviseePossessive: z.string().max(40),
+  deviseeObject: z.string().max(40),
+});
+
+/** Quick Deed / matter-scoped Deed-of-Confirmation input. The doc-derived fields (legalDescription, taxId/taxMap,
+ *  assessedValue, granteeReturnAddress->situs, locality) default from the extracted facts; the archetype + the
+ *  chain-of-title facts are attorney-supplied (the assembler NEVER fabricates a chain link). */
+const createConfirmationDraftInput = z.object({
+  matterId: z.string().uuid(),
+  archetype: z.enum(['C1-a-survivorship', 'C1-b-testate-devise']),
+  exemptionCode: z.string().max(120).default('58.1-810(1)'),
+  exemptionParenthetical: z.string().max(400).optional(),
+  preparer: z.string().max(300).default(''),
+  preparedNote: z.string().max(600).default(''),
+  consideration: z.string().max(200).default(''),
+  grantingDatePhrase: z.string().max(200).default(''),
+  partyName: z.string().max(200).default(''),
+  partyOfFirstPart: z.string().max(200).optional(),
+  partyOfSecondPart: z.string().max(200).optional(),
+  grantorGranteeSame: z.boolean().optional(),
+  vesting: z.string().max(200).default('sole owner'),
+  grantingVerb: z.string().max(200).default(''),
+  warranty: z.string().max(300).default(''),
+  subjectTo: z.string().max(8000).default(''),
+  // C1-a survivorship
+  chainSurvivorship: confirmationChainSurvivorshipSchema.optional(),
+  decedent: confirmationDecedentSchema.optional(),
+  beingRecitalPriorInstrument: z.string().max(200).optional(),
+  survivorName: z.string().max(200).optional(),
+  // C1-b testate-devise
+  chainTestate: confirmationChainTestateSchema.optional(),
+  firstDecedent: confirmationFirstDecedentSchema.optional(),
+  testator: confirmationTestatorSchema.optional(),
+  devise: confirmationDeviseSchema.optional(),
+  taxMapStreetLine: z.string().max(400).optional(),
+  beingRecitalBookPage: z.string().max(200).optional(),
+  // doc-derived (default from extracted facts when omitted) — attorney-override-able
+  taxId: z.string().max(120).nullable().optional(),
+  taxMap: z.string().max(120).nullable().optional(),
+  assessedValue: z.string().max(120).nullable().optional(),
+  granteeReturnAddress: z.string().max(400).nullable().optional(),
+  legalDescription: z.string().max(20000).nullable().optional(),
+  locality: z.string().max(200).nullable().optional(),
+  localityType: z.enum(['county', 'city']).optional(),
+  title: z.string().min(1).max(256).optional(),
+});
+
+type CreateConfirmationDraftInput = z.infer<typeof createConfirmationDraftInput>;
+
+/** PURE: map the validated Confirmation input + extracted facts onto DeedConfirmationInput. Defaults the
+ *  doc-derived fields from the consolidated facts (verbatim legal only when not WITHHELD); the archetype-specific
+ *  tax id vs tax map defaults the parcel id into whichever the archetype renders (Exemplar-A taxId / Exemplar-B
+ *  taxMap). Optional + chain fields are assigned CONDITIONALLY (exactOptionalPropertyTypes). Exported for testing. */
+export function toConfirmationInput(input: CreateConfirmationDraftInput, facts: DeedSourceFacts): DeedConfirmationInput {
+  const factLegal = facts.legalDescription.withheld ? '' : (facts.legalDescription.value ?? '');
+  const parcel = facts.parcelId.value ?? '';
+  const out: DeedConfirmationInput = {
+    archetype: input.archetype,
+    exemptionCode: firstNonEmpty(input.exemptionCode),
+    preparer: firstNonEmpty(input.preparer),
+    preparedNote: firstNonEmpty(input.preparedNote),
+    granteeReturnAddress: firstNonEmpty(input.granteeReturnAddress, facts.propertyAddress.value),
+    assessedValue: firstNonEmpty(input.assessedValue, facts.assessedValue.value),
+    consideration: firstNonEmpty(input.consideration),
+    grantingDatePhrase: firstNonEmpty(input.grantingDatePhrase),
+    partyName: firstNonEmpty(input.partyName),
+    vesting: firstNonEmpty(input.vesting),
+    grantingVerb: firstNonEmpty(input.grantingVerb),
+    warranty: firstNonEmpty(input.warranty),
+    locality: firstNonEmpty(input.locality, facts.propertyLocality.value),
+    legalDescription: firstNonEmpty(input.legalDescription, factLegal),
+    subjectTo: firstNonEmpty(input.subjectTo),
+  };
+  // Exemplar-A renders Tax ID; Exemplar-B renders Tax Map — default the parcel into the archetype-appropriate one.
+  const taxId = firstNonEmpty(input.taxId, input.archetype === 'C1-a-survivorship' ? parcel : '');
+  if (taxId !== '') out.taxId = taxId;
+  const taxMap = firstNonEmpty(input.taxMap, input.archetype === 'C1-b-testate-devise' ? parcel : '');
+  if (taxMap !== '') out.taxMap = taxMap;
+  if (input.exemptionParenthetical !== undefined) out.exemptionParenthetical = input.exemptionParenthetical;
+  if (input.partyOfFirstPart !== undefined) out.partyOfFirstPart = input.partyOfFirstPart;
+  if (input.partyOfSecondPart !== undefined) out.partyOfSecondPart = input.partyOfSecondPart;
+  if (input.grantorGranteeSame !== undefined) out.grantorGranteeSame = input.grantorGranteeSame;
+  if (input.localityType !== undefined) out.localityType = input.localityType;
+  // C1-a survivorship chain (each link carried verbatim; the assembler fails closed on any blank).
+  if (input.chainSurvivorship !== undefined) {
+    out.chainSurvivorship = {
+      tookTitleAs: input.chainSurvivorship.tookTitleAs,
+      coOwners: input.chainSurvivorship.coOwners,
+      vestingDeedDate: input.chainSurvivorship.vestingDeedDate,
+      vestingDeedRecorded: input.chainSurvivorship.vestingDeedRecorded,
+      vestingInstrumentNumber: input.chainSurvivorship.vestingInstrumentNumber,
+      recordsCounty: input.chainSurvivorship.recordsCounty,
+    };
+  }
+  if (input.decedent !== undefined) {
+    const dec: DeedConfirmationInput['decedent'] = { name: input.decedent.name, dateOfDeath: input.decedent.dateOfDeath };
+    if (input.decedent.aka !== undefined) dec!.aka = input.decedent.aka;
+    out.decedent = dec;
+  }
+  if (input.beingRecitalPriorInstrument !== undefined) out.beingRecitalPriorInstrument = input.beingRecitalPriorInstrument;
+  if (input.survivorName !== undefined) out.survivorName = input.survivorName;
+  // C1-b testate-devise chain.
+  if (input.chainTestate !== undefined) out.chainTestate = { ...input.chainTestate };
+  if (input.firstDecedent !== undefined) out.firstDecedent = { ...input.firstDecedent };
+  if (input.testator !== undefined) out.testator = { ...input.testator };
+  if (input.devise !== undefined) out.devise = { ...input.devise };
+  if (input.taxMapStreetLine !== undefined) out.taxMapStreetLine = input.taxMapStreetLine;
+  if (input.beingRecitalBookPage !== undefined) out.beingRecitalBookPage = input.beingRecitalBookPage;
+  return out;
+}
+
+/** PURE: consolidate a matter's materials + assemble the Confirmation draft. Exported for direct (no-DB) testing. */
+export function buildConfirmationDraft(
+  materials: readonly { id: string; textContent: string | null }[],
+  input: CreateConfirmationDraftInput,
+): { facts: DeedSourceFacts; draft: DeedConfirmationResult } {
+  const facts = consolidateDeedSourceFacts(materials.map((m) => ({ materialId: m.id, textContent: m.textContent })));
+  const draft = assembleConfirmationDeed(toConfirmationInput(input, facts));
+  return { facts, draft };
+}
+
+/** PURE: the Confirmation document `notes` body. Called only on an OK result (we never persist a WITHHELD void
+ *  deed). Exported for testing. */
+export function buildConfirmationDocNotes(draft: DeedConfirmationResult): string {
+  return [
+    'Generated by DEED-DRAFT-AGENT-1 (deterministic). The attorney reviews/edits/approves; this draft is never auto-recorded, filed, or sent.',
+    ...draft.advisories,
+    'Deed of Confirmation — confirms (places of record) title already vested by operation of law; it does not transfer. The chain-of-title recitals are attorney-load-bearing; verify each link before recordation.',
+    '',
+    draft.deed ? draft.deed.fullText : '',
   ].join('\n');
 }
 
@@ -549,6 +872,160 @@ export const deedDraftAgentRouter = router({
       recordableFloorOk: draft.recordableFloorOk,
       notes: draft.notes,
       warnings: [...facts.warnings, ...draft.warnings],
+    };
+  }),
+
+  /**
+   * E4-rest — assemble a Revocable Transfer on Death Deed (C5) draft from the matter's materials + attorney
+   * input, persisted as a draft document. Mirrors createSellerSideDraft, but the TOD assembler returns the
+   * {status:'OK'|'WITHHELD', deed?} shape (NOT seller-side's failedClosed/text) — so we branch on
+   * status==='WITHHELD' and persist deed.fullText on OK. The doc-derived facts (legal / tax-id / tax-map /
+   * property-address / assessed-value) default from extraction (attorney-override-able); the transferor,
+   * beneficiary designation, notary layout, and dates are attorney-supplied. On a WITHHELD result we do NOT
+   * persist a void deed: we return the fail-closed flags for the attorney to fix + retry. Never finalizes,
+   * records, or sends.
+   */
+  createTodDraft: protectedProcedure.input(createTodDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildTodDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.status === 'WITHHELD' || !draft.deed) {
+      // Fail-closed (truncated legal / malformed ZIP / no beneficiary / garbled revocation block): no void deed.
+      return {
+        withheld: true,
+        flags: draft.flags,
+        advisories: draft.advisories,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        warnings: [...facts.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Revocable Transfer on Death Deed';
+    const docNotes = buildTodDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.deed.fullText,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      withheld: false,
+      flags: draft.flags,
+      advisories: draft.advisories,
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      warnings: [...facts.warnings],
+    };
+  }),
+
+  /**
+   * E4-rest — assemble a Deed of Confirmation (C1) draft from the matter's materials + attorney input, persisted
+   * as a draft document. Mirrors createTodDraft (same {status:'OK'|'WITHHELD', deed?} branch). A confirmation
+   * CONFIRMS title already vested by operation of law — the assembler is a deterministic formatter of the
+   * attorney-supplied chain-of-title facts and fails closed on a parties mismatch, a wrong exemption, a truncated
+   * legal, or any blank/fabricable chain link. The doc-derived facts (legal / tax-id-or-map / assessed-value /
+   * grantee-return-address / locality) default from extraction; the archetype + chain-of-title are attorney-
+   * supplied. Never finalizes, records, or sends.
+   */
+  createConfirmationDraft: protectedProcedure.input(createConfirmationDraftInput).mutation(async ({ ctx, input }) => {
+    await assertDeedDraftingAllowed(ctx.userId, input.matterId);
+
+    const materials = await listMaterialsForMatter(input.matterId, ctx.userId);
+    const { facts, draft } = buildConfirmationDraft(
+      materials.map((m) => ({ id: m.id, textContent: m.textContent })),
+      input,
+    );
+
+    if (draft.status === 'WITHHELD' || !draft.deed) {
+      // Fail-closed (parties mismatch / wrong exemption / truncated legal / incomplete or fabricable chain): no
+      // void deed; surface the flags so the attorney can complete the chain + retry.
+      return {
+        withheld: true,
+        flags: draft.flags,
+        advisories: draft.advisories,
+        documentId: null as string | null,
+        versionId: null as string | null,
+        title: null as string | null,
+        warnings: [...facts.warnings],
+      };
+    }
+
+    const title = (input.title ?? '').trim() || 'Deed of Confirmation';
+    const docNotes = buildConfirmationDocNotes(draft);
+
+    const doc = await insertDocument({
+      userId: ctx.userId,
+      matterId: input.matterId,
+      title,
+      documentType: 'deed',
+      customTypeLabel: null,
+      draftingMode: 'iterative',
+      templateBindingStatus: 'bound',
+      templateVersionId: null,
+      templateSnapshot: null,
+      variableMap: null,
+      workflowState: 'drafting',
+      currentVersionId: null,
+      officialSubstantiveVersionNumber: null,
+      officialFinalVersionNumber: null,
+      completedAt: null,
+      archivedAt: null,
+      notes: docNotes,
+    });
+
+    const versionNumber = await getNextVersionNumber(doc.id, ctx.userId);
+    const version = await insertVersion({
+      userId: ctx.userId,
+      documentId: doc.id,
+      versionNumber,
+      content: draft.deed.fullText,
+      generatedByJobId: null,
+      iterationNumber: 1,
+    });
+    await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    return {
+      withheld: false,
+      flags: draft.flags,
+      advisories: draft.advisories,
+      documentId: doc.id as string | null,
+      versionId: version.id as string | null,
+      title: title as string | null,
+      warnings: [...facts.warnings],
     };
   }),
 
