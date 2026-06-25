@@ -35,6 +35,7 @@
  */
 
 import { VA_EXEMPTIONS } from './deedKbVa.js';
+import { checkAnnotationLeak, checkFormatLints } from './deedDraftGates.js';
 
 /** The verified exemption CODE for this category (validated against the KB; the GOLD face form is rendered). */
 const C4_EXEMPTION_CODE = 'Va. Code § 58.1-811(A)(11)';
@@ -114,11 +115,12 @@ export interface DeedOutOfLlcResult {
   status: 'OK' | 'WITHHELD';
   flags: string[];
   advisories: string[];
+  recordableFloorOk: boolean;
   deed?: DeedOutOfLlcSegments;
 }
 
 function withheld(flags: string[], advisories: string[] = []): DeedOutOfLlcResult {
-  return { status: 'WITHHELD', flags, advisories };
+  return { status: 'WITHHELD', flags, advisories, recordableFloorOk: false };
 }
 
 /**
@@ -333,11 +335,13 @@ export function assembleOutOfLlcDeed(input: DeedOutOfLlcInput): DeedOutOfLlcResu
   ];
 
   const fullText = lines.join('\n');
+  const recordableFloorOk = checkAnnotationLeak(fullText).ok && checkFormatLints(fullText).ok;
 
   return {
     status: 'OK',
     flags,
     advisories,
+    recordableFloorOk,
     deed: {
       exemptionLine,
       preparedBy: C4_PREPARED_BY,

@@ -100,6 +100,7 @@ describe('TOD (C5) — GOLDEN fixtures reproduce the fixture pack exactly', () =
       const j = g.input as Record<string, any>;
       const result = assembleTodDeed(toInput(j));
       expect(result.status).toBe('OK');
+      expect(result.recordableFloorOk).toBe(true); // S3 in-module B6 + format floor
       expect(result.deed).toBeDefined();
       const d = result.deed!;
 

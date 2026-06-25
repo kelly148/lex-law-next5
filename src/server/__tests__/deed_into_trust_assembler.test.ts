@@ -123,6 +123,11 @@ describe('Into-Trust (C2) — GOLDEN fixtures reproduce the fixture pack exactly
       const j = grabGoldInput(n);
       const result = assembleIntoTrustDeed(toInput(j, GOLD_EXEMPLAR[n]!));
       expect(result.status).toBe('OK');
+      // S3 advisory recordability floor. GOLDEN-1 (the standard condo "*Reference to Parking Space(s)..."
+      // footnote) and GOLDEN-2 (the §55.1-136(C) TBE-immunity "NOTE:") legitimately trip B6's `*` / `NOTE:`
+      // denylist. recordableFloorOk is ADVISORY here (it never blocks emission) — a B6 refinement to allowlist
+      // these statutory/condo constructs is operator-gated (surfaced). GOLDEN-3 (divorced SFH, no note) is clean.
+      expect(result.recordableFloorOk).toBe(n === 3);
       expect(result.deed).toBeDefined();
       const d = result.deed!;
 
