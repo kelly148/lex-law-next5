@@ -47,6 +47,9 @@ export interface DeedSourceFacts {
   assessedValue: DeedSourceFact;
   /** Property locality (County / independent City). */
   propertyLocality: DeedSourceFact;
+  /** Property (situs) STREET address — the grantee-address DEFAULT source (Quick Deed Layer 1). The tax-record
+   *  situs; attorney-override-able. Absent for a packet whose tax record carries no labeled situs address. */
+  propertyAddress: DeedSourceFact;
   /** Derivation-of-title CANDIDATES (the vesting deed's BEING reference; a commitment chain-of-title reference)
    *  — LEADS for the attorney to confirm the true derivation reference (where the donor's vesting deed is
    *  recorded), never auto-used. */
@@ -174,6 +177,10 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
   // Property locality.
   const propertyLocality = pickFact(classified, [{ type: 'vesting_deed', key: 'propertyLocality' }]);
 
+  // Property (situs) STREET address — the grantee-address default source (Quick Deed Layer 1). The tax record's
+  // labeled situs is the clean source; never auto-used as anything but the override-able grantee-address default.
+  const propertyAddress = pickFact(classified, [{ type: 'tax_record', key: 'propertyAddress' }]);
+
   // Derivation CANDIDATES (leads only): the vesting deed's BEING reference, then a commitment chain-of-title ref.
   const derivationCandidates = pickFact(classified, [
     { type: 'vesting_deed', key: 'vestingPriorDeedRef' },
@@ -230,6 +237,7 @@ export function consolidateDeedSourceFacts(materials: readonly DeedMaterialInput
     parcelId,
     assessedValue,
     propertyLocality,
+    propertyAddress,
     derivationCandidates,
     commitmentLegalDescription,
     estateSource,

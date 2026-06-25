@@ -423,6 +423,7 @@ const S = {
   priorDeedRef: { key: 'priorDeedRef', label: 'Chain of title / prior deed', mapsTo: 'Vesting recital (prior deed)' },
   // tax record
   parcelId: { key: 'parcelId', label: 'Parcel / tax ID', mapsTo: 'Tax I.D. (GPIN/Map)' },
+  propertyAddress: { key: 'propertyAddress', label: 'Property (situs) address', mapsTo: 'Grantee-address default (situs)' },
 } as const;
 
 // ── classification ────────────────────────────────────────────────────────────
@@ -552,6 +553,27 @@ function extractMoney(text: string, spec: Spec, labelRe: RegExp): DeedIngestFiel
   if (amounts.length === 0) return withheld(spec, ['unparseable_money']);
   if (amounts.length > 1) return withheld(spec, ['multiple_amounts']);
   return single(spec, amounts[0] ?? '');
+}
+
+/** A property (situs) street address anchored on a label — the grantee-address DEFAULT source (Quick Deed
+ *  Layer 1). Verbatim, column-bounded (labeledLineValue). A label present with no street-address-shaped value
+ *  is WITHHELD (honesty floor), never guessed; no label -> notFound. Tax-record situs is the clean source. */
+function extractAddress(text: string, spec: Spec): DeedIngestField {
+  const labels = [
+    /\b(?:Property|Situs|Site|Premises)\s+Address\s*[:#]/i,
+    /\bProperty\s+Location\s*[:#]/i,
+    /\bLocation\s+Address\s*[:#]/i,
+    /\bSitus\s*[:#]/i,
+  ];
+  let labelSeen = false;
+  for (const lab of labels) {
+    const raw = labeledLineValue(text, lab);
+    if (raw === null) continue;
+    labelSeen = true;
+    // Street-address shape: a leading street number + at least one letter on the line. Verbatim otherwise.
+    if (/^\d{1,6}\s+\S/.test(raw) && /[A-Za-z]/.test(raw)) return single(spec, raw);
+  }
+  return labelSeen ? withheld(spec, ['low_shape_no_address']) : notFound(spec);
 }
 
 /**
@@ -828,6 +850,7 @@ function extractTaxRecord(text: string): DeedIngestField[] {
   // primary (e.g. ambiguous multi-amount) is preserved — never silently downgraded to the fallback/notFound (#28).
   const assessed = extractMoney(text, S.assessedValue, /\b(?:total\s+)?assessed\s+value\s*[:#]/i);
   fields.push(assessed.withheld || assessed.value !== null ? assessed : extractMoney(text, S.assessedValue, /\btotal\s+assessment\s*[:#]/i));
+  fields.push(extractAddress(text, S.propertyAddress));
   return fields;
 }
 
