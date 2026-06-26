@@ -22,6 +22,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import DeedIntake, { type DeedGiftIntakePayload } from '../components/DeedIntake.js';
+import QuickDeedCategoryForm from './quickDeedCategoryForms.js';
 
 const QUICK_DEED_GIFT_TYPE = 'deed_of_gift';
 const QUICK_DEED_SELLER_TYPE = 'seller_side';
@@ -327,7 +328,20 @@ export default function QuickDeedPage(): React.ReactElement {
         </p>
       </div>
 
-      {isSeller ? (
+      {deedType !== QUICK_DEED_GIFT_TYPE && deedType !== QUICK_DEED_SELLER_TYPE ? (
+        // ── Multi-category lane: into-LLC / out-of-LLC / TOD / confirmation / into-trust structured form. ──
+        <QuickDeedCategoryForm
+          deedType={deedType}
+          matterId={matterId ?? undefined}
+          resolveMatterId={ensureMatterAsync}
+          onUploaded={() => { void previewFacts.refetch(); }}
+          hasMaterials={previewFacts.data?.hasMaterials ?? false}
+          submitting={generate.isPending || creating}
+          error={error}
+          setError={setError}
+          onGenerate={runGenerate}
+        />
+      ) : isSeller ? (
         // ── Seller-side lane: the primary drop zone + the seller-side structured form. ──
         <form onSubmit={handleSellerSubmit} className="space-y-6">
           <div>

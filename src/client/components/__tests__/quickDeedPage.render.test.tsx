@@ -312,4 +312,34 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(arg.sellerSide).toBeTruthy();
     expect(arg.sellerSide.title).toBe('Seller-Side Deed');
   });
+
+  it('into-LLC wired: selecting it reveals the into-LLC form and Generate dispatches the nested intoLlc payload', async () => {
+    mockState.enabled = true;
+    mockState.deedTypes = [
+      { key: 'deed_of_gift', title: 'Deed of Gift', category: 'gift', status: 'available', quickDeedGenerates: true },
+      { key: 'deed_into_llc', title: 'Deed Into an LLC', category: 'C3', status: 'available', quickDeedGenerates: true },
+    ];
+    const c = renderPage();
+    const select = c.querySelector('[data-testid="quick-deed-type-select"]') as HTMLSelectElement;
+    expect(Array.from(select.querySelectorAll('option')).find((o) => o.value === 'deed_into_llc')!.disabled).toBe(false);
+
+    fireEvent.change(select, { target: { value: 'deed_into_llc' } });
+    // the multi-category lane mounts the into-LLC structured form (gift/seller blocks are gone)
+    expect(c.querySelector('[data-testid="quick-deed-into_llc-fields"]')).toBeTruthy();
+    expect(c.querySelector('[data-testid="quick-deed-seller-fields"]')).toBeNull();
+
+    fireEvent.change(c.querySelector('input[placeholder="Full legal name"]')!, { target: { value: 'Dahlia Okonkwo' } });
+    fireEvent.change(c.querySelector('input[placeholder="CITY OF ALEXANDRIA"]')!, { target: { value: 'CITY OF ALEXANDRIA' } });
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
+
+    await waitFor(() => expect(generateMutate).toHaveBeenCalledTimes(1));
+    const arg = generateMutate.mock.calls[0]![0] as {
+      deedType: string; matterId: string; intoLlc: { grantors: unknown[]; grantorCardinality: string; notaryJurisdiction: { commonwealth: string; locality: string } };
+    };
+    expect(arg.deedType).toBe('deed_into_llc');
+    expect(arg.matterId).toBe('qd-matter-1'); // injected from the lazily-created matter
+    expect(arg.intoLlc.grantors).toEqual([{ name: 'Dahlia Okonkwo', maritalStatus: 'unmarried' }]);
+    expect(arg.intoLlc.grantorCardinality).toBe('single');
+    expect(arg.intoLlc.notaryJurisdiction.locality).toBe('CITY OF ALEXANDRIA');
+  });
 });
