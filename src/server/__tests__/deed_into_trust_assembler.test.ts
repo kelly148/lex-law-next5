@@ -508,3 +508,49 @@ describe('Into-Trust (C2) — registry + verified cite', () => {
     expect(VA_EXEMPTIONS.some((e) => e.citation === 'Va. Code § 58.1-811(A)(15)')).toBe(true);
   });
 });
+
+// ── TRUST-1: marital-status word-boundary classification (Monster UAT v2, 2026-06-26) ─────────────────────────────
+//
+// `isMarried` keyed off `/married/i`, which matched the substring inside "unmarried" — so an "unmarried" / "an
+// unmarried woman" into-trust grantor was misclassified as MARRIED, forcing the §55.1-136(C) TBE-immunity note and
+// WITHHELDing the deed (TBE_IMMUNITY_NOTE_REQUIRED) for the single most common marital descriptor. The fix is a
+// word-boundary match (`\bmarried\b`): it no longer matches "unmarried"/"remarried" but still matches "a married
+// couple" / "married". These reuse the known-emitting GOLDEN-1 (Exemplar-A) input and mutate ONLY the marital
+// status (+ drop the now-not-required note) so the before/after is isolated to the predicate.
+describe('Into-Trust (C2) — TRUST-1 "unmarried" is not misread as married', () => {
+  const unmarriedInput = (status: string): DeedIntoTrustInput => ({
+    ...toInput(grabGoldInput(1), 'A'),
+    grantorMaritalStatus: status,
+    tbeImmunityNote: null, // a non-married grantor must NOT carry the §55.1-136(C) note
+  });
+
+  it('GOLD: "unmarried" EMITS (no TBE_IMMUNITY_NOTE_REQUIRED; the substring no longer triggers married)', () => {
+    const r = assembleIntoTrustDeed(unmarriedInput('unmarried'));
+    expect(r.flags).not.toContain('TBE_IMMUNITY_NOTE_REQUIRED');
+    expect(r.status).toBe('OK');
+    expect(r.deed).toBeDefined();
+    expect(r.deed!.fullText).toContain('unmarried');
+  });
+
+  it('GOLD: "an unmarried woman" EMITS (word-boundary; embedded "married" does not match)', () => {
+    const r = assembleIntoTrustDeed(unmarriedInput('an unmarried woman'));
+    expect(r.flags).not.toContain('TBE_IMMUNITY_NOTE_REQUIRED');
+    expect(r.status).toBe('OK');
+    expect(r.deed).toBeDefined();
+  });
+
+  it('NEG (regression): a genuinely MARRIED/TBE grantor set with the §55.1-136(C) note omitted STILL WITHHELDs', () => {
+    // GOLDEN-1 is "a married couple" / tenants_by_entirety; dropping the note must still fail closed (the fix must
+    // not relax the genuine-married path).
+    const r = assembleIntoTrustDeed({ ...toInput(grabGoldInput(1), 'A'), tbeImmunityNote: null });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('TBE_IMMUNITY_NOTE_REQUIRED');
+    expect(r.deed).toBeUndefined();
+  });
+
+  it('GOLD (regression): the genuinely married GOLDEN-1 with its Exemplar-A note STILL emits', () => {
+    const r = assembleIntoTrustDeed(toInput(grabGoldInput(1), 'A'));
+    expect(r.status).toBe('OK');
+    expect(r.deed!.tbeImmunityNote).toContain('pursuant to Virginia Code § 55.1-136(C)');
+  });
+});

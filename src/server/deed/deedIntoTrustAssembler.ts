@@ -384,7 +384,11 @@ export function assembleIntoTrustDeed(input: DeedIntoTrustInput): DeedIntoTrustR
     exemplar === 'B' ||
     /divorced/i.test(input.grantorMaritalStatus ?? '') ||
     /postdivorce/.test(normalizedHeldAs);
-  const isMarried = !isDivorceVariant && /married/i.test(input.grantorMaritalStatus ?? '');
+  // Word-boundary match: `/married/i` (no boundary) misclassified "unmarried" / "an unmarried woman" as MARRIED
+  // (the substring "married" inside "unmarried"), which forced TBE_IMMUNITY_NOTE_REQUIRED and WITHHELD the deed for
+  // the most common marital descriptor (TRUST-1). `\bmarried\b` matches "a married couple" / "married" but NOT
+  // "unmarried"/"remarried". Divorce variants are already excluded above (isDivorceVariant short-circuits).
+  const isMarried = !isDivorceVariant && /\bmarried\b/i.test(input.grantorMaritalStatus ?? '');
   const heldAsTbe = TBE_HELD_AS_FORMS.has(normalizedHeldAs);
   const isMarriedTbe = isMarried && heldAsTbe;
 
