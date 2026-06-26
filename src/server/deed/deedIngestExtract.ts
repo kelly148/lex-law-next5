@@ -89,9 +89,22 @@ const LEGAL_MAX = 4000;
 
 // ── primitives ────────────────────────────────────────────────────────────────
 
-/** Collapse all whitespace runs (incl. newlines) to a single space and trim. */
+// Zero-width / non-printing characters that .docx (and some PDF) sources sprinkle through the text — ZERO-WIDTH
+// SPACE (U+200B), ZWNJ/ZWJ (U+200C/U+200D), WORD JOINER (U+2060), and the BOM / ZWNBSP (U+FEFF). They are invisible
+// but defeat whitespace/terminus checks (`\s` does NOT match U+200B) AND would otherwise ride into the recordable
+// deed body (a cleanliness risk the B6 floor does not catch). (EXTRACT-ZW / TRUST-3, Monster UAT v2 2026-06-26.)
+const ZERO_WIDTH_RE = /\u200B|\u200C|\u200D|\u2060|\uFEFF/g;
+
+/** Strip zero-width / non-printing characters from extracted text. Applied at the extraction entry points so every
+ *  downstream extractor + the verbatim legal sees clean text. */
+function stripZeroWidth(s: string): string {
+  return s.replace(ZERO_WIDTH_RE, '');
+}
+
+/** Collapse all whitespace runs (incl. newlines) to a single space and trim. Strips zero-width chars FIRST so an
+ *  invisible U+200B inside a value (or after a legal's terminal period) is removed, not preserved as a non-`\s`. */
 function normalizeWs(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
+  return stripZeroWidth(s).replace(/\s+/g, ' ').trim();
 }
 
 /** The distinct normalized money amounts in a value ("$612,000.00" -> ["612000.00"]). A value carrying MORE
@@ -102,11 +115,15 @@ function moneyAmounts(raw: string): string[] {
   return [...new Set(norm)];
 }
 
-// A parcel / GPIN / tax-map id is DIGIT-DOMINANT and HYPHEN-GROUPED (e.g. 7298-44-1201, 0123-45-6789). It must
-// start with a digit and contain ONLY digits + hyphens. The bare pure-digit alternative is intentionally DROPPED
-// so a 6-digit money figure ("612000"/"350000"), a phone run, or a year ("2026") is NOT surfaced as an
-// authoritative id (#16, #24, #26). A date-shaped token (YYYY-MM-DD or M-D-YY) is rejected by isDateShaped (#24).
-const GPIN_RE = /\b(\d{2,}(?:-\d{2,})+)\b/;
+// A parcel / GPIN / tax-map id is DIGIT-DOMINANT and HYPHEN-GROUPED (e.g. 7298-44-1201, 0123-45-6789), each group
+// 2+ digits, with an OPTIONAL trailing alpha sub-parcel suffix (the Fairfax form "0911-13106060B", TAX-2). The
+// 2+-digit-per-group floor is preserved so a single-digit tax-map ("22-4-61") stays REJECTED (the E5 anti-false-
+// accept), and the bare pure-digit alternative is still dropped so a 6-digit money figure ("612000"/"350000"), a
+// phone run, or a year ("2026") is NOT surfaced as an id. A date-shaped token is rejected by isDateShaped (#24).
+const GPIN_RE = /\b(\d{2,}(?:-\d{2,})+[A-Za-z]?)\b/;
+// OCR may render the hyphen(s) as single spaces ("0911 13106060B"). Accept a space-grouped GPIN ONLY when it is the
+// WHOLE (trimmed) cell value — anchored — so a stray neighbouring number in a column is never glued into the id.
+const GPIN_SPACE_RE = /^(\d{2,}(?: \d{2,})+[A-Za-z]?)$/;
 
 /** Reject a hyphen-grouped token that is actually a date (so a date is never surfaced as a parcel id, #24). */
 function isDateShaped(t: string): boolean {
@@ -466,7 +483,12 @@ const TYPE_SIGNALS: TypeSignal[] = [
     type: 'probate_authority',
     patterns: [
       /\b(certificate\s+of\s+qualification|letters?\s+testamentary|letters?\s+of\s+administration)\b/i,
-      /\b(executor|executrix|administrator|personal\s+representative|fiduciary)\b/i,
+      // TAX-1: a bare role token ("Administrator" / "Executor") must NOT score probate — a Fairfax GIS tax
+      // printout's "Website Administrator" / "System Administrator" otherwise misclassified the tax record as
+      // probate_authority (which then injected a FALSE estate signal). Require a genuine fiduciary/estate context.
+      /\b(?:executor|executrix|administrator|administratrix|personal\s+representative|fiduciary)\s+(?:of\b|duly\s+|qualified|appointed|named\s+(?:herein|in\s+the))/i,
+      /\bEstate\s+of\s+[A-Z][a-z]/, // "Estate of John …" — a decedent's estate (a tax record has none)
+      /\b(?:decedent|deceased)\b/i,
       /\b(last\s+will\s+and\s+testament|admitted\s+to\s+probate)\b/i,
       /\b(power\s+to\s+sell|power\s+of\s+sale|qualified\s+with\s+full\s+power)\b/i,
       /\bFI[-\s]?\d/i,
@@ -478,6 +500,11 @@ const TYPE_SIGNALS: TypeSignal[] = [
       /\b(assessed\s+value|assessment\s+(year|record)|tax\s+assessment|real\s+estate\s+assessment)\b/i,
       /\b(real\s+estate\s+tax|property\s+tax\s+(card|record)|tax\s+map|GPIN)\b/i,
       /\b(land\s+value|improvement\s+value|total\s+(assessed|assessment))\b/i,
+      // TAX-1: the Fairfax County GIS / Department of Tax Administration printout shape (its assessment table
+      // uses these labels, not the generic "assessed value" wording — so the records previously scored ZERO
+      // tax_record hits and misclassified as probate off a bare "Administrator" token).
+      /\b(land\s+use\s+code|reassessment|map\s*#|dwelling\s+value|tax\s+district|building\s+value)\b/i,
+      /\bdepartment\s+of\s+tax\s+administration\b/i,
     ],
   },
   {
@@ -527,7 +554,7 @@ const TYPE_SIGNALS: TypeSignal[] = [
 
 /** PURE: classify the deed-relevant document type by labeled-signal scoring. */
 export function classifyDeedDocType(text: string): { type: DeedDocType; confidence: number } {
-  const t = text ?? '';
+  const t = stripZeroWidth(text ?? ''); // EXTRACT-ZW: invisible chars must not break or skew signal matching
   if (t.trim().length === 0) return { type: 'unknown', confidence: 0 };
   const scores = TYPE_SIGNALS.map((sig) => {
     const hits = sig.patterns.reduce((n, re) => (re.test(t) ? n + 1 : n), 0);
@@ -586,7 +613,9 @@ function extractParcelId(text: string, spec: Spec): DeedIngestField {
     const line = lineEnd === -1 ? after : after.slice(0, lineEnd);
     const colGap = line.search(/\s{2,}/);
     const cell = colGap === -1 ? line : line.slice(0, colGap);
-    const g = GPIN_RE.exec(cell);
+    // Prefer the hyphen-grouped GPIN anywhere in the cell; else accept a space-grouped GPIN that IS the whole
+    // (trimmed) cell value (OCR hyphen->space), so a stray adjacent number is never glued in (TAX-2).
+    const g = GPIN_RE.exec(cell) ?? GPIN_SPACE_RE.exec(cell.trim());
     if (g && g[1] !== undefined && !isDateShaped(g[1])) return single(spec, g[1]);
   }
   // A label was present but no id-shaped token followed -> fail closed (do not surface a word/year as an id).
@@ -648,8 +677,12 @@ function extractLegalBlock(text: string, spec: Spec): DeedIngestField {
   // (the re-review HIGH: a partial "verbatim" legal must never reach C1).
   const STRONG_LINE = String.raw`BEING\s+the\s+same|AND\s+BEING|This\s+conveyance\s+is\s+made\s+subject\s+to|For\s+derivation\s+of\s+title|Subject\s+to\s+covenants`;
   const STRONG_INLINE = String.raw`BEING\s+the\s+same\s+(?:property|real\s+estate)\s+conveyed|This\s+conveyance\s+is\s+made\s+subject\s+to|For\s+derivation\s+of\s+title`;
+  // The inline branch tolerates ZERO-OR-MORE spaces after the sentence punctuation (`\s*`), so the no-space OCR
+  // join "…Virginia.Being the same property conveyed…" terminates at "Being" too (UAT-G1) — the recital no longer
+  // runs into the verbatim legal. Only the FULL, unambiguous STRONG_INLINE recitals fire here, so a bare interior
+  // ".Being the same lot" (not the full "…property/real estate conveyed") still cannot truncate a metes-and-bounds legal.
   const term = new RegExp(
-    String.raw`(?:^|\n)[^\S\n]*(?:${STRONG_LINE})|(?<=[.;])\s+(?:${STRONG_INLINE})`,
+    String.raw`(?:^|\n)[^\S\n]*(?:${STRONG_LINE})|(?<=[.;])\s*(?:${STRONG_INLINE})`,
     'i',
   ).exec(after);
   if (!term) return withheld(spec, ['legal_description_unterminated', 'truncated']);
@@ -897,8 +930,12 @@ function extractTaxRecord(text: string): DeedIngestField[] {
   fields.push(extractParcelId(text, S.parcelId));
   // "(Total) Assessed Value" is the primary label; "Total Assessment" is the fallback wording. A WITHHELD
   // primary (e.g. ambiguous multi-amount) is preserved — never silently downgraded to the fallback/notFound (#28).
-  const assessed = extractMoney(text, S.assessedValue, /\b(?:total\s+)?assessed\s+value\s*[:#]/i);
-  fields.push(assessed.withheld || assessed.value !== null ? assessed : extractMoney(text, S.assessedValue, /\btotal\s+assessment\s*[:#]/i));
+  let assessed = extractMoney(text, S.assessedValue, /\b(?:total\s+)?assessed\s+value\s*[:#]/i);
+  if (!assessed.withheld && assessed.value === null) assessed = extractMoney(text, S.assessedValue, /\btotal\s+assessment\s*[:#]/i);
+  // TAX-1 (Fairfax GIS layout): the assessment table may label the figure "(New) Total Value" rather than the
+  // generic "Assessed Value" — a final fallback so the figure resolves once the record classifies as tax_record.
+  if (!assessed.withheld && assessed.value === null) assessed = extractMoney(text, S.assessedValue, /\b(?:new\s+)?total\s+value\s*[:#]/i);
+  fields.push(assessed);
   fields.push(extractAddress(text, S.propertyAddress));
   return fields;
 }
@@ -1190,7 +1227,9 @@ const CRITICAL_KEYS: Record<Exclude<DeedDocType, 'unknown'>, string[]> = {
  * withheld.
  */
 export function extractDeedIngest(text: string): DeedIngestResult {
-  const t = text ?? '';
+  // EXTRACT-ZW (root): strip zero-width / non-printing chars ONCE at the entry so every extractor + the verbatim
+  // legal (the recordable body) sees clean text — they otherwise defeat terminus checks AND ride invisibly into the deed.
+  const t = stripZeroWidth(text ?? '');
   const { type, confidence: typeConfidence } = classifyDeedDocType(t);
   const warnings: string[] = [];
 
