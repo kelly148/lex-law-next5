@@ -34,6 +34,9 @@ import {
 } from '../db/queries/phase4b.js';
 import { getDocumentById } from '../db/queries/documents.js';
 import { getMatterById } from '../db/queries/matters.js';
+// LIVE-9: an outline is an LLM artifact keyed on documentType — a deed-like document must not be drafted
+// (even as an outline) on the generic path.
+import { enforceNotDeedLike } from '../deed/deedDocTypeGuard.js';
 import { assembleContext } from '../context/pipeline.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
@@ -58,6 +61,15 @@ export const outlineRouter = router({
       if (!matter) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
       }
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'outline.generate',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
       // Enforce at-most-one-outline-per-document (application-level)
       const existing = await getOutlineForDocument(input.documentId, userId);
       if (existing && existing.status !== 'skipped') {
@@ -191,6 +203,15 @@ export const outlineRouter = router({
       if (!matter) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
       }
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'outline.regenerate',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
       const assembledCtx = await assembleContext({
         operation: 'draft_generation',
         matterId: doc.matterId,

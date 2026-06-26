@@ -47,6 +47,10 @@ import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
 import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { buildEngagementLetterSection, isEngagementLetterDocType } from './deed/engagementLetterFormatter.js';
+// LIVE-9 defense-in-depth: refuse exporting deed/recordable operative text that is NOT a sanctioned
+// documentType==='deed' (the deterministic deed agent's output) — catches a deed pasted/imported into a
+// generic document that the generation guard cannot see.
+import { scanForDeedOperativeLanguage } from './deed/deedDocTypeGuard.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
@@ -560,6 +564,40 @@ app.get(
       }
     } catch {
       // fail-to-warn: the gate must never break a real export
+    }
+
+    // ── LIVE-9 defense-in-depth deed-export scan ───────────────────────────────
+    // The generation guard stops the generic path from MINTING a deed. This catches a deed that was
+    // pasted/imported into a NON-deed document and is now being exported. A sanctioned deed
+    // (documentType==='deed' — the deterministic agent's output) is allowed through. FAIL-CLOSED: unlike
+    // the sendability gate above, a detected non-sanctioned deed hard-stops the export. (Known limitation:
+    // a legacy documentType==='deed' produced by the generic LLM before LIVE-9 cannot be distinguished
+    // from agent output without a provenance field — see docs/reviews/LIVE-9_packet.md.)
+    if (doc.documentType !== 'deed') {
+      const deedScan = scanForDeedOperativeLanguage(version.content);
+      if (deedScan.isDeedText) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[LIVE-9 deed-block] ' +
+            JSON.stringify({
+              event: 'deed_export_blocked',
+              documentType: doc.documentType,
+              matched: deedScan.matched,
+              entryPath: 'GET /api/documents/:documentId/export',
+              userId,
+              documentId,
+              matterId: doc.matterId,
+              ts: new Date().toISOString(),
+            }),
+        );
+        res.status(409).json({
+          error: 'DEED_EXPORT_BLOCKED',
+          message:
+            'This document contains deed / recordable-instrument language but is not a deed produced by the deterministic deed agent. Recreate it through the deed (Quick-Deed) workflow before exporting.',
+          matched: deedScan.matched,
+        });
+        return;
+      }
     }
 
     // ── Watermark string (Ch 32 locked wording) ───────────────────────────────

@@ -29,6 +29,9 @@ import {
   runDeferredCanonicalJob,
 } from '../db/canonicalMutation.js';
 import { REVIEWER_TITLES, EVALUATOR_MODEL, PRIMARY_DRAFTER_MODEL, resolveReviewerModel, type ReviewerKey, type LiteReviewerKey, type AnyReviewerKey } from '../llm/config.js';
+// LIVE-9: the review-loop regeneration is another generic LLM text producer — a deed under review must
+// never be re-drafted by the general LLM (it would corrupt the deterministically assembled deed text).
+import { enforceNotDeedLike } from '../deed/deedDocTypeGuard.js';
 import { getReviewerCeiling } from '../llm/modelCapabilities.js';
 // EGRESS-CONTROL-PLANE-1 Inc 2 (durable outbox): the reusable reviewer-job factory (build the queued job
 // row + the canonical-mutation closures from durable input) — shared with the dispatcher's reconstruction.
@@ -2126,6 +2129,17 @@ async function _invokeDocumentRegenerate(params: {
   const { userId, documentId, doc, instructions, matterId } = params;
 
   if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
+  // LIVE-9: single choke for BOTH reviewSession.regenerate and regenerateSingleReviewer — block a deed-like
+  // document from generic LLM regeneration and steer it to the deterministic deed agent.
+  enforceNotDeedLike({
+    documentType: doc.documentType,
+    customTypeLabel: doc.customTypeLabel,
+    title: doc.title,
+    entryPath: 'reviewSession.regenerate',
+    userId,
+    documentId,
+    matterId,
+  });
   if (!doc.currentVersionId) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
