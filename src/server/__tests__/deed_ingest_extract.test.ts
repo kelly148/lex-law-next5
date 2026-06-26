@@ -19,6 +19,7 @@ import {
   type DeedIngestResult,
 } from '../deed/deedIngestExtract.js';
 import { checkLegalDescription, checkRequiredParties } from '../deed/deedDraftGates.js';
+import { consolidateDeedSourceFacts } from '../deed/deedSourceFacts.js';
 // NOTE: scanned-vs-text-native detection is the EXISTING pipeline's job (pdfExtract -> pdfNeedsOcr, covered by
 // the existing intake tests). It is intentionally not re-imported here — pulling the heavy OCR chain into a
 // pure-text unit test would add cost for no benefit. The extractor consumes already-extracted text.
@@ -759,5 +760,118 @@ describe('determinism', () => {
     for (const fx of [GOLDEN_1, GOLDEN_2, GOLDEN_3, GOLDEN_4, TITLE_COMMITMENT, PROBATE_AUTHORITY, TAX_RECORD]) {
       expect(JSON.stringify(extractDeedIngest(fx))).toBe(JSON.stringify(extractDeedIngest(fx)));
     }
+  });
+});
+
+// ── Monster UAT v2 (2026-06-26) extraction-bundle fixes: TAX-1 / TAX-2 / EXTRACT-ZW / UAT-G1 ──────────────────────
+
+// A Fairfax County GIS / Department of Tax Administration printout shape: its assessment table uses Fairfax labels
+// (MAP #, Land Use Code, Reassessment, Total Value), NOT the generic "Assessed Value" wording — so under the old
+// classifier it scored ZERO tax_record hits and misclassified as probate_authority off the bare "Administrator"
+// token, which then injected a FALSE estate signal AND left the Quick-Deed pre-fill blank (assessedValue/parcelId).
+const FAIRFAX_GIS = [
+  'Fairfax County Department of Tax Administration',
+  'Real Property Information',
+  'MAP #: 0911-13106060B',
+  'Property Address: 7720 Marlowe Glen Court, Springfield, VA 22150',
+  'Land Use Code: 031 Residential',
+  'Reassessment Notice',
+  'Total Value: $612,400.00',
+  'Contact the Website Administrator for portal access. General Incident reporting available.',
+].join('\n');
+
+describe('TAX-1 — Fairfax tax printouts classify as tax_record, not probate (no false estate signal)', () => {
+  it('bare "Administrator"/"Incident" tokens alone do NOT score probate_authority (the role needs estate context)', () => {
+    // Under the old bare-role pattern this scored probate_authority (conf 55); now it must not.
+    expect(classifyDeedDocType('Fairfax County GIS portal. Website Administrator login. General Incident reporting. Parcel viewer.').type).not.toBe('probate_authority');
+  });
+
+  it('a Fairfax GIS printout classifies tax_record (Fairfax signals win; the Administrator token is inert)', () => {
+    expect(classifyDeedDocType(FAIRFAX_GIS).type).toBe('tax_record');
+  });
+
+  it('assessedValue + parcelId RESOLVE from the Fairfax layout (Total Value + MAP #) — QD-3 pre-fill restored', () => {
+    const r = extractDeedIngest(FAIRFAX_GIS);
+    expect(fld(r, 'parcelId').value).toBe('0911-13106060B');
+    expect(fld(r, 'assessedValue').value).toBe('612400.00');
+  });
+
+  it('REGRESSION: a genuine probate authority still classifies probate_authority', () => {
+    expect(classifyDeedDocType(PROBATE_AUTHORITY).type).toBe('probate_authority');
+  });
+
+  it('CASCADE: a gift packet (vesting deed + a Fairfax tax record) does NOT signal an estate', () => {
+    const GIFT_VESTING = [
+      'THIS DEED, made this 2nd day of May, 2019, by and between Harold V. GREER, an unmarried man, (the "Grantor"), and Marcus T. ELLISON, (the "Grantee"),',
+      'WITNESSETH that the Grantor does hereby grant and convey, with General Warranty, unto the said Grantee, in fee simple, all that parcel located in Fairfax County, Commonwealth of Virginia, to wit:',
+      '   Lot 27, HAWTHORNE RIDGE, recorded in Deed Book 8412 at Page 0337, among the land records of Fairfax County, Virginia.',
+      '   BEING the same property conveyed unto Harold V. Greer by Deed in Deed Book 3000 at Page 100.',
+      'This conveyance is made subject to covenants of record.',
+    ].join('\n');
+    const facts = consolidateDeedSourceFacts([
+      { materialId: 'v', textContent: GIFT_VESTING },
+      { materialId: 't', textContent: FAIRFAX_GIS },
+    ]);
+    expect(facts.estateSource.signaled).toBe(false);
+    expect(facts.estateSource.signals).not.toContain('probate_authority_document');
+  });
+});
+
+describe('TAX-2 — GPIN shape accepts the Fairfax trailing-alpha (and OCR space) form, without the E5 false-accept', () => {
+  it('a hyphen-grouped Tax-ID with a trailing alpha suffix ("0911-13106060B") extracts', () => {
+    const r = extractDeedIngest('REAL ESTATE ASSESSMENT\nTax I.D. Number: 0911-13106060B\nTotal Assessed Value: $500,000.00');
+    expect(fld(r, 'parcelId').value).toBe('0911-13106060B');
+  });
+
+  it('the OCR space-grouped form ("0911 13106060B") extracts when it is the whole cell value', () => {
+    const r = extractDeedIngest('REAL ESTATE ASSESSMENT\nTax I.D. Number: 0911 13106060B\nTotal Assessed Value: $500,000.00');
+    expect(fld(r, 'parcelId').value).toBe('0911 13106060B');
+  });
+
+  it('NEG (E5 guard): a single-digit-group tax-map ("22-4-61") is STILL withheld, never falsely accepted', () => {
+    const r = extractDeedIngest('REAL ESTATE ASSESSMENT\nTax Map: 22-4-61\nTotal Assessed Value: $400,000.00');
+    const p = fld(r, 'parcelId');
+    expect(p.value).toBeNull();
+    expect(p.flags).toContain('low_shape_no_gpin');
+  });
+});
+
+describe('EXTRACT-ZW — zero-width characters are stripped from the extracted (recordable) text', () => {
+  const ZW = '\u200B';
+  it('the verbatim legal carries no U+200B even when the source sprinkles them (incl. after the terminal period)', () => {
+    const src = [
+      'THIS DEED, made this 2nd day of June, 2026, by and between Marcus T. ELLISON, (the "Grantor"), and Daniel WONG, (the "Grantee"),',
+      'WITNESSETH that the Grantor does hereby grant and convey, with General Warranty, unto the said Grantee, in fee simple, all that parcel located in Prince William County, Commonwealth of Virginia, to wit:',
+      `   Lot 12${ZW}, Section 3, CEDAR RUN ESTATES, recorded in Deed Book 6011 at Page 244, among the land records of Prince William County, Virginia.${ZW}${ZW}`,
+      '   BEING the same property conveyed to Marcus T. Ellison by Deed in Deed Book 25110 at Page 0455.',
+      'This conveyance is made subject to covenants of record.',
+    ].join('\n');
+    const legal = fld(extractDeedIngest(src), 'legalDescription');
+    expect(legal.value).not.toBeNull();
+    expect(legal.value!).not.toContain(ZW); // invisible chars never ride into the recordable legal
+    expect(legal.value!).toContain('Lot 12, Section 3, CEDAR RUN ESTATES'); // and the strip did not corrupt the text
+    expect(legal.flags).not.toContain('truncated');
+  });
+});
+
+describe('UAT-G1 — the no-space "…Virginia.Being…" recital does not run into the verbatim legal', () => {
+  const LEGAL = 'Lot 12, Section 3, CEDAR RUN ESTATES, recorded in Deed Book 6011 at Page 244, among the land records of Prince William County, Virginia.';
+  const head = [
+    'THIS DEED, made this 2nd day of June, 2026, by and between Marcus T. ELLISON, (the "Grantor"), and Daniel WONG, (the "Grantee"),',
+    'WITNESSETH that the Grantor does hereby grant and convey, with General Warranty, unto the said Grantee, in fee simple, all that parcel located in Prince William County, Commonwealth of Virginia, to wit:',
+  ].join('\n');
+  const tail = 'This conveyance is made subject to covenants of record.';
+  const RECITAL = 'Being the same property conveyed to Marcus T. Ellison by Deed in Deed Book 25110 at Page 0455.';
+
+  it('GOLD: the collapsed (no-space) source terminates the legal at the legal — no run-on, no recital in the block', () => {
+    const collapsed = `${head}\n   ${LEGAL}${RECITAL}\n${tail}`; // "...Virginia.Being the same property..."
+    const legal = fld(extractDeedIngest(collapsed), 'legalDescription');
+    expect(legal.value).toBe(LEGAL);
+    expect(legal.value!).not.toContain('Being the same property');
+  });
+
+  it('the spaced source is unchanged (same legal block)', () => {
+    const spaced = `${head}\n   ${LEGAL}  ${RECITAL}\n${tail}`; // "...Virginia.  Being the same property..."
+    expect(fld(extractDeedIngest(spaced), 'legalDescription').value).toBe(LEGAL);
   });
 });
