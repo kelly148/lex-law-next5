@@ -228,14 +228,27 @@ function isLegalTruncated(legal: string | undefined): boolean {
   return false;
 }
 
+/** The span bridging a recorded-instrument recital and its Deed Book/Page/Instrument reference. It tolerates an
+ *  ABBREVIATION period before a digit — an abbreviated month ("Oct. 17, 1984") or "No." etc. — but NOT a sentence
+ *  period (a period followed by whitespace+letter / end). So the anchor follows a date across "...recorded Oct.
+ *  17, 1984, in Deed Book ..." (LIVE-2: a `[^.]*?` span stopped at the "Oct." period and lost the Deed Book
+ *  reference, WITHHELDing the real condo legal) yet still refuses to bridge a genuine mid-recital cut into a new
+ *  sentence (a period before " The" is not crossed). */
+const RECITAL_SPAN = String.raw`(?:[^.]|\.(?=\s*\d))*?`;
+
 /** Recorded-Declaration / instrument-number anchor that a complete condo legal must carry (PROBE-A guard): an
  *  explicit "Instrument No. <n>"; a "Declaration" adjacent to a recorded/Instrument/Deed Book reference; OR
  *  (TRUST-2) the firm's standard "condominium instruments recorded … in Deed Book … at Page …" phrasing — a
  *  genuine recorded-instrument anchor that names no literal "Declaration"/"Instrument No.". The recorded-reference
  *  requirement is preserved: a condo legal cut BEFORE its Deed Book/Page/Instrument reference still has no anchor
  *  and stays WITHHELD (the terminus check at the call site additionally requires the closing land-records clause). */
-const CONDO_DECLARATION_ANCHOR =
-  /\bInstrument No\.\s*\w|\bDeclaration\b[^.]*?\b(?:recorded|Instrument|Deed Book)\b|\b(?:recorded|Instrument|Deed Book)\b[^.]*?\bDeclaration\b|\b(?:condominium\s+)?instruments?\s+recorded\b[^.]*?\b(?:Deed Book|Instrument|Page)\b/i;
+const CONDO_DECLARATION_ANCHOR = new RegExp(
+  String.raw`\bInstrument No\.\s*\w` +
+    String.raw`|\bDeclaration\b${RECITAL_SPAN}\b(?:recorded|Instrument|Deed Book)\b` +
+    String.raw`|\b(?:recorded|Instrument|Deed Book)\b${RECITAL_SPAN}\bDeclaration\b` +
+    String.raw`|\b(?:condominium\s+)?instruments?\s+recorded\b${RECITAL_SPAN}\b(?:Deed Book|Instrument|Page)\b`,
+  'i',
+);
 
 /** Join grantor full names house-style ("A" | "A and B" | "A, B and C"). */
 function joinNames(names: string[]): string {
