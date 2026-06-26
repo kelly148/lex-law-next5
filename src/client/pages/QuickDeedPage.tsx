@@ -350,6 +350,7 @@ export default function QuickDeedPage(): React.ReactElement {
               matterId={matterId ?? undefined}
               resolveMatterId={ensureMatterAsync}
               onUploaded={() => { void previewFacts.refetch(); }}
+              autoCommit
             />
             <p className="text-xs text-ink-hint mt-1">
               The legal description, parcel, and assessed value are read from these uploads.

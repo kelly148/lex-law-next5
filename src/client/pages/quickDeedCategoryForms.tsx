@@ -129,7 +129,7 @@ function UploadsHeader({ matterId, resolveMatterId, onUploaded, hasMaterials }: 
     <>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Drop the prior vesting deed &amp; tax record</label>
-        <MaterialsDropZone matterId={matterId} resolveMatterId={resolveMatterId} onUploaded={onUploaded} />
+        <MaterialsDropZone matterId={matterId} resolveMatterId={resolveMatterId} onUploaded={onUploaded} autoCommit />
         <p className="text-xs text-ink-hint mt-1">The legal description, parcel, assessed value, and locality are read from these uploads.</p>
       </div>
       {hasMaterials && (
