@@ -106,17 +106,17 @@ describe('quickDeed.listDeedTypes', () => {
     await expect(quick().listDeedTypes()).rejects.toThrow(/DEED_DRAFT_AGENT_DISABLED/);
   });
 
-  it('listDeedTypes returns the registry with gift + seller-side wired for generation', async () => {
+  it('listDeedTypes returns the whole built registry — every category wired for generation', async () => {
     process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
     const types = await quick().listDeedTypes();
-    const gift = types.find((t) => t.key === 'deed_of_gift');
-    const seller = types.find((t) => t.key === 'seller_side');
-    expect(gift?.quickDeedGenerates).toBe(true);
-    expect(seller?.quickDeedGenerates).toBe(true); // seller-side is now wired for Quick Deed generation
-    // every OTHER registered type is listed but NOT wired for generation
-    const wired = new Set(['deed_of_gift', 'seller_side']);
-    expect(types.filter((t) => !wired.has(t.key)).every((t) => t.quickDeedGenerates === false)).toBe(true);
-    expect(types.length).toBeGreaterThan(2); // the surface enumerates the whole built set
+    // The five remaining categories are now wired (alongside gift + seller-side): the whole built registry generates.
+    const wired = new Set(['deed_of_gift', 'seller_side', 'deed_into_llc', 'deed_out_of_llc', 'deed_tod', 'deed_of_confirmation', 'deed_into_trust']);
+    for (const key of wired) {
+      expect(types.find((t) => t.key === key)?.quickDeedGenerates).toBe(true);
+    }
+    // No listed (built) category remains unwired — the selector + the dispatch guard cannot drift.
+    expect(types.every((t) => t.quickDeedGenerates === true)).toBe(true);
+    expect(types.length).toBeGreaterThanOrEqual(7); // the surface enumerates the whole built set
   });
 });
 
@@ -151,12 +151,13 @@ describe('quickDeed.generate — gift-only, conflicts BYPASSED, stamp in notes',
     expect(insertDocument).not.toHaveBeenCalled();
   });
 
-  it('rejects a registered-but-unwired deed type with QUICK_DEED_TYPE_NOT_WIRED', async () => {
-    // (seller_side is now wired, so a still-unwired registered key is used as the example here.)
+  it('rejects a still-bogus (unrecognized) deed type with QUICK_DEED_TYPE_NOT_WIRED', async () => {
+    // Every built/registered type is now wired, so the negative case uses an unrecognized deedType string —
+    // the friendly guard (not zod) still produces the message because deedType stays a free z.string().
     process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
     (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
-    await expect(quick().generate(fullGenerate({ deedType: 'deed_into_llc' }))).rejects.toThrow(
-      /QUICK_DEED_TYPE_NOT_WIRED: deed_into_llc is registered but not yet wired/,
+    await expect(quick().generate(fullGenerate({ deedType: 'deed_nonexistent' }))).rejects.toThrow(
+      /QUICK_DEED_TYPE_NOT_WIRED: deed_nonexistent is not a recognized deed type/,
     );
     expect(insertDocument).not.toHaveBeenCalled();
   });
