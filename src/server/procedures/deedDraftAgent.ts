@@ -32,6 +32,7 @@ import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../dee
 import { VA_VESTING_OPTIONS } from '../deed/deedKbVa.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { EVALUATOR_MODEL } from '../llm/config.js';
+import { LlmProviderError } from '../llm/types.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import {
   assembleTodDeed,
@@ -1980,8 +1981,12 @@ export const ProposeIntakeOutputSchema = z
     grantees: z
       .array(
         z.object({
-          name: z.string().min(1).max(200),
-          relationship: z.string().max(200).optional(),
+          // LIVE-6: the model CORRECTLY returns null/absent when a donee was described without a name ("add my
+          // kid") — it must never fabricate a name. The schema must accept that (the broker enforces this schema,
+          // so a required-string here threw a raw Zod error). validateProposeIntakeOutput surfaces a missing name
+          // as a fill-the-gap clarification, never an error.
+          name: z.string().max(200).nullable().optional(),
+          relationship: z.string().max(200).nullable().optional(),
         }),
       )
       .max(20)
@@ -1997,6 +2002,13 @@ export const ProposeIntakeOutputSchema = z
     confident: z.boolean().default(true),
     /** Questions the model wants answered before the attorney should rely on the parse. */
     clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+    // LIVE-6: the model commonly ECHOES the gift grantor (a `grantor` and/or `grantors` key) even though the
+    // grantor is taken from extraction, never the model. Accept + IGNORE these benign extras so a normal parse does
+    // not fail. .strict() is KEPT so a FORBIDDEN field (a model-authored legal/property description) is still
+    // rejected -> needs_clarification; the procedure additionally degrades any remaining schema-drift parse_error
+    // to a fill-the-gap result, never a raw Zod dump.
+    grantor: z.unknown().optional(),
+    grantors: z.unknown().optional(),
   })
   .strict();
 
@@ -2070,14 +2082,20 @@ export function validateProposeIntakeOutput(raw: unknown): ProposeIntakeResult {
     );
   }
 
-  // A gift deed must have at least one donee; a parse with none is ambiguous, not a default.
+  // A gift deed must have at least one NAMED donee. A parse with none — or with a donee the model correctly left
+  // unnamed ("add my kid") — is a fill-the-gap, never a default-filled or thrown error (LIVE-6: g.name may be
+  // null/absent, so coalesce before trim).
   const grantees = out.grantees.map((g) => {
+    const name = (g.name ?? '').trim();
     const r = (g.relationship ?? '').trim();
-    return r === '' ? { name: g.name.trim() } : { name: g.name.trim(), relationship: r };
+    return r === '' ? { name } : { name, relationship: r };
   });
   if (grantees.length === 0) {
     needsClarification = true;
     questions.push('Who are the donee(s) (the grantee(s)) of this gift deed?');
+  } else if (grantees.some((g) => g.name === '')) {
+    needsClarification = true;
+    questions.push('One or more donees were described without a name (e.g. "my kid"). What is the full legal name of each donee?');
   }
 
   if (needsClarification) {
@@ -2319,6 +2337,16 @@ export const quickDeedRouter = router({
           // The egress gate refused the send (a no_external hold, an uncertain hold check, or a provider not on
           // the allowlist). Return a clean blocked result — NEVER a partial/guessed proposal.
           return { status: 'blocked' as const, reason: err.blockReason };
+        }
+        // LIVE-6: a structured-output PARSE failure (the model's shape drifted from the contract — the broker
+        // validates the response against ProposeIntakeOutputSchema and throws an LlmProviderError('parse_error'))
+        // must degrade to a fill-the-gap result, NEVER a raw Zod dump to the attorney. The deterministic manual
+        // intake remains the working fallback.
+        if (err instanceof LlmProviderError && err.errorClass === 'parse_error') {
+          return {
+            status: 'needs_clarification' as const,
+            questions: ['I could not fully parse the deal into the intake fields. Please confirm or fill the donees and tenancy below.'],
+          };
         }
         throw err;
       }
