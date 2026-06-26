@@ -32,6 +32,7 @@ import type { EgressSubject } from '../../shared/schemas/egress.js';
 import type { DocumentType } from '../express/protectedSpans.js';
 import { runExpressLoop, type ExpressLoopResult } from '../express/reviewLoop.js';
 import { makeReviewPort, makeRegeneratePort, RegenerateAnchorError } from '../express/expressPorts.js';
+import { evaluateExpressApproval } from '../express/approvalGate.js';
 
 /**
  * The document types E6 will run the loop for. ONLY 'deed' has a real protected-span recognizer set today (E1);
@@ -61,6 +62,12 @@ interface CompletedResult {
   rounds: number;
   converged: boolean;
   hitCap: boolean;
+  /** The E7a structural approval posture — SERVER truth (evaluateExpressApproval), never client-derived. The
+   *  banner reads `canApprove` directly. FALSE while any escalation is unresolved (canApprove === no escalations);
+   *  the candidate is structurally non-final regardless (isFinal:false above). */
+  canApprove: boolean;
+  /** Plain-English reasons the candidate cannot yet be approved (empty iff canApprove). */
+  blockingReasons: string[];
   /** Per-round summaries (round-cap adherence + convergence audit). */
   roundSummaries: ExpressLoopResult['roundSummaries'];
   /** The cumulative adopted set (audit of what auto-applied). */
@@ -200,6 +207,8 @@ export const expressReviewLoopRouter = router({
       // The loop succeeded — return the NON-FINAL candidate + ledger summary + escalations. Nothing here
       // finalizes, persists-as-final, records, or sends; and the ledger is RETURNED, never persisted (E4b).
       const entries = result.ledger.entries();
+      // E7a SERVER approval truth — the banner reads canApprove directly (never client-derived).
+      const approval = evaluateExpressApproval(result);
       return {
         status: 'completed',
         isFinal: false,
@@ -207,6 +216,8 @@ export const expressReviewLoopRouter = router({
         rounds: result.rounds,
         converged: result.converged,
         hitCap: result.hitCap,
+        canApprove: approval.canApprove,
+        blockingReasons: approval.blockingReasons,
         roundSummaries: result.roundSummaries,
         adopted: result.adopted,
         escalations: result.escalations.map((e) => ({

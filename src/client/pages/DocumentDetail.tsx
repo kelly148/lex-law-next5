@@ -49,6 +49,7 @@ import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
+import ExpressReviewPane from '../components/ExpressReviewPane.js';
 import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import { DeedGatePanel } from '../components/DeedGatePanel.js';
@@ -507,6 +508,11 @@ export default function DocumentDetail(): React.ReactElement {
   const [notesInput, setNotesInput] = useState('');
   const [regenerateInstructions, setRegenerateInstructions] = useState('');
   const [showReview, setShowReview] = useState(false);
+  // EXPRESS-AUTO-REVIEW-LOOP-1 Part B: the auto-review entry is flag-dark — gated on the server isEnabled probe
+  // (AUTO_REVIEW_LOOP_ENABLED, default OFF) so nothing renders on prod until activation.
+  const [showExpress, setShowExpress] = useState(false);
+  const { data: expressFlag } = trpc.expressReviewLoop.isEnabled.useQuery();
+  const expressEnabled = expressFlag?.enabled === true;
   const [showContextPreview, setShowContextPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'outline' | 'variables' | 'references'>('content');
   const [showDraftWarning, setShowDraftWarning] = useState(false);
@@ -1023,6 +1029,15 @@ export default function DocumentDetail(): React.ReactElement {
                 >
                   Request Review
                 </button>
+                {expressEnabled && (
+                  <button
+                    data-testid="express-entry"
+                    onClick={() => setShowExpress(true)}
+                    className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+                  >
+                    Auto-review (Express)
+                  </button>
+                )}
                 <DeliberateActButton
                   onClick={() => acceptSubstantiveMutation.mutate({ documentId })}
                   disabled={acceptSubstantiveMutation.isPending}
@@ -1400,6 +1415,11 @@ export default function DocumentDetail(): React.ReactElement {
           iterationNumber={(doc.officialSubstantiveVersionNumber ?? 0) + 1}
           onClose={() => setShowReview(false)}
         />
+      )}
+
+      {/* Express auto-review pane (flag-dark; only when AUTO_REVIEW_LOOP_ENABLED + both ids in scope) */}
+      {showExpress && expressEnabled && documentId && matterId && (
+        <ExpressReviewPane matterId={matterId} documentId={documentId} onClose={() => setShowExpress(false)} />
       )}
     </div>
   );
