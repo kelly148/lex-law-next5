@@ -588,3 +588,35 @@ describe('Into-Trust (C2) — TRUST-2 firm condo phrasing + TRUST-3 zero-width t
     expect(r.status).toBe('OK');
   });
 });
+
+// \u2500\u2500 LIVE-2 (live UAT 2026-06-26): the condo recital with an ABBREVIATED-MONTH period \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+//
+// Live: Into-Trust on the real condo vesting returned LEGAL_DESCRIPTION_TRUNCATED. The #450 anchor's `[^.]*?` span
+// stopped at the period in an abbreviated month ("\u2026condominium instruments recorded Oct. 17, 1984, in Deed Book
+// 5127 at Page 3304\u2026"), so it never reached the "Deed Book" reference -> no anchor -> WITHHELD. (The full-month
+// form "October 17, 1984" already emitted; the live extraction had the abbreviated form.) The fix lets the recital
+// span cross an abbreviation period before a digit, but NOT a sentence period.
+describe('Into-Trust (C2) \u2014 LIVE-2 abbreviated-month condo recital emits', () => {
+  const withLegal = (legal: string): DeedIntoTrustInput => ({ ...toInput(grabGoldInput(1), 'A'), legalDescription: legal });
+  const ABBREV =
+    'Condominium Unit No. 0815-22, BELLEVIEW CONDOMINIUM, together with the undivided interest in the common elements appurtenant thereto, established by condominium instruments recorded Oct. 17, 1984, in Deed Book 5127 at Page 3304, and any and all subsequent amendments recorded thereto among the land records of Fairfax County, Virginia.';
+
+  it('GOLD: the abbreviated-month form ("recorded Oct. 17, 1984, in Deed Book \u2026") EMITS (anchor follows past the abbreviation period)', () => {
+    const r = assembleIntoTrustDeed(withLegal(ABBREV));
+    expect(r.flags).not.toContain('LEGAL_DESCRIPTION_TRUNCATED');
+    expect(r.status).toBe('OK');
+    expect(r.deed!.legalDescription).toBe(ABBREV); // verbatim
+  });
+
+  it('GOLD (regression): the full-month form still EMITS', () => {
+    expect(assembleIntoTrustDeed(withLegal(ABBREV.replace('Oct. 17, 1984', 'October 17, 1984'))).status).toBe('OK');
+  });
+
+  it('NEG: a SENTENCE period between "recorded" and the Deed Book reference does NOT bridge (still WITHHELD)', () => {
+    const sentenceCut =
+      'Condominium Unit No. 0815-22, BELLEVIEW CONDOMINIUM, together with the undivided interest in the common elements appurtenant thereto, established by condominium instruments recorded. The unit appears in Deed Book 5127 at Page 3304, among the land records of Fairfax County, Virginia.';
+    const r = assembleIntoTrustDeed(withLegal(sentenceCut));
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('LEGAL_DESCRIPTION_TRUNCATED');
+  });
+});
