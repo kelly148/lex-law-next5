@@ -89,6 +89,25 @@ describe('E4 seller-side builder — doc-derived facts default; attorney supplie
     expect(draft.text).not.toContain(SITUS);
   });
 
+  it('F3: an ESTATE seller-side deed on the DEFAULT General Warranty surfaces the §2.1.0/B1 fiduciary-warranty caution', () => {
+    // A fiduciary giving a General Warranty exposes the estate to a pre-decedent title-defect claims tail (KB
+    // §2.1.0/B1). The caution must fire on the DEFAULT warranty path (Monster UAT v2 F3 re-verify), not only when
+    // Special is chosen. A grounded single-Executor estate deed (one grantor, power of sale, "Executor of Estate
+    // of <decedent>" capacity) emits, carrying the caution on draft.notes.
+    const { draft } = buildSellerSideDraft(
+      PACKET,
+      attorneyInput({
+        sellerType: 'estate',
+        powerOfSale: true,
+        warrantyType: 'General Warranty',
+        grantorDescriptor: '',
+        grantors: [{ name: 'Harold V. GREER', capacity: 'Executor of Estate of Vivian R. Greer' }],
+      }),
+    );
+    expect(draft.failedClosed).toBe(false); // a grounded single-executor estate deed emits
+    expect(draft.notes.some((n) => n.includes('Fiduciary-warranty risk (KB §2.1.0/B1)'))).toBe(true);
+  });
+
   it('fails CLOSED (no void deed) when the only legal available is truncated', () => {
     const truncatedVesting = VESTING_DEED.replace(
       'among the Land Records of Prince William County, Virginia.',
