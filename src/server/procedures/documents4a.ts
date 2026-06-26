@@ -51,6 +51,9 @@ import {
 } from '../db/queries/templates.js';
 import { resolveDraftingSubjectScope, buildScopeInstruction } from '../documents/draftingSubject.js';
 import { isConflictGateEnabled, isAsyncDraftDispatchEnabled } from '../config/featureFlags.js';
+// LIVE-9: the generic LLM/template document path must never mint a deed; deed-like docs are blocked and
+// steered to the deterministic deed agent (conveyance) or the security-instrument workflow (deed of trust).
+import { enforceNotDeedLike } from '../deed/deedDocTypeGuard.js';
 import { recordDraftUnderOverride } from '../db/queries/gateOverride.js';
 // NOTIFY-PRODUCERS-1: draft-ready producer (in-app badge on a committed draft version; best-effort).
 import { emitDraftReadyNotification } from '../db/queries/notifications.js';
@@ -373,6 +376,16 @@ export const document4aRouter = router({
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       assertNotComplete(doc.workflowState, 'document.render');
+      // LIVE-9: a deed-like document must never be produced via the generic template render either.
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'document.render',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
 
       if (doc.draftingMode !== 'template') {
         throw new TRPCError({
@@ -487,6 +500,18 @@ export const document4aRouter = router({
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       assertNotComplete(doc.workflowState, 'document.generateDraft');
+      // LIVE-9: a deed (or deed-like) document must never be LLM-drafted on the generic path — block and
+      // steer to the deterministic deed agent. Runs before enqueue, so both the sync and async branches
+      // are covered.
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'document.generateDraft',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
 
       if (doc.draftingMode !== 'iterative') {
         throw new TRPCError({
@@ -672,6 +697,17 @@ export const document4aRouter = router({
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       assertNotComplete(doc.workflowState, 'document.regenerate');
+      // LIVE-9: never LLM-regenerate a deed-like document on the generic path (a deterministically
+      // assembled deed must not be re-drafted by the general LLM, which would corrupt its verbatim legal).
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'document.regenerate',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
 
       if (doc.draftingMode !== 'iterative') {
         throw new TRPCError({
@@ -1097,6 +1133,18 @@ export const document4aRouter = router({
       const doc = await getDocumentById(input.documentId, userId);
       if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       // NOTE: No R12 guard — this transitions INTO finalizing (on the path to complete)
+      // LIVE-9: a deed must never pass through the generic LLM "finishing pass" — it would rewrite the
+      // deterministically assembled, recordable text (verbatim legal, exemption-safe granting language).
+      // A deed's text is already final from the deterministic agent; block the generic formatter.
+      enforceNotDeedLike({
+        documentType: doc.documentType,
+        customTypeLabel: doc.customTypeLabel,
+        title: doc.title,
+        entryPath: 'document.finalize',
+        userId,
+        documentId: doc.id,
+        matterId: doc.matterId,
+      });
 
       if (doc.workflowState !== 'substantively_accepted') {
         throw new TRPCError({
