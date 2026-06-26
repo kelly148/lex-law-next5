@@ -204,7 +204,10 @@ function isBlank(v: string | undefined | null): boolean {
  * mid-amendment cut even if it ends on a period. Also catches the NEG-1 mid-LCE cut ("...parking space(s)").
  */
 function isLegalTruncated(legal: string | undefined): boolean {
-  const t = (legal ?? '').trim();
+  // TRUST-3 (defensive): trim trailing zero-width / non-printing chars (U+200B/C/D, U+2060, U+FEFF) BEFORE the
+  // terminus test — `\s` does not match them, so a docx legal ending "…Virginia." would otherwise read as
+  // unterminated and WITHHELD. Belt-and-suspenders to the EXTRACT-ZW strip at the extractor entry.
+  const t = (legal ?? '').replace(/\u200B|\u200C|\u200D|\u2060|\uFEFF/g, '').trim();
   if (t === '') return true;
   if (!/(?:[.]["')\]]?|\))\s*$/.test(t)) return true;
   const core = t.replace(/(?:[.]["')\]]?|\))\s*$/, '').trim();
@@ -226,9 +229,13 @@ function isLegalTruncated(legal: string | undefined): boolean {
 }
 
 /** Recorded-Declaration / instrument-number anchor that a complete condo legal must carry (PROBE-A guard): an
- *  explicit "Instrument No. <n>", or a "Declaration" adjacent to a recorded/Instrument/Deed Book reference. */
+ *  explicit "Instrument No. <n>"; a "Declaration" adjacent to a recorded/Instrument/Deed Book reference; OR
+ *  (TRUST-2) the firm's standard "condominium instruments recorded … in Deed Book … at Page …" phrasing — a
+ *  genuine recorded-instrument anchor that names no literal "Declaration"/"Instrument No.". The recorded-reference
+ *  requirement is preserved: a condo legal cut BEFORE its Deed Book/Page/Instrument reference still has no anchor
+ *  and stays WITHHELD (the terminus check at the call site additionally requires the closing land-records clause). */
 const CONDO_DECLARATION_ANCHOR =
-  /\bInstrument No\.\s*\w|\bDeclaration\b[^.]*?\b(?:recorded|Instrument|Deed Book)\b|\b(?:recorded|Instrument|Deed Book)\b[^.]*?\bDeclaration\b/i;
+  /\bInstrument No\.\s*\w|\bDeclaration\b[^.]*?\b(?:recorded|Instrument|Deed Book)\b|\b(?:recorded|Instrument|Deed Book)\b[^.]*?\bDeclaration\b|\b(?:condominium\s+)?instruments?\s+recorded\b[^.]*?\b(?:Deed Book|Instrument|Page)\b/i;
 
 /** Join grantor full names house-style ("A" | "A and B" | "A, B and C"). */
 function joinNames(names: string[]): string {

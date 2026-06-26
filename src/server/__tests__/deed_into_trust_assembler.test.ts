@@ -554,3 +554,37 @@ describe('Into-Trust (C2) — TRUST-1 "unmarried" is not misread as married', ()
     expect(r.deed!.tbeImmunityNote).toContain('pursuant to Virginia Code § 55.1-136(C)');
   });
 });
+
+// ── TRUST-2 / TRUST-3: condo-legal anchor + zero-width terminus (Monster UAT v2, 2026-06-26) ──────────────────────
+//
+// TRUST-2: the firm's real condo legal recites "…established by condominium instruments recorded … in Deed Book …
+// at Page …, among the land records of <county>, Virginia." — a COMPLETE condo legal with NO literal "Declaration"
+// / "Instrument No.". The old CONDO_DECLARATION_ANCHOR rejected it as truncated; the fix accepts the recorded-
+// instrument phrasing while STILL requiring a recorded reference (a legal cut before that reference stays WITHHELD).
+// TRUST-3: trailing zero-width chars (U+200B from .docx) must not defeat the terminus test.
+describe('Into-Trust (C2) — TRUST-2 firm condo phrasing + TRUST-3 zero-width terminus', () => {
+  const ESSEX_LEGAL =
+    'Condominium Unit No. 304, ESSEX HOUSE Condominium, together with the undivided interest in the common elements appurtenant thereto, established by condominium instruments recorded October 17, 1984, in Deed Book 6038 at Page 1923, among the land records of the County of Fairfax, Virginia.';
+  const withLegal = (legal: string): DeedIntoTrustInput => ({ ...toInput(grabGoldInput(1), 'A'), legalDescription: legal });
+
+  it('TRUST-2 GOLD: the firm "condominium instruments recorded in Deed Book" condo legal EMITS (not truncated)', () => {
+    const r = assembleIntoTrustDeed(withLegal(ESSEX_LEGAL));
+    expect(r.flags).not.toContain('LEGAL_DESCRIPTION_TRUNCATED');
+    expect(r.status).toBe('OK');
+    expect(r.deed!.legalDescription).toBe(ESSEX_LEGAL); // carried verbatim
+  });
+
+  it('TRUST-2 NEG: a condo legal cut BEFORE its recorded-instrument reference is STILL WITHHELD', () => {
+    const cut =
+      'Condominium Unit No. 304, ESSEX HOUSE Condominium, together with the undivided interest in the common elements appurtenant thereto, among the land records of the County of Fairfax, Virginia.';
+    const r = assembleIntoTrustDeed(withLegal(cut));
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('LEGAL_DESCRIPTION_TRUNCATED');
+  });
+
+  it('TRUST-3 GOLD: a legal ending with trailing U+200B is NOT flagged truncated (defensive terminus trim)', () => {
+    const r = assembleIntoTrustDeed(withLegal(ESSEX_LEGAL + '\u200B\u200B'));
+    expect(r.flags).not.toContain('LEGAL_DESCRIPTION_TRUNCATED');
+    expect(r.status).toBe('OK');
+  });
+});
