@@ -49,6 +49,7 @@ import {
   buildProposeIntakeSystemPrompt,
 } from '../procedures/deedDraftAgent.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
+import { LlmProviderError } from '../llm/types.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { insertDocument } from '../db/queries/documents.js';
 import { insertVersion } from '../db/queries/versions.js';
@@ -135,6 +136,33 @@ describe('validateProposeIntakeOutput (pure: fail-closed normalization)', () => 
     );
     expect(validateProposeIntakeOutput({ grantees: 'not-an-array' }).status).toBe('needs_clarification');
     expect(validateProposeIntakeOutput(null).status).toBe('needs_clarification');
+  });
+
+  // ── LIVE-6 (live UAT 2026-06-26): align with the model contract, never a raw Zod dump ──
+  it('LIVE-6: a donee left UNNAMED (null name) → needs_clarification (fill-the-gap), never a thrown error', () => {
+    const r = validateProposeIntakeOutput({ grantees: [{ name: null, relationship: 'my kid' }], confident: true });
+    expect(r.status).toBe('needs_clarification');
+    if (r.status !== 'needs_clarification') throw new Error('expected needs_clarification');
+    expect(r.questions.join(' ')).toMatch(/without a name|full legal name/i);
+  });
+
+  it('LIVE-6: an extra "grantor" key the model echoes is accepted + IGNORED (the proposal still maps the grantee)', () => {
+    const r = validateProposeIntakeOutput({
+      grantees: [{ name: 'Hannah Okonkwo', relationship: 'his daughter' }],
+      grantor: 'Daniel Okonkwo',
+      vestingOverride: 'sole_owner',
+      confident: true,
+    });
+    expect(r.status).toBe('proposed');
+    if (r.status !== 'proposed') throw new Error('expected proposed');
+    expect(r.proposal.grantees).toEqual([{ name: 'Hannah Okonkwo', relationship: 'his daughter' }]);
+    expect(r.proposal).not.toHaveProperty('grantor');
+    expect(r.proposal.vestingOverride).toBe('sole_owner');
+  });
+
+  it('LIVE-6: the SCHEMA accepts a null name + an extra grantor, but STILL rejects a model-authored legal (safety)', () => {
+    expect(ProposeIntakeOutputSchema.safeParse({ grantees: [{ name: null }], grantor: 'D', confident: true }).success).toBe(true);
+    expect(ProposeIntakeOutputSchema.safeParse({ grantees: [{ name: 'A' }], legalDescription: 'Lot 1, ...' }).success).toBe(false);
   });
 });
 
@@ -255,6 +283,25 @@ describe('quickDeed.proposeIntake — gates, egress params, propose-only', () =>
     expect(res.status).toBe('blocked');
     if (res.status !== 'blocked') throw new Error('expected blocked');
     expect(res.reason).toBe('hold_no_external');
+    expect(res).not.toHaveProperty('proposal');
+    expect(insertDocument).not.toHaveBeenCalled();
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('LIVE-6: a model output with a null donee name → needs_clarification end-to-end (no throw, nothing persisted)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({ grantees: [{ name: null, relationship: 'my kid' }], confident: true });
+    const res = await caller().proposeIntake({ matterId: M1, freeText: 'add my kid' });
+    expect(res.status).toBe('needs_clarification');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('LIVE-6: a structured-output parse_error from the broker → needs_clarification (never a raw Zod dump)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    egressMock.mockRejectedValue(new LlmProviderError('parse_error', 'structured output failed Zod validation: invalid_type'));
+    const res = await caller().proposeIntake({ matterId: M1, freeText: FREE_TEXT });
+    expect(res.status).toBe('needs_clarification');
+    if (res.status !== 'needs_clarification') throw new Error('expected needs_clarification');
     expect(res).not.toHaveProperty('proposal');
     expect(insertDocument).not.toHaveBeenCalled();
     expect(insertVersion).not.toHaveBeenCalled();
