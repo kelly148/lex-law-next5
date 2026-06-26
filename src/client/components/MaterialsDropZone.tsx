@@ -30,6 +30,11 @@ interface MaterialsDropZoneProps {
   onUploaded?: () => void;
   /** When provided, a Cancel button is rendered (the drawer's "return to list"); omitted for an inline primary zone. */
   onCancel?: () => void;
+  /** AUTO-COMMIT (LIVE-10): upload each accepted file the MOMENT it is attached (resolving the owning matter
+   *  first), so the doc-derived facts resolve WITHOUT a separate "Upload" click. The deed intake surfaces set
+   *  this; the general materials drawer keeps the explicit stage-then-Upload model (default false). When on, the
+   *  manual Upload button + description field are hidden (the commit happens on drop). */
+  autoCommit?: boolean;
 }
 
 // Accepted upload formats come from the SHARED contract (src/shared/deedUploadFormats.ts) so the dropzone and
@@ -56,6 +61,7 @@ export default function MaterialsDropZone({
   resolveMatterId,
   onUploaded,
   onCancel,
+  autoCommit = false,
 }: MaterialsDropZoneProps): React.ReactElement {
   // Multi-file queue. Both the click-to-browse path and the drop path append into THIS
   // list, and handleUpload sends every queued file through the one /api/materials/upload
@@ -106,8 +112,14 @@ export default function MaterialsDropZone({
     if (accepted.length > 0) {
       setFiles((prev) => [...prev, ...accepted]);
       setError(null);
-      // First accepted file is the FIRST real interaction — lazily start the owning matter (spec §4).
-      startResolveIfNeeded();
+      if (autoCommit) {
+        // LIVE-10: commit the just-attached files immediately (commitFiles resolves the owning matter first), so
+        // the legal/parcel/assessed/locality facts resolve WITHOUT a separate "Upload" click.
+        void commitFiles(accepted);
+      } else {
+        // First accepted file is the FIRST real interaction — lazily start the owning matter (spec §4).
+        startResolveIfNeeded();
+      }
     }
     // Only overwrite the reject notices when this add produced new ones, so a later
     // clean add doesn't silently stomp a still-relevant rejection message.
@@ -142,9 +154,12 @@ export default function MaterialsDropZone({
     if (dropped.length > 0) addFiles(dropped);
   };
 
-  const handleUpload = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (files.length === 0) { setError('Please select or drop at least one file.'); return; }
+  // Commit (upload) the given files to the matter — the ONE upload path, shared by the manual "Upload" button and
+  // the autoCommit-on-attach flow (LIVE-8: no longer a form `onSubmit`, so no native GET reload). A function
+  // DECLARATION (hoisted) so addFiles above can call it. Resolves the owning matter first; invalidates
+  // materials.list + calls onUploaded on success; on partial failure keeps the failed files queued with the error.
+  async function commitFiles(toUpload: File[]): Promise<void> {
+    if (toUpload.length === 0) { setError('Please select or drop at least one file.'); return; }
     setError(null);
     setUploading(true);
     const succeeded = new Set<File>();
@@ -162,7 +177,7 @@ export default function MaterialsDropZone({
         return;
       }
 
-      for (const f of files) {
+      for (const f of toUpload) {
         const formData = new FormData();
         formData.append('file', f);
         formData.append('matterId', uploadMatterId);
@@ -198,10 +213,10 @@ export default function MaterialsDropZone({
     } finally {
       setUploading(false);
     }
-  };
+  }
 
   return (
-    <form onSubmit={(e) => void handleUpload(e)} className="space-y-3">
+    <div className="space-y-3">
       <div>
         <div
           data-testid="materials-drop-zone"
@@ -275,31 +290,40 @@ export default function MaterialsDropZone({
         </div>
       )}
 
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-firm-navy"
-          placeholder="Brief description…"
-        />
-      </div>
+      {/* Description + the manual Upload button are hidden in autoCommit mode — the files commit on attach. */}
+      {!autoCommit && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-firm-navy"
+            placeholder="Brief description…"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-xs">{error}</p>}
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 items-center">
+        {autoCommit && uploading && (
+          <span data-testid="materials-autocommit-uploading" className="mr-auto text-xs text-firm-navy">Reading your uploads…</span>
+        )}
         {onCancel && (
           <button type="button" onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800">
             Cancel
           </button>
         )}
-        <button
-          type="submit"
-          disabled={uploading}
-          className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
-        >
-          {uploading ? 'Uploading…' : files.length > 1 ? `Upload ${files.length} files` : 'Upload'}
-        </button>
+        {!autoCommit && (
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => void commitFiles(files)}
+            className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+          >
+            {uploading ? 'Uploading…' : files.length > 1 ? `Upload ${files.length} files` : 'Upload'}
+          </button>
+        )}
       </div>
-    </form>
+    </div>
   );
 }

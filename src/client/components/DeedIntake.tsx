@@ -267,6 +267,7 @@ export default function DeedIntake({
             matterId={matterId}
             resolveMatterId={resolveMatterId}
             onUploaded={() => { void previewFacts.refetch(); }}
+            autoCommit
           />
           <p className="text-xs text-ink-hint mt-1">
             The property facts (legal description, parcel, assessed value) are read from these uploads. The draft
