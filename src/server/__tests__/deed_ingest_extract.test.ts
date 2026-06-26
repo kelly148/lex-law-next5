@@ -875,3 +875,44 @@ describe('UAT-G1 — the no-space "…Virginia.Being…" recital does not run in
     expect(fld(extractDeedIngest(spaced), 'legalDescription').value).toBe(LEGAL);
   });
 });
+
+// ── LIVE-1 (live UAT 2026-06-26): a parcel/Tax-ID must never be a phone number ───────────────────────────────────
+//
+// The generated gift deed showed "Tax I.D. Number: 703-222-8234" — the Fairfax info-line phone — because the
+// TAX-2 GPIN-shape widening also matches a phone NNN-NNN-NNNN. A mangled Fairfax layout put the phone in the
+// Tax I.D. cell (priority 3), so it won before the real MAP# (priority 5). The fix rejects phone shapes so the
+// matcher falls through to the MAP#/GPIN cell; the legitimate TAX-2 shapes still extract.
+describe('LIVE-1 — phone numbers are not surfaced as a parcel / Tax I.D.', () => {
+  const FAIRFAX_PHONE_TAX = [
+    'Fairfax County Department of Tax Administration',
+    'MAP # 0815 22045030A',
+    'Property Address: 4200 Quarry Court, Fairfax, VA 22030',
+    'Land Use Code: 041',
+    'Total Value: $445,000.00',
+    'Tax I.D. Number: 703-222-8234',
+  ].join('\n');
+
+  it('GOLD: the real MAP# is the parcel, NEVER the info-line phone', () => {
+    const r = extractDeedIngest(FAIRFAX_PHONE_TAX);
+    expect(fld(r, 'parcelId').value).toBe('0815 22045030A');
+    expect(fld(r, 'parcelId').value).not.toBe('703-222-8234');
+  });
+
+  it('the "(703) 222-8234" parenthesised phone form is also rejected (falls through to the MAP#)', () => {
+    const r = extractDeedIngest(FAIRFAX_PHONE_TAX.replace('703-222-8234', '(703) 222-8234'));
+    expect(fld(r, 'parcelId').value).toBe('0815 22045030A');
+  });
+
+  it('a bare phone in the Tax I.D. cell with NO other parcel label is withheld, never surfaced', () => {
+    const r = extractDeedIngest('REAL ESTATE ASSESSMENT\nTotal Assessed Value: $400,000.00\nTax I.D. Number: 703-222-8234');
+    const p = fld(r, 'parcelId');
+    expect(p.value).toBeNull();
+    expect(p.value).not.toBe('703-222-8234');
+  });
+
+  it('REGRESSION: the legitimate TAX-2 parcel shapes still extract (hyphen-alpha + space form)', () => {
+    expect(fld(extractDeedIngest('REAL ESTATE ASSESSMENT\nTax I.D. Number: 0911-13106060B\nTotal Assessed Value: $1.00'), 'parcelId').value).toBe('0911-13106060B');
+    expect(fld(extractDeedIngest('REAL ESTATE ASSESSMENT\nTax I.D. Number: 0815 22045030A\nTotal Assessed Value: $1.00'), 'parcelId').value).toBe('0815 22045030A');
+    expect(fld(extractDeedIngest('REAL ESTATE ASSESSMENT\nParcel No: 7298-44-1201\nTotal Assessed Value: $1.00'), 'parcelId').value).toBe('7298-44-1201');
+  });
+});

@@ -130,6 +130,18 @@ function isDateShaped(t: string): boolean {
   return /^\d{1,2}-\d{1,2}-\d{2,4}$/.test(t) || /^\d{4}-\d{2}-\d{2}$/.test(t);
 }
 
+/** Reject a token that is actually a TELEPHONE number (LIVE-1): the TAX-2 GPIN-shape widening also matches a
+ *  phone "703-222-8234", which a mangled Fairfax info line let surface as the Tax I.D. on a recordable deed. A
+ *  parcel id is never a phone. Rejects the bare NNN-NNN-NNNN shape outright, and rejects ANY token whose
+ *  surrounding cell carries an area-code paren "(703) 222-8234" or a phone/contact word — so the matcher falls
+ *  through to the real MAP#/GPIN cell. A genuine VA parcel starts with a 4-digit map number (7298-44-1201 /
+ *  0815 22045030A), so it never matches the 3-3-4 phone shape. */
+function isPhoneShaped(token: string, context: string): boolean {
+  if (/^\d{3}-\d{3}-\d{4}$/.test(token)) return true;
+  if (/\(\d{3}\)\s*\d{3}[-.\s]?\d{4}/.test(context)) return true;
+  return /\b(?:phone|telephone|tel|fax|call|contact)\b/i.test(context);
+}
+
 // A recording reference ALWAYS bears a digit; the instrument-number tail requires one so a non-numeric
 // placeholder ("Instrument No. SEE-ATTACHED") is not captured as a reference (#6).
 const INSTR_RE =
@@ -616,7 +628,10 @@ function extractParcelId(text: string, spec: Spec): DeedIngestField {
     // Prefer the hyphen-grouped GPIN anywhere in the cell; else accept a space-grouped GPIN that IS the whole
     // (trimmed) cell value (OCR hyphen->space), so a stray adjacent number is never glued in (TAX-2).
     const g = GPIN_RE.exec(cell) ?? GPIN_SPACE_RE.exec(cell.trim());
-    if (g && g[1] !== undefined && !isDateShaped(g[1])) return single(spec, g[1]);
+    // Reject a date- or phone-shaped match (LIVE-1) so a phone-bearing label cell falls through to the real
+    // MAP#/GPIN cell. The phone-context check uses the column-bounded CELL (not the whole line) so an adjacent
+    // "Phone:" column never rejects a legitimate GPIN in its own cell (#11/#26 stays intact).
+    if (g && g[1] !== undefined && !isDateShaped(g[1]) && !isPhoneShaped(g[1], cell)) return single(spec, g[1]);
   }
   // A label was present but no id-shaped token followed -> fail closed (do not surface a word/year as an id).
   return labelSeen ? withheld(spec, ['low_shape_no_gpin']) : notFound(spec);
