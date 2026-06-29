@@ -55,6 +55,19 @@ export function isPromotableToReuse(memo: Pick<PracticeMemoRow, 'abstractionStat
 }
 
 /**
+ * PURE D3-lock predicate (KNOWLEDGE-BACKBONE-PHASE2 disposition §3, D3): an entry may become
+ * auto-apply-eligible ONLY once it has graduated — i.e. it is BOTH abstracted AND promoted to
+ * firm-wide reuse (the attorney-driven abstractMemo -> promoteMemo path). A raw decision-stream
+ * entry can NEVER be auto-applicable, full stop. (Auto-apply itself is a later increment; I1
+ * only stores the flag and enforces this lock on any attempt to set it true.)
+ */
+export function canBecomeAutoApplyEligible(
+  memo: Pick<PracticeMemoRow, 'abstractionStatus' | 'reuseScope'>,
+): boolean {
+  return memo.abstractionStatus === 'abstracted' && memo.reuseScope === 'firm_wide';
+}
+
+/**
  * A SPECIFIC, unavoidable currency warning rendered from the memo's own metadata — shown at
  * surfacing AND at adoption (Fork C). Names the law-relied-on + the discrete verification
  * status; does NOT infer freshness from age. A memo with a legal conclusion but no recorded

@@ -43,6 +43,23 @@ export const LawReliedOnEntrySchema = z.object({
 });
 export type LawReliedOnEntry = z.infer<typeof LawReliedOnEntrySchema>;
 
+// --- KNOWLEDGE-BACKBONE-PHASE2 (I1) — conflicts hook (disposition D2) -----------
+// Origin-matter conflict metadata captured at graduation so a FUTURE conflicts check (the day a second
+// attorney exists) can tell whether a surfaced principle implicates a confidence against a conflicted party.
+// Cheap now, impossible to reconstruct retroactively. STORE-ONLY this increment — no conflicts logic runs in I1.
+// Non-strict (unknown keys stripped, not rejected) so the field accretes later without breaking old reads.
+export const ConflictsHookSchema = z.object({
+  originMatterId: z.string().uuid().nullable().optional(),
+  originPartyIds: z.array(z.string()).nullable().optional(),
+  adverseToPartyIds: z.array(z.string()).nullable().optional(),
+  note: z.string().max(1024).nullable().optional(),
+});
+export type ConflictsHook = z.infer<typeof ConflictsHookSchema>;
+
+// KNOWLEDGE-BACKBONE-PHASE2 (I1) minimal-floor risk classification (mirrors MEMO_RISK_LEVEL_VALUES in schema.ts).
+export const MEMO_RISK_LEVELS = ['low', 'medium', 'high'] as const;
+export type MemoRiskLevel = (typeof MEMO_RISK_LEVELS)[number];
+
 // --- practice_memos (Fork A/B/C/G) --------------------------------------------
 export const PracticeMemoRowSchema = z.object({
   id: z.string().uuid(),
@@ -87,6 +104,13 @@ export const PracticeMemoRowSchema = z.object({
   reviewBy: z.string().nullable().optional(), // 'YYYY-MM-DD' — recheck-by date for currency review
   authoritySnapshotId: z.string().uuid().nullable().optional(), // link to a pinned authority snapshot/source
   negativeTreatmentFlag: z.boolean().nullable().optional(), // overruled/superseded/questioned treatment
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) scope-metadata floor — migration-added (0050) -> .nullable().optional() so
+  // pre-migration reads + legacy fixtures still parse. autoApplyEligible is NOT NULL DEFAULT FALSE in the DB;
+  // .optional() only covers legacy fixtures missing the column entirely (post-migration it is always a boolean).
+  documentType: z.string().nullable().optional(),
+  riskLevel: z.enum(MEMO_RISK_LEVELS).nullable().optional(),
+  autoApplyEligible: z.boolean().optional(),
+  conflictsHook: ConflictsHookSchema.nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -159,6 +183,13 @@ export const KB_AUDIT_ACTIONS = [
   'memo_superseded',
   'pa_profile_activated',
   'pa_profile_loaded_for_job',
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) — additive. kb_events.action is a varchar (NOT a DB ENUM), so appending
+  // requires no migration. memo_auto_apply_eligibility_set audits a safety-critical flip (an entry becoming
+  // auto-applicable); authority_source_* audit the durable citation-registry lifecycle (create + the §2
+  // pinned-pinpoint + checkedBy-signature promotion). All append-only on the kb_events spine.
+  'memo_auto_apply_eligibility_set',
+  'authority_source_created',
+  'authority_source_promoted',
 ] as const;
 export type KbAuditAction = (typeof KB_AUDIT_ACTIONS)[number];
 

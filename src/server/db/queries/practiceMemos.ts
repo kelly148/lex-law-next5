@@ -16,12 +16,14 @@ import { db } from '../connection.js';
 import { practiceMemos } from '../schema.js';
 import { ownerScope } from '../ownerScope.js';
 import { insertKbEvent } from './kbEvents.js';
-import { isPromotableToReuse } from '../../practiceKb/gate.js';
+import { isPromotableToReuse, canBecomeAutoApplyEligible } from '../../practiceKb/gate.js';
 import {
   PracticeMemoRowSchema,
   type PracticeMemoRow,
   type LawReliedOnEntry,
   type MemoVerificationStatus,
+  type MemoRiskLevel,
+  type ConflictsHook,
 } from '../../../shared/schemas/practiceKb.js';
 import { emitTelemetry } from '../../telemetry/emitTelemetry.js';
 import { ZodError } from 'zod';
@@ -55,6 +57,14 @@ export async function insertPracticeMemo(data: {
   lawReliedOn?: LawReliedOnEntry[] | null;
   topicTags?: string[] | null;
   writtenOn?: Date | null;
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) scope-metadata tags settable at capture (store-only). autoApplyEligible is
+  // intentionally NOT a capture input — it always lands FALSE (DB default) and is flipped only via the gated
+  // setMemoAutoApplyEligible (abstracted + firm-wide required). effectiveDate/reviewBy are optional provenance.
+  documentType?: string | null;
+  riskLevel?: MemoRiskLevel | null;
+  conflictsHook?: ConflictsHook | null;
+  effectiveDate?: string | null;
+  reviewBy?: string | null;
 }): Promise<PracticeMemoRow> {
   const id = data.id ?? uuidv4();
   await db.insert(practiceMemos).values({
@@ -75,6 +85,13 @@ export async function insertPracticeMemo(data: {
     privilegeTag: 'client_confidential',
     abstractionStatus: 'raw',
     reuseScope: 'matter_only',
+    // KNOWLEDGE-BACKBONE-PHASE2 (I1) — scope-metadata floor + provenance. autoApplyEligible omitted (DB default
+    // FALSE); it is NEVER true at capture (raw decision-stream entries never auto-apply — D3).
+    documentType: data.documentType ?? null,
+    riskLevel: data.riskLevel ?? null,
+    conflictsHook: (data.conflictsHook ?? null) as never,
+    effectiveDate: data.effectiveDate ?? null,
+    reviewBy: data.reviewBy ?? null,
   });
   const row = await getPracticeMemoById(id, data.userId);
   if (!row) throw new Error(`insertPracticeMemo: row not found after insert (id=${id})`);
@@ -236,11 +253,26 @@ export async function markMemoReverified(params: {
   verifiedThroughDate?: Date | null;
   verificationMethod?: string | null;
   verificationNote?: string | null;
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) — optional reviewBy to set in the same transaction. Legacy callers
+  // (practiceKb.markReverified) omit it -> reviewBy is left untouched (no behavior change). The reviewBy-REQUIRED
+  // gate (disposition D6: "no reviewBy -> cannot verify") is enforced in the kbBackbone verify procedure, NOT
+  // here, so this shared wrapper stays behavior-preserving for its existing caller.
+  reviewBy?: string | null;
 }): Promise<PracticeMemoRow> {
   const memo = await getPracticeMemoById(params.memoId, params.userId);
   if (!memo) throw new TRPCError({ code: 'NOT_FOUND', message: 'Practice memo not found' });
   const eventId = uuidv4();
   const now = new Date();
+  // Only touch reviewBy when the caller explicitly passes it (undefined -> leave the column as-is). The
+  // conditional spread keeps the object well-typed for Drizzle's .set().
+  const setFields = {
+    verificationStatus: params.verificationStatus,
+    lastVerifiedAt: now,
+    verifiedThroughDate: params.verifiedThroughDate ?? null,
+    verificationMethod: params.verificationMethod ?? null,
+    verificationNote: params.verificationNote ?? null,
+    ...(params.reviewBy !== undefined ? { reviewBy: params.reviewBy } : {}),
+  };
   await db.transaction(async (tx) => {
     await insertKbEvent(
       {
@@ -255,23 +287,64 @@ export async function markMemoReverified(params: {
           verificationStatus: params.verificationStatus,
           verifiedThroughDate: params.verifiedThroughDate ?? null,
           verificationMethod: params.verificationMethod ?? null,
+          reviewBy: params.reviewBy ?? null,
         },
       },
       tx,
     );
     await tx
       .update(practiceMemos)
-      .set({
-        verificationStatus: params.verificationStatus,
-        lastVerifiedAt: now,
-        verifiedThroughDate: params.verifiedThroughDate ?? null,
-        verificationMethod: params.verificationMethod ?? null,
-        verificationNote: params.verificationNote ?? null,
-      })
+      .set(setFields)
       .where(and(eq(practiceMemos.id, memo.id), ownerScope(practiceMemos.userId, params.userId)));
   });
   const updated = await getPracticeMemoById(memo.id, params.userId);
   if (!updated) throw new Error('markMemoReverified: row not found after update');
+  return updated;
+}
+
+/**
+ * KNOWLEDGE-BACKBONE-PHASE2 (I1) — set autoApplyEligible (the v1 input to a FUTURE auto-apply gate). D3 LOCK:
+ * an entry may become auto-applicable ONLY once it is abstracted AND promoted to firm-wide reuse (the
+ * attorney-driven graduation path). A raw decision-stream entry can NEVER be auto-applicable, full stop.
+ * Setting it false is always allowed (a kill-switch). Audited on the kb_events spine.
+ */
+export async function setMemoAutoApplyEligible(params: {
+  memoId: string;
+  userId: string;
+  autoApplyEligible: boolean;
+  rationale?: string | null;
+}): Promise<PracticeMemoRow> {
+  const memo = await getPracticeMemoById(params.memoId, params.userId);
+  if (!memo) throw new TRPCError({ code: 'NOT_FOUND', message: 'Practice memo not found' });
+  if (params.autoApplyEligible && !canBecomeAutoApplyEligible(memo)) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        'GRADUATION_REQUIRED: an entry can become auto-apply-eligible only after it is abstracted and promoted to firm-wide reuse (raw decision-stream entries never auto-apply).',
+    });
+  }
+  const eventId = uuidv4();
+  await db.transaction(async (tx) => {
+    await insertKbEvent(
+      {
+        id: eventId,
+        userId: params.userId,
+        action: 'memo_auto_apply_eligibility_set',
+        targetType: 'practice_memo',
+        targetId: memo.id,
+        summary: `Auto-apply eligibility set to ${params.autoApplyEligible} for "${memo.title}"`,
+        rationale: params.rationale ?? null,
+        payload: { autoApplyEligible: params.autoApplyEligible },
+      },
+      tx,
+    );
+    await tx
+      .update(practiceMemos)
+      .set({ autoApplyEligible: params.autoApplyEligible })
+      .where(and(eq(practiceMemos.id, memo.id), ownerScope(practiceMemos.userId, params.userId)));
+  });
+  const updated = await getPracticeMemoById(memo.id, params.userId);
+  if (!updated) throw new Error('setMemoAutoApplyEligible: row not found after update');
   return updated;
 }
 

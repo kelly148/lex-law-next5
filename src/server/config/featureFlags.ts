@@ -186,6 +186,23 @@ export function isDeedDraftAgentEnabled(): boolean {
 }
 
 /**
+ * Knowledge Backbone Phase 2 (KNOWLEDGE-BACKBONE-PHASE2). DEFAULT OFF.
+ *
+ * When OFF (the default), the kbBackbone tRPC surface is entirely dormant — every procedure fail-closes with
+ * PRECONDITION_FAILED and nothing else changes (the legacy practiceKb lifecycle is untouched). Increment 1 is
+ * CAPTURE + SCHEMA ONLY: it activates the dormant authority_source registry, populates the
+ * practice_memos.lawReliedOn[].authoritySourceId link, lands the minimal-floor scope-metadata columns, and
+ * enforces the reviewBy-required verify gate + the D3 raw-decision-stream lock. It NEVER retrieves or applies KB
+ * content into any LLM call (surface-not-inject stays intact); auto-apply is a later, separately-gated increment.
+ *
+ * The flip to ON is operator-gated. Activation also requires applying migration 0050 (additive scope-metadata
+ * columns) first.
+ */
+export function isKbBackboneEnabled(): boolean {
+  return process.env['KB_BACKBONE_ENABLED'] === 'true';
+}
+
+/**
  * Deadline / tickler engine (FOLD-PM-1, Phase-4 head). DEFAULT OFF.
  *
  * When OFF (the default), the deadline engine is entirely dormant: the data-core tables exist but
