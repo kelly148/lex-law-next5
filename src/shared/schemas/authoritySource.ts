@@ -54,3 +54,61 @@ export const AuthoritySourceRowSchema = z.object({
   updatedAt: z.date(),
 });
 export type AuthoritySourceRow = z.infer<typeof AuthoritySourceRowSchema>;
+
+// --- KNOWLEDGE-BACKBONE-PHASE2 (I1) — activation input/gate schemas -------------
+// userId is NEVER an input — it is bound from ctx (owner-scope). citationText + jurisdiction + authorityType
+// are the irreducible registry identity; everything else is optional provenance/currency metadata.
+export const CreateAuthoritySourceInputSchema = z.object({
+  jurisdiction: z.string().min(1).max(128),
+  authorityType: z.enum(AUTHORITY_TYPE_VALUES),
+  citationText: z.string().min(1).max(512),
+  pinpoint: z.string().max(256).nullable().optional(),
+  sourceUrlOrLocation: z.string().nullable().optional(),
+  sourceSnapshotHash: z.string().max(128).nullable().optional(),
+  effectiveDate: DATE.nullable().optional(),
+  lastCheckedDate: DATE.nullable().optional(),
+  reviewByDate: DATE.nullable().optional(),
+  checkedBy: z.string().max(128).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+export type CreateAuthoritySourceInput = z.infer<typeof CreateAuthoritySourceInputSchema>;
+
+// Update is a partial patch by id (owner-scoped at the query layer). Identity fields may be corrected; the
+// promotion gate (below) is a SEPARATE affirmative act, not a side effect of a field edit.
+export const UpdateAuthoritySourceInputSchema = z.object({
+  id: z.string().uuid(),
+  jurisdiction: z.string().min(1).max(128).optional(),
+  authorityType: z.enum(AUTHORITY_TYPE_VALUES).optional(),
+  citationText: z.string().min(1).max(512).optional(),
+  pinpoint: z.string().max(256).nullable().optional(),
+  sourceUrlOrLocation: z.string().nullable().optional(),
+  sourceSnapshotHash: z.string().max(128).nullable().optional(),
+  effectiveDate: DATE.nullable().optional(),
+  lastCheckedDate: DATE.nullable().optional(),
+  reviewByDate: DATE.nullable().optional(),
+  checkedBy: z.string().max(128).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+export type UpdateAuthoritySourceInput = z.infer<typeof UpdateAuthoritySourceInputSchema>;
+
+// The §2 promotion gate. Promoting a citation to AUTHORITATIVE (L2) requires BOTH a pinned pinpoint AND a
+// checker signature — supplied here (or already present on the row). Pure predicate; reused by the procedure.
+export const PromoteAuthoritativeInputSchema = z.object({
+  id: z.string().uuid(),
+  pinpoint: z.string().max(256).optional(),
+  checkedBy: z.string().max(128).optional(),
+  lastCheckedDate: DATE.optional(),
+});
+export type PromoteAuthoritativeInput = z.infer<typeof PromoteAuthoritativeInputSchema>;
+
+/**
+ * WHEREAS_KB_CONSTITUTION §2 gate: an authority is "authoritative" only when it carries a NON-EMPTY pinned
+ * pinpoint AND a NON-EMPTY checker signature. Derived (no `authoritative` column at v1 — minimal floor); the
+ * promotion procedure refuses unless this holds after merging any supplied values onto the row.
+ */
+export function meetsAuthoritativePromotionGate(fields: {
+  pinpoint?: string | null;
+  checkedBy?: string | null;
+}): boolean {
+  return (fields.pinpoint ?? '').trim().length > 0 && (fields.checkedBy ?? '').trim().length > 0;
+}

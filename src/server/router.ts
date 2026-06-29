@@ -54,6 +54,7 @@ import { materialExtractionRouter } from './procedures/materialExtraction.js';
 import { matterEntityRouter } from './procedures/matterEntity.js';
 import { notificationsRouter } from './procedures/notifications.js';
 import { expressReviewLoopRouter } from './procedures/expressReviewLoop.js';
+import { kbBackboneRouter } from './procedures/kbBackbone.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -161,6 +162,9 @@ export const appRouter = router({
   // the conflicts-at-intake gate + matter ownership. The FIRE §7 spine lives in the assembler (verbatim legal,
   // [[ ]] placeholders never fabricated, exemption-safe, attorney decides); never auto-records/files/sends.
   deedDraftAgent: deedDraftAgentRouter,
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) — capture + the activated authority_source registry, flag-dark behind
+  // KB_BACKBONE_ENABLED (default OFF -> every procedure fail-closes PRECONDITION_FAILED). Capture-only / no-apply.
+  kbBackbone: kbBackboneRouter,
   // EXPRESS-AUTO-REVIEW-LOOP-1 (E6) — the flag-gated LIVE wiring of the bounded anti-drift auto-review loop.
   // run() reviews a matter's document THROUGH the EXISTING egress broker (surface 'reviewer', fail-closed,
   // enforceProviderAllowlist) and returns a NON-FINAL candidate + ledger + escalations; the regenerate is a

@@ -35,7 +35,9 @@ export async function insertKbEvent(
     id?: string;
     userId: string;
     action: KbAuditAction;
-    targetType: 'practice_memo' | 'pa_instruction_profile';
+    // 'authority_source' added by KNOWLEDGE-BACKBONE-PHASE2 (I1) — the durable citation registry's lifecycle
+    // (create + §2 pinned-pinpoint/checkedBy promotion) records on the same append-only kb_events spine.
+    targetType: 'practice_memo' | 'pa_instruction_profile' | 'authority_source';
     targetId: string;
     summary: string;
     rationale?: string | null;

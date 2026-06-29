@@ -2385,6 +2385,11 @@ export type MemoAbstractedBy = (typeof MEMO_ABSTRACTED_BY_VALUES)[number];
 export const MEMO_REUSE_SCOPE_VALUES = ['matter_only', 'firm_wide'] as const;
 export type MemoReuseScope = (typeof MEMO_REUSE_SCOPE_VALUES)[number];
 
+// KNOWLEDGE-BACKBONE-PHASE2 (I1) — minimal-floor scope-metadata risk classification (low|medium|high).
+// A v1 input to a FUTURE auto-apply gate (I3); I1 only STORES it. Stored as varchar; validated at the Zod Wall.
+export const MEMO_RISK_LEVEL_VALUES = ['low', 'medium', 'high'] as const;
+export type MemoRiskLevel = (typeof MEMO_RISK_LEVEL_VALUES)[number];
+
 export const practiceMemos = mysqlTable(
   'practice_memos',
   {
@@ -2425,6 +2430,16 @@ export const practiceMemos = mysqlTable(
     reviewBy: date('reviewBy', { mode: 'string' }),
     authoritySnapshotId: char('authoritySnapshotId', { length: 36 }),
     negativeTreatmentFlag: boolean('negativeTreatmentFlag'),
+    // KNOWLEDGE-BACKBONE-PHASE2 (I1) scope-metadata floor (minimal now, accrete later) — the v1 inputs to a
+    // FUTURE auto-apply gate (I3); I1 only STORES them, never applies. documentType + riskLevel are scope tags
+    // (riskLevel validated low|medium|high at the Zod Wall). autoApplyEligible defaults FALSE and may be flipped
+    // true ONLY for an abstracted + firm-wide (graduated) entry — raw decision-stream entries never auto-apply
+    // (D3). conflictsHook holds origin-matter conflict metadata captured at graduation (cheap now, impossible to
+    // reconstruct retroactively — D2); store-only this increment.
+    documentType: varchar('documentType', { length: 64 }),
+    riskLevel: varchar('riskLevel', { length: 16 }),
+    autoApplyEligible: boolean('autoApplyEligible').notNull().default(false),
+    conflictsHook: json('conflictsHook'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
   },

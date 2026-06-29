@@ -182,6 +182,11 @@ const MIGRATIONS = [
   // FOLD-DEED-1 (Inc 1) — deed_gate (CREATE TABLE IF NOT EXISTS, per-deed-document recordability gate state;
   // indexes INLINE). Idempotent. Apply BEFORE flipping DEED_GATE_ENABLED. Default-safe.
   '0049_deed_1_deed_gate.sql',
+  // KNOWLEDGE-BACKBONE-PHASE2 (I1) — additive scope-metadata columns on practice_memos (ADD COLUMN IF NOT
+  // EXISTS: documentType, riskLevel, autoApplyEligible NOT NULL DEFAULT FALSE, conflictsHook). The autoApplyEligible
+  // default backfills existing rows to FALSE (no UPDATE). No behavior change while KB_BACKBONE_ENABLED is OFF.
+  // Apply BEFORE flipping KB_BACKBONE_ENABLED. Default-safe; idempotent; on the additive pre-deploy path.
+  '0050_kb_backbone_p2_inc1_memo_scope_metadata.sql',
 ];
 const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications', 'firm_conflict_policy', 'matter_conflict_posture', 'deed_gate'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
