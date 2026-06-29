@@ -2268,6 +2268,19 @@ export const quickDeedRouter = router({
       granteeAddress: facts.propertyAddress.value,
       // Surfaced as a CANDIDATE only (a hint beneath the field) — never auto-filled into the derivation value.
       derivationCandidate: candidate,
+      // DEED-EXPRESS-1 (inc1): the prior deed's grantee(s) of record = the current owner(s) = the presumptive
+      // new-deed GRANTOR(s) (the donor, on a gift). Surfaced here as an Express-flow PRE-FILL the attorney
+      // CONFIRMS — shown flagged "confirm grantor" and NEVER silently authoritative. This is additive and does
+      // NOT change the reconciliation-only semantics in deedSourceFacts.ts (#19): nothing on the server auto-uses
+      // it; the client pre-fills it into the grantor field(s) marked for confirmation.
+      //   - granteeOfRecord: the single consolidated value (null for 2+ owners per the honesty floor) — display.
+      //   - granteeOfRecordNames: the full set (1 for a sole owner, N for co-owners e.g. a married couple). This
+      //     is the authoritative SEED SOURCE: .value is null for a couple, so the array is what lets the common
+      //     married-couple-donor case seed both grantors. Empty when the packet named no prior grantee.
+      //   - grantorOfRecord: display-only context (the prior deed's grantor).
+      granteeOfRecord: facts.granteeOfRecord.value,
+      granteeOfRecordNames: facts.granteeOfRecord.values,
+      grantorOfRecord: facts.grantorOfRecord.value,
       // Resolution transparency so the UI can show "read from your uploads" for what the packet supplies.
       resolved: {
         legalDescription: !facts.legalDescription.withheld && facts.legalDescription.value !== null,
@@ -2275,6 +2288,8 @@ export const quickDeedRouter = router({
         assessedValue: facts.assessedValue.value !== null,
         locality: facts.propertyLocality.value !== null,
         propertyAddress: facts.propertyAddress.value !== null,
+        // True when ANY prior grantee of record was surfaced (single or multi-owner) — the seed is available.
+        granteeOfRecord: facts.granteeOfRecord.values.length > 0,
       },
       warnings: facts.warnings,
     };
