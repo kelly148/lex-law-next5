@@ -1,18 +1,23 @@
 /**
- * DeedIntake — DEED-INTAKE-REDESIGN-1: the ONE shared gift-deed intake experience, mounted on BOTH the
- * standalone Quick Deed page and the matter-scoped "Gift Deed Draft" modal so there is no drift.
+ * DeedIntake — DEED-INTAKE-REDESIGN-1 + DEED-EXPRESS-1 (inc1): the ONE shared gift-deed intake experience,
+ * mounted on BOTH the standalone Quick Deed page and the matter-scoped "Gift Deed Draft" modal so there is no
+ * drift.
  *
- * Three layers, in priority order:
+ * The EXPRESS flow (DEED-EXPRESS-1 inc1, Gift): drop the prior deed + tax record → describe the deal → Generate.
  *   (a) a PRIMARY drag-and-drop drop zone (MaterialsDropZone) — the vesting deed / tax record upload + OCR,
- *       front-and-center instead of a button that opens a modal;
+ *       front-and-center. Extraction fills the doc-derived facts (legal description, parcel, locality, situs) and
+ *       AUTO-SEEDS the new-deed grantor from the prior deed's grantee of record (= the current owner = the donor),
+ *       flagged "confirm grantor" — highlighted, never silently authoritative;
  *   (b) a FREE-ASSOCIATE box (Quick Deed Layer 2 / E3): the attorney describes the deal in one text box; the
  *       server `quickDeed.proposeIntake` PARSES → PROPOSES only the irreducible intake fields (donees, marital
- *       flag, an explicit vesting/override) for the attorney to CONFIRM in the pre-filled form below. It is
- *       PROPOSE-ONLY (it never drafts/records/sends) and NEVER authors a legal description. Fail-closed: an
- *       ambiguous/low-confidence parse returns clarifying questions; an egress hold returns a clean blocked
- *       notice — never a guessed proposal;
- *   (c) the structured gift form + Layer-1 (previewFacts) pre-fill, kept as the confirm surface and the
- *       collapsed "fill it in manually" fallback.
+ *       flag, an explicit vesting/override). It is PROPOSE-ONLY (it never drafts/records/sends) and NEVER authors
+ *       a legal description. Fail-closed: an ambiguous/low-confidence parse returns clarifying questions; an egress
+ *       hold returns a clean blocked notice — never a guessed proposal;
+ *   (c) Generate: when the merged required set (≥1 grantor + ≥1 grantee + a non-withheld extracted legal) is
+ *       satisfied, the structured form stays COLLAPSED and Generate submits in ONE CLICK (the attorney confirms by
+ *       reading the resulting deed). When something required is missing, the form EXPANDS pre-filled with
+ *       everything known and the missing required fields are HIGHLIGHTED — never blocked silently;
+ *   (d) the full structured form is ALWAYS available as the fallback via "Fill in all fields manually".
  *
  * This component is CONTROLLED at the seams: it owns the form state but emits the validated gift payload via
  * onSubmit (the parent owns the mutation, the matterId injection, and the navigation). matterId is resolved
@@ -20,7 +25,8 @@
  *
  * Flag-dark: it is only ever mounted inside an already-flag-guarded surface (the /deed page self-guards on
  * deedDraftAgent.isEnabled; the matter modal's entry button is flag-gated). Every server call it makes is
- * itself fail-closed when the flag is off.
+ * itself fail-closed when the flag is off. The model still NEVER authors the legal/property description
+ * (extraction-only) and Generate never records or sends — unchanged.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc.js';
@@ -94,9 +100,22 @@ export default function DeedIntake({
   const [derivationReference, setDerivationReference] = useState('');
   const [vestingOverride, setVestingOverride] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // The structured form is the collapsed fallback: drop zone + free-associate are primary. It auto-expands once
-  // a proposal pre-fills it (the attorney confirms in the open view) or when there is nothing above it.
+  // The structured form is the collapsed Express fallback: drop zone + free-associate are primary. Under
+  // DEED-EXPRESS-1 it stays COLLAPSED by default — it no longer force-expands on upload or on a proposal. It opens
+  // only when (i) the attorney clicks "Fill in all fields manually", or (ii) Generate finds a required field
+  // missing (then it opens pre-filled with the missing fields highlighted). It starts open only when there is
+  // nothing above it to be the Express surface.
   const [formExpanded, setFormExpanded] = useState(!showUpload && !showFreeAssociate);
+  // DEED-EXPRESS-1: the grantor was auto-seeded from the prior deed's grantee of record and the attorney has not
+  // yet confirmed or edited it. It is surfaced (a visible "confirm grantor" banner + a highlighted grantor row) so
+  // it is NEVER silently authoritative; it clears when the attorney confirms or edits the grantor.
+  const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  // DEED-EXPRESS-1: which required fields to highlight after a Generate attempt found them missing.
+  const [missing, setMissing] = useState<{ grantor: boolean; grantee: boolean; legal: boolean }>({
+    grantor: false,
+    grantee: false,
+    legal: false,
+  });
 
   // Free-associate (Layer 2) state.
   const [freeText, setFreeText] = useState('');
@@ -110,17 +129,20 @@ export default function DeedIntake({
     { matterId: matterId ?? '' },
     { enabled: !!matterId },
   );
+  // Latest grantors, readable from the seed effect without re-subscribing it to grantor edits (so the seed never
+  // re-fires on typing) and without a stale closure — lets us decide "never clobber attorney input" purely. Synced
+  // in an effect (not during render) and declared BEFORE the seed effect so it is current when the seed reads it.
+  const grantorsRef = useRef(grantors);
+  useEffect(() => {
+    grantorsRef.current = grantors;
+  }, [grantors]);
   const prefilledRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const p = previewFacts.data;
     if (!p || !p.hasMaterials) return;
-    // Once the uploads have yielded facts, open the form ONCE so the attorney SEES the "read from your uploads"
-    // banner + the pre-filled values (parity with the original always-visible-after-upload behavior). Guarded so
-    // a later manual collapse sticks; the form stays collapsed only while nothing has been read (drop-first).
-    if (!prefilledRef.current.has('__autoExpanded')) {
-      prefilledRef.current.add('__autoExpanded');
-      setFormExpanded(true);
-    }
+    // DEED-EXPRESS-1: the uploads no longer FORCE the structured form open — the form stays collapsed behind the
+    // Express surface (drop + describe + Generate). Pre-fills below populate the (collapsed) form state; the
+    // attorney sees the Express banners, and Generate opens the form only if something required is missing.
     if (p.locality && !prefilledRef.current.has('locality')) {
       prefilledRef.current.add('locality');
       setLocality((cur) => (cur.trim() === '' ? p.locality! : cur));
@@ -128,6 +150,21 @@ export default function DeedIntake({
     if (p.granteeAddress && !prefilledRef.current.has('granteeAddress')) {
       prefilledRef.current.add('granteeAddress');
       setGranteeAddress((cur) => (cur.trim() === '' ? p.granteeAddress! : cur));
+    }
+    // DEED-EXPRESS-1: auto-seed the new-deed GRANTOR(s) from the prior deed's grantee(s) of record (= the current
+    // owner(s) = the donor on a gift), flagged for confirmation. Use the NAMES array so a multi-owner prior deed
+    // (e.g. a married couple → the canonical VA residential gift) seeds one grantor row per owner — granteeOfRecord
+    // (the single value) is null for 2+ owners. Seed ONCE, and only when the attorney has not already typed a
+    // grantor — never clobber attorney input. NEVER silently authoritative: it shows in the "confirm grantor"
+    // banner + highlighted grantor row(s) until confirmed or edited.
+    const priorGrantees = p.granteeOfRecordNames ?? [];
+    if (priorGrantees.length > 0 && !prefilledRef.current.has('grantorSeed')) {
+      prefilledRef.current.add('grantorSeed');
+      const allEmpty = grantorsRef.current.every((r) => r.name.trim() === '' && r.descriptor.trim() === '');
+      if (allEmpty) {
+        setGrantors(priorGrantees.map((n) => ({ name: n, descriptor: '' })));
+        setGrantorNeedsConfirm(true);
+      }
     }
   }, [previewFacts.data]);
 
@@ -145,10 +182,14 @@ export default function DeedIntake({
       if (p.overrides.fileNumber) setFileNumber(p.overrides.fileNumber);
       if (p.overrides.derivationReference) setDerivationReference(p.overrides.derivationReference);
       if (p.overrides.locality) setLocality(p.overrides.locality);
+      // A parse fills a grantee → clear any stale "grantee missing" highlight from a prior Generate attempt.
+      if (p.grantees.length > 0) setMissing((m) => ({ ...m, grantee: false }));
       setProposeQuestions([]);
       setProposeBlockedReason(null);
       setProposeStatus('proposed');
-      setFormExpanded(true); // the attorney confirms the proposed facts in the open form
+      // DEED-EXPRESS-1: a proposal no longer force-expands the form. It pre-fills the (collapsed) form state and
+      // surfaces a summary note; the attorney goes straight to Generate (one click when the required set is
+      // complete) or opens the form manually to review.
     } else if (res.status === 'needs_clarification') {
       setProposeQuestions(res.questions);
       setProposeBlockedReason(null);
@@ -186,21 +227,75 @@ export default function DeedIntake({
         return d.length > 0 ? { name: r.name.trim(), descriptor: d } : { name: r.name.trim() };
       });
 
+  // Grantor/grantee setters that also clear their stale "missing" highlight (and, for the grantor, the
+  // "confirm" flag — editing the auto-seeded grantor is the attorney taking ownership of it).
+  const updateGrantors = (next: PartyRow[]): void => {
+    setGrantors(next);
+    setMissing((m) => (m.grantor ? { ...m, grantor: false } : m));
+    setGrantorNeedsConfirm(false);
+  };
+  const updateGrantees = (next: PartyRow[]): void => {
+    setGrantees(next);
+    setMissing((m) => (m.grantee ? { ...m, grantee: false } : m));
+  };
+
+  // Build the highlighted-missing-fields message for a failed Generate attempt. The legal-description message
+  // depends on whether anything was uploaded — it is EXTRACTION-ONLY, so the remedy is to drop a (clearer) prior
+  // deed, never to type it.
+  const buildMissingMessage = (g: boolean, gr: boolean, legal: boolean, hasMaterials: boolean): string => {
+    const parts: string[] = [];
+    if (g) parts.push('At least one grantor (donor) name is required.');
+    if (gr) parts.push('At least one grantee (donee) name is required.');
+    if (legal) {
+      parts.push(
+        hasMaterials
+          ? 'The legal description could not be read from your uploads — re-drop a clearer copy of the prior vesting deed (it is copied verbatim from your documents, never written by the system).'
+          : 'Drop the prior vesting deed above so the legal description can be read from it (it is copied verbatim from your documents, never written by the system).',
+      );
+    }
+    return parts.join(' ');
+  };
+
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     const cleanGrantors = cleanParties(grantors);
     const cleanGrantees = cleanParties(grantees);
-    if (cleanGrantors.length === 0) {
-      setError('At least one grantor (donor) name is required.');
-      setFormExpanded(true);
+    const grantorMissing = cleanGrantors.length === 0;
+    const granteeMissing = cleanGrantees.length === 0;
+    const hasMaterials = previewFacts.data?.hasMaterials === true;
+    // The legal/property description is EXTRACTION-ONLY (never typed, never model-authored). It counts as present
+    // only when the packet supplied a non-withheld one (previewFacts.resolved.legalDescription). It is part of the
+    // EXPRESS required set ONLY once a packet exists — with no uploads the attorney is doing manual entry and the
+    // server honestly placeholders a missing legal (unchanged behavior); we do not block that.
+    const legalResolved = previewFacts.data?.resolved?.legalDescription === true;
+    const legalMissing = hasMaterials && !legalResolved;
+
+    // DEED-EXPRESS-1 Generate gate:
+    //  • EXPRESS (form collapsed): require the full merged set — grantor + grantee + (once a packet exists) a
+    //    non-withheld extracted legal. If anything is missing, OPEN the form pre-filled and HIGHLIGHT only the
+    //    missing required fields (never a silent block); the attorney supplies what's missing (or re-drops the
+    //    deed) and Generates again. If complete, submit in ONE CLICK.
+    //  • MANUAL (form already open, the fallback): keep the existing grantor+grantee gate. The legal is surfaced
+    //    as a visible warning, NOT a hard block — so the attorney can still generate the skeleton draft (with a
+    //    verbatim-legal placeholder the server emits honestly) as an INFORMED choice, preserving prior behavior.
+    if (!formExpanded) {
+      if (grantorMissing || granteeMissing || legalMissing) {
+        setMissing({ grantor: grantorMissing, grantee: granteeMissing, legal: legalMissing });
+        setError(buildMissingMessage(grantorMissing, granteeMissing, legalMissing, hasMaterials));
+        setFormExpanded(true);
+        return;
+      }
+    } else if (grantorMissing || granteeMissing) {
+      setMissing({ grantor: grantorMissing, grantee: granteeMissing, legal: false });
+      setError(buildMissingMessage(grantorMissing, granteeMissing, false, hasMaterials));
       return;
     }
-    if (cleanGrantees.length === 0) {
-      setError('At least one grantee (donee) name is required.');
-      setFormExpanded(true);
-      return;
-    }
+
+    // Required set satisfied — clear flags and emit. The attorney's act of generating confirms the (surfaced)
+    // auto-seeded grantor; the generated deed they read is the final confirmation. Nothing records or sends.
     setError(null);
+    setMissing({ grantor: false, grantee: false, legal: false });
+    setGrantorNeedsConfirm(false);
     onSubmit({
       grantors: cleanGrantors,
       grantees: cleanGrantees,
@@ -217,6 +312,7 @@ export default function DeedIntake({
     rows: PartyRow[],
     setRows: (next: PartyRow[]) => void,
     descriptorPlaceholder: string,
+    nameBorderClass = 'border-gray-300',
   ): React.ReactElement => (
     <div className="space-y-2">
       {rows.map((row, idx) => (
@@ -225,7 +321,7 @@ export default function DeedIntake({
             type="text"
             value={row.name}
             onChange={(e) => setRows(rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)))}
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+            className={`flex-1 border ${nameBorderClass} rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy`}
             placeholder="Full legal name"
           />
           <input
@@ -309,7 +405,8 @@ export default function DeedIntake({
           {proposeError && <p data-testid="deed-intake-propose-error" className="text-red-600 text-sm mt-1">{proposeError}</p>}
           {proposeStatus === 'proposed' && (
             <p data-testid="deed-intake-proposed-note" className="mt-2 rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-2 text-xs text-ink-secondary">
-              Proposed from your description — confirm or correct the facts below before you generate.
+              Proposed from your description — the donee(s), tenancy, and any overrides you stated are filled in.
+              Generate when you&apos;re ready, or open &ldquo;Fill in all fields manually&rdquo; to review and adjust first.
             </p>
           )}
           {proposeStatus === 'needs_clarification' && (
@@ -330,7 +427,33 @@ export default function DeedIntake({
         </div>
       )}
 
-      {/* (c) Structured gift form — the confirm surface + the collapsed "fill it in manually" fallback. */}
+      {/* DEED-EXPRESS-1: the grantor auto-seeded from the prior deed's grantee of record (= current owner = donor).
+          Surfaced here even while the form is collapsed so it is NEVER silently authoritative — the attorney
+          confirms it (or opens the form to edit it). Clears on confirm or on any edit to the grantor. */}
+      {grantorNeedsConfirm && grantors.some((g) => g.name.trim()) && (
+        <div
+          data-testid="deed-intake-grantor-confirm"
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start justify-between gap-3"
+        >
+          <p>
+            Grantor(s) (donor) read from the prior deed:{' '}
+            <span className="font-medium">{grantors.map((g) => g.name.trim()).filter(Boolean).join(', ')}</span>.{' '}
+            {grantors.filter((g) => g.name.trim()).length > 1 ? 'Confirm these are the donors' : 'Confirm this is the donor'}, or
+            open the form below to edit. It is a presumption from the prior deed&apos;s owner(s) of record — not used
+            until you confirm or generate.
+          </p>
+          <button
+            type="button"
+            data-testid="deed-intake-grantor-confirm-ok"
+            onClick={() => setGrantorNeedsConfirm(false)}
+            className="shrink-0 px-2 py-1 text-xs border border-amber-400 rounded hover:bg-amber-100"
+          >
+            Confirm grantor(s)
+          </button>
+        </div>
+      )}
+
+      {/* (c) Structured gift form — the confirm surface + the collapsed "Fill in all fields manually" fallback. */}
       <form onSubmit={handleSubmit} className="space-y-6">
         {(showUpload || showFreeAssociate) && (
           <button
@@ -339,7 +462,7 @@ export default function DeedIntake({
             onClick={() => setFormExpanded((v) => !v)}
             className="text-sm text-firm-navy hover:underline"
           >
-            {formExpanded ? 'Hide the deed facts' : 'Fill in the deed facts manually'}
+            {formExpanded ? 'Hide the deed facts' : 'Fill in all fields manually'}
           </button>
         )}
 
@@ -353,17 +476,38 @@ export default function DeedIntake({
             </div>
           )}
 
+          {/* DEED-EXPRESS-1: the legal/property description is EXTRACTION-ONLY. If the packet did not yield a
+              non-withheld one, warn (the remedy is to re-drop a clearer prior deed). Generating anyway leaves a
+              verbatim-legal placeholder for the attorney to complete — never a fabricated description. */}
+          {previewFacts.data?.hasMaterials && previewFacts.data.resolved?.legalDescription === false && (
+            <div data-testid="deed-intake-legal-missing" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              The legal/property description could not be read from your uploads. Re-drop a clearer copy of the prior
+              vesting deed — otherwise the draft will contain a placeholder for the legal description that you must
+              complete manually. It is copied verbatim from your documents and is never written by the system.
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantor(s) — donor(s) <span className="text-red-500">*</span>
             </label>
-            {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
+            {renderPartyRows(
+              grantors,
+              updateGrantors,
+              "Descriptor (e.g. 'husband and wife')",
+              missing.grantor ? 'border-red-400 ring-1 ring-red-300' : grantorNeedsConfirm ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-300',
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantee(s) — donee(s) <span className="text-red-500">*</span>
             </label>
-            {renderPartyRows(grantees, setGrantees, "Relationship (e.g. “the Grantors’ daughter”)")}
+            {renderPartyRows(
+              grantees,
+              updateGrantees,
+              "Relationship (e.g. “the Grantors’ daughter”)",
+              missing.grantee ? 'border-red-400 ring-1 ring-red-300' : 'border-gray-300',
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input
