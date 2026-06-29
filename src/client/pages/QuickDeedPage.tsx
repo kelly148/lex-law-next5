@@ -303,7 +303,7 @@ export default function QuickDeedPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Deed type selector — the whole registry; gift + seller-side generate today. */}
+      {/* Deed type selector — the whole registry; each option is enabled per its quickDeedGenerates flag (all registered types generate today). */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="quick-deed-type">
           Deed type <span className="text-red-500">*</span>
@@ -323,9 +323,6 @@ export default function QuickDeedPage(): React.ReactElement {
             </option>
           ))}
         </select>
-        <p className="text-xs text-ink-hint mt-1">
-          Other deed types are listed but not yet wired for Quick Deed generation.
-        </p>
       </div>
 
       {deedType !== QUICK_DEED_GIFT_TYPE && deedType !== QUICK_DEED_SELLER_TYPE ? (
