@@ -342,4 +342,23 @@ describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
     expect(arg.intoLlc.grantorCardinality).toBe('single');
     expect(arg.intoLlc.notaryJurisdiction.locality).toBe('CITY OF ALEXANDRIA');
   });
+
+  it('QUICKDEED-COPY-FIX-1: with every registered type generating, all options are enabled and there is NO blanket "not yet wired" note', () => {
+    mockState.enabled = true;
+    mockState.deedTypes = [
+      { key: 'deed_of_gift', title: 'Deed of Gift', category: 'gift', status: 'available', quickDeedGenerates: true },
+      { key: 'seller_side', title: 'Seller-Side Conveyance', category: 'seller-side', status: 'available', quickDeedGenerates: true },
+      { key: 'deed_into_llc', title: 'Deed Into an LLC', category: 'C3', status: 'available', quickDeedGenerates: true },
+    ];
+    const c = renderPage();
+    const options = Array.from(
+      (c.querySelector('[data-testid="quick-deed-type-select"]') as HTMLSelectElement).querySelectorAll('option'),
+    );
+    expect(options.length).toBe(3);
+    expect(options.every((o) => !o.disabled)).toBe(true); // every registered type generates -> every option enabled
+    expect(options.some((o) => (o.textContent ?? '').includes('wiring pending'))).toBe(false); // no per-option suffix
+    // The stale blanket sentence is gone — the per-option "— wiring pending" suffix is the sole, self-healing signal.
+    expect(c.textContent).not.toContain('not yet wired');
+    expect(c.textContent).not.toContain('Other deed types are listed');
+  });
 });
