@@ -50,7 +50,14 @@ import {
 } from '../procedures/deedDraftAgent.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { LlmProviderError } from '../llm/types.js';
-import { ProposeSellerSideOutputSchema, ProposeIntoLlcOutputSchema } from '../deed/deedProposeIntakeCategories.js';
+import {
+  ProposeSellerSideOutputSchema,
+  ProposeIntoLlcOutputSchema,
+  ProposeOutOfLlcOutputSchema,
+  ProposeTodOutputSchema,
+  ProposeConfirmationOutputSchema,
+  ProposeIntoTrustOutputSchema,
+} from '../deed/deedProposeIntakeCategories.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { insertDocument } from '../db/queries/documents.js';
 import { insertVersion } from '../db/queries/versions.js';
@@ -466,6 +473,54 @@ describe('quickDeed.proposeIntakeIntoLlc — category-aware dispatch, gates, pro
     mockModelOutput({ granteeLlc: 'Acme', derivationOfTitle: 'For derivation, see Deed Book...', confident: true });
     const res = await caller().proposeIntakeIntoLlc({ matterId: M1, freeText: LLC_TEXT });
     expect(res.status).toBe('needs_clarification');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe('quickDeed.proposeIntake — remaining categories: dispatch + safety', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+  });
+  afterEach(() => { delete process.env['DEED_DRAFT_AGENT_ENABLED']; });
+
+  it('out-of-LLC: happy path → proposed with the OUT-OF-LLC schema; a return-to/legal is rejected', async () => {
+    mockModelOutput({ members: [{ name: 'Dana Ortiz' }], consideration: '$10.00', confident: true });
+    const res = await caller().proposeIntakeOutOfLlc({ matterId: M1, freeText: 'out of LLC; members sign' });
+    expect(res.status).toBe('proposed');
+    expect(egressMock.mock.calls[0]?.[0].llmParams.structuredOutputSchema).toBe(ProposeOutOfLlcOutputSchema);
+    mockModelOutput({ members: [{ name: 'A' }], returnTo: { company: 'X' }, confident: true });
+    expect((await caller().proposeIntakeOutOfLlc({ matterId: M1, freeText: 'x' })).status).toBe('needs_clarification');
+  });
+
+  it('TOD: happy path → proposed with the TOD schema; a revocation block is rejected', async () => {
+    mockModelOutput({ beneficiaries: [{ name: 'Ivy Chen' }], vesting: 'joint tenants with survivorship', confident: true });
+    const res = await caller().proposeIntakeTod({ matterId: M1, freeText: 'on death to my kids' });
+    expect(res.status).toBe('proposed');
+    expect(egressMock.mock.calls[0]?.[0].llmParams.structuredOutputSchema).toBe(ProposeTodOutputSchema);
+    mockModelOutput({ beneficiaries: [{ name: 'A' }], revocationBlock: 'This TOD may be revoked...', confident: true });
+    expect((await caller().proposeIntakeTod({ matterId: M1, freeText: 'x' })).status).toBe('needs_clarification');
+  });
+
+  it('confirmation: happy path → proposed archetype only; any chain-of-title fact is rejected', async () => {
+    mockModelOutput({ archetype: 'C1-a-survivorship', confident: true });
+    const res = await caller().proposeIntakeConfirmation({ matterId: M1, freeText: 'a co-owner died' });
+    expect(res.status).toBe('proposed');
+    if (res.status !== 'proposed') throw new Error('expected proposed');
+    expect(res.proposal.archetype).toBe('C1-a-survivorship');
+    expect(egressMock.mock.calls[0]?.[0].llmParams.structuredOutputSchema).toBe(ProposeConfirmationOutputSchema);
+    mockModelOutput({ archetype: 'C1-a-survivorship', decedent: 'Jane Doe', vestingDeedDate: '2001', confident: true });
+    expect((await caller().proposeIntakeConfirmation({ matterId: M1, freeText: 'x' })).status).toBe('needs_clarification');
+  });
+
+  it('into-trust: happy path → proposed; a model-authored trusteesRecital is rejected end-to-end (CRITICAL)', async () => {
+    mockModelOutput({ exemplar: 'A', grantors: [{ name: 'Harold Whitmore' }], trustStructure: 'single_joint_trust', confident: true });
+    const res = await caller().proposeIntakeIntoTrust({ matterId: M1, freeText: 'married couple into their trust' });
+    expect(res.status).toBe('proposed');
+    expect(egressMock.mock.calls[0]?.[0].llmParams.structuredOutputSchema).toBe(ProposeIntoTrustOutputSchema);
+    mockModelOutput({ exemplar: 'A', trusteesRecital: 'X and Y, Trustees of THE ... TRUST', confident: true });
+    expect((await caller().proposeIntakeIntoTrust({ matterId: M1, freeText: 'x' })).status).toBe('needs_clarification');
     expect(insertVersion).not.toHaveBeenCalled();
   });
 });
