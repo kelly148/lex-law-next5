@@ -2059,8 +2059,29 @@ export function buildProposeIntakeSystemPrompt(): string {
  *  schema-invalid, the model\'s own confident=false, a present-but-invalid vestingOverride (not a
  *  VA_VESTING_OPTIONS key), or NO grantees all collapse to a needs_clarification result (NEVER a partial/
  *  default-filled proposal). Exported for direct (no-LLM) testing. */
+/** Coerce a structured-output `content` value to the JSON it represents. The egress broker returns
+ *  provider content as a STRING (see llm/anthropic.ts — `return content as string`), optionally
+ *  markdown-fenced; parse it to an object so the schema can validate it. Returns null on non-JSON so
+ *  validation fails closed. Mirrors parseGeneratedAnalysis / expressPorts.coerceJson. */
+function tryParseProposeIntakeJson(text: string): unknown {
+  const stripped = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    return JSON.parse(stripped) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 export function validateProposeIntakeOutput(raw: unknown): ProposeIntakeResult {
-  const parsed = ProposeIntakeOutputSchema.safeParse(raw);
+  // PROPOSE-INTAKE-PARSE-FIX-1: the egress broker returns structured-output `content` as a STRING
+  // (provider adapters normalize to `content: string` for parity — see llm/anthropic.ts). Coerce a
+  // JSON string (optionally markdown-fenced) into the object it represents BEFORE schema validation;
+  // without this, safeParse(<string>) fails on EVERY valid response and surfaces the misleading
+  // "could not be parsed" notice on a perfectly clean deal. An already-parsed object passes through
+  // unchanged. .strict() below still runs on the parsed value, so a model-authored legal/property
+  // description (a forbidden extra key) is still rejected -> needs_clarification (guard unchanged).
+  const candidate = typeof raw === 'string' ? tryParseProposeIntakeJson(raw) : raw;
+  const parsed = ProposeIntakeOutputSchema.safeParse(candidate);
   if (!parsed.success) {
     return {
       status: 'needs_clarification',
