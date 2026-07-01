@@ -175,7 +175,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
           <section>
             <div className="flex items-center gap-2 mb-2">
               <div className="text-xs font-medium text-gray-700 flex-1">Conflicts check</div>
-              <button onClick={() => runCheck.mutate({ matterId })} disabled={runCheck.isPending} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">
+              <button onClick={() => runCheck.mutate({ matterId })} disabled={runCheck.isPending} className="px-2 py-1 text-xs rounded btn-secondary">
                 Run conflicts check
               </button>
             </div>
@@ -241,7 +241,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
             <div className="text-xs font-medium text-gray-700 mb-2">Assessment &amp; plan</div>
             {a == null ? (
               <div className="space-y-1">
-                <button onClick={() => generateAnalysis.mutate({ matterId })} disabled={generateAnalysis.isPending} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">
+                <button onClick={() => generateAnalysis.mutate({ matterId })} disabled={generateAnalysis.isPending} className="px-2 py-1 text-xs rounded btn-secondary">
                   {generateAnalysis.isPending ? 'Generating analysis…' : 'Generate analysis (Claude, single-lane)'}
                 </button>
                 <p className="text-[11px] text-gray-400">Internal attorney work-product — not a client-facing or sendable document.</p>

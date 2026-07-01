@@ -116,7 +116,7 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
             </div>
             <div className="flex items-center gap-2 mt-2">
               <input value={paKeyInput} onChange={(e) => setPaKeyInput(e.target.value)} placeholder="e.g. real_estate" className="flex-1 text-xs border border-gray-300 rounded px-2 py-1" />
-              <button disabled={!paKeyInput.trim() || confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: paKeyInput.trim() })} className="px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40">Confirm</button>
+              <button disabled={!paKeyInput.trim() || confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: paKeyInput.trim() })} className="px-2 py-1 text-xs rounded btn-secondary">Confirm</button>
               {currentPaKey && <button disabled={confirmPaKey.isPending} onClick={() => confirmPaKey.mutate({ matterId, paKey: null })} className="px-2 py-1 text-xs border border-gray-300 rounded">Clear</button>}
             </div>
           </section>
@@ -207,9 +207,9 @@ export default function KnowledgeBasePanel({ matterId }: KnowledgeBasePanelProps
             <input value={memoTitle} onChange={(e) => setMemoTitle(e.target.value)} placeholder="Memo title" className="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-1" />
             <textarea value={memoBody} onChange={(e) => setMemoBody(e.target.value)} placeholder="Memo body (filed client-confidential / matter-only until you abstract it)" className="w-full text-xs border border-gray-300 rounded px-2 py-1" rows={3} />
             <div className="flex items-center gap-2 mt-1">
-              <button disabled={!memoTitle.trim() || !memoBody.trim() || createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: memoTitle.trim(), body: memoBody.trim() })} className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"><FilePlus className="w-3 h-3" /> File memo</button>
+              <button disabled={!memoTitle.trim() || !memoBody.trim() || createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: memoTitle.trim(), body: memoBody.trim() })} className="flex items-center gap-1 px-2 py-1 text-xs rounded btn-secondary"><FilePlus className="w-3 h-3" /> File memo</button>
               {a != null && (
-                <button disabled={createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: `Analysis memo`, body: typeof a.assessment === 'string' ? a.assessment : 'Filed from matter analysis.', sourceAnalysisId: a.id })} className="flex items-center gap-1 px-2 py-1 text-xs border border-line text-ink rounded hover:bg-surface disabled:opacity-40"><ShieldCheck className="w-3 h-3" /> File latest analysis as memo</button>
+                <button disabled={createMemo.isPending} onClick={() => createMemo.mutate({ matterId, title: `Analysis memo`, body: typeof a.assessment === 'string' ? a.assessment : 'Filed from matter analysis.', sourceAnalysisId: a.id })} className="flex items-center gap-1 px-2 py-1 text-xs rounded btn-secondary"><ShieldCheck className="w-3 h-3" /> File latest analysis as memo</button>
               )}
             </div>
             {createMemo.error && <p className="text-[11px] text-red-600 mt-1">{createMemo.error.message}</p>}

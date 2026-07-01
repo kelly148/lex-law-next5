@@ -502,14 +502,14 @@ export default function MatterDetail(): React.ReactElement {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowMaterials(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
           >
             <Layers className="w-4 h-4" />
             Materials
           </button>
           <Link
             to={`/matters/${matterId}/information-requests`}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
           >
             <BookOpen className="w-4 h-4" />
             Info Request
@@ -518,7 +518,7 @@ export default function MatterDetail(): React.ReactElement {
           {chatEnabled && (
             <Link
               to={`/matters/${matterId}/chat`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
             >
               <MessageSquare className="w-4 h-4" />
               Conversation
@@ -529,7 +529,7 @@ export default function MatterDetail(): React.ReactElement {
           {copilotEnabled && (
             <Link
               to={`/matters/${matterId}/copilot`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
             >
               <Bot className="w-4 h-4" />
               Copilot
@@ -539,7 +539,7 @@ export default function MatterDetail(): React.ReactElement {
           {deedDraftAgentEnabled && (
             <button
               onClick={() => setShowGiftDraft(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
             >
               <ScrollText className="w-4 h-4" />
               Gift Deed Draft

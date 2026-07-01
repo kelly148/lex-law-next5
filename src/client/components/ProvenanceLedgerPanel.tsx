@@ -40,7 +40,7 @@ export default function ProvenanceLedgerPanel({ matterId }: { matterId: string }
           data-testid="provenance-export"
           onClick={() => void onExport()}
           disabled={isLoading || entries.length === 0 || exporting}
-          className="ml-auto flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-ink-secondary hover:bg-surface disabled:opacity-40"
+          className="ml-auto flex items-center gap-1 rounded btn-secondary px-2 py-1 text-xs"
         >
           <Download className="h-3 w-3" /> Export
         </button>
