@@ -32,7 +32,7 @@ export function coerceStructuredJson(raw: unknown): unknown {
 
 /** Normalize a parsed grantee/party array into trimmed { name, relationship? } entries. */
 function normalizeParties(
-  raw: readonly { name?: string | null; relationship?: string | null }[],
+  raw: readonly { name?: string | null | undefined; relationship?: string | null | undefined }[],
 ): { name: string; relationship?: string }[] {
   return raw.map((g) => {
     const name = (g.name ?? '').trim();
@@ -322,5 +322,269 @@ export function validateProposeOutOfLlcOutput(raw: unknown): ProposeOutOfLlcResu
   if (executionMonth !== '') proposal.executionMonth = executionMonth;
   const executionYear = (out.executionYear ?? '').trim();
   if (executionYear !== '') proposal.executionYear = executionYear;
+  return { status: 'proposed', proposal };
+}
+
+// ── Transfer-on-Death (TOD) ─────────────────────────────────────────────────────────────────────────────
+//
+// Routine (proposable): the death-beneficiary(ies) (names + relationship) and the vesting among them. The
+// transferor is the current owner (auto-seeded from the prior deed; the transferor's CAPACITY is attorney-only).
+// NEVER proposed: the `revocationBlock` (canonical, byte-for-byte — never model-authored), the transferor's
+// capacity, the derivation, and the legal description (extraction-only).
+
+export interface ProposeTodProposal {
+  beneficiaries: { name: string; relationship?: string }[];
+  vesting?: string;
+}
+
+export type ProposeTodResult =
+  | { status: 'proposed'; proposal: ProposeTodProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+export const ProposeTodOutputSchema = z
+  .object({
+    beneficiaries: z
+      .array(
+        z.object({
+          name: z.string().max(200).nullable().optional(),
+          relationship: z.string().max(200).nullable().optional(),
+        }),
+      )
+      .max(20)
+      .default([]),
+    vesting: z.string().max(200).nullable().optional(),
+    confident: z.boolean().default(true),
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+    // The transferor is the current owner (extraction / prior deed), never the model — echo accepted + ignored.
+    transferor: z.unknown().optional(),
+  })
+  .strict();
+
+export function buildProposeTodSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney preparing a TRANSFER-ON-DEATH (TOD) deed.',
+    'Extract ONLY the irreducible intake fields the attorney EXPLICITLY stated:',
+    '  - beneficiaries: the death-beneficiary(ies) — each { name, relationship } (relationship only if stated).',
+    '  - vesting: how the beneficiaries take among themselves (e.g. joint tenants with survivorship) ONLY if stated.',
+    'HARD RULES:',
+    '  - Do NOT author, paraphrase, or infer the REVOCATION block (it is canonical and byte-for-byte — never yours),',
+    '    the transferor\'s CAPACITY, the DERIVATION, or any legal/property description. Those are attorney-supplied /',
+    '    extraction-only; no field exists for them.',
+    '  - Do NOT invent, default, or guess ANY field. Omit anything not explicitly stated.',
+    '  - If a beneficiary is described without a name ("to my kids"), set confident=false and ask for the names.',
+    '  - You only PROPOSE the parse for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object.',
+  ].join('\n');
+}
+
+/** PURE: validate + normalize the TOD structured output. Fail-closed: schema-invalid, confident=false, or NO
+ *  named beneficiary collapse to needs_clarification. Exported for direct testing. */
+export function validateProposeTodOutput(raw: unknown): ProposeTodResult {
+  const parsed = ProposeTodOutputSchema.safeParse(coerceStructuredJson(raw));
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['I could not read the deal into the TOD intake fields. Please confirm or fill the beneficiary(ies) below.'],
+    };
+  }
+  const out = parsed.data;
+  const questions: string[] = [...out.clarifyingQuestions];
+  let needsClarification = out.confident === false;
+
+  const beneficiaries = normalizeParties(out.beneficiaries);
+  if (beneficiaries.length === 0) {
+    needsClarification = true;
+    questions.push('Who are the death-beneficiary(ies) of this transfer-on-death deed?');
+  } else if (beneficiaries.some((g) => g.name === '')) {
+    needsClarification = true;
+    questions.push('One or more beneficiaries were described without a name. What is the full legal name of each?');
+  }
+
+  if (needsClarification) {
+    return {
+      status: 'needs_clarification',
+      questions: questions.length > 0 ? questions : ['The TOD intake is ambiguous; please clarify the beneficiary(ies).'],
+    };
+  }
+
+  const proposal: ProposeTodProposal = { beneficiaries };
+  const vesting = (out.vesting ?? '').trim();
+  if (vesting !== '') proposal.vesting = vesting;
+  return { status: 'proposed', proposal };
+}
+
+// ── Deed of Confirmation ────────────────────────────────────────────────────────────────────────────────
+//
+// The STRICTEST category. Routine (proposable): the ARCHETYPE only — 'C1-a-survivorship' (title already vested
+// by survivorship; a co-owner died) or 'C1-b-testate-devise' (title passed by will/devise). NEVER proposed:
+// ANY chain-of-title link (the vesting/original deed, decedent/testator, dates, book/page, original grantors/
+// grantees, tenancy) — every chain fact is attorney-supplied VERBATIM; the assembler fail-closes on a fabricable
+// or mismatched chain. And never the legal description (extraction-only).
+
+export const CONFIRMATION_ARCHETYPES = new Set(['C1-a-survivorship', 'C1-b-testate-devise']);
+
+export interface ProposeConfirmationProposal {
+  archetype: 'C1-a-survivorship' | 'C1-b-testate-devise';
+}
+
+export type ProposeConfirmationResult =
+  | { status: 'proposed'; proposal: ProposeConfirmationProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+export const ProposeConfirmationOutputSchema = z
+  .object({
+    archetype: z.string().max(60).nullable().optional(),
+    confident: z.boolean().default(true),
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+  })
+  .strict();
+
+export function buildProposeConfirmationSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney preparing a DEED OF CONFIRMATION (confirming title that',
+    'has ALREADY vested). Determine ONLY the archetype — nothing else:',
+    "  - archetype: exactly one of 'C1-a-survivorship' (title already vested by right of survivorship; a co-owner",
+    "    has died) or 'C1-b-testate-devise' (title passed by will / testate devise). Omit if you cannot tell.",
+    'HARD RULES:',
+    '  - Do NOT author, paraphrase, infer, or propose ANY chain-of-title fact: the vesting/original deed, its date,',
+    '    its book/page or instrument number, the recording county, the decedent/testator, the original grantors or',
+    '    grantees, or the prior tenancy. EVERY chain-of-title link is attorney-supplied VERBATIM — there is NO field',
+    '    for any of them here. Do NOT author the legal/property description.',
+    '  - If you cannot confidently tell the archetype, set confident=false with a clarifyingQuestions entry.',
+    '  - You only PROPOSE the archetype for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object (archetype + confident + clarifyingQuestions).',
+  ].join('\n');
+}
+
+/** PURE: validate the confirmation structured output. Fail-closed: schema-invalid, confident=false, or an
+ *  absent/invalid archetype collapse to needs_clarification. Proposes ONLY the archetype (the chain-of-title is
+ *  attorney-entered). Exported for direct testing. */
+export function validateProposeConfirmationOutput(raw: unknown): ProposeConfirmationResult {
+  const parsed = ProposeConfirmationOutputSchema.safeParse(coerceStructuredJson(raw));
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['I could not read the deal into a confirmation archetype. Please choose the archetype (survivorship or testate-devise) below.'],
+    };
+  }
+  const out = parsed.data;
+  if (out.confident === false) {
+    return {
+      status: 'needs_clarification',
+      questions: out.clarifyingQuestions.length > 0 ? out.clarifyingQuestions : ['Which confirmation archetype applies — survivorship or testate-devise?'],
+    };
+  }
+  const archetype = (out.archetype ?? '').trim();
+  if (!CONFIRMATION_ARCHETYPES.has(archetype)) {
+    return {
+      status: 'needs_clarification',
+      questions: ['Which confirmation archetype applies — survivorship (a co-owner died) or testate-devise (title passed by will)?'],
+    };
+  }
+  return { status: 'proposed', proposal: { archetype: archetype as ProposeConfirmationProposal['archetype'] } };
+}
+
+// ── Deed INTO a revocable living trust ──────────────────────────────────────────────────────────────────
+//
+// Routine (proposable): the exemplar (A/B/C), the grantor(s) transferring in (names — auto-seeded from the prior
+// deed), the grantor marital status, how title is held, and the trust structure descriptor. CRITICAL — NEVER
+// proposed: the `trusteesRecital` (LOAD-BEARING, attorney-supplied VERBATIM — the assembler keys the GRANTEES
+// block off it; the model must never fabricate it from extracted trust facts), the `beingRecital` (divorce
+// facts), the derivation, the exemption basis (attorney KB selection), the notary jurisdiction, and the legal
+// description (extraction-only). The trusteesRecital is intentionally ABSENT from this schema, so `.strict()`
+// rejects any attempt to output it -> needs_clarification.
+
+export const INTO_TRUST_EXEMPLARS = new Set(['A', 'B', 'C']);
+
+export interface ProposeIntoTrustProposal {
+  exemplar?: 'A' | 'B' | 'C';
+  grantors?: { name: string }[];
+  grantorMaritalStatus?: string;
+  heldAs?: string;
+  trustStructure?: string;
+}
+
+export type ProposeIntoTrustResult =
+  | { status: 'proposed'; proposal: ProposeIntoTrustProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+export const ProposeIntoTrustOutputSchema = z
+  .object({
+    exemplar: z.string().max(4).nullable().optional(),
+    grantors: z.array(z.object({ name: z.string().max(200).nullable().optional() })).max(20).default([]),
+    grantorMaritalStatus: z.string().max(200).nullable().optional(),
+    heldAs: z.string().max(200).nullable().optional(),
+    trustStructure: z.string().max(120).nullable().optional(),
+    confident: z.boolean().default(true),
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+  })
+  .strict();
+
+export function buildProposeIntoTrustSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney conveying property INTO a revocable living trust.',
+    'Extract ONLY the irreducible intake fields the attorney EXPLICITLY stated:',
+    "  - exemplar: the house exemplar 'A', 'B', or 'C' ONLY if the attorney stated which; omit otherwise.",
+    '  - grantors: the current owner(s) transferring the property in — each { name } — ONLY if stated.',
+    '  - grantorMaritalStatus: the grantors\' marital status ONLY if stated.',
+    '  - heldAs: how the grantors currently hold title ONLY if stated.',
+    '  - trustStructure: a short descriptor of the trust (e.g. joint revocable living trust) ONLY if stated.',
+    'HARD RULES (CRITICAL):',
+    '  - Do NOT author, paraphrase, infer, or propose the TRUSTEES RECITAL. It is LOAD-BEARING and attorney-supplied',
+    '    VERBATIM; there is NO field for it and you must never emit one. Likewise do NOT author the being-recital',
+    '    (divorce facts), the derivation, the exemption basis, the notary jurisdiction, or the legal description.',
+    '  - Do NOT invent, default, or guess ANY field. Omit anything not explicitly stated.',
+    '  - If load-bearing facts are ambiguous, set confident=false with a specific clarifyingQuestions entry.',
+    '  - You only PROPOSE the parse for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object.',
+  ].join('\n');
+}
+
+/** PURE: validate + normalize the Deed-INTO-TRUST structured output. Fail-closed: schema-invalid, confident=false,
+ *  a present-but-invalid exemplar, or NOTHING proposed collapse to needs_clarification. The trusteesRecital is
+ *  ABSENT from the schema, so `.strict()` rejects any model attempt to author it. Exported for direct testing. */
+export function validateProposeIntoTrustOutput(raw: unknown): ProposeIntoTrustResult {
+  const parsed = ProposeIntoTrustOutputSchema.safeParse(coerceStructuredJson(raw));
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['I could not read the deal into the into-trust intake fields. Please confirm or fill the exemplar and grantor(s) below.'],
+    };
+  }
+  const out = parsed.data;
+  const questions: string[] = [...out.clarifyingQuestions];
+  let needsClarification = out.confident === false;
+
+  const exemplar = (out.exemplar ?? '').trim().toUpperCase();
+  if (exemplar !== '' && !INTO_TRUST_EXEMPLARS.has(exemplar)) {
+    needsClarification = true;
+    questions.push(`The stated exemplar "${exemplar}" is not one of A, B, or C. Which applies?`);
+  }
+
+  const grantors = normalizeParties(out.grantors).filter((g) => g.name !== '');
+  const grantorMaritalStatus = (out.grantorMaritalStatus ?? '').trim();
+  const heldAs = (out.heldAs ?? '').trim();
+  const trustStructure = (out.trustStructure ?? '').trim();
+
+  // Nothing routine to propose (and not a clarify already) → ask for the basics, never a blank proposal.
+  const anything = exemplar !== '' || grantors.length > 0 || grantorMaritalStatus !== '' || heldAs !== '' || trustStructure !== '';
+  if (!anything && !needsClarification) {
+    needsClarification = true;
+    questions.push('Which exemplar applies, and who are the grantor(s) transferring into the trust?');
+  }
+
+  if (needsClarification) {
+    return {
+      status: 'needs_clarification',
+      questions: questions.length > 0 ? questions : ['The into-trust intake is ambiguous; please clarify the exemplar and grantor(s).'],
+    };
+  }
+
+  const proposal: ProposeIntoTrustProposal = {};
+  if (exemplar !== '') proposal.exemplar = exemplar as 'A' | 'B' | 'C';
+  if (grantors.length > 0) proposal.grantors = grantors.map((g) => ({ name: g.name }));
+  if (grantorMaritalStatus !== '') proposal.grantorMaritalStatus = grantorMaritalStatus;
+  if (heldAs !== '') proposal.heldAs = heldAs;
+  if (trustStructure !== '') proposal.trustStructure = trustStructure;
   return { status: 'proposed', proposal };
 }
