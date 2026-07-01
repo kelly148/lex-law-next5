@@ -33,6 +33,12 @@ import { VA_VESTING_OPTIONS } from '../deed/deedKbVa.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { EVALUATOR_MODEL } from '../llm/config.js';
 import { LlmProviderError } from '../llm/types.js';
+import {
+  ProposeSellerSideOutputSchema,
+  buildProposeSellerSideSystemPrompt,
+  validateProposeSellerSideOutput,
+  type ProposeSellerSideResult,
+} from '../deed/deedProposeIntakeCategories.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import {
   assembleTodDeed,
@@ -2244,6 +2250,58 @@ async function persistQuickDeedCategoryDeed(
   };
 }
 
+/** EXPRESS-FANOUT-1 — shared runner for a category-aware "describe the deal" parse. The ONE LLM call per
+ *  non-gift category, through the EXISTING egress control plane (surface 'intake'), fail-closed +
+ *  provider-allowlist-enforced. Returns the category validator's result, a clean {status:'blocked'} when the
+ *  broker refuses (hold / uncertain hold / provider not allowlisted), or the validator's fail-closed
+ *  needs_clarification on a structured-output parse_error. PROPOSE-ONLY: never drafts, records, or sends. This
+ *  mirrors the gift proposeIntake procedure body — the gift procedure is intentionally left UNCHANGED. */
+async function runCategoryProposeIntake<T>(
+  ctx: { userId: string },
+  matterId: string,
+  freeText: string,
+  cfg: {
+    schema: z.ZodTypeAny;
+    buildSystemPrompt: () => string;
+    validate: (raw: unknown) => T;
+  },
+): Promise<T | { status: 'blocked'; reason: string }> {
+  // Flag + ownership (+ not-archived) gate — fail-closed; conflicts bypassed (a parse, not a draft; nothing
+  // persisted). Mirrors gift proposeIntake / previewFacts posture.
+  await assertDeedDraftingAllowed(ctx.userId, matterId, { bypassConflicts: true });
+  const systemPrompt = cfg.buildSystemPrompt();
+  try {
+    const signal = AbortSignal.timeout(300_000);
+    const llmResult = await documentEgressSend({
+      subject: { type: 'matter', subjectId: matterId, matterId, userId: ctx.userId },
+      surface: 'intake',
+      modelString: EVALUATOR_MODEL,
+      llmParams: {
+        systemPrompt,
+        userPrompt: freeText,
+        temperature: 0.1,
+        maxTokens: 2048,
+        structuredOutputSchema: cfg.schema,
+        signal,
+      },
+      // Store-by-reference: the audit row hashes this, never the attorney's free text.
+      serializedPayload: `${systemPrompt}\n\n${freeText}`,
+      enforceProviderAllowlist: true,
+    });
+    return cfg.validate(llmResult.content);
+  } catch (err) {
+    if (err instanceof DocumentEgressBlockedError) {
+      return { status: 'blocked' as const, reason: err.blockReason };
+    }
+    if (err instanceof LlmProviderError && err.errorClass === 'parse_error') {
+      // Degrade a structured-output parse failure to the category's fail-closed result (never a raw Zod dump);
+      // validate('') coerces to null → schema fails → the category's needs_clarification message.
+      return cfg.validate('');
+    }
+    throw err;
+  }
+}
+
 export const quickDeedRouter = router({
   /** The available deed types for the surface's type selector — the WHOLE registry so the UI can show the
    *  unbuilt categories as disabled, plus the per-entry status so the selector knows which to enable. Flag-
@@ -2387,6 +2445,23 @@ export const quickDeedRouter = router({
         throw err;
       }
     }),
+
+  /**
+   * EXPRESS-FANOUT-1 — the SELLER-SIDE "describe the deal" parse. A category-aware sibling of proposeIntake
+   * (gift), sharing runCategoryProposeIntake. Proposes ONLY routine seller-side fields (buyer grantees, warranty
+   * type, consideration); NEVER the vestingRecital (attorney-verbatim) or the legal description (extraction-only)
+   * — the parser's .strict() rejects them → needs_clarification. Flag/ownership/not-archived gated +
+   * conflicts-bypassed. PROPOSE-ONLY: never drafts, records, or sends.
+   */
+  proposeIntakeSellerSide: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeSellerSideResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeSellerSideOutputSchema,
+        buildSystemPrompt: buildProposeSellerSideSystemPrompt,
+        validate: validateProposeSellerSideOutput,
+      }),
+    ),
 
   /**
    * Start a Quick Deed: AUTO-CREATE the lightweight owning matter (title "Quick Deed — YYYY-MM-DD") so the
