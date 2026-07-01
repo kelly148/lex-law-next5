@@ -50,7 +50,7 @@ import {
 } from '../procedures/deedDraftAgent.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { LlmProviderError } from '../llm/types.js';
-import { ProposeSellerSideOutputSchema } from '../deed/deedProposeIntakeCategories.js';
+import { ProposeSellerSideOutputSchema, ProposeIntoLlcOutputSchema } from '../deed/deedProposeIntakeCategories.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { insertDocument } from '../db/queries/documents.js';
 import { insertVersion } from '../db/queries/versions.js';
@@ -415,6 +415,56 @@ describe('quickDeed.proposeIntakeSellerSide — category-aware dispatch, gates, 
     process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
     mockModelOutput({ grantees: [{ name: 'A. Buyer' }], vestingRecital: 'BEING the same property conveyed...', confident: true });
     const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('needs_clarification');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe('quickDeed.proposeIntakeIntoLlc — category-aware dispatch, gates, propose-only', () => {
+  const origDeed = process.env['DEED_DRAFT_AGENT_ENABLED'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env['DEED_DRAFT_AGENT_ENABLED'];
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+  });
+  afterEach(() => {
+    if (origDeed === undefined) delete process.env['DEED_DRAFT_AGENT_ENABLED'];
+    else process.env['DEED_DRAFT_AGENT_ENABLED'] = origDeed;
+  });
+
+  const LLC_TEXT = 'Dana Ortiz is transferring her home into Ridgeline Holdings LLC for $10.';
+
+  it('happy path → proposed with the bare LLC name; egress uses the INTO-LLC schema (not gift/seller)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({ granteeLlc: 'Ridgeline Holdings', grantors: [{ name: 'Dana Ortiz' }], consideration: '$10.00', confident: true });
+    const res = await caller().proposeIntakeIntoLlc({ matterId: M1, freeText: LLC_TEXT });
+    expect(res.status).toBe('proposed');
+    if (res.status !== 'proposed') throw new Error('expected proposed');
+    expect(res.proposal.granteeLlc).toBe('Ridgeline Holdings');
+    expect(egressMock.mock.calls[0]?.[0].llmParams.structuredOutputSchema).toBe(ProposeIntoLlcOutputSchema);
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('no destination LLC named → needs_clarification', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({ grantors: [{ name: 'Dana Ortiz' }], confident: true });
+    const res = await caller().proposeIntakeIntoLlc({ matterId: M1, freeText: LLC_TEXT });
+    expect(res.status).toBe('needs_clarification');
+  });
+
+  it('a DocumentEgressBlockedError → clean blocked result, nothing persisted', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    egressMock.mockRejectedValue(new DocumentEgressBlockedError('provider_not_allowlisted', 'evt-3'));
+    const res = await caller().proposeIntakeIntoLlc({ matterId: M1, freeText: LLC_TEXT });
+    expect(res.status).toBe('blocked');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('SAFETY: a model-authored derivation/legal is rejected end-to-end → needs_clarification', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({ granteeLlc: 'Acme', derivationOfTitle: 'For derivation, see Deed Book...', confident: true });
+    const res = await caller().proposeIntakeIntoLlc({ matterId: M1, freeText: LLC_TEXT });
     expect(res.status).toBe('needs_clarification');
     expect(insertVersion).not.toHaveBeenCalled();
   });

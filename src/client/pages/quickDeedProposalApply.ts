@@ -31,3 +31,30 @@ export function sellerProposalToFields(p: SellerProposalInput): SellerFormFields
   if (p.consideration) out.considerationFigs = p.consideration;
   return out;
 }
+
+// ── Deed INTO an LLC ────────────────────────────────────────────────────────────────────────────────────────
+
+/** The into-LLC proposal shape (bare grantee LLC name — designator appended server-side). */
+export interface IntoLlcProposalInput {
+  granteeLlc?: string;
+  grantors?: { name: string }[];
+  consideration?: string;
+}
+
+/** The into-LLC form fields a proposal may pre-fill. NEVER the derivation, subject-to, notary, or legal. */
+export interface IntoLlcFormFields {
+  granteeLlc?: string;
+  grantors?: { name: string; maritalStatus: string }[];
+  consideration?: string;
+}
+
+export function intoLlcProposalToFields(p: IntoLlcProposalInput): IntoLlcFormFields {
+  const out: IntoLlcFormFields = {};
+  if (p.granteeLlc) out.granteeLlc = p.granteeLlc;
+  if (p.grantors && p.grantors.length > 0) {
+    // Marital status is an attorney field (defaults 'unmarried'); the model never proposes it.
+    out.grantors = p.grantors.map((g) => ({ name: g.name, maritalStatus: 'unmarried' }));
+  }
+  if (p.consideration) out.consideration = p.consideration;
+  return out;
+}

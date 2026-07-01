@@ -11,9 +11,11 @@
  *
  * Flag-dark: only reachable from QuickDeedPage, which self-guards on deedDraftAgent.isEnabled (default OFF).
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
+import { CategoryDescribeBox } from './CategoryDescribeBox.js';
+import { intoLlcProposalToFields } from './quickDeedProposalApply.js';
 
 const QUICK_DEED_INTO_LLC_TYPE = 'deed_into_llc';
 const QUICK_DEED_OUT_OF_LLC_TYPE = 'deed_out_of_llc';
@@ -169,6 +171,23 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
   const [subjectTo, setSubjectTo] = useState('');
   const [notaryCommonwealth, setNotaryCommonwealth] = useState('COMMONWEALTH OF VIRGINIA');
   const [notaryLocality, setNotaryLocality] = useState('');
+  const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  const utils = trpc.useUtils();
+  // EXPRESS-FANOUT-1: auto-seed the grantor(s) (= current owner(s)) from the prior deed's grantee(s) of record,
+  // flagged for confirmation. Seed once, only when no grantor name has been typed — never clobber input.
+  const previewFacts = trpc.quickDeed.previewFacts.useQuery({ matterId: props.matterId ?? '' }, { enabled: !!props.matterId });
+  const seededRef = useRef(false);
+  useEffect(() => {
+    const priorGrantees = previewFacts.data?.granteeOfRecordNames ?? [];
+    if (priorGrantees.length > 0 && !seededRef.current) {
+      seededRef.current = true;
+      setGrantors((cur) => {
+        const allEmpty = cur.every((r) => r.name.trim() === '');
+        return allEmpty ? priorGrantees.map((n) => ({ name: n, maritalStatus: 'unmarried' })) : cur;
+      });
+      setGrantorNeedsConfirm(true);
+    }
+  }, [previewFacts.data]);
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -195,10 +214,27 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
   return (
     <form onSubmit={submit} className="space-y-6">
       <UploadsHeader {...props} />
+      <CategoryDescribeBox
+        resolveMatterId={props.resolveMatterId}
+        proposeMutate={(input) => utils.client.quickDeed.proposeIntakeIntoLlc.mutate(input)}
+        onApplyProposal={(p) => {
+          const f = intoLlcProposalToFields(p);
+          if (f.granteeLlc) setGranteeLlc(f.granteeLlc);
+          if (f.grantors) setGrantors(f.grantors);
+          if (f.consideration) setConsideration(f.consideration);
+        }}
+        placeholder="e.g. Dana Ortiz is transferring her home into Ridgeline Holdings LLC for $10."
+        safetyNote="Proposes the LLC, grantor(s), and price. It never writes the legal description, the derivation, or the subject-to block."
+      />
       <div data-testid="quick-deed-into_llc-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
         <p className="text-xs text-ink-secondary">QUITCLAIM into a Virginia LLC (no warranty; § 58.1-811(A)(10)). The grantee LLC name is read from the SCC/operating-agreement upload unless you enter it below.</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Grantor(s) — current owner(s) <span className="text-red-500">*</span></label>
+          {grantorNeedsConfirm && (
+            <p data-testid="into-llc-grantor-seed-note" className="text-xs text-amber-700 mb-1">
+              Read from the prior deed (the current owner(s)) — confirm or edit.
+            </p>
+          )}
           <div className="space-y-2">
             {grantors.map((g, idx) => (
               <div key={idx} className="flex gap-2">

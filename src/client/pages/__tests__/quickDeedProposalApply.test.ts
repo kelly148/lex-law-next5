@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sellerProposalToFields } from '../quickDeedProposalApply.js';
+import { sellerProposalToFields, intoLlcProposalToFields } from '../quickDeedProposalApply.js';
 
 describe('EXPRESS-FANOUT-1 sellerProposalToFields (client apply mapping)', () => {
   it('maps the routine fields (buyer grantees, warranty, price) onto form updates', () => {
@@ -33,5 +33,36 @@ describe('EXPRESS-FANOUT-1 sellerProposalToFields (client apply mapping)', () =>
     } as unknown as Parameters<typeof sellerProposalToFields>[0];
     const f = sellerProposalToFields(rogue);
     expect(Object.keys(f).sort()).toEqual(['considerationFigs', 'grantees', 'warrantyType']);
+  });
+});
+
+describe('EXPRESS-FANOUT-1 intoLlcProposalToFields (client apply mapping)', () => {
+  it('maps the LLC name, grantor(s), and price; marital status defaults to unmarried (attorney field)', () => {
+    const f = intoLlcProposalToFields({
+      granteeLlc: 'Ridgeline Holdings',
+      grantors: [{ name: 'Dana Ortiz' }],
+      consideration: '$10.00',
+    });
+    expect(f.granteeLlc).toBe('Ridgeline Holdings');
+    expect(f.grantors).toEqual([{ name: 'Dana Ortiz', maritalStatus: 'unmarried' }]);
+    expect(f.consideration).toBe('$10.00');
+  });
+
+  it('an empty proposal maps to no field updates', () => {
+    expect(intoLlcProposalToFields({})).toEqual({});
+  });
+
+  it('SAFETY: only the routine fields are produced — never the derivation, subject-to, notary, or legal', () => {
+    const rogue = {
+      granteeLlc: 'Acme',
+      grantors: [{ name: 'A' }],
+      consideration: '$1.00',
+      derivationOfTitle: 'For derivation see Deed Book...',
+      subjectTo: 'subject to covenants...',
+      notaryLocality: 'CITY OF ALEXANDRIA',
+      legalDescription: 'Lot 1, Block C...',
+    } as unknown as Parameters<typeof intoLlcProposalToFields>[0];
+    const f = intoLlcProposalToFields(rogue);
+    expect(Object.keys(f).sort()).toEqual(['consideration', 'granteeLlc', 'grantors']);
   });
 });
