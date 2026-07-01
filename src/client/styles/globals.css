@@ -42,6 +42,39 @@
 }
 
 /* ============================================================
+   BUTTON-CONTRAST-1 — shared secondary / ghost action-button treatment.
+   The app has no Button component; secondary/ghost buttons were faint
+   (text-ink-secondary / legacy gray + a hairline border) and hard to see.
+   These two classes are the single source of truth for the oxblood-outline
+   treatment: resting = outlined oxblood; hover = soft oxblood tint; a
+   visible focus ring; WCAG-AA legible in light and dark (via the tokens).
+   Call sites keep their own sizing/layout (px/py/text-size/inline-flex/gap)
+   and swap only their colour+border utilities for one of these classes.
+   Do NOT apply to primary/filled (bg-accent / bg-firm-navy) or destructive
+   buttons, nor to active/inactive segmented toggles.
+   ============================================================ */
+@layer components {
+  /* Bordered secondary action button (Materials, panel/toolbar actions, …). */
+  .btn-secondary {
+    @apply border border-firm-gold/50 text-firm-gold
+           hover:bg-accent-tint hover:text-accent-hover hover:border-firm-gold
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-firm-gold/40
+           disabled:opacity-50 disabled:pointer-events-none
+           transition-colors;
+  }
+
+  /* Borderless ghost action button — same oxblood ink, no outline (for faint
+     text/icon actions where a border would be wrong). */
+  .btn-ghost {
+    @apply text-firm-gold
+           hover:bg-accent-tint hover:text-accent-hover
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-firm-gold/40
+           disabled:opacity-50 disabled:pointer-events-none
+           transition-colors;
+  }
+}
+
+/* ============================================================
    Whereas R2 #9 (R3 polish) — print stylesheet.
    Print legal documents cleanly: drop the app chrome and interactive
    controls, render ink-on-paper, and avoid awkward page breaks. This is

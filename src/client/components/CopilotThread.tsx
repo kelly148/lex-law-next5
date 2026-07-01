@@ -397,7 +397,7 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                 type="button"
                 disabled={pending}
                 onClick={() => void handleSend({ textOverride: ra.instruction })}
-                className="rounded border border-line px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+                className="rounded btn-secondary px-2 py-0.5 text-xs"
               >
                 {ra.label}
               </button>

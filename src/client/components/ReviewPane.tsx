@@ -617,7 +617,7 @@ function SuggestionCard({
           <button
             onClick={removeAccept}
             disabled={updateSelectionMutation.isPending}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg btn-secondary"
           >
             Undo accept
           </button>
@@ -635,7 +635,7 @@ function SuggestionCard({
         {declined ? (
           <button
             onClick={() => onToggleDecline(suggestion.suggestionId)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2"
+            className="text-xs px-3 py-1.5 rounded-lg btn-secondary"
           >
             Undo decline
           </button>
@@ -645,7 +645,7 @@ function SuggestionCard({
             disabled={updateSelectionMutation.isPending || dispositionMutation.isPending}
             data-testid="reject-suggestion"
             title="Reject this suggestion for this iteration (recorded on the matter audit record)"
-            className="text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+            className="text-xs px-3 py-1.5 rounded-lg btn-secondary"
           >
             Decline
           </button>
@@ -655,7 +655,7 @@ function SuggestionCard({
           disabled={dispositionMutation.isPending}
           data-testid="defer-suggestion"
           title="Defer this suggestion (decide later) — recorded on the matter audit record"
-          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg btn-secondary"
         >
           <CircleDashed className="w-3.5 h-3.5" /> Defer
         </button>
@@ -663,7 +663,7 @@ function SuggestionCard({
           onClick={declineAndLock}
           disabled={lockDecisionMutation.isPending}
           title="Record this as considered & declined; reviewers are asked not to re-raise it absent a new fact"
-          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-line text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg btn-secondary"
         >
           <Lock className="w-3.5 h-3.5" /> Decline &amp; lock
         </button>

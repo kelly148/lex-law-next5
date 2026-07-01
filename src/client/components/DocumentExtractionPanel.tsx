@@ -52,7 +52,7 @@ export function DocumentExtractionPanel({ materialId }: { materialId: string }):
           data-testid="extraction-run-button"
           disabled={extractMutation.isPending}
           onClick={() => extractMutation.mutate({ materialId })}
-          className="text-xs px-2 py-0.5 rounded border border-line text-ink-secondary hover:text-ink disabled:opacity-50"
+          className="text-xs px-2 py-0.5 rounded btn-secondary"
         >
           {extraction ? 'Re-run' : 'Extract'}
         </button>
