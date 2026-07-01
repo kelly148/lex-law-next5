@@ -38,6 +38,10 @@ import {
   buildProposeSellerSideSystemPrompt,
   validateProposeSellerSideOutput,
   type ProposeSellerSideResult,
+  ProposeIntoLlcOutputSchema,
+  buildProposeIntoLlcSystemPrompt,
+  validateProposeIntoLlcOutput,
+  type ProposeIntoLlcResult,
 } from '../deed/deedProposeIntakeCategories.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import {
@@ -2460,6 +2464,22 @@ export const quickDeedRouter = router({
         schema: ProposeSellerSideOutputSchema,
         buildSystemPrompt: buildProposeSellerSideSystemPrompt,
         validate: validateProposeSellerSideOutput,
+      }),
+    ),
+
+  /**
+   * EXPRESS-FANOUT-1 — the DEED-INTO-LLC "describe the deal" parse. Proposes only the bare grantee LLC name
+   * (designator appended server-side), grantor name(s), and consideration; NEVER the derivation, notary
+   * jurisdiction, subject-to block (attorney-supplied) or the legal description (extraction-only) — .strict()
+   * rejects them → needs_clarification. Flag/ownership-gated + conflicts-bypassed. PROPOSE-ONLY.
+   */
+  proposeIntakeIntoLlc: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeIntoLlcResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeIntoLlcOutputSchema,
+        buildSystemPrompt: buildProposeIntoLlcSystemPrompt,
+        validate: validateProposeIntoLlcOutput,
       }),
     ),
 
