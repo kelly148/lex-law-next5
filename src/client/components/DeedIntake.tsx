@@ -209,6 +209,21 @@ export default function DeedIntake({
     },
   );
 
+  // PROPOSE-INTAKE-PARSE-FIX-1: a plain-English lead for the blocked-intake notice, per egress block
+  // reason (the raw reason code is still shown in parens as a diagnostic tail). Honest + distinct:
+  // an allowlist block ("not enabled in this deployment") reads differently from a matter hold.
+  const proposeBlockedLead = (reason: string | null): string => {
+    switch (reason) {
+      case 'provider_not_allowlisted':
+        return 'The AI describe-the-deal intake is not enabled in this deployment yet';
+      case 'hold_no_external':
+      case 'hold_uncertain':
+        return 'The AI intake is unavailable because this matter has external communication on hold';
+      default:
+        return 'The AI intake is not available right now';
+    }
+  };
+
   const handlePropose = (): void => {
     const text = freeText.trim();
     if (!text) { setProposeError('Describe the deal first, then propose the facts.'); return; }
@@ -420,7 +435,7 @@ export default function DeedIntake({
           )}
           {proposeStatus === 'blocked' && (
             <p data-testid="deed-intake-blocked" className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              The AI intake is not available right now ({proposeBlockedReason}). Fill the facts in manually below — the
+              {proposeBlockedLead(proposeBlockedReason)} ({proposeBlockedReason}). Fill the facts in manually below — the
               rest of the deed flow is unaffected.
             </p>
           )}

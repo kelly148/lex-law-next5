@@ -138,6 +138,35 @@ describe('validateProposeIntakeOutput (pure: fail-closed normalization)', () => 
     expect(validateProposeIntakeOutput(null).status).toBe('needs_clarification');
   });
 
+  // PROPOSE-INTAKE-PARSE-FIX-1 — the egress broker returns structured-output `content` as a STRING
+  // (llm/anthropic.ts normalizes to `content: string`). validateProposeIntakeOutput must coerce that
+  // JSON string to an object before schema validation; before the fix, safeParse(<string>) failed on
+  // EVERY valid response and surfaced the misleading "could not be parsed" notice on a clean deal.
+  it('PARSE-FIX: a JSON STRING (the broker content shape) parses to status:proposed', () => {
+    const payload = JSON.stringify({
+      grantees: [{ name: 'Hannah R. Ellison', relationship: "the Grantors' daughter" }],
+      confident: true,
+    });
+    const r = validateProposeIntakeOutput(payload);
+    expect(r.status).toBe('proposed');
+    if (r.status !== 'proposed') throw new Error('expected proposed');
+    expect(r.proposal.grantees).toEqual([{ name: 'Hannah R. Ellison', relationship: "the Grantors' daughter" }]);
+  });
+
+  it('PARSE-FIX: a markdown-fenced JSON string still parses (fence-stripped) → proposed', () => {
+    const payload = '```json\n' + JSON.stringify({ grantees: [{ name: 'A' }], confident: true }) + '\n```';
+    expect(validateProposeIntakeOutput(payload).status).toBe('proposed');
+  });
+
+  it('PARSE-FIX: a non-JSON string fails closed → needs_clarification (never a guessed proposal)', () => {
+    expect(validateProposeIntakeOutput('the donee is my daughter').status).toBe('needs_clarification');
+  });
+
+  it('PARSE-FIX: .strict() still enforced through the string path — a model-authored legal description is rejected', () => {
+    const payload = JSON.stringify({ grantees: [{ name: 'A' }], legalDescription: 'Lot 1, being...', confident: true });
+    expect(validateProposeIntakeOutput(payload).status).toBe('needs_clarification');
+  });
+
   // ── LIVE-6 (live UAT 2026-06-26): align with the model contract, never a raw Zod dump ──
   it('LIVE-6: a donee left UNNAMED (null name) → needs_clarification (fill-the-gap), never a thrown error', () => {
     const r = validateProposeIntakeOutput({ grantees: [{ name: null, relationship: 'my kid' }], confident: true });
