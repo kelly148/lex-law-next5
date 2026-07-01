@@ -50,6 +50,7 @@ import {
 } from '../procedures/deedDraftAgent.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { LlmProviderError } from '../llm/types.js';
+import { ProposeSellerSideOutputSchema } from '../deed/deedProposeIntakeCategories.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { insertDocument } from '../db/queries/documents.js';
 import { insertVersion } from '../db/queries/versions.js';
@@ -333,6 +334,88 @@ describe('quickDeed.proposeIntake — gates, egress params, propose-only', () =>
     if (res.status !== 'needs_clarification') throw new Error('expected needs_clarification');
     expect(res).not.toHaveProperty('proposal');
     expect(insertDocument).not.toHaveBeenCalled();
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+});
+
+// ── EXPRESS-FANOUT-1: seller-side proposeIntake procedure (category-aware dispatch + gates + blocked/parse) ──
+
+describe('quickDeed.proposeIntakeSellerSide — category-aware dispatch, gates, propose-only', () => {
+  const origDeed = process.env['DEED_DRAFT_AGENT_ENABLED'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env['DEED_DRAFT_AGENT_ENABLED'];
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+  });
+  afterEach(() => {
+    if (origDeed === undefined) delete process.env['DEED_DRAFT_AGENT_ENABLED'];
+    else process.env['DEED_DRAFT_AGENT_ENABLED'] = origDeed;
+  });
+
+  const SELLER_TEXT = 'Sale to Marcus and Renee Bell for $450,000, general warranty.';
+
+  it('flag OFF → DEED_DRAFT_AGENT_DISABLED; NO egress call', async () => {
+    await expect(caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT })).rejects.toThrow(
+      /DEED_DRAFT_AGENT_DISABLED/,
+    );
+    expect(documentEgressSend).not.toHaveBeenCalled();
+  });
+
+  it('happy path → proposed; egress uses surface intake + allowlist + the SELLER-SIDE schema (not gift)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({
+      grantees: [{ name: 'Marcus T. Bell' }, { name: 'Renee Bell' }],
+      warrantyType: 'General Warranty',
+      consideration: '$450,000.00',
+      confident: true,
+    });
+    const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('proposed');
+    if (res.status !== 'proposed') throw new Error('expected proposed');
+    expect(res.proposal.grantees[0]?.name).toBe('Marcus T. Bell');
+    expect(res.proposal.warrantyType).toBe('General Warranty');
+    const params = egressMock.mock.calls[0]?.[0];
+    expect(params.surface).toBe('intake');
+    expect(params.subject.type).toBe('matter');
+    expect(params.subject.userId).toBe(U1);
+    expect(params.enforceProviderAllowlist).toBe(true);
+    // the dispatch used the SELLER-SIDE structured-output contract, not the gift one
+    expect(params.llmParams.structuredOutputSchema).toBe(ProposeSellerSideOutputSchema);
+    expect(insertDocument).not.toHaveBeenCalled();
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('CONTRACT: a STRING model output (the broker content shape) still → proposed', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput(JSON.stringify({ grantees: [{ name: 'A. Buyer' }], confident: true }));
+    const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('proposed');
+  });
+
+  it('a DocumentEgressBlockedError from the broker → clean blocked result, nothing persisted', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    egressMock.mockRejectedValue(new DocumentEgressBlockedError('provider_not_allowlisted', 'evt-2'));
+    const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('blocked');
+    if (res.status !== 'blocked') throw new Error('expected blocked');
+    expect(res.reason).toBe('provider_not_allowlisted');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('a structured-output parse_error → needs_clarification (never a raw Zod dump)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    egressMock.mockRejectedValue(new LlmProviderError('parse_error', 'bad shape'));
+    const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('needs_clarification');
+    expect(insertVersion).not.toHaveBeenCalled();
+  });
+
+  it('SAFETY: a model-authored vestingRecital is rejected end-to-end → needs_clarification, nothing persisted', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    mockModelOutput({ grantees: [{ name: 'A. Buyer' }], vestingRecital: 'BEING the same property conveyed...', confident: true });
+    const res = await caller().proposeIntakeSellerSide({ matterId: M1, freeText: SELLER_TEXT });
+    expect(res.status).toBe('needs_clarification');
     expect(insertVersion).not.toHaveBeenCalled();
   });
 });
