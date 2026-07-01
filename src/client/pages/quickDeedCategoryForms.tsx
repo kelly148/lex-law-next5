@@ -15,7 +15,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import { CategoryDescribeBox } from './CategoryDescribeBox.js';
-import { intoLlcProposalToFields } from './quickDeedProposalApply.js';
+import {
+  intoLlcProposalToFields,
+  outOfLlcProposalToFields,
+  todProposalToFields,
+  confirmationProposalToFields,
+  intoTrustProposalToFields,
+} from './quickDeedProposalApply.js';
 
 const QUICK_DEED_INTO_LLC_TYPE = 'deed_into_llc';
 const QUICK_DEED_OUT_OF_LLC_TYPE = 'deed_out_of_llc';
@@ -292,6 +298,7 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
   const [rtLine2, setRtLine2] = useState('');
   const [rtCityStateZip, setRtCityStateZip] = useState('');
   const [rtPhone, setRtPhone] = useState('');
+  const utils = trpc.useUtils();
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -328,6 +335,20 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
   return (
     <form onSubmit={submit} className="space-y-6">
       <UploadsHeader {...props} />
+      <CategoryDescribeBox
+        resolveMatterId={props.resolveMatterId}
+        proposeMutate={(input) => utils.client.quickDeed.proposeIntakeOutOfLlc.mutate(input)}
+        onApplyProposal={(p) => {
+          const f = outOfLlcProposalToFields(p);
+          if (f.members) setMembers(f.members);
+          if (f.consideration) setConsideration(f.consideration);
+          if (f.fileNumber) setFileNumber(f.fileNumber);
+          if (f.executionMonth) setExecutionMonth(f.executionMonth);
+          if (f.executionYear) setExecutionYear(f.executionYear);
+        }}
+        placeholder="e.g. Maplehurst Holdings LLC conveys out to Dana Ortiz; members Dana Ortiz and Sam Vance sign; $10; executed July 2026."
+        safetyNote="Proposes the signing member(s), price, file no., and execution date. It never writes the return-to block, notary, derivation, or legal description."
+      />
       <div data-testid="quick-deed-out_of_llc-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
         <p className="text-xs text-ink-secondary">Special Warranty out of a Virginia LLC (§ 58.1-811(A)(11)); the members sign. The grantor LLC name + member set are read from the LLC/operating-agreement upload unless you enter them below.</p>
         <Text label="Grantor LLC (else read from uploads)" value={grantorLlc} onChange={setGrantorLlc} placeholder="e.g. Maplehurst Holdings LLC" />
@@ -390,6 +411,20 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
   const [beingRecital, setBeingRecital] = useState('');
   const [acknowledgmentMonthYear, setAcknowledgmentMonthYear] = useState('');
   const [notaryCountyBlank, setNotaryCountyBlank] = useState(true);
+  const [transferorNeedsConfirm, setTransferorNeedsConfirm] = useState(false);
+  const utils = trpc.useUtils();
+  // EXPRESS-FANOUT-1: a SINGLE current owner (from the prior deed) → the transferor, confirm-flagged. Multiple
+  // owners are left for the attorney (a TOD by one of several owners is a decision, never presumed).
+  const previewFacts = trpc.quickDeed.previewFacts.useQuery({ matterId: props.matterId ?? '' }, { enabled: !!props.matterId });
+  const seededRef = useRef(false);
+  useEffect(() => {
+    const priorGrantees = previewFacts.data?.granteeOfRecordNames ?? [];
+    if (priorGrantees.length === 1 && !seededRef.current) {
+      seededRef.current = true;
+      setTransferorName((cur) => (cur.trim() === '' ? (priorGrantees[0] ?? '') : cur));
+      setTransferorNeedsConfirm(true);
+    }
+  }, [previewFacts.data]);
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -416,8 +451,24 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
   return (
     <form onSubmit={submit} className="space-y-6">
       <UploadsHeader {...props} />
+      <CategoryDescribeBox
+        resolveMatterId={props.resolveMatterId}
+        proposeMutate={(input) => utils.client.quickDeed.proposeIntakeTod.mutate(input)}
+        onApplyProposal={(p) => {
+          const f = todProposalToFields(p);
+          if (f.persons) setPersons(f.persons);
+          if (f.beneficiaryVesting) setBeneficiaryVesting(f.beneficiaryVesting);
+        }}
+        placeholder="e.g. On my death, my home goes to my children Ivy and Noah Chen, as joint tenants with the right of survivorship."
+        safetyNote="Proposes the beneficiary(ies) and how they take. It never writes the revocation block, the transferor's capacity, the being recital, or the legal description."
+      />
       <div data-testid="quick-deed-tod-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
         <p className="text-xs text-ink-secondary">A Revocable Transfer on Death Deed (§ 58.1-811(J); death-effective, no consideration, no warranty). It is NOT effective unless recorded before the transferor&apos;s death.</p>
+        {transferorNeedsConfirm && (
+          <p data-testid="tod-transferor-seed-note" className="text-xs text-amber-700">
+            Transferor read from the prior deed (the current owner) — confirm or edit.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-4">
           <Text label="Transferor (current owner)" value={transferorName} onChange={setTransferorName} placeholder="Full legal name" required />
           <Text label="Transferor capacity" value={transferorCapacity} onChange={setTransferorCapacity} placeholder="e.g. surviving joint tenant" />
@@ -488,6 +539,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
   const [dDeviseeStatus, setDDeviseeStatus] = useState('');
   const [dDeviseePossessive, setDDeviseePossessive] = useState('');
   const [dDeviseeObject, setDDeviseeObject] = useState('');
+  const utils = trpc.useUtils();
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -555,6 +607,16 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
   return (
     <form onSubmit={submit} className="space-y-6">
       <UploadsHeader {...props} />
+      <CategoryDescribeBox
+        resolveMatterId={props.resolveMatterId}
+        proposeMutate={(input) => utils.client.quickDeed.proposeIntakeConfirmation.mutate(input)}
+        onApplyProposal={(p) => {
+          const f = confirmationProposalToFields(p);
+          if (f.archetype) setArchetype(f.archetype);
+        }}
+        placeholder="e.g. Confirming title already vested by survivorship — a co-owner has died. (or: a will devised the title.)"
+        safetyNote="Proposes ONLY the archetype (survivorship vs testate-devise). Every chain-of-title fact stays yours to enter — the model never proposes any of them."
+      />
       <div data-testid="quick-deed-confirmation-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
         <p className="text-xs text-ink-secondary">A Deed of Confirmation places of record a title already vested by operation of law; it does not transfer. The chain-of-title recitals are attorney-load-bearing — verify each link.</p>
         <div>
@@ -678,6 +740,22 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
   const [tbeImmunityNote, setTbeImmunityNote] = useState('');
   const [notaryType, setNotaryType] = useState<'CITY' | 'COUNTY'>('CITY');
   const [notaryName, setNotaryName] = useState('');
+  const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  const utils = trpc.useUtils();
+  // EXPRESS-FANOUT-1: auto-seed the grantor(s) (= current owner(s)) from the prior deed, confirm-flagged.
+  const previewFacts = trpc.quickDeed.previewFacts.useQuery({ matterId: props.matterId ?? '' }, { enabled: !!props.matterId });
+  const seededRef = useRef(false);
+  useEffect(() => {
+    const priorGrantees = previewFacts.data?.granteeOfRecordNames ?? [];
+    if (priorGrantees.length > 0 && !seededRef.current) {
+      seededRef.current = true;
+      setGrantors((cur) => {
+        const allEmpty = cur.every((g) => g.trim() === '');
+        return allEmpty ? priorGrantees : cur;
+      });
+      setGrantorNeedsConfirm(true);
+    }
+  }, [previewFacts.data]);
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -714,6 +792,20 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
   return (
     <form onSubmit={submit} className="space-y-6">
       <UploadsHeader {...props} />
+      <CategoryDescribeBox
+        resolveMatterId={props.resolveMatterId}
+        proposeMutate={(input) => utils.client.quickDeed.proposeIntakeIntoTrust.mutate(input)}
+        onApplyProposal={(p) => {
+          const f = intoTrustProposalToFields(p);
+          if (f.exemplar) setExemplar(f.exemplar);
+          if (f.grantors) setGrantors(f.grantors);
+          if (f.grantorMaritalStatus) setGrantorMaritalStatus(f.grantorMaritalStatus);
+          if (f.heldAs) setHeldAs(f.heldAs);
+          if (f.trustStructure) setTrustStructure(f.trustStructure);
+        }}
+        placeholder="e.g. Harold and Nadia Whitmore, a married couple, are transferring their home into their joint revocable living trust."
+        safetyNote="Proposes the exemplar, grantor(s), and trust structure. It never writes the trustees recital (you enter that verbatim), the being recital, the derivation, or the legal description."
+      />
       <div data-testid="quick-deed-into_trust-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
         <p className="text-xs text-ink-secondary">Conveyance into a revocable living trust. The trustees recital is load-bearing and attorney-supplied verbatim — it is never auto-generated from the certificate of trust.</p>
         <div className="grid grid-cols-2 gap-4">
@@ -728,6 +820,11 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
           <Text label="Exemption basis (comma-separated)" value={exemptionBasis} onChange={setExemptionBasis} placeholder="58.1-811(A)(12)" />
         </div>
         <Text label="Trustees recital (attorney-supplied, verbatim)" value={trusteesRecital} onChange={setTrusteesRecital} placeholder="Rosalind A. WHITMORE and Desmond P. WHITMORE, Trustees of THE WHITMORE FAMILY REVOCABLE LIVING TRUST, dated August 14, 2021" required textarea />
+        {grantorNeedsConfirm && (
+          <p data-testid="into-trust-grantor-seed-note" className="text-xs text-amber-700">
+            Grantor(s) read from the prior deed (the current owner(s)) — confirm or edit.
+          </p>
+        )}
         <StringList label="Grantor(s)" values={grantors} setValues={setGrantors} placeholder="Full legal name" />
         <div className="grid grid-cols-2 gap-4">
           <Text label="Grantor marital status" value={grantorMaritalStatus} onChange={setGrantorMaritalStatus} placeholder="a married couple" />

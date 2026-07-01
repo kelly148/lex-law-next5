@@ -42,6 +42,22 @@ import {
   buildProposeIntoLlcSystemPrompt,
   validateProposeIntoLlcOutput,
   type ProposeIntoLlcResult,
+  ProposeOutOfLlcOutputSchema,
+  buildProposeOutOfLlcSystemPrompt,
+  validateProposeOutOfLlcOutput,
+  type ProposeOutOfLlcResult,
+  ProposeTodOutputSchema,
+  buildProposeTodSystemPrompt,
+  validateProposeTodOutput,
+  type ProposeTodResult,
+  ProposeConfirmationOutputSchema,
+  buildProposeConfirmationSystemPrompt,
+  validateProposeConfirmationOutput,
+  type ProposeConfirmationResult,
+  ProposeIntoTrustOutputSchema,
+  buildProposeIntoTrustSystemPrompt,
+  validateProposeIntoTrustOutput,
+  type ProposeIntoTrustResult,
 } from '../deed/deedProposeIntakeCategories.js';
 import { assembleSellerSideDeed, type SellerSideDeedInput, type SellerSideDeedDraft } from '../deed/deedSellerSideAssembler.js';
 import {
@@ -2480,6 +2496,67 @@ export const quickDeedRouter = router({
         schema: ProposeIntoLlcOutputSchema,
         buildSystemPrompt: buildProposeIntoLlcSystemPrompt,
         validate: validateProposeIntoLlcOutput,
+      }),
+    ),
+
+  /**
+   * EXPRESS-FANOUT-1 — the DEED-OUT-OF-LLC "describe the deal" parse. Proposes signing member(s), consideration,
+   * file number, execution month/year; NEVER the return-to block, notary locality, or derivation-instrument
+   * number (attorney-supplied) or the legal description (extraction-only). Flag/ownership-gated. PROPOSE-ONLY.
+   */
+  proposeIntakeOutOfLlc: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeOutOfLlcResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeOutOfLlcOutputSchema,
+        buildSystemPrompt: buildProposeOutOfLlcSystemPrompt,
+        validate: validateProposeOutOfLlcOutput,
+      }),
+    ),
+
+  /**
+   * EXPRESS-FANOUT-1 — the TRANSFER-ON-DEATH "describe the deal" parse. Proposes the death-beneficiary(ies) and
+   * their vesting; NEVER the canonical revocation block, the transferor's capacity, the derivation (attorney-
+   * supplied / byte-for-byte) or the legal description (extraction-only). Flag/ownership-gated. PROPOSE-ONLY.
+   */
+  proposeIntakeTod: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeTodResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeTodOutputSchema,
+        buildSystemPrompt: buildProposeTodSystemPrompt,
+        validate: validateProposeTodOutput,
+      }),
+    ),
+
+  /**
+   * EXPRESS-FANOUT-1 — the DEED-OF-CONFIRMATION "describe the deal" parse. The STRICTEST category: proposes ONLY
+   * the archetype (survivorship vs testate-devise). It NEVER proposes any chain-of-title fact — every chain link
+   * is attorney-supplied VERBATIM (.strict() rejects them) — nor the legal description. Flag-gated. PROPOSE-ONLY.
+   */
+  proposeIntakeConfirmation: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeConfirmationResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeConfirmationOutputSchema,
+        buildSystemPrompt: buildProposeConfirmationSystemPrompt,
+        validate: validateProposeConfirmationOutput,
+      }),
+    ),
+
+  /**
+   * EXPRESS-FANOUT-1 — the DEED-INTO-TRUST "describe the deal" parse. Proposes exemplar / grantor(s) / marital
+   * status / held-as / trust structure. CRITICAL: it NEVER proposes the trusteesRecital (LOAD-BEARING, attorney-
+   * supplied VERBATIM — absent from the schema so .strict() rejects any attempt), nor the being-recital,
+   * derivation, or legal description. Flag/ownership-gated. PROPOSE-ONLY.
+   */
+  proposeIntakeIntoTrust: protectedProcedure
+    .input(z.object({ matterId: z.string().uuid(), freeText: z.string().min(1).max(8000) }))
+    .mutation(({ ctx, input }): Promise<ProposeIntoTrustResult | { status: 'blocked'; reason: string }> =>
+      runCategoryProposeIntake(ctx, input.matterId, input.freeText, {
+        schema: ProposeIntoTrustOutputSchema,
+        buildSystemPrompt: buildProposeIntoTrustSystemPrompt,
+        validate: validateProposeIntoTrustOutput,
       }),
     ),
 
