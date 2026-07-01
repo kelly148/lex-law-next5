@@ -19,7 +19,7 @@
  */
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot, ScrollText } from 'lucide-react';
+import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -29,7 +29,6 @@ import MatterStateDashboard from '../components/MatterStateDashboard.js';
 import MatterRecitalBand from '../components/MatterRecitalBand.js';
 import MatterIntakePanel from '../components/MatterIntakePanel.js';
 import GateOverridePanel from '../components/GateOverridePanel.js';
-import { GiftDraftForm } from '../components/GiftDraftForm.js';
 import ClosurePackagePanel from '../components/ClosurePackagePanel.js';
 import DeadlinePanel from '../components/DeadlinePanel.js';
 import MatterRecordLedger from '../components/MatterRecordLedger.js';
@@ -428,7 +427,6 @@ export default function MatterDetail(): React.ReactElement {
   const navigate = useNavigate();
   const [showCreateDoc, setShowCreateDoc] = useState(false);
   const [showEditMatter, setShowEditMatter] = useState(false);
-  const [showGiftDraft, setShowGiftDraft] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [includeArchivedDocs, setIncludeArchivedDocs] = useState(false);
 
@@ -450,10 +448,6 @@ export default function MatterDetail(): React.ReactElement {
   // from the CHAT-UI-1 conversation surface). Fail-closed: the button is absent until enabled === true.
   const { data: copilotFlag } = trpc.chatCopilot.isEnabled.useQuery();
   const copilotEnabled = copilotFlag?.enabled === true;
-
-  // DEED-DRAFT-AGENT-1 Inc-1c — flag-gated entry to the deed-draft agent. Absent when the flag is OFF.
-  const { data: deedDraftAgentFlag } = trpc.deedDraftAgent.isEnabled.useQuery();
-  const deedDraftAgentEnabled = deedDraftAgentFlag?.enabled === true;
 
   if (!matterId) return <div className="p-6 text-red-600">Invalid matter ID.</div>;
 
@@ -534,16 +528,6 @@ export default function MatterDetail(): React.ReactElement {
               <Bot className="w-4 h-4" />
               Copilot
             </Link>
-          )}
-          {/* DEED-DRAFT-AGENT-1 Inc-1c — flag-gated entry to the deed-draft agent. Absent when OFF. */}
-          {deedDraftAgentEnabled && (
-            <button
-              onClick={() => setShowGiftDraft(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
-            >
-              <ScrollText className="w-4 h-4" />
-              Gift Deed Draft
-            </button>
           )}
           <button
             onClick={() => setShowEditMatter(true)}
@@ -675,16 +659,6 @@ export default function MatterDetail(): React.ReactElement {
       )}
       {showEditMatter && (
         <EditMatterForm matter={matter} onClose={() => setShowEditMatter(false)} />
-      )}
-      {showGiftDraft && (
-        <GiftDraftForm
-          matterId={matterId}
-          onClose={() => setShowGiftDraft(false)}
-          onCreated={(documentId) => {
-            setShowGiftDraft(false);
-            navigate(`/matters/${matterId}/documents/${documentId}`);
-          }}
-        />
       )}
       {showMaterials && (
         <MaterialsDrawer
