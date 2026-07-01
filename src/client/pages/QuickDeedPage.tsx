@@ -23,6 +23,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import DeedIntake, { type DeedGiftIntakePayload } from '../components/DeedIntake.js';
 import QuickDeedCategoryForm from './quickDeedCategoryForms.js';
+import { sellerProposalToFields, type SellerProposalInput } from './quickDeedProposalApply.js';
 
 const QUICK_DEED_GIFT_TYPE = 'deed_of_gift';
 const QUICK_DEED_SELLER_TYPE = 'seller_side';
@@ -137,6 +138,13 @@ export default function QuickDeedPage(): React.ReactElement {
   const [titleInsurer, setTitleInsurer] = useState('');
   const [sellerType, setSellerType] = useState<'individual' | 'estate'>('individual');
   const [error, setError] = useState<string | null>(null);
+  // EXPRESS-FANOUT-1 (seller-side): the AI "describe the deal" box + proposal state (mirrors the gift DeedIntake).
+  const [sellerFreeText, setSellerFreeText] = useState('');
+  const [proposeStatus, setProposeStatus] = useState<'idle' | 'proposed' | 'needs_clarification' | 'blocked'>('idle');
+  const [proposeQuestions, setProposeQuestions] = useState<string[]>([]);
+  const [proposeBlockedReason, setProposeBlockedReason] = useState<string | null>(null);
+  const [proposeError, setProposeError] = useState<string | null>(null);
+  const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
 
   const isSeller = deedType === QUICK_DEED_SELLER_TYPE;
 
@@ -159,7 +167,56 @@ export default function QuickDeedPage(): React.ReactElement {
       prefilledRef.current.add('granteeAddress');
       setGranteeAddress((cur) => (cur.trim() === '' ? p.granteeAddress! : cur));
     }
+    // EXPRESS-FANOUT-1 (seller-side): auto-seed the grantor(s) (= seller(s) = current owner(s)) from the prior
+    // deed's grantee(s) of record, flagged for confirmation (mirrors the gift DeedIntake). Seed ONCE and only
+    // when the attorney has not already typed a grantor — never clobber input.
+    const priorGrantees = p.granteeOfRecordNames ?? [];
+    if (priorGrantees.length > 0 && !prefilledRef.current.has('grantorSeed')) {
+      prefilledRef.current.add('grantorSeed');
+      setGrantors((cur) => {
+        const allEmpty = cur.every((r) => r.name.trim() === '' && r.descriptor.trim() === '');
+        return allEmpty ? priorGrantees.map((n) => ({ name: n, descriptor: '' })) : cur;
+      });
+      setGrantorNeedsConfirm(true);
+    }
   }, [previewFacts.data]);
+
+  // EXPRESS-FANOUT-1 (seller-side): apply a seller-side proposeIntake result to the form. PROPOSE-ONLY — this
+  // only pre-fills the confirm form; nothing is generated. SAFETY: sellerProposalToFields never carries the
+  // vesting recital or the legal description, so a proposal can never populate them.
+  const applySellerProposal = (
+    res:
+      | { status: 'proposed'; proposal: SellerProposalInput }
+      | { status: 'needs_clarification'; questions: string[] }
+      | { status: 'blocked'; reason: string },
+  ): void => {
+    setProposeError(null);
+    if (res.status === 'proposed') {
+      const f = sellerProposalToFields(res.proposal);
+      if (f.grantees) setGrantees(f.grantees);
+      if (f.warrantyType) setWarrantyType(f.warrantyType);
+      if (f.considerationFigs) setConsiderationFigs(f.considerationFigs);
+      setProposeQuestions([]);
+      setProposeBlockedReason(null);
+      setProposeStatus('proposed');
+    } else if (res.status === 'needs_clarification') {
+      setProposeQuestions(res.questions);
+      setProposeBlockedReason(null);
+      setProposeStatus('needs_clarification');
+    } else {
+      setProposeQuestions([]);
+      setProposeBlockedReason(res.reason);
+      setProposeStatus('blocked');
+    }
+  };
+
+  const propose = useGuardedMutation(
+    (input: { matterId: string; freeText: string }) => utils.client.quickDeed.proposeIntakeSellerSide.mutate(input),
+    {
+      onSuccess: (res) => applySellerProposal(res),
+      onError: (err: Error) => setProposeError(err.message),
+    },
+  );
 
   if (flagLoading) {
     return (
@@ -193,6 +250,17 @@ export default function QuickDeedPage(): React.ReactElement {
       vestingOverride: p.vestingOverride,
       title: 'Deed of Gift',
     } as GeneratePayload);
+  };
+
+  // Seller lane: the "describe the deal" free-text → the category-aware seller-side proposeIntake. Resolves the
+  // owning matter lazily, then parses. PROPOSE-ONLY (nothing generated).
+  const handleSellerPropose = (): void => {
+    const text = sellerFreeText.trim();
+    if (!text) { setProposeError('Describe the deal first, then propose the facts.'); return; }
+    setProposeError(null);
+    void ensureMatterAsync()
+      .then((id) => propose.mutate({ matterId: id, freeText: text }))
+      .catch((err: unknown) => setProposeError(err instanceof Error ? err.message : 'Could not start the deed record.'));
   };
 
   // Seller lane: validate the seller-side facts here, then dispatch.
@@ -354,6 +422,61 @@ export default function QuickDeedPage(): React.ReactElement {
             </p>
           </div>
 
+          {/* EXPRESS-FANOUT-1 (seller-side): the AI "describe the deal" box. Proposes the routine facts (buyer(s),
+              warranty, price) for you to confirm. It NEVER writes the legal description or the vesting ("BEING")
+              recital — those stay yours (extraction-only / attorney-verbatim). Flag-dark with the whole page. */}
+          <div data-testid="seller-describe" className="rounded border border-firm-navy/20 bg-firm-navy/5 p-3 space-y-2">
+            <label htmlFor="seller-free-text" className="block text-sm font-medium text-firm-navy">
+              Describe the deal <span className="font-normal text-ink-hint">(optional)</span>
+            </label>
+            <textarea
+              id="seller-free-text"
+              data-testid="seller-free-text"
+              value={sellerFreeText}
+              onChange={(e) => setSellerFreeText(e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+              placeholder="e.g. Sale from the Bells to Marcus and Renee Vega for $612,000, general warranty."
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-hint">
+                Proposes the buyer(s), warranty, and price for you to confirm. It never writes the legal
+                description or the &ldquo;Being&rdquo; recital.
+              </span>
+              <button
+                type="button"
+                data-testid="seller-propose"
+                onClick={handleSellerPropose}
+                disabled={propose.isPending}
+                className="px-3 py-1.5 text-sm bg-firm-navy text-white rounded hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+              >
+                {propose.isPending ? 'Reading…' : 'Propose the facts'}
+              </button>
+            </div>
+            {proposeError && <p data-testid="seller-propose-error" className="text-red-600 text-sm">{proposeError}</p>}
+            {proposeStatus === 'proposed' && (
+              <p data-testid="seller-proposed-note" className="text-xs text-ink-secondary">
+                Proposed from your description — the buyer(s), warranty, and price you stated are filled in below.
+                Review and confirm, then Generate.
+              </p>
+            )}
+            {proposeStatus === 'needs_clarification' && (
+              <div data-testid="seller-clarify" className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
+                <p className="font-medium">A few things need clarifying before I can propose the facts:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {proposeQuestions.map((qn, i) => <li key={i}>{qn}</li>)}
+                </ul>
+                <p>Restate the deal with those details, or fill the fields in below.</p>
+              </div>
+            )}
+            {proposeStatus === 'blocked' && (
+              <p data-testid="seller-blocked" className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                The AI describe-the-deal intake is not available right now ({proposeBlockedReason}). Fill the fields
+                in below — the rest of the deed flow is unaffected.
+              </p>
+            )}
+          </div>
+
           {previewFacts.data?.hasMaterials && (
             <div data-testid="quick-deed-prefill-note" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-2 text-xs text-ink-secondary">
               Read from your uploads — the recording locality and the grantee&apos;s address are pre-filled below;
@@ -365,6 +488,11 @@ export default function QuickDeedPage(): React.ReactElement {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantor(s) — seller(s) <span className="text-red-500">*</span>
             </label>
+            {grantorNeedsConfirm && (
+              <p data-testid="seller-grantor-seed-note" className="text-xs text-amber-700 mb-1">
+                Read from the prior deed (the current owner(s) = seller(s)) — confirm or edit.
+              </p>
+            )}
             {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
           </div>
           <div>

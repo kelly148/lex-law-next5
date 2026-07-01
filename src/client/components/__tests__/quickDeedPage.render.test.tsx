@@ -59,6 +59,7 @@ vi.mock('../../trpc.js', async () => {
             create: { mutate: createMutate },
             generate: { mutate: generateMutate },
             proposeIntake: { mutate: proposeMutate },
+            proposeIntakeSellerSide: { mutate: proposeMutate },
           },
         },
       }),
