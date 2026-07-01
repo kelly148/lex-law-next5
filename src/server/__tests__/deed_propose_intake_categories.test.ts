@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest';
 import {
   validateProposeSellerSideOutput,
   ProposeSellerSideOutputSchema,
+  validateProposeIntoLlcOutput,
+  validateProposeOutOfLlcOutput,
 } from '../deed/deedProposeIntakeCategories.js';
 
 describe('EXPRESS-FANOUT-1 seller-side proposeIntake (pure: fail-closed normalization)', () => {
@@ -97,5 +99,60 @@ describe('EXPRESS-FANOUT-1 seller-side proposeIntake (pure: fail-closed normaliz
 
   it('the schema is strict (rejects unknown keys at the type level)', () => {
     expect(ProposeSellerSideOutputSchema.safeParse({ grantees: [], nope: 1 }).success).toBe(false);
+  });
+});
+
+describe('EXPRESS-FANOUT-1 into-LLC proposeIntake (pure: fail-closed normalization)', () => {
+  it('a well-formed proposal → proposed with the bare LLC name (no designator authored)', () => {
+    const r = validateProposeIntoLlcOutput({
+      granteeLlc: 'Ridgeline Holdings',
+      grantors: [{ name: 'Dana Ortiz' }],
+      consideration: '$10.00',
+      confident: true,
+    });
+    expect(r.status).toBe('proposed');
+    if (r.status !== 'proposed') throw new Error('expected proposed');
+    expect(r.proposal.granteeLlc).toBe('Ridgeline Holdings');
+    expect(r.proposal.grantors).toEqual([{ name: 'Dana Ortiz' }]);
+  });
+
+  it('CONTRACT: a JSON string parses; a non-JSON string fails closed', () => {
+    expect(validateProposeIntoLlcOutput(JSON.stringify({ granteeLlc: 'Acme Homes', confident: true })).status).toBe('proposed');
+    expect(validateProposeIntoLlcOutput('transfer to my LLC').status).toBe('needs_clarification');
+  });
+
+  it('no destination LLC named → needs_clarification', () => {
+    expect(validateProposeIntoLlcOutput({ grantors: [{ name: 'Dana Ortiz' }], confident: true }).status).toBe('needs_clarification');
+  });
+
+  it('SAFETY: .strict() rejects a smuggled legal description / derivation → needs_clarification', () => {
+    expect(validateProposeIntoLlcOutput({ granteeLlc: 'Acme', legalDescription: 'Lot 1...' }).status).toBe('needs_clarification');
+    expect(validateProposeIntoLlcOutput({ granteeLlc: 'Acme', derivationOfTitle: 'BEING...' }).status).toBe('needs_clarification');
+  });
+});
+
+describe('EXPRESS-FANOUT-1 out-of-LLC proposeIntake (pure: fail-closed normalization)', () => {
+  it('a well-formed proposal → proposed with signing members + details', () => {
+    const r = validateProposeOutOfLlcOutput({
+      members: [{ name: 'Dana Ortiz' }, { name: 'Sam Package' }],
+      consideration: '$10.00',
+      executionMonth: 'June',
+      executionYear: '2026',
+      confident: true,
+    });
+    expect(r.status).toBe('proposed');
+    if (r.status !== 'proposed') throw new Error('expected proposed');
+    expect(r.proposal.members).toEqual([{ name: 'Dana Ortiz' }, { name: 'Sam Package' }]);
+    expect(r.proposal.executionYear).toBe('2026');
+  });
+
+  it('CONTRACT: a JSON string parses; low confidence fails closed', () => {
+    expect(validateProposeOutOfLlcOutput(JSON.stringify({ members: [{ name: 'A' }], confident: true })).status).toBe('proposed');
+    expect(validateProposeOutOfLlcOutput({ members: [{ name: 'A' }], confident: false }).status).toBe('needs_clarification');
+  });
+
+  it('SAFETY: .strict() rejects a smuggled return-to / notary / legal field → needs_clarification', () => {
+    expect(validateProposeOutOfLlcOutput({ members: [{ name: 'A' }], returnTo: { company: 'X' } }).status).toBe('needs_clarification');
+    expect(validateProposeOutOfLlcOutput({ members: [{ name: 'A' }], legalDescription: 'Lot 1...' }).status).toBe('needs_clarification');
   });
 });

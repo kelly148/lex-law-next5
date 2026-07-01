@@ -157,3 +157,170 @@ export function validateProposeSellerSideOutput(raw: unknown): ProposeSellerSide
   if (consideration !== '') proposal.consideration = consideration;
   return { status: 'proposed', proposal };
 }
+
+// ── Deed INTO an LLC ────────────────────────────────────────────────────────────────────────────────────
+//
+// Routine (proposable): the grantee LLC's BARE legal name (the ", a Virginia Limited Liability Company"
+// designator is appended server-side — the model must NOT add it), the consideration. The grantor(s) are the
+// current individual owner(s) transferring in — auto-seeded from the prior deed, confirmed by the attorney;
+// accepted as a proposal hint but never required from the model. NEVER proposed: the derivation-of-title, the
+// notary jurisdiction, the subject-to block (attorney-supplied), and the legal description (extraction-only).
+
+export interface ProposeIntoLlcProposal {
+  granteeLlc?: string;
+  grantors?: { name: string }[];
+  consideration?: string;
+}
+
+export type ProposeIntoLlcResult =
+  | { status: 'proposed'; proposal: ProposeIntoLlcProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+export const ProposeIntoLlcOutputSchema = z
+  .object({
+    /** The grantee LLC's BARE legal name (WITHOUT the VA designator — appended server-side). */
+    granteeLlc: z.string().max(300).nullable().optional(),
+    grantors: z.array(z.object({ name: z.string().max(200).nullable().optional() })).max(20).default([]),
+    consideration: z.string().max(120).nullable().optional(),
+    confident: z.boolean().default(true),
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+  })
+  .strict();
+
+export function buildProposeIntoLlcSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney conveying property INTO a Limited Liability Company.',
+    'Extract ONLY the irreducible intake fields the attorney EXPLICITLY stated:',
+    '  - granteeLlc: the LLC\'s legal name EXACTLY as stated but WITHOUT any entity designator — do NOT append',
+    '    ", a Virginia Limited Liability Company" or "LLC"; the designator is added automatically.',
+    '  - grantors: the current individual owner(s) transferring the property in — each { name } — ONLY if stated.',
+    '  - consideration: the consideration EXACTLY as stated (often nominal, e.g. "$10.00"); omit if not stated.',
+    'HARD RULES:',
+    '  - Do NOT author, paraphrase, or infer any legal/property description, the DERIVATION-OF-TITLE clause, the',
+    '    NOTARY jurisdiction, or any SUBJECT-TO block. Those are attorney-supplied / extraction-only; no field exists.',
+    '  - Do NOT invent, default, or guess ANY field. Omit anything not explicitly stated.',
+    '  - If the destination LLC is ambiguous, set confident=false with a specific clarifyingQuestions entry.',
+    '  - You only PROPOSE the parse for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object.',
+  ].join('\n');
+}
+
+/** PURE: validate + normalize the Deed-INTO-LLC structured output. Fail-closed: schema-invalid, confident=false,
+ *  or NO destination LLC named collapse to needs_clarification. Exported for direct (no-LLM) testing. */
+export function validateProposeIntoLlcOutput(raw: unknown): ProposeIntoLlcResult {
+  const parsed = ProposeIntoLlcOutputSchema.safeParse(coerceStructuredJson(raw));
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['I could not read the deal into the into-LLC intake fields. Please confirm or fill the destination LLC and any grantor(s) below.'],
+    };
+  }
+  const out = parsed.data;
+  const questions: string[] = [...out.clarifyingQuestions];
+  let needsClarification = out.confident === false;
+
+  const granteeLlc = (out.granteeLlc ?? '').trim();
+  if (granteeLlc === '') {
+    needsClarification = true;
+    questions.push('What is the name of the LLC the property is being conveyed INTO (the grantee)?');
+  }
+
+  const grantors = normalizeParties(out.grantors).filter((g) => g.name !== '');
+
+  if (needsClarification) {
+    return {
+      status: 'needs_clarification',
+      questions: questions.length > 0 ? questions : ['The into-LLC intake is ambiguous; please clarify the destination LLC.'],
+    };
+  }
+
+  const proposal: ProposeIntoLlcProposal = { granteeLlc };
+  if (grantors.length > 0) proposal.grantors = grantors.map((g) => ({ name: g.name }));
+  const consideration = (out.consideration ?? '').trim();
+  if (consideration !== '') proposal.consideration = consideration;
+  return { status: 'proposed', proposal };
+}
+
+// ── Deed OUT OF an LLC ──────────────────────────────────────────────────────────────────────────────────
+//
+// Routine (proposable): the signing member(s) of the grantor LLC (names — signatureTitle defaults to "Member"),
+// the consideration, the file number, and the execution month/year. The grantor LLC name defaults from the
+// extracted LLC facts. NEVER proposed: the notary locality, the derivation-instrument number, the return-to
+// block (attorney-supplied verbatim), and the legal description (extraction-only).
+
+export interface ProposeOutOfLlcProposal {
+  members?: { name: string }[];
+  consideration?: string;
+  fileNumber?: string;
+  executionMonth?: string;
+  executionYear?: string;
+}
+
+export type ProposeOutOfLlcResult =
+  | { status: 'proposed'; proposal: ProposeOutOfLlcProposal }
+  | { status: 'needs_clarification'; questions: string[] };
+
+export const ProposeOutOfLlcOutputSchema = z
+  .object({
+    members: z.array(z.object({ name: z.string().max(200).nullable().optional() })).max(20).default([]),
+    consideration: z.string().max(120).nullable().optional(),
+    fileNumber: z.string().max(120).nullable().optional(),
+    executionMonth: z.string().max(60).nullable().optional(),
+    executionYear: z.string().max(20).nullable().optional(),
+    confident: z.boolean().default(true),
+    clarifyingQuestions: z.array(z.string().min(1).max(400)).max(20).default([]),
+    // The grantor LLC name is extraction-derived; a benign echo is accepted + ignored.
+    grantorLlc: z.unknown().optional(),
+  })
+  .strict();
+
+export function buildProposeOutOfLlcSystemPrompt(): string {
+  return [
+    'You are a deed-intake PARSER for a Virginia attorney conveying property OUT OF a Limited Liability Company.',
+    'Extract ONLY the irreducible intake fields the attorney EXPLICITLY stated:',
+    '  - members: the LLC member(s) who will SIGN for the grantor LLC — each { name } — ONLY if stated.',
+    '  - consideration: the consideration EXACTLY as stated; omit if not stated.',
+    '  - fileNumber: the file/matter number ONLY if stated.',
+    '  - executionMonth / executionYear: the execution month and year ONLY if stated.',
+    'HARD RULES:',
+    '  - Do NOT author, paraphrase, or infer any legal/property description, the NOTARY locality, the',
+    '    DERIVATION-instrument number, or the RETURN-TO block. Those are attorney-supplied / extraction-only.',
+    '  - Do NOT invent, default, or guess ANY field. Omit anything not explicitly stated.',
+    '  - If the signing members are ambiguous, set confident=false with a specific clarifyingQuestions entry.',
+    '  - You only PROPOSE the parse for the attorney to confirm. You never draft, record, file, or send anything.',
+    'Return ONLY the structured object.',
+  ].join('\n');
+}
+
+/** PURE: validate + normalize the Deed-OUT-OF-LLC structured output. Fail-closed: schema-invalid or
+ *  confident=false collapse to needs_clarification. The member set may also come from extracted LLC facts, so
+ *  an empty member proposal is allowed (the extractor/attorney supplies it). Exported for direct testing. */
+export function validateProposeOutOfLlcOutput(raw: unknown): ProposeOutOfLlcResult {
+  const parsed = ProposeOutOfLlcOutputSchema.safeParse(coerceStructuredJson(raw));
+  if (!parsed.success) {
+    return {
+      status: 'needs_clarification',
+      questions: ['I could not read the deal into the out-of-LLC intake fields. Please confirm or fill the signing member(s) and details below.'],
+    };
+  }
+  const out = parsed.data;
+  if (out.confident === false) {
+    return {
+      status: 'needs_clarification',
+      questions: out.clarifyingQuestions.length > 0 ? out.clarifyingQuestions : ['The out-of-LLC intake is ambiguous; please clarify the signing member(s).'],
+    };
+  }
+  const members = normalizeParties(out.members).filter((g) => g.name !== '');
+
+  const proposal: ProposeOutOfLlcProposal = {};
+  if (members.length > 0) proposal.members = members.map((g) => ({ name: g.name }));
+  const consideration = (out.consideration ?? '').trim();
+  if (consideration !== '') proposal.consideration = consideration;
+  const fileNumber = (out.fileNumber ?? '').trim();
+  if (fileNumber !== '') proposal.fileNumber = fileNumber;
+  const executionMonth = (out.executionMonth ?? '').trim();
+  if (executionMonth !== '') proposal.executionMonth = executionMonth;
+  const executionYear = (out.executionYear ?? '').trim();
+  if (executionYear !== '') proposal.executionYear = executionYear;
+  return { status: 'proposed', proposal };
+}
