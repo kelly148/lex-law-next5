@@ -3484,3 +3484,147 @@ export const notifications = mysqlTable(
 );
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+
+// ============================================================
+// EXPRESS-AUTO-REVIEW-LOOP-1 (E4b + E7b) — durable decision-ledger + attorney-approval attestation
+// ============================================================
+// ULTRABUILD-1 W1. Replaces the IN-MEMORY-ONLY E4a decision ledger (decisionLedger.ts) and E7a structural
+// approval predicate (approvalGate.ts) with DURABLE tables, so the supervision story for an Express
+// auto-review run — what auto-adopted/escalated, and the attorney's complete per-escalation sign-off — is
+// reconstructable after the fact (Fable audit Top-5 #2; E4b/E7b are blocking preconditions to Express
+// activation). DORMANT: nothing reads/writes these unless EXPRESS_DURABLE_RECORDS_ENABLED is ON (default OFF)
+// AND the Express loop is enabled (AUTO_REVIEW_LOOP_ENABLED default OFF). Additive migration 0051, operator-
+// applied out-of-band (NOT on the auto-apply allowlist).
+//
+// FORK-C CONSISTENCY (FOLD-L1-1): audit_events is the SINGLE source of truth for ATTORNEY DECISIONS and
+// disposition history is a read-projection over it. Every attorney adopt/reject on an escalation and the
+// approval attestation act are ALSO written to audit_events (eventType='disposition',
+// targetType='express_escalation'/'express_loop_run', action='adopt'/'reject'/'approve') — these tables do
+// NOT introduce a competing authoritative decision record. express_approval_attestation holds current
+// attestation STATE + a pointer (approvalEventId) to the deciding audit_events row; per-escalation decision
+// HISTORY projects from audit_events (queries/expressDurableRecords.ts).
+//
+// NO isFinal/sendable column anywhere — the ABSENCE of a finality field IS the structural inertness E7a
+// guarantees (approvalGate.ts §E7): an Express candidate is never final/recordable.
+export const EXPRESS_LEDGER_ROUTE_VALUES = ['auto_adopt', 'escalate'] as const;
+export type ExpressLedgerRoute = (typeof EXPRESS_LEDGER_ROUTE_VALUES)[number];
+
+export const EXPRESS_RISK_BUCKET_VALUES = ['high', 'medium', 'low'] as const;
+export type ExpressRiskBucket = (typeof EXPRESS_RISK_BUCKET_VALUES)[number];
+
+// express_loop_run — APPEND-ONLY snapshot of one completed bounded loop run (the E4b container). One per run.
+export const expressLoopRun = mysqlTable(
+  'express_loop_run',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    documentVersionId: char('documentVersionId', { length: 36 }).notNull(),
+    // The reviewer model string the loop dispatched with (provenance; A-6 model-drift audit).
+    reviewerModel: varchar('reviewerModel', { length: 128 }).notNull(),
+    rounds: int('rounds').notNull(),
+    converged: boolean('converged').notNull(),
+    hitCap: boolean('hitCap').notNull(),
+    adoptedCount: int('adoptedCount').notNull(),
+    escalationCount: int('escalationCount').notNull(),
+    // The NON-FINAL candidate the run produced (audit; never sendable/recordable).
+    candidateText: mediumtext('candidateText').notNull(),
+    redline: json('redline').notNull(), // the cumulative v1->candidate redline (E4a buildRedline output)
+    roundSummaries: json('roundSummaries').notNull(), // per-round summaries (round-cap + convergence audit)
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxExpressLoopRunUserMatter: index('idx_express_loop_run_user_matter').on(table.userId, table.matterId),
+    idxExpressLoopRunDocument: index('idx_express_loop_run_document').on(table.documentId, table.createdAt),
+  }),
+);
+
+// express_ledger_entry — one row per E4a LedgerEntry. MUTABLE: `reverted` flips when an attorney unwinds an
+// auto-adoption; the unwind DECISION is an audit_events row (revertedByEventId points to it — Fork C).
+export const expressLedgerEntry = mysqlTable(
+  'express_ledger_entry',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    runId: char('runId', { length: 36 }).notNull(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    // The deterministic in-run id ('e<round>-<seq>') — unique WITHIN a run only (id above is the global PK).
+    ledgerEntryId: varchar('ledgerEntryId', { length: 32 }).notNull(),
+    round: int('round').notNull(),
+    route: mysqlEnum('route', EXPRESS_LEDGER_ROUTE_VALUES).notNull(),
+    riskScore: int('riskScore').notNull(),
+    riskBucket: mysqlEnum('riskBucket', EXPRESS_RISK_BUCKET_VALUES).notNull(),
+    immutabilityForced: boolean('immutabilityForced').notNull(),
+    isDeletion: boolean('isDeletion').notNull(),
+    beforeText: mediumtext('beforeText').notNull(),
+    afterText: mediumtext('afterText').notNull(),
+    offsetStart: int('offsetStart').notNull(),
+    offsetEnd: int('offsetEnd').notNull(),
+    // Nested E1/E2/E3 verdicts JSON-encoded to stay migration-free (LocusResult, ClassAResult|null,
+    // InlineEscalationEvent|null).
+    locus: json('locus').notNull(),
+    classA: json('classA'),
+    inlineEvent: json('inlineEvent'),
+    reverted: boolean('reverted').notNull().default(false),
+    // Pointer to the audit_events row recording the attorney's unwind decision (Fork C: the DECISION lives in
+    // audit_events; this row holds current STATE). Null until an unwind is recorded.
+    revertedByEventId: char('revertedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxExpressLedgerEntryRun: index('idx_express_ledger_entry_run').on(table.runId),
+    idxExpressLedgerEntryUserMatter: index('idx_express_ledger_entry_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    uniqExpressLedgerEntry: uniqueIndex('uniq_express_ledger_entry').on(table.runId, table.ledgerEntryId),
+  }),
+);
+
+// express_approval_attestation — APPEND-ONLY durable E7b attestation (the E7a predicate's deferred durable
+// form). One row per COMPLETE attorney sign-off act; content-hash-bound + supersede-on-change (mirrors
+// gate_override / sendability_override). attestedAt == createdAt. attorneyUserId = WHO; decisionsSnapshot =
+// WHICH (the full per-escalation adopt/reject map at attestation time); approvalEventId points to the
+// audit_events approval row = the Fork-C decision act.
+export const expressApprovalAttestation = mysqlTable(
+  'express_approval_attestation',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    runId: char('runId', { length: 36 }).notNull(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    documentVersionId: char('documentVersionId', { length: 36 }).notNull(),
+    // WHO affirmatively signed off (the attorney). Explicit for the record even in single-attorney mode.
+    attorneyUserId: char('attorneyUserId', { length: 36 }).notNull(),
+    // The outcome of recordAttorneyApproval — TRUE only when EVERY escalation carried an explicit decision.
+    approved: boolean('approved').notNull(),
+    // WHICH: the complete per-escalation adopt/reject map + escalation-id list, snapshotted at attestation.
+    decisionsSnapshot: json('decisionsSnapshot').notNull(),
+    escalationCount: int('escalationCount').notNull(),
+    // Binds the attestation to the run+candidate+decisions STATE; a material change re-arms it (stored hash !=
+    // recomputed hash), the same supersede-on-change pattern as sendability_override.contentHash.
+    contentHash: varchar('contentHash', { length: 128 }).notNull(),
+    // Pointer to the audit_events row recording the approval decision act (Fork C source of truth).
+    approvalEventId: char('approvalEventId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxExpressAttestationRun: index('idx_express_attestation_run').on(table.runId),
+    idxExpressAttestationUserMatter: index('idx_express_attestation_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    idxExpressAttestationVersion: index('idx_express_attestation_version').on(table.documentVersionId),
+  }),
+);
+
+export type ExpressLoopRun = typeof expressLoopRun.$inferSelect;
+export type NewExpressLoopRun = typeof expressLoopRun.$inferInsert;
+export type ExpressLedgerEntry = typeof expressLedgerEntry.$inferSelect;
+export type NewExpressLedgerEntry = typeof expressLedgerEntry.$inferInsert;
+export type ExpressApprovalAttestation = typeof expressApprovalAttestation.$inferSelect;
+export type NewExpressApprovalAttestation = typeof expressApprovalAttestation.$inferInsert;

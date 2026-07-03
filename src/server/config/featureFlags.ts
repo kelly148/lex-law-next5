@@ -452,6 +452,20 @@ export function isAutoReviewLoopEnabled(): boolean {
 }
 
 /**
+ * EXPRESS durable records (E4b decision ledger + E7b attorney-approval attestation) — DEFAULT OFF.
+ * ULTRABUILD-1 W1. When OFF (the default), the Express procedure NEVER writes the durable ledger/attestation
+ * tables — behavior is byte-for-byte unchanged (the ledger is returned in the response, then dropped, exactly
+ * as before). When exactly "true" (operator-gated, and only AFTER migration 0051 has landed in prod), a
+ * completed loop run persists its decision ledger and the attorney's complete sign-off becomes durably
+ * attestable. This is a SEPARATE flag from AUTO_REVIEW_LOOP_ENABLED precisely so durable persistence can be
+ * enabled only once the additive tables exist in prod — flipping it before the migration lands would fail the
+ * write (fail-visible), never silently drop the supervision record.
+ */
+export function isExpressDurableRecordsEnabled(): boolean {
+  return process.env['EXPRESS_DURABLE_RECORDS_ENABLED'] === 'true';
+}
+
+/**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
  * when multi-reviewer is enabled. (The lower bound — at least one reviewer — is
