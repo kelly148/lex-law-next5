@@ -33,6 +33,18 @@ describe('FOLD-SEND-1 Inc3 — isExportBlocked', () => {
     const overridden = new Set<SendabilityCheckCategory>(['wrong_matter_id']);
     expect(isExportBlocked([block], true, overridden)).toBe(false);
   });
+
+  it('W4: enforces wrong_matter_id ONLY — a non-enforced block category never hard-stops even when enforced', () => {
+    const stale: SendabilityFinding = { category: 'stale_baseline', summary: 'drifted to block by a rule row' };
+    const empty = new Set<SendabilityCheckCategory>();
+    // A non-enforced block category (even if a rule seed drifted it to 'block') never blocks export.
+    expect(isExportBlocked([stale], true, empty)).toBe(false);
+    // wrong_matter_id still blocks; a co-present non-enforced block is ignored (wm still hard-stops).
+    expect(isExportBlocked([block], true, empty)).toBe(true);
+    expect(isExportBlocked([block, stale], true, empty)).toBe(true);
+    // and it stays scope-locked under override: overriding wrong_matter_id clears the block.
+    expect(isExportBlocked([block, stale], true, new Set<SendabilityCheckCategory>(['wrong_matter_id']))).toBe(false);
+  });
 });
 
 describe('FOLD-SEND-1 Inc3 — typed confirmation', () => {

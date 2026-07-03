@@ -34,14 +34,29 @@ export function isTypedConfirmationValid(category: SendabilityCheckCategory, typ
   return (typed ?? '').trim().toUpperCase() === EXPORT_OVERRIDE_CONFIRM_PHRASE;
 }
 
-/** Whether the export is blocked: enforcing, and at least one block is NOT covered by an override. PURE. */
+/**
+ * The categories that HARD-STOP an export when the gate is enforced. v1 = `wrong_matter_id` ONLY (QA-5
+ * amendment, 2026-07-03; ULTRABUILD-1 W4). A code-level scope-lock so flipping SENDABILITY_GATE_ENABLED
+ * enforces `wrong_matter_id` and NOTHING else, PROVABLY, independent of the firm-default rule seed. Migration
+ * 0018 already sets only `wrong_matter_id` to level 'block' and everything else to 'warn', but a future rule
+ * row could set another category to 'block' — this set guarantees such a category would still only WARN, never
+ * break an export. Every other category keeps surfacing in the evaluation / log / UI; none breaks export. The
+ * typed-confirm override, content-hash binding, and fail-to-warn posture are all unchanged.
+ */
+export const ENFORCED_BLOCK_CATEGORIES: ReadonlySet<SendabilityCheckCategory> =
+  new Set<SendabilityCheckCategory>(['wrong_matter_id']);
+
+/**
+ * Whether the export is blocked: enforcing, and at least one ENFORCED-category block is NOT covered by an
+ * override. PURE. Scope-locked to ENFORCED_BLOCK_CATEGORIES so a non-enforced block (e.g. a seed-drifted
+ * 'block' rule on stale_baseline) never hard-stops an export — it stays a warning. */
 export function isExportBlocked(
   blocks: readonly SendabilityFinding[],
   enforced: boolean,
   overriddenCategories: ReadonlySet<SendabilityCheckCategory>,
 ): boolean {
   if (!enforced) return false; // shadow mode never blocks
-  return blocks.some((b) => !overriddenCategories.has(b.category));
+  return blocks.some((b) => ENFORCED_BLOCK_CATEGORIES.has(b.category) && !overriddenCategories.has(b.category));
 }
 
 export interface ExportGateResult {
