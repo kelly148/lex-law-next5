@@ -3484,3 +3484,61 @@ export const notifications = mysqlTable(
 );
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+
+// ============================================================
+// D3-SIGNOFF (source-anchored deed sign-off, A.1) — deed_signoff
+// ============================================================
+// APPEND-ONLY record of a source-extracted-facts sign-off at deed export (NC-D3-6: the record proves WHAT was
+// compared against WHAT, not that a click happened). One row per sign-off act; content-hash-bound +
+// supersede-on-version (a new version/content requires a fresh sign-off), mirroring gate_override /
+// sendability_override. DORMANT: written only when D3_SIGNOFF_MODE is observe/enforce (default OFF). NC-1:
+// nothing here stores model-composed operative text — the JSON blobs carry comparator RESULTS + value HASHES,
+// not corrected strings. Additive migration 0053, operator-applied.
+export const D3_SIGNOFF_GATE_MODE_VALUES = ['observe', 'enforce'] as const;
+export type D3SignoffGateModeValue = (typeof D3_SIGNOFF_GATE_MODE_VALUES)[number];
+
+export const D3_SIGNOFF_VERDICT_VALUES = ['pass', 'blocked', 'overridden'] as const;
+export type D3SignoffVerdictValue = (typeof D3_SIGNOFF_VERDICT_VALUES)[number];
+
+export const deedSignoff = mysqlTable(
+  'deed_signoff',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    documentVersionId: char('documentVersionId', { length: 36 }).notNull(),
+    // The D3_SIGNOFF_MODE in force at sign-off (a record is only created in observe/enforce; never 'off').
+    gateMode: mysqlEnum('gateMode', D3_SIGNOFF_GATE_MODE_VALUES).notNull(),
+    verdict: mysqlEnum('verdict', D3_SIGNOFF_VERDICT_VALUES).notNull(),
+    // Prong (a): the deterministic comparator passed. Prong (b) attorney-attested-vs-original + the retained
+    // not-OCR-only prong live in `attestations`.
+    comparatorPassed: boolean('comparatorPassed').notNull(),
+    // NC-D3-4: the stamped comparator version — a later normalization change cannot launder this record.
+    comparatorVersion: varchar('comparatorVersion', { length: 32 }).notNull(),
+    // Content-hash binding (supersede-on-version): the assembled deed + the source facts at sign-off time.
+    assembledContentHash: varchar('assembledContentHash', { length: 128 }).notNull(),
+    sourceFactsHash: varchar('sourceFactsHash', { length: 128 }).notNull(),
+    // NC-D3-1: 'extracted_text_fork_a' today (Fork B / image records a different value alongside when D3B lands).
+    forkProvenance: varchar('forkProvenance', { length: 32 }).notNull(),
+    // NC-D3-1/D3-6: the dual-prong attestation set (comparator-passed + attorney-attested-vs-original +
+    // not-OCR-only) + per-value provenance classes. JSON to stay migration-free; carries RESULTS, never text.
+    attestations: json('attestations').notNull(),
+    // NC-D3-6: per-field comparator results + hashes of the actual compared values + source material IDs + a
+    // snapshot (or hash) of the displayed comparison so what the attorney saw is reconstructable. JSON.
+    comparison: json('comparison').notNull(),
+    // NC-D3-3: the high-friction override record when a genuinely-absent/withheld source fact was passed
+    // (structured reason-code + text). NULL when no override. A legal-description MISMATCH is never overridden.
+    override: json('override'),
+    // WHO signed off (the attorney).
+    attorneyUserId: char('attorneyUserId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxDeedSignoffUserMatter: index('idx_deed_signoff_user_matter').on(table.userId, table.matterId),
+    idxDeedSignoffVersion: index('idx_deed_signoff_version').on(table.documentVersionId),
+    idxDeedSignoffDocument: index('idx_deed_signoff_document').on(table.documentId, table.createdAt),
+  }),
+);
+export type DeedSignoff = typeof deedSignoff.$inferSelect;
+export type NewDeedSignoff = typeof deedSignoff.$inferInsert;

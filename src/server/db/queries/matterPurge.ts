@@ -95,6 +95,7 @@ import {
   notifications,
   egressEvents,
   egressHold,
+  deedSignoff,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -222,6 +223,10 @@ export async function cascadeDeleteMatterChildren(
   // per deed document). Operational state; the PERMANENT record of each act is the auditEvents Matter-Record
   // event (preserved by the everyday delete), so the table purges WITH the matter — like matterConflictPosture.
   await step('deedGate', deedGate, byMatter(deedGate));
+  // D3-SIGNOFF (A.1): the matter's append-only source-anchored deed sign-off records. Operational supervision
+  // records tied to the matter's deeds; purge WITH the matter (the permanent decision act is also an
+  // audit_events disposition in later increments). Owner+matter-scoped.
+  await step('deedSignoff', deedSignoff, byMatter(deedSignoff));
   // INSTR-1A0: per-draft-job prompt snapshots — their legacy-path systemText embeds matter-derived
   // content (matter state, PA profile), so they purge with the matter. matterId is nullable on the
   // table, but every draft-job row carries it; owner-scoped like every other step.
