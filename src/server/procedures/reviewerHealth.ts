@@ -21,9 +21,11 @@ export const reviewerHealthRouter = router({
   // Ungated probe so the client can decide whether to mount the nav link + the page.
   isEnabled: protectedProcedure.query(() => ({ enabled: isReviewerHealthViewEnabled() })),
 
-  // Owner-scoped read-only snapshot: reviewer_feedback job-status counts over a window + active sessions.
+  // Owner-scoped read-only snapshot: reviewer_feedback job-status counts + per-lane health + active sessions.
+  // W7 — window cap raised to 720h (30 days) so the panel-composition decision can query a true 30-day window;
+  // the underlying data collection is always-on, so the window is already accumulating.
   snapshot: protectedProcedure
-    .input(z.object({ windowHours: z.number().int().min(1).max(168).default(24) }).optional())
+    .input(z.object({ windowHours: z.number().int().min(1).max(720).default(24) }).optional())
     .query(async ({ ctx, input }) => {
       assertEnabled();
       return getReviewerHealthSnapshot(ctx.userId, input?.windowHours ?? 24);
