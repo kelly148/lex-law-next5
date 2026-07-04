@@ -18,6 +18,7 @@ import {
   classifyDeedLike,
   enforceNotDeedLike,
   scanForDeedOperativeLanguage,
+  isSanctionedAgentDeed,
   normalizeForDeedMatch,
   type DeedGuardResult,
 } from '../deed/deedDocTypeGuard.js';
@@ -190,5 +191,20 @@ describe('scanForDeedOperativeLanguage — defense-in-depth send/export scanner'
   it('returns false for empty / null text', () => {
     expect(scanForDeedOperativeLanguage('').isDeedText).toBe(false);
     expect(scanForDeedOperativeLanguage(null).isDeedText).toBe(false);
+  });
+});
+
+describe('W3c — isSanctionedAgentDeed (provenance-aware export sanction)', () => {
+  it('sanctions ONLY a deed stamped agent_assembled', () => {
+    expect(isSanctionedAgentDeed('deed', 'agent_assembled')).toBe(true);
+  });
+  it('does NOT sanction a legacy deed (null / llm_authored provenance) — closes the LIVE-9 residual', () => {
+    expect(isSanctionedAgentDeed('deed', null)).toBe(false);
+    expect(isSanctionedAgentDeed('deed', undefined)).toBe(false);
+    expect(isSanctionedAgentDeed('deed', 'llm_authored')).toBe(false);
+  });
+  it('does NOT sanction a non-deed type regardless of provenance (unchanged scan path)', () => {
+    expect(isSanctionedAgentDeed('custom', 'agent_assembled')).toBe(false);
+    expect(isSanctionedAgentDeed('memo', null)).toBe(false);
   });
 });

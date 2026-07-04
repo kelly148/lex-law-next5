@@ -11,6 +11,13 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 **Build state.** Briefs amended to v1.1 (`docs/reviews/C1-CONV-DESIGN_packet.v1.1.md`, `D3-SIGNOFF_packet.v1.1.md`, append-only; mirrored to Desktop). D3B follow-on ticket opened (`docs/engagements/D3B-source-image-signoff-ticket.md`; source-image retention; itself a future §3.1 FIRE). **D3 A.1 build is now build-ready and begins** under the v1.1 plan (Inc 1 = data core: thickened sign-off record + `D3_SIGNOFF_MODE` three-state flag [OFF/OBSERVE/ENFORCE, default OFF] + comparator-version stamp + additive migration; flag-dark). ULTRABUILD-1 W1–W10 all built + PR'd (#470–#478); the two FIRE packets were the only HALTED items — now released.
 
 **Open / residuals.** NC-C1-5 open sub-question for the operator (client/represented-party identity = a 9th deliberate act, or covered by matter-identity). D3 closes only at ENFORCE in prod. A.1 Inc 2–4 (comparator / export-route OBSERVE wiring / UI) follow Inc 1. No C.4–C.6 implementation begins (A.6-gated).
+## 2026-07-03 (ULTRABUILD-1 W2b — build-SHA visibility; run-sheet 0.7 / audit U-1/D2; NOT yet merged/deployed)
+
+**Disposition.** ULTRABUILD-1 audit-remediation batch, item W2b (hygiene). Reversible build-and-PR lane; PR to `main`, accept-gated (auto-merge suspended batch-wide — Railway auto-deploy status is unconfirmable from the repo). Adds a best-effort deployed build-SHA line to the AppShell sidebar footer (runtime read of the EXISTING `/api/version` stamp — no VITE_ build-flag hazard, no new endpoint), so "which commit is live" is a VISIBLE fact rather than an inference (Fable audit D2).
+
+**Build state.** `origin/main` unchanged at `2cc7ecc` at authoring. Prod was empirically fingerprinted as current `main` (`2cc7ecc`, EXPRESS-FANOUT-1) on 2026-07-03 per audit U-1 — the 2026-06-26 fix set IS live. `/api/version` already returns `{commit, builtAt}` from `dist/version.json` (RAILWAY_GIT_COMMIT_SHA at build); W2b only surfaces it in-app.
+
+**Open / residuals.** A precise per-deploy historical backfill (exact dates + commit SHAs of each prior prod deploy) needs Kelly's deploy log — the repo records no per-deploy events ([K]). The `/api/health` body was deliberately NOT extended (it is byte-locked by test T-S4-7; adding a field there is an assertion change), because `/api/version` already exposes the SHA. Desktop STATE-mirror sync is Rule-16 bookkeeping.
 
 ---
 

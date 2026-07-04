@@ -50,7 +50,7 @@ import { buildEngagementLetterSection, isEngagementLetterDocType } from './deed/
 // LIVE-9 defense-in-depth: refuse exporting deed/recordable operative text that is NOT a sanctioned
 // documentType==='deed' (the deterministic deed agent's output) — catches a deed pasted/imported into a
 // generic document that the generation guard cannot see.
-import { scanForDeedOperativeLanguage } from './deed/deedDocTypeGuard.js';
+import { scanForDeedOperativeLanguage, isSanctionedAgentDeed } from './deed/deedDocTypeGuard.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
@@ -573,7 +573,10 @@ app.get(
     // the sendability gate above, a detected non-sanctioned deed hard-stops the export. (Known limitation:
     // a legacy documentType==='deed' produced by the generic LLM before LIVE-9 cannot be distinguished
     // from agent output without a provenance field — see docs/reviews/LIVE-9_packet.md.)
-    if (doc.documentType !== 'deed') {
+    // W3c — a SANCTIONED deed is documentType==='deed' AND provenance==='agent_assembled' (the deterministic
+    // agent's output). This CLOSES the legacy-'deed' residual noted above: a legacy documentType==='deed' with
+    // NULL/'llm_authored' provenance is now non-sanctioned and routed through the fail-closed scan.
+    if (!isSanctionedAgentDeed(doc.documentType, doc.provenance)) {
       const deedScan = scanForDeedOperativeLanguage(version.content);
       if (deedScan.isDeedText) {
         // eslint-disable-next-line no-console

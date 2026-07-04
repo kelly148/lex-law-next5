@@ -31,7 +31,7 @@ vi.mock('../../trpc.js', async () => {
     trpc: {
       useUtils: () => ({ client: { quickDeed: { create: { mutate: createMutate }, generate: { mutate: generateMutate }, proposeIntake: { mutate: vi.fn() } } } }),
       deedDraftAgent: { isEnabled: { useQuery: q(() => ({ enabled: true })) } },
-      quickDeed: { listDeedTypes: { useQuery: q(() => mockState.deedTypes) }, previewFacts: { useQuery: q(() => null) } },
+      quickDeed: { listDeedTypes: { useQuery: q(() => mockState.deedTypes) }, previewFacts: { useQuery: q(() => null) }, getConflictsSetting: { useQuery: q(() => ({ enforced: false })) } },
     },
   };
 });
