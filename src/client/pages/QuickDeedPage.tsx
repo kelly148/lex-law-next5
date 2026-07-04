@@ -118,6 +118,12 @@ export default function QuickDeedPage(): React.ReactElement {
   const deedTypesQuery = trpc.quickDeed.listDeedTypes.useQuery(undefined, { enabled });
   const deedTypes = deedTypesQuery.data ?? [];
 
+  // W2d (QA-7 / run-sheet 0.9) — surface the conflicts waiver at GENERATE-TIME (not only in the output stamp).
+  // Reuses the existing ungated getConflictsSetting; when enforced===false (the prod default) Quick Deed skips
+  // the conflicts-at-intake check and stamps the deed, so the attorney is told BEFORE generating rather than
+  // discovering it only in the output.
+  const conflictsSetting = trpc.quickDeed.getConflictsSetting.useQuery(undefined, { enabled });
+
   const [deedType, setDeedType] = useState<string>(QUICK_DEED_GIFT_TYPE);
   // Seller-side state (the gift lane lives entirely inside <DeedIntake>). The shared party/locality/address
   // fields stay here for the seller form; the gift-only fields (married/derivation/vesting) moved to DeedIntake.
@@ -392,6 +398,21 @@ export default function QuickDeedPage(): React.ReactElement {
           ))}
         </select>
       </div>
+
+      {/* W2d — generate-time conflicts-waiver notice. Shown once above ALL three lanes (gift/seller/multi-cat)
+          and every Generate button, driven by the live firm posture (getConflictsSetting.enforced === false =
+          the bypass-and-stamp default). Purely informational — no behavior change. */}
+      {conflictsSetting.data?.enforced === false && (
+        <div
+          data-testid="quick-deed-conflicts-waiver"
+          role="note"
+          className="mb-6 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span className="font-medium">No conflicts check will be run for this deed.</span> Quick Deed skips
+          the conflicts-at-intake check and stamps the draft &ldquo;No conflicts check performed (Quick Deed
+          mode).&rdquo; You can require a conflicts check for Quick Deed in Settings.
+        </div>
+      )}
 
       {deedType !== QUICK_DEED_GIFT_TYPE && deedType !== QUICK_DEED_SELLER_TYPE ? (
         // ── Multi-category lane: into-LLC / out-of-LLC / TOD / confirmation / into-trust structured form. ──

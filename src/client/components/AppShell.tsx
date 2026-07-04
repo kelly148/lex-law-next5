@@ -42,6 +42,25 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   // DEED-DRAFT-AGENT-1 QD-1 — show the top-level "Deed" (Quick Deed) nav link only when the deed-draft
   // agent is enabled (default OFF -> hidden). Reuses the existing deedDraftAgent.isEnabled probe.
   const deedAgentFlag = trpc.deedDraftAgent.isEnabled.useQuery();
+  // W2b (U-1 / run-sheet 0.7) — surface the deployed build SHA so "which commit is live" is a VISIBLE fact,
+  // not an inference. Best-effort runtime read of the EXISTING /api/version stamp (dist/version.json, injected
+  // from RAILWAY_GIT_COMMIT_SHA at build) — no VITE_ build-flag hazard, no new endpoint. Absent locally (dev).
+  const [buildSha, setBuildSha] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (typeof fetch !== 'function') return;
+    let active = true;
+    fetch('/api/version')
+      .then((r) => r.json())
+      .then((v: { commit?: string }) => {
+        if (active && v.commit && v.commit !== 'unknown') setBuildSha(v.commit);
+      })
+      .catch(() => {
+        /* build SHA is best-effort; absence (local dev / offline) is fine — show nothing. */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   // FOLD-NOTIFY-1 — probe the notifications flag (default OFF -> bell hidden, no poll).
   const notificationsFlag = trpc.notifications.isEnabled.useQuery();
   const notificationsEnabled = notificationsFlag.data?.enabled === true;
@@ -317,6 +336,14 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
             <span data-rail-label>Sign out</span>
           </button>
         </div>
+
+        {/* W2b — deployed build SHA (best-effort; hidden when unknown / local dev). Makes the live commit
+            visible so an audit/debug never has to infer it (Fable audit D2). */}
+        {buildSha && (
+          <p data-testid="build-sha" className="px-3 pb-3 text-[10px] leading-none text-ink-secondary/60">
+            build {buildSha.slice(0, 7)}
+          </p>
+        )}
       </aside>
 
       {/* Main content */}

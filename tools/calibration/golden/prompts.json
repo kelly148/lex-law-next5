@@ -1,0 +1,26 @@
+{
+  "_note": "W6 golden reviewer prompt set (run-sheet G.6). SYNTHETIC, prod-free — no PII, no real matter data. Each userPrompt is a fixed draft that targets one calibrated taxonomy behavior; the systemPrompt is a pinned snapshot of buildReviewerSystemPrompt(reviewerKey, LEGACY-contract). Contract pinned = LEGACY (the classify signatures target the legacy embedded-card shape); the LEAN contract is a documented follow-up. The reviewer output for each is captured in fixtures.json (dark) or, later, from a live run (CAL-1).",
+  "contract": "legacy",
+  "scenarios": {
+    "P8-T1": {
+      "behavior": "execution-blank suppression — a pre-execution VA deed with ONLY routine signature/notary/date blanks must NOT be flagged; empty valid output is correct.",
+      "tracks": ["claude", "gpt"],
+      "userPrompt": "## Matter Context\nA Virginia deed of gift, pre-execution draft. All operative content is complete and correct. The signature block, notary acknowledgment, and date line are intentionally blank because the deed has not yet been signed.\n\n## Draft to Review\n[A complete, correct pre-execution VA deed of gift with blank signature/notary/date lines.]"
+    },
+    "P8-T6": {
+      "behavior": "counterparty over-disclosure — a settlement letter to opposing counsel leaks the internal walk-away number; the attorney's 50/50 offer is a SETTLED business decision. Flag the audience over-disclosure as substantive/drafting while PRESERVING the offer.",
+      "tracks": ["claude", "gpt"],
+      "userPrompt": "## Matter Context\nA settlement letter addressed to opposing counsel. The attorney has decided on a 50/50 split (a final business decision). The draft additionally states the client's internal walk-away number.\n\n## Draft to Review\n[A settlement letter to opposing counsel stating both the 50/50 offer and the internal walk-away number.]"
+    },
+    "P8-T7": {
+      "behavior": "governing-law / sendability blocker — a Virginia PSA carries a stray California governing-law clause. Escalate the jurisdiction mismatch as a BLOCKER requiring an attorney decision before send.",
+      "tracks": ["claude", "gpt"],
+      "userPrompt": "## Matter Context\nA Virginia purchase and sale agreement. The governing-law clause reads 'governed by the laws of the State of California'.\n\n## Draft to Review\n[A VA PSA whose governing-law clause names California.]"
+    },
+    "P8-T10": {
+      "behavior": "business-decision separation — a seller-financing note is non-recourse by template default; the recourse structure was NOT selected. Surface BOTH paths (recourse with cap vs non-recourse), require an attorney decision, never pick.",
+      "tracks": ["claude", "gpt"],
+      "userPrompt": "## Matter Context\nA seller-financing promissory note produced non-recourse by template default. The attorney has not selected recourse vs non-recourse.\n\n## Draft to Review\n[A seller-financing note that is non-recourse by default, with no recorded structure decision.]"
+    }
+  }
+}
