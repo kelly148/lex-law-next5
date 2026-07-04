@@ -15,6 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import { CategoryDescribeBox } from './CategoryDescribeBox.js';
+import { ManualFieldsToggle, MISSING_RING_CLASS } from './deedManualForm.js';
 import {
   intoLlcProposalToFields,
   outOfLlcProposalToFields,
@@ -37,6 +38,9 @@ type GeneratePayload = Omit<
 
 const inputCls =
   'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy';
+// Same geometry as inputCls but the red missing-ring border (DEED-INTAKE-PARITY-1 highlight-missing). The neutral
+// border-gray-300 is dropped so the two border-color utilities never collide.
+const inputInvalidCls = `w-full border ${MISSING_RING_CLASS} rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy`;
 
 interface CategoryFormProps {
   deedType: string;
@@ -59,6 +63,7 @@ function Text({
   placeholder,
   required,
   textarea,
+  invalid,
 }: {
   label: string;
   value: string;
@@ -66,7 +71,10 @@ function Text({
   placeholder?: string;
   required?: boolean;
   textarea?: boolean;
+  /** DEED-INTAKE-PARITY-1: red-ring the field when it is a missing required field on a generate attempt. */
+  invalid?: boolean;
 }): React.ReactElement {
+  const cls = invalid ? inputInvalidCls : inputCls;
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -74,9 +82,9 @@ function Text({
         {required && <span className="text-red-500"> *</span>}
       </label>
       {textarea ? (
-        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={2} className={inputCls} placeholder={placeholder} />
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={2} className={cls} placeholder={placeholder} />
       ) : (
-        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={inputCls} placeholder={placeholder} />
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={cls} placeholder={placeholder} />
       )}
     </div>
   );
@@ -97,12 +105,16 @@ function StringList({
   values,
   setValues,
   placeholder,
+  invalid,
 }: {
   label: string;
   values: string[];
   setValues: (next: string[]) => void;
   placeholder: string;
+  /** DEED-INTAKE-PARITY-1: red-ring the row inputs when this list is a missing required field on a generate attempt. */
+  invalid?: boolean;
 }): React.ReactElement {
+  const cls = invalid ? inputInvalidCls : inputCls;
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
@@ -113,7 +125,7 @@ function StringList({
               type="text"
               value={v}
               onChange={(e) => setValues(values.map((x, i) => (i === idx ? e.target.value : x)))}
-              className={inputCls}
+              className={cls}
               placeholder={placeholder}
             />
             {values.length > 1 && (
@@ -162,6 +174,33 @@ function GenerateBar({ submitting, error }: { submitting: boolean; error: string
   );
 }
 
+/**
+ * DEED-INTAKE-PARITY-1: the structured "manual field wall" every category lane shows, now COLLAPSED by default
+ * behind the shared toggle (parity with the gift DeedIntake). The fields div keeps its exact testid + styling and
+ * stays in the DOM when collapsed (a `hidden` class), so state edits + one-click generate still work; only its
+ * visibility changes. The toggle renders above it with a lane-scoped `<testId>-toggle` id.
+ */
+function CollapsibleFields({
+  expanded,
+  onToggle,
+  testId,
+  children,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  testId: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <>
+      <ManualFieldsToggle expanded={expanded} onToggle={onToggle} testId={`${testId}-toggle`} />
+      <div data-testid={testId} className={`${expanded ? '' : 'hidden'} space-y-4 rounded border border-line/60 bg-surface/40 p-3`}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 const trimOrUndef = (v: string): string | undefined => (v.trim().length > 0 ? v.trim() : undefined);
 
 // ── C3: Deed Into an LLC ────────────────────────────────────────────────────────────────────────────────────────
@@ -178,6 +217,10 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
   const [notaryCommonwealth, setNotaryCommonwealth] = useState('COMMONWEALTH OF VIRGINIA');
   const [notaryLocality, setNotaryLocality] = useState('');
   const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  // DEED-INTAKE-PARITY-1: intake-first — the structured field wall is collapsed until the attorney opens it (or a
+  // generate attempt with gaps expands it). `missing` red-rings the required fields the same way the gift lane does.
+  const [formExpanded, setFormExpanded] = useState(false);
+  const [missing, setMissing] = useState<{ grantor: boolean; notaryLocality: boolean }>({ grantor: false, notaryLocality: false });
   const utils = trpc.useUtils();
   // EXPRESS-FANOUT-1: auto-seed the grantor(s) (= current owner(s)) from the prior deed's grantee(s) of record,
   // flagged for confirmation. Seed once, only when no grantor name has been typed — never clobber input.
@@ -198,8 +241,16 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
     const cleanGrantors = grantors.filter((g) => g.name.trim().length > 0).map((g) => ({ name: g.name.trim(), maritalStatus: g.maritalStatus.trim() || 'unmarried' }));
-    if (cleanGrantors.length === 0) return props.setError('At least one grantor name is required.');
-    if (notaryLocality.trim().length === 0) return props.setError('The notary locality is required.');
+    const grantorMissing = cleanGrantors.length === 0;
+    const notaryMissing = notaryLocality.trim().length === 0;
+    if (grantorMissing || notaryMissing) {
+      // DEED-INTAKE-PARITY-1: expand + ring the missing required field(s); never a silent block.
+      setMissing({ grantor: grantorMissing, notaryLocality: notaryMissing });
+      props.setError(grantorMissing ? 'At least one grantor name is required.' : 'The notary locality is required.');
+      if (!formExpanded) setFormExpanded(true);
+      return;
+    }
+    setMissing({ grantor: false, notaryLocality: false });
     props.setError(null);
     props.onGenerate({
       deedType: QUICK_DEED_INTO_LLC_TYPE,
@@ -232,7 +283,7 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
         placeholder="e.g. Dana Ortiz is transferring her home into Ridgeline Holdings LLC for $10."
         safetyNote="Proposes the LLC, grantor(s), and price. It never writes the legal description, the derivation, or the subject-to block."
       />
-      <div data-testid="quick-deed-into_llc-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+      <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-into_llc-fields">
         <p className="text-xs text-ink-secondary">QUITCLAIM into a Virginia LLC (no warranty; § 58.1-811(A)(10)). The grantee LLC name is read from the SCC/operating-agreement upload unless you enter it below.</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Grantor(s) — current owner(s) <span className="text-red-500">*</span></label>
@@ -244,7 +295,7 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
           <div className="space-y-2">
             {grantors.map((g, idx) => (
               <div key={idx} className="flex gap-2">
-                <input type="text" value={g.name} onChange={(e) => setGrantors(grantors.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)))} className={inputCls} placeholder="Full legal name" />
+                <input type="text" value={g.name} onChange={(e) => setGrantors(grantors.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)))} className={missing.grantor ? inputInvalidCls : inputCls} placeholder="Full legal name" />
                 <input type="text" value={g.maritalStatus} onChange={(e) => setGrantors(grantors.map((r, i) => (i === idx ? { ...r, maritalStatus: e.target.value } : r)))} className={inputCls} placeholder="Marital status (e.g. unmarried)" />
                 {grantors.length > 1 && (
                   <button type="button" onClick={() => setGrantors(grantors.filter((_, i) => i !== idx))} className="px-2 text-gray-400 hover:text-red-600 text-sm" title="Remove">×</button>
@@ -273,9 +324,9 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
         <Text label="Subject to" value={subjectTo} onChange={setSubjectTo} placeholder="This conveyance is made subject to the covenants, conditions … of record." textarea />
         <div className="grid grid-cols-2 gap-4">
           <Text label="Notary commonwealth" value={notaryCommonwealth} onChange={setNotaryCommonwealth} placeholder="COMMONWEALTH OF VIRGINIA" required />
-          <Text label="Notary locality" value={notaryLocality} onChange={setNotaryLocality} placeholder="CITY OF ALEXANDRIA" required />
+          <Text label="Notary locality" value={notaryLocality} onChange={setNotaryLocality} placeholder="CITY OF ALEXANDRIA" required invalid={missing.notaryLocality} />
         </div>
-      </div>
+      </CollapsibleFields>
       <GenerateBar submitting={props.submitting} error={props.error} />
     </form>
   );
@@ -298,13 +349,24 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
   const [rtLine2, setRtLine2] = useState('');
   const [rtCityStateZip, setRtCityStateZip] = useState('');
   const [rtPhone, setRtPhone] = useState('');
+  // DEED-INTAKE-PARITY-1: intake-first collapse + missing-required highlight (parity with the gift lane).
+  const [formExpanded, setFormExpanded] = useState(false);
+  const [missing, setMissing] = useState<{ rtCompany: boolean; rtLine1: boolean; rtCityStateZip: boolean; rtPhone: boolean }>({ rtCompany: false, rtLine1: false, rtCityStateZip: false, rtPhone: false });
   const utils = trpc.useUtils();
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    if (rtCompany.trim().length === 0 || rtLine1.trim().length === 0 || rtCityStateZip.trim().length === 0 || rtPhone.trim().length === 0) {
-      return props.setError('The return-to company, street, city/state/zip, and phone are required.');
+    const rtCompanyMissing = rtCompany.trim().length === 0;
+    const rtLine1Missing = rtLine1.trim().length === 0;
+    const rtCityStateZipMissing = rtCityStateZip.trim().length === 0;
+    const rtPhoneMissing = rtPhone.trim().length === 0;
+    if (rtCompanyMissing || rtLine1Missing || rtCityStateZipMissing || rtPhoneMissing) {
+      setMissing({ rtCompany: rtCompanyMissing, rtLine1: rtLine1Missing, rtCityStateZip: rtCityStateZipMissing, rtPhone: rtPhoneMissing });
+      props.setError('The return-to company, street, city/state/zip, and phone are required.');
+      if (!formExpanded) setFormExpanded(true);
+      return;
     }
+    setMissing({ rtCompany: false, rtLine1: false, rtCityStateZip: false, rtPhone: false });
     const cleanMembers = members
       .filter((m) => m.name.trim().length > 0)
       .map((m) => ({ name: m.name.trim(), signatureTitle: trimOrUndef(m.signatureTitle) }));
@@ -349,7 +411,7 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
         placeholder="e.g. Maplehurst Holdings LLC conveys out to Dana Ortiz; members Dana Ortiz and Sam Vance sign; $10; executed July 2026."
         safetyNote="Proposes the signing member(s), price, file no., and execution date. It never writes the return-to block, notary, derivation, or legal description."
       />
-      <div data-testid="quick-deed-out_of_llc-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+      <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-out_of_llc-fields">
         <p className="text-xs text-ink-secondary">Special Warranty out of a Virginia LLC (§ 58.1-811(A)(11)); the members sign. The grantor LLC name + member set are read from the LLC/operating-agreement upload unless you enter them below.</p>
         <Text label="Grantor LLC (else read from uploads)" value={grantorLlc} onChange={setGrantorLlc} placeholder="e.g. Maplehurst Holdings LLC" />
         <div>
@@ -383,16 +445,16 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
         <div className="rounded border border-line/60 p-3 space-y-3">
           <p className="text-xs font-medium text-gray-700">Return to (after recording) <span className="text-red-500">*</span></p>
           <div className="grid grid-cols-2 gap-4">
-            <Text label="Company" value={rtCompany} onChange={setRtCompany} placeholder="Universal Title" required />
-            <Text label="Phone" value={rtPhone} onChange={setRtPhone} placeholder="(703) 354-2100" required />
+            <Text label="Company" value={rtCompany} onChange={setRtCompany} placeholder="Universal Title" required invalid={missing.rtCompany} />
+            <Text label="Phone" value={rtPhone} onChange={setRtPhone} placeholder="(703) 354-2100" required invalid={missing.rtPhone} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Text label="Street (line 1)" value={rtLine1} onChange={setRtLine1} placeholder="3031 Fairview Park Drive" required />
+            <Text label="Street (line 1)" value={rtLine1} onChange={setRtLine1} placeholder="3031 Fairview Park Drive" required invalid={missing.rtLine1} />
             <Text label="Suite / line 2" value={rtLine2} onChange={setRtLine2} placeholder="Suite 375" />
           </div>
-          <Text label="City, State ZIP" value={rtCityStateZip} onChange={setRtCityStateZip} placeholder="Falls Church, VA 22042" required />
+          <Text label="City, State ZIP" value={rtCityStateZip} onChange={setRtCityStateZip} placeholder="Falls Church, VA 22042" required invalid={missing.rtCityStateZip} />
         </div>
-      </div>
+      </CollapsibleFields>
       <GenerateBar submitting={props.submitting} error={props.error} />
     </form>
   );
@@ -412,6 +474,9 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
   const [acknowledgmentMonthYear, setAcknowledgmentMonthYear] = useState('');
   const [notaryCountyBlank, setNotaryCountyBlank] = useState(true);
   const [transferorNeedsConfirm, setTransferorNeedsConfirm] = useState(false);
+  // DEED-INTAKE-PARITY-1: intake-first collapse + missing-required highlight (parity with the gift lane).
+  const [formExpanded, setFormExpanded] = useState(false);
+  const [missing, setMissing] = useState<{ transferor: boolean; beneficiary: boolean; vesting: boolean }>({ transferor: false, beneficiary: false, vesting: false });
   const utils = trpc.useUtils();
   // EXPRESS-FANOUT-1: a SINGLE current owner (from the prior deed) → the transferor, confirm-flagged. Multiple
   // owners are left for the attorney (a TOD by one of several owners is a decision, never presumed).
@@ -428,10 +493,23 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    if (transferorName.trim().length === 0) return props.setError('The transferor (current owner) name is required.');
+    const transferorMissing = transferorName.trim().length === 0;
     const cleanPersons = persons.map((p) => p.trim()).filter((p) => p.length > 0);
-    if (cleanPersons.length === 0) return props.setError('At least one beneficiary is required.');
-    if (beneficiaryVesting.trim().length === 0) return props.setError('The beneficiary vesting (how they take) is required.');
+    const beneficiaryMissing = cleanPersons.length === 0;
+    const vestingMissing = beneficiaryVesting.trim().length === 0;
+    if (transferorMissing || beneficiaryMissing || vestingMissing) {
+      setMissing({ transferor: transferorMissing, beneficiary: beneficiaryMissing, vesting: vestingMissing });
+      props.setError(
+        transferorMissing
+          ? 'The transferor (current owner) name is required.'
+          : beneficiaryMissing
+            ? 'At least one beneficiary is required.'
+            : 'The beneficiary vesting (how they take) is required.',
+      );
+      if (!formExpanded) setFormExpanded(true);
+      return;
+    }
+    setMissing({ transferor: false, beneficiary: false, vesting: false });
     props.setError(null);
     props.onGenerate({
       deedType: QUICK_DEED_TOD_TYPE,
@@ -462,7 +540,7 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
         placeholder="e.g. On my death, my home goes to my children Ivy and Noah Chen, as joint tenants with the right of survivorship."
         safetyNote="Proposes the beneficiary(ies) and how they take. It never writes the revocation block, the transferor's capacity, the being recital, or the legal description."
       />
-      <div data-testid="quick-deed-tod-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+      <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-tod-fields">
         <p className="text-xs text-ink-secondary">A Revocable Transfer on Death Deed (§ 58.1-811(J); death-effective, no consideration, no warranty). It is NOT effective unless recorded before the transferor&apos;s death.</p>
         {transferorNeedsConfirm && (
           <p data-testid="tod-transferor-seed-note" className="text-xs text-amber-700">
@@ -470,11 +548,11 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
           </p>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <Text label="Transferor (current owner)" value={transferorName} onChange={setTransferorName} placeholder="Full legal name" required />
+          <Text label="Transferor (current owner)" value={transferorName} onChange={setTransferorName} placeholder="Full legal name" required invalid={missing.transferor} />
           <Text label="Transferor capacity" value={transferorCapacity} onChange={setTransferorCapacity} placeholder="e.g. surviving joint tenant" />
         </div>
-        <StringList label="Beneficiaries" values={persons} setValues={setPersons} placeholder="Beneficiary full name" />
-        <Text label="Beneficiary vesting (how they take)" value={beneficiaryVesting} onChange={setBeneficiaryVesting} placeholder="e.g. joint tenants with the common law right of survivorship" required />
+        <StringList label="Beneficiaries" values={persons} setValues={setPersons} placeholder="Beneficiary full name" invalid={missing.beneficiary} />
+        <Text label="Beneficiary vesting (how they take)" value={beneficiaryVesting} onChange={setBeneficiaryVesting} placeholder="e.g. joint tenants with the common law right of survivorship" required invalid={missing.vesting} />
         <div className="grid grid-cols-2 gap-4">
           <Text label="Preparer" value={preparer} onChange={setPreparer} placeholder="Mason Law Firm, PLC" />
           <Text label="Deed date phrase" value={deedDatePhrase} onChange={setDeedDatePhrase} placeholder="October 2025" />
@@ -485,7 +563,7 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
           <Text label="Acknowledgment month/year" value={acknowledgmentMonthYear} onChange={setAcknowledgmentMonthYear} placeholder="October 2025" />
           <Checkbox label="Notary county left blank" checked={notaryCountyBlank} onChange={setNotaryCountyBlank} />
         </div>
-      </div>
+      </CollapsibleFields>
       <GenerateBar submitting={props.submitting} error={props.error} />
     </form>
   );
@@ -539,11 +617,20 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
   const [dDeviseeStatus, setDDeviseeStatus] = useState('');
   const [dDeviseePossessive, setDDeviseePossessive] = useState('');
   const [dDeviseeObject, setDDeviseeObject] = useState('');
+  // DEED-INTAKE-PARITY-1: intake-first collapse + missing-required highlight (parity with the gift lane).
+  const [formExpanded, setFormExpanded] = useState(false);
+  const [missing, setMissing] = useState<{ partyName: boolean }>({ partyName: false });
   const utils = trpc.useUtils();
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    if (partyName.trim().length === 0) return props.setError('The confirming party name is required.');
+    if (partyName.trim().length === 0) {
+      setMissing({ partyName: true });
+      props.setError('The confirming party name is required.');
+      if (!formExpanded) setFormExpanded(true);
+      return;
+    }
+    setMissing({ partyName: false });
     props.setError(null);
     const base = {
       archetype,
@@ -617,7 +704,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
         placeholder="e.g. Confirming title already vested by survivorship — a co-owner has died. (or: a will devised the title.)"
         safetyNote="Proposes ONLY the archetype (survivorship vs testate-devise). Every chain-of-title fact stays yours to enter — the model never proposes any of them."
       />
-      <div data-testid="quick-deed-confirmation-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+      <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-confirmation-fields">
         <p className="text-xs text-ink-secondary">A Deed of Confirmation places of record a title already vested by operation of law; it does not transfer. The chain-of-title recitals are attorney-load-bearing — verify each link.</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Archetype <span className="text-red-500">*</span></label>
@@ -627,7 +714,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
           </select>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Text label="Confirming party" value={partyName} onChange={setPartyName} placeholder="Marcus T. ELLISON" required />
+          <Text label="Confirming party" value={partyName} onChange={setPartyName} placeholder="Marcus T. ELLISON" required invalid={missing.partyName} />
           <Text label="Vesting" value={vesting} onChange={setVesting} placeholder="sole owner" />
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -708,7 +795,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
             </div>
           </div>
         )}
-      </div>
+      </CollapsibleFields>
       <GenerateBar submitting={props.submitting} error={props.error} />
     </form>
   );
@@ -741,6 +828,10 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
   const [notaryType, setNotaryType] = useState<'CITY' | 'COUNTY'>('CITY');
   const [notaryName, setNotaryName] = useState('');
   const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  // DEED-INTAKE-PARITY-1: intake-first collapse + missing-required highlight (parity with the gift lane). The
+  // trustees recital is the attorney-verbatim load-bearing field — it keeps its required treatment when expanded.
+  const [formExpanded, setFormExpanded] = useState(false);
+  const [missing, setMissing] = useState<{ trusteesRecital: boolean; notaryName: boolean; grantor: boolean }>({ trusteesRecital: false, notaryName: false, grantor: false });
   const utils = trpc.useUtils();
   // EXPRESS-FANOUT-1: auto-seed the grantor(s) (= current owner(s)) from the prior deed, confirm-flagged.
   const previewFacts = trpc.quickDeed.previewFacts.useQuery({ matterId: props.matterId ?? '' }, { enabled: !!props.matterId });
@@ -759,10 +850,23 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    if (trusteesRecital.trim().length === 0) return props.setError('The trustees recital is required (attorney-supplied; it is never auto-generated).');
-    if (notaryName.trim().length === 0) return props.setError('The notary jurisdiction name is required.');
     const cleanGrantors = grantors.map((g) => g.trim()).filter((g) => g.length > 0).map((full) => ({ full }));
-    if (cleanGrantors.length === 0) return props.setError('At least one grantor is required.');
+    const trusteesMissing = trusteesRecital.trim().length === 0;
+    const notaryMissing = notaryName.trim().length === 0;
+    const grantorMissing = cleanGrantors.length === 0;
+    if (trusteesMissing || notaryMissing || grantorMissing) {
+      setMissing({ trusteesRecital: trusteesMissing, notaryName: notaryMissing, grantor: grantorMissing });
+      props.setError(
+        trusteesMissing
+          ? 'The trustees recital is required (attorney-supplied; it is never auto-generated).'
+          : notaryMissing
+            ? 'The notary jurisdiction name is required.'
+            : 'At least one grantor is required.',
+      );
+      if (!formExpanded) setFormExpanded(true);
+      return;
+    }
+    setMissing({ trusteesRecital: false, notaryName: false, grantor: false });
     props.setError(null);
     props.onGenerate({
       deedType: QUICK_DEED_INTO_TRUST_TYPE,
@@ -806,7 +910,7 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
         placeholder="e.g. Harold and Nadia Whitmore, a married couple, are transferring their home into their joint revocable living trust."
         safetyNote="Proposes the exemplar, grantor(s), and trust structure. It never writes the trustees recital (you enter that verbatim), the being recital, the derivation, or the legal description."
       />
-      <div data-testid="quick-deed-into_trust-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
+      <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-into_trust-fields">
         <p className="text-xs text-ink-secondary">Conveyance into a revocable living trust. The trustees recital is load-bearing and attorney-supplied verbatim — it is never auto-generated from the certificate of trust.</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -819,13 +923,13 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
           </div>
           <Text label="Exemption basis (comma-separated)" value={exemptionBasis} onChange={setExemptionBasis} placeholder="58.1-811(A)(12)" />
         </div>
-        <Text label="Trustees recital (attorney-supplied, verbatim)" value={trusteesRecital} onChange={setTrusteesRecital} placeholder="Rosalind A. WHITMORE and Desmond P. WHITMORE, Trustees of THE WHITMORE FAMILY REVOCABLE LIVING TRUST, dated August 14, 2021" required textarea />
+        <Text label="Trustees recital (attorney-supplied, verbatim)" value={trusteesRecital} onChange={setTrusteesRecital} placeholder="Rosalind A. WHITMORE and Desmond P. WHITMORE, Trustees of THE WHITMORE FAMILY REVOCABLE LIVING TRUST, dated August 14, 2021" required textarea invalid={missing.trusteesRecital} />
         {grantorNeedsConfirm && (
           <p data-testid="into-trust-grantor-seed-note" className="text-xs text-amber-700">
             Grantor(s) read from the prior deed (the current owner(s)) — confirm or edit.
           </p>
         )}
-        <StringList label="Grantor(s)" values={grantors} setValues={setGrantors} placeholder="Full legal name" />
+        <StringList label="Grantor(s)" values={grantors} setValues={setGrantors} placeholder="Full legal name" invalid={missing.grantor} />
         <div className="grid grid-cols-2 gap-4">
           <Text label="Grantor marital status" value={grantorMaritalStatus} onChange={setGrantorMaritalStatus} placeholder="a married couple" />
           <Text label="Held as" value={heldAs} onChange={setHeldAs} placeholder="tenants_by_entirety" />
@@ -867,11 +971,11 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
               <option value="COUNTY">COUNTY</option>
             </select>
           </div>
-          <Text label="Notary jurisdiction name" value={notaryName} onChange={setNotaryName} placeholder="ALEXANDRIA" required />
+          <Text label="Notary jurisdiction name" value={notaryName} onChange={setNotaryName} placeholder="ALEXANDRIA" required invalid={missing.notaryName} />
         </div>
         <Checkbox label="Include LCE identification footnote" checked={lceIdentificationFootnote} onChange={setLceIdentificationFootnote} />
         <Checkbox label="Title search performed" checked={titleSearchPerformed} onChange={setTitleSearchPerformed} />
-      </div>
+      </CollapsibleFields>
       <GenerateBar submitting={props.submitting} error={props.error} />
     </form>
   );
