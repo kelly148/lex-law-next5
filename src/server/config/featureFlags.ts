@@ -103,8 +103,11 @@ export function isJobReaperEnabled(): boolean {
  * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged
  * to sendability_evaluation per category, but NOTHING is enforced — the DOCX export proceeds exactly
  * as before. When exactly "true", the gate ENFORCES at the export boundary (v1 hard-stops only
- * wrong_matter_id; other categories warn) with the recorded attorney override path. The flip to
- * enforce is operator-gated on the shadow-mode false-positive data (FOLD-SEND-1 disposition).
+ * wrong_matter_id; other categories warn) with the recorded attorney override path. ULTRABUILD-1 W4:
+ * the wrong_matter_id-only scope is now a CODE-LEVEL lock (exportGate.ENFORCED_BLOCK_CATEGORIES), so the
+ * flip is provably wrong_matter_id-only even if a future rule row set another category to 'block'. The flip
+ * itself is operator-gated on the shadow-mode false-positive data (FOLD-SEND-1 disposition / QA-5 amendment)
+ * — a prod-DB analysis this batch cannot run.
  */
 export function isSendabilityGateEnabled(): boolean {
   return process.env['SENDABILITY_GATE_ENABLED'] === 'true';
