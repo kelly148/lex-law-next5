@@ -133,9 +133,15 @@ export async function insertDocument(
   data: Omit<NewDocument, 'id' | 'createdAt' | 'updatedAt'>,
 ): Promise<DocumentRow> {
   const id = uuidv4();
+  // W3c — deed provenance. Any documentType==='deed' persisted here is AGENT-assembled: the generic LLM path
+  // is blocked from minting deeds (enforceNotDeedLike), so the deterministic deed agent is the only live
+  // producer of a 'deed' row. Stamp it so the LIVE-9 export scanner distinguishes a sanctioned agent deed from
+  // a legacy/pasted one. A caller-supplied provenance wins; otherwise derive from documentType (null for
+  // non-deeds — nullable + back-compat).
+  const provenance = data.provenance ?? (data.documentType === 'deed' ? 'agent_assembled' : null);
   await db
     .insert(documents)
-    .values({ ...data, id });
+    .values({ ...data, id, provenance });
   const row = await getDocumentById(id, data.userId);
   if (!row)
     throw new Error(
