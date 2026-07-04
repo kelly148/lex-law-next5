@@ -1,0 +1,5 @@
+# W6 golden reviewer set — mirror the parent tools/calibration/.gitignore.
+# Committed: prompts.json, fixtures.json, baselines.json (all synthetic, prod-free).
+# NEVER committed: live capture artifacts + any real-shaped inputs.
+runs/
+inputs/
