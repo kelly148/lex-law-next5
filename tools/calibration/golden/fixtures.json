@@ -1,0 +1,7 @@
+{
+  "_note": "W6 DARK fixtures (run-sheet G.6). Canned SYNTHETIC reviewer outputs (legacy JSON-array-of-{title,body,severity} strings) standing in for provider output, one PASS-baseline per scenario, so the harness runs with ZERO egress before CAL-1's first live capture. Prod-free.",
+  "P8-T1": "[]",
+  "P8-T6": "[{\"title\":\"Audience over-disclosure\",\"body\":\"The letter to opposing counsel reveals the internal walk-away number — a substantive drafting/audience risk. The 50/50 offer itself is the attorney's business decision and is preserved.\",\"severity\":\"major\"}]",
+  "P8-T7": "[{\"title\":\"Governing law mismatch\",\"body\":\"This Virginia agreement carries a California governing-law clause; a blocker that must be resolved before send. Requires an attorney decision.\",\"severity\":\"critical\"}]",
+  "P8-T10": "[{\"title\":\"Recourse structure not selected\",\"body\":\"The note is non-recourse by template default. Surface both the recourse (with cap) and non-recourse paths — this is a business decision that requires an attorney decision.\",\"severity\":\"major\"}]"
+}
