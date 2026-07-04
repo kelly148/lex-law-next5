@@ -178,3 +178,39 @@ no `audit_events` enum change; no egress; no prod change.
 written to `audit_events` (`eventType='disposition'`), so these tables do not create a competing record of
 attorney decisions — they hold operational state + a pointer to the deciding audit-event, and decision history
 projects from `audit_events` (FOLD-L1-1 Fork C).
+
+---
+
+## 2026-07-04 — CLOSURE: full batch MERGED (this section supersedes the in-progress status tables above)
+
+Rule-16 backfill written 2026-07-04. The status tables earlier in this log reflect the 2026-07-03 W10 FIRE-HALT
+checkpoint and were never updated when the remaining items built and merged; the executing session's window
+closed before this closure was logged. Final state re-verified against GitHub (`gh` + `git`). This section is
+append-only — nothing above it was edited.
+
+**All items merged to `main`. `origin/main = 00c4899`.** Fifteen squash commits (prod `2cc7ecc` -> `00c4899`):
+
+| Item | PR | Squash SHA | Notes |
+|---|---|---|---|
+| W1 — Express durable E4b/E7b | #470 | `e6fbc67` | migration `0051` (flag-dark) |
+| W2 — hygiene (0.4/0.7/0.8/0.9) | #471 | `45ec71d` | de-id rule, build-SHA footer, VA-only deed guard, waiver banner |
+| W3 — deed-lane finish | #476 | `98eb404` | B6 verification, S5 review packet, provenance field -> migration `0052` |
+| W4 — sendability scope-lock | #475 | `58e699b` | code-level `wrong_matter_id`-only enforce; flag default OFF |
+| W5 — model-pin inventory | #472 | `1e9b467` | preview-tier flag; no id changed |
+| W6 — golden reviewer prompts | #477 | `b87abb7` | dark drift harness; no live calls |
+| W7 — reviewer-health view | #478 | `1b11c86` | 4 per-lane signals; `REVIEWER_HEALTH_VIEW_ENABLED` OFF |
+| W8/W9 — governance docs + F-2 | #473 | `fdb3a5e` | standing rules, client-facing preconditions, data-lives |
+| W10a/W10b — §3.1 FIRE packets | #474 | `b06ae60` | C1-CONV-DESIGN + D3-SIGNOFF |
+| triad dispositions adopted | #479 | `24ae13d` | briefs -> v1.1; D3B follow-on ticket |
+| D3-SIGNOFF A.1 Inc 1 — data core | #480 | `72dc4b8` | migration `0053`; flag-dark |
+| D3-SIGNOFF A.1 Inc 2 — comparator | #485 | `3a2b904` | re-landed; #481 CLOSED (base was a feature branch, not `main`) -> superseded by #485 |
+| D3-SIGNOFF A.1 Inc 3 — OBSERVE wiring | #482 | `a2780a1` | export-route; measures, never blocks |
+| D3-SIGNOFF A.1 Inc 4 — UI + ENFORCE | #483 | `fd91165` | earlier RED (3 render tests / Express-entry flag-gating) resolved before merge |
+| S5 (UB1-W3b) — survivorship fixes | #484 | `00c4899` | Q1/Q2/Q3/Q5; ratified with the informative-failure cure-card named change; = `origin/main` HEAD |
+
+**CI:** all 15 green at merge. **Migrations `0051`/`0052`/`0053`:** generated + committed, NOT applied —
+operator-applied out-of-band, and NOT on the `apply-prod-migrations.mjs` auto-apply allowlist (which ends at
+`0050`); `0052` is a hard pre-deploy prerequisite (unconditional `documents.provenance` column breaks all
+document read/write on an un-migrated prod). **Deploy:** operator-gated; nothing deployed (prod remains
+`2cc7ecc`). Rule-18 MODE B DEPLOY PROMPT issued 2026-07-04. The post-deploy flag-flip order and the
+`wrong_matter_id` shadow-log FP check are recorded in `docs/STATE.md` (2026-07-04 entry).
