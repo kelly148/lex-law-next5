@@ -34,7 +34,7 @@ import { groundedChatStatusLine } from './llm/chatCopilotConfig.js';
 import { loadPromptAssets } from './llm/promptAssets.js';
 import { startDispatcher, stopDispatcher } from './jobs/dispatcher.js';
 import { getSession, extractUserId } from './middleware/session.js';
-import { insertMaterial } from './db/queries/materials.js';
+import { insertMaterial, listMaterialsForMatter } from './db/queries/materials.js';
 import { getMatterById } from './db/queries/matters.js';
 import { getDocumentById } from './db/queries/documents.js';
 import { getJobById } from './db/queries/jobs.js';
@@ -54,7 +54,9 @@ import { scanForDeedOperativeLanguage } from './deed/deedDocTypeGuard.js';
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
-import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled } from './config/featureFlags.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode } from './config/featureFlags.js';
+import { consolidateDeedSourceFacts } from './deed/deedSourceFacts.js';
+import { observeD3Comparison, buildD3ObserveTelemetry } from './deed/d3Observe.js';
 import { resolveRootServe } from './landingRoot.js';
 
 // ============================================================
@@ -597,6 +599,60 @@ app.get(
           matched: deedScan.matched,
         });
         return;
+      }
+    }
+
+    // ── D3-SIGNOFF OBSERVE (A.1 Inc 3) ─────────────────────────────────────────
+    // When the D3 sign-off gate is on (observe/enforce; default OFF), compute the source-anchored comparison for
+    // a sanctioned deed at export and LOG it (measures the false-fail rate). OBSERVE NEVER blocks and writes NO
+    // sign-off record — enforcement + the attorney sign-off record are the UI increment + the operator ENFORCE
+    // flip (NC-D3-7). Best-effort: any failure here never breaks the export.
+    const d3Mode = getD3SignoffMode();
+    if (d3Mode !== 'off' && doc.documentType === 'deed') {
+      try {
+        const d3Materials = await listMaterialsForMatter(doc.matterId, userId);
+        const sourceFacts = consolidateDeedSourceFacts(
+          d3Materials.map((m) => ({ materialId: m.id, textContent: m.textContent })),
+        );
+        const parcelExpected =
+          Boolean(sourceFacts.parcelId.value) || /Tax I\.D\.|GPIN|Tax Map No\./i.test(version.content);
+        const observe = observeD3Comparison({
+          deedText: version.content,
+          category: doc.customTypeLabel ?? 'deed',
+          source: {
+            legalDescription: {
+              value: sourceFacts.legalDescription.value,
+              withheld: sourceFacts.legalDescription.withheld,
+              flags: sourceFacts.legalDescription.flags,
+            },
+            parcelId: { value: sourceFacts.parcelId.value, withheld: sourceFacts.parcelId.withheld },
+            currentOwners: { values: sourceFacts.granteeOfRecord.values, withheld: sourceFacts.granteeOfRecord.withheld },
+          },
+          parcelExpected,
+        });
+        const payload = buildD3ObserveTelemetry(observe, { documentVersionId: version.id, gateMode: d3Mode });
+        void emitTelemetry('d3_signoff_observed', payload, { userId, matterId: doc.matterId, documentId, jobId: null });
+        if (payload.wouldBlock) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[D3-SIGNOFF observe] ' +
+              JSON.stringify({
+                event: 'd3_signoff_would_block',
+                documentVersionId: version.id,
+                tier: payload.tier,
+                legalStatus: payload.legalStatus,
+                parcelStatus: payload.parcelStatus,
+                ts: new Date().toISOString(),
+              }),
+          );
+        }
+      } catch (err) {
+        // Best-effort: never break the export on an observe failure.
+        void emitTelemetry(
+          'procedure_error',
+          { procedureName: 'd3SignoffObserve', errorCode: 'D3_OBSERVE_FAILED', errorMessage: err instanceof Error ? err.message : String(err) },
+          { userId, matterId: doc.matterId, documentId, jobId: null },
+        );
       }
     }
 

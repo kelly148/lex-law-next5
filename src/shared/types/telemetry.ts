@@ -93,7 +93,9 @@ type ReviewPaneEvent =
   | 'sendability_check_failed'
   // FOLD-SEND-1: deterministic export-safety gate (per-category; emitted from Inc 2 shadow mode on).
   | 'sendability_evaluation_recorded'
-  | 'sendability_override_recorded';
+  | 'sendability_override_recorded'
+  // D3-SIGNOFF (A.1): OBSERVE-mode source-anchored deed sign-off comparison logged at export (NC-1: no values).
+  | 'd3_signoff_observed';
 
 // ============================================================
 // E.6 / Ch 25.7 — Materials library events
@@ -338,6 +340,19 @@ export interface TelemetryPayload {
     durationMs: number;
   };
   sendability_override_recorded: { category: string; reasonCode: string };
+  // D3-SIGNOFF (A.1) OBSERVE payload — statuses + flags only, NEVER the compared values (NC-1).
+  d3_signoff_observed: {
+    documentVersionId: string;
+    gateMode: 'observe' | 'enforce';
+    tier: 'hard_block' | 'overridable_block' | 'pass';
+    wouldBlock: boolean;
+    comparatorVersion: string;
+    legalStatus: string;
+    parcelStatus: string;
+    legalExtracted: boolean;
+    parcelExtracted: boolean;
+    partiesCompared: boolean;
+  };
 
   // E.6 Materials library
   material_uploaded: {
