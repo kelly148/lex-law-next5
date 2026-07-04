@@ -200,6 +200,19 @@ function isBlank(v: string | undefined | null): boolean {
   return false;
 }
 
+/** S5-Q2: does `tookTitleAs` recite a SURVIVORSHIP tenancy? A "sole owner by operation of law" recital is
+ *  legally true ONLY for a joint tenancy with the right of survivorship (JTWROS) or a tenancy by the entirety
+ *  (which carries the common-law right of survivorship in Virginia). A tenancy in common has NO survivorship —
+ *  the decedent's share passes by will/intestacy, not to the co-owner. Deterministic keyword test (no fuzzy
+ *  matching); fails closed on a non-survivorship or self-contradictory ("in common … with survivorship")
+ *  formulation. */
+function hasSurvivorshipFormulation(tookTitleAs: string): boolean {
+  const t = tookTitleAs.toLowerCase();
+  const survivorship = /survivorship/.test(t) || /tenan(?:ts?|cy|cies)\s+by\s+the\s+entirety/.test(t);
+  const tenantsInCommon = /tenants?\s+in\s+common/.test(t);
+  return survivorship && !tenantsInCommon;
+}
+
 /**
  * A legal description is truncated/missing if absent, lacks a recordable terminus (a period optionally + a
  * closing quote/paren), or ends on a dangling connective/preposition or a bare instrument-number fragment.
@@ -286,27 +299,49 @@ export function assembleConfirmationDeed(input: DeedConfirmationInput): DeedConf
     // Survivorship: prior-deed / took-title facts + decedent name + death date must be present.
     const c = input.chainSurvivorship;
     const dec = input.decedent;
+    const nonBlankOwners = (c?.coOwners ?? []).filter((x) => !isBlank(x)).map((x) => x.trim());
     const survivorshipMissing =
-      !c || isBlank(c.tookTitleAs) || (c.coOwners ?? []).filter((x) => !isBlank(x)).length < 2 ||
+      !c || isBlank(c.tookTitleAs) || nonBlankOwners.length < 2 ||
       isBlank(c.vestingDeedDate) || isBlank(c.vestingDeedRecorded) || isBlank(c.vestingInstrumentNumber) ||
       isBlank(c.recordsCounty) ||
       !dec || isBlank(dec.name) || isBlank(dec.dateOfDeath) ||
       isBlank(input.beingRecitalPriorInstrument);
-    // Survivor must be UNAMBIGUOUS (surface-not-decide): either an explicit attorney-supplied survivorName, or
-    // EXACTLY ONE co-owner string-equals the decedent name (so the OTHER co-owner is the survivor). Zero or >1
-    // decedent matches is ambiguous — fail closed rather than silently naming owners[0] (which could be the
-    // decedent). Only evaluated when the core facts above are present.
+
+    // S5-Q1: the survivorship recital names a SINGLE survivor who became the SOLE owner — legally true ONLY for
+    // exactly two co-owners (one dies -> one survivor). With 3+ co-owners the death leaves MULTIPLE survivors
+    // (not a sole owner) and the two-name recital (owners[0]/owners[1]) would silently DROP the extra owners ->
+    // a false statement of title. Fail closed for manual drafting rather than emit a false "sole owner" chain.
+    const survivorshipTooManyOwners = !survivorshipMissing && nonBlankOwners.length !== 2;
+
+    // S5-Q2: `tookTitleAs` drives the "by operation of law … became the sole owner" recital, which is legally
+    // TRUE only for a survivorship tenancy. A tenancy-in-common vesting has NO survivorship, so the recital would
+    // fabricate a legal conclusion. Require a survivorship formulation; fail closed otherwise.
+    const survivorshipTenancyInvalid = !survivorshipMissing && !hasSurvivorshipFormulation(c!.tookTitleAs);
+
+    // Survivor must be UNAMBIGUOUS (surface-not-decide).
     let survivorAmbiguous = false;
     if (!survivorshipMissing) {
-      const owners = c!.coOwners.map((o) => o.trim());
       const decName = dec!.name.trim();
-      const decedentMatches = owners.filter((o) => o === decName).length;
-      const explicitSurvivor = !isBlank(input.survivorName);
-      if (!explicitSurvivor && decedentMatches !== 1) survivorAmbiguous = true;
+      const decedentMatches = nonBlankOwners.filter((o) => o === decName).length;
+      if (isBlank(input.survivorName)) {
+        // Derived path: EXACTLY ONE co-owner string-equals the decedent (so the OTHER is the survivor). Zero or
+        // >1 matches is ambiguous — fail closed rather than silently naming owners[0] (which could be the
+        // decedent).
+        if (decedentMatches !== 1) survivorAmbiguous = true;
+      } else {
+        // S5-Q3: an explicit survivorName no longer BYPASSES the coherence check. It must string-equal one of
+        // the co-owners (so a wrong-matter / typo'd name cannot render straight into the operative "sole owner"
+        // recital) and must not equal the decedent. It intentionally STILL tolerates a decedent-name variant the
+        // exact-match derived path cannot resolve — resolving that variant is the explicit path's whole purpose.
+        const survName = input.survivorName!.trim();
+        const survivorMatches = nonBlankOwners.filter((o) => o === survName).length;
+        if (survivorMatches < 1 || survName === decName) survivorAmbiguous = true;
+      }
     }
-    if (survivorshipMissing || survivorAmbiguous) {
-      flags.push('INCOMPLETE_SURVIVORSHIP_CHAIN');
-    }
+
+    if (survivorshipMissing || survivorAmbiguous) flags.push('INCOMPLETE_SURVIVORSHIP_CHAIN');
+    if (survivorshipTooManyOwners) flags.push('SURVIVORSHIP_UNSUPPORTED_OWNER_COUNT');
+    if (survivorshipTenancyInvalid) flags.push('SURVIVORSHIP_TENANCY_NOT_SURVIVORSHIP');
   }
 
   if (flags.length > 0) return withheld(flags, advisories);
@@ -327,7 +362,8 @@ function subjectToClause(input: DeedConfirmationInput): string {
 function assembleSurvivorship(input: DeedConfirmationInput, advisories: string[]): DeedConfirmationResult {
   const c = input.chainSurvivorship!;
   const dec = input.decedent!;
-  const owners = c.coOwners.map((o) => o.trim());
+  // Non-blank co-owners (the gate has proven there are EXACTLY two — S5-Q1); never index a blank into a recital.
+  const owners = c.coOwners.map((o) => o.trim()).filter((o) => o !== '');
   // The survivor is the explicit attorney-supplied name, else the co-owner who is NOT the decedent. The
   // completeness guard has already proven this is UNAMBIGUOUS (exactly one co-owner matches the decedent) — so
   // there is no silent owners[0] default; an ambiguous chain failed closed before reaching here.
@@ -474,7 +510,9 @@ function assembleTestateDevise(input: DeedConfirmationInput, advisories: string[
   // The 5-link WHEREAS chain — each link built ONLY from non-blank facts (guarded above).
   const whereas1 =
     `WHEREAS, by Deed dated ${c.originalDeedDate.trim()}, and recorded ${c.originalDeedRecorded.trim()}, in ` +
-    `${c.originalDeedBookPage.trim()} among the land records of ${input.locality.trim()} County, Virginia, ` +
+    // S5-Q5: independent-city safe — 'bare' renders "<X> County" for a county (byte-identical to the prior
+    // hardcoding) and "City of <X>" for a Virginia independent city (never a nonexistent "<City> County").
+    `${c.originalDeedBookPage.trim()} among the land records of ${renderLocality({ type: input.localityType ?? 'county', name: input.locality, style: 'bare' })}, Virginia, ` +
     `${c.originalGrantors.trim()}, conveyed the hereinafter-described real property unto ${c.originalGrantees.trim()}, ` +
     `as ${c.originalGranteesTenancy.trim()}; AND`;
   const whereas2 =
@@ -506,8 +544,10 @@ function assembleTestateDevise(input: DeedConfirmationInput, advisories: string[
     `by Deed recorded in ${input.beingRecitalBookPage!.trim()} among the aforesaid land records; the said ${fd.name.trim()} ` +
     `having predeceased the said ${t.name.trim()}, whereby ${t.subjectPronoun.trim()} became sole owner by survivorship; and the said ${t.name.trim()} ` +
     `having thereafter died testate, devising the said real property to the Grantor, ${d.devisee.trim()}, under ${d.article.trim()} ` +
-    `of ${t.possessivePronoun.trim()} Last Will and Testament admitted to probate in the Circuit Court of ${input.locality.trim()} ` +
-    `County, Virginia (Fiduciary No. ${t.fiduciaryNumber.trim()}).`;
+    // S5-Q5: independent-city safe — the probate Circuit Court is named "the Circuit Court of <X> County"
+    // (county, byte-identical) or "the Circuit Court of City of <X>" (independent city), never a false county.
+    `of ${t.possessivePronoun.trim()} Last Will and Testament admitted to probate in the Circuit Court of ` +
+    `${renderLocality({ type: input.localityType ?? 'county', name: input.locality, style: 'bare' })}, Virginia (Fiduciary No. ${t.fiduciaryNumber.trim()}).`;
 
   const subjectTo = subjectToClause(input);
   const taxLine = `Tax Map No.: ${(input.taxMap ?? '').trim()}`;

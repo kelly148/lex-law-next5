@@ -499,3 +499,90 @@ describe('Confirmation (C1) — registry + verified cite', () => {
     expect(c!.transferType).toMatch(/Deed of confirmation/);
   });
 });
+
+describe('Confirmation (C1) — S5 survivorship fixes (UB1-W3b)', () => {
+  const survBase = (): DeedConfirmationInput => toInput(grabInput('G1'));
+  const testateBase = (): DeedConfirmationInput => toInput(grabInput('G2'));
+
+  // ── S5-Q1: exactly two co-owners (a single survivor becomes the SOLE owner only for a two-owner chain) ──
+  it('Q1: three co-owners -> WITHHELD + SURVIVORSHIP_UNSUPPORTED_OWNER_COUNT (no false "sole owner", no dropped owner)', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({
+      ...b,
+      chainSurvivorship: { ...b.chainSurvivorship!, coOwners: ['Marcus Delacroix', 'Helene Quintero', 'Owen T. Third'] },
+    });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('SURVIVORSHIP_UNSUPPORTED_OWNER_COUNT');
+    expect(r.deed).toBeUndefined();
+  });
+
+  it('Q1: the two-owner GOLD path is unchanged (still OK)', () => {
+    expect(assembleConfirmationDeed(survBase()).status).toBe('OK');
+  });
+
+  // ── S5-Q2: tookTitleAs must recite a survivorship tenancy ──
+  it('Q2: a tenancy-in-common tookTitleAs -> WITHHELD + SURVIVORSHIP_TENANCY_NOT_SURVIVORSHIP (no fabricated survivorship)', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({ ...b, chainSurvivorship: { ...b.chainSurvivorship!, tookTitleAs: 'tenants in common' } });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('SURVIVORSHIP_TENANCY_NOT_SURVIVORSHIP');
+  });
+
+  it('Q2: tenancy by the entirety is accepted (carries the common-law right of survivorship in VA)', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({ ...b, chainSurvivorship: { ...b.chainSurvivorship!, tookTitleAs: 'tenants by the entirety' } });
+    expect(r.status).toBe('OK');
+  });
+
+  it('Q2: a self-contradictory "tenants in common … with survivorship" fails closed', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({ ...b, chainSurvivorship: { ...b.chainSurvivorship!, tookTitleAs: 'tenants in common with a right of survivorship' } });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('SURVIVORSHIP_TENANCY_NOT_SURVIVORSHIP');
+  });
+
+  // ── S5-Q3: explicit survivorName no longer bypasses coherence (but still resolves a decedent-name variant) ──
+  it('Q3: an explicit survivorName that is NOT a co-owner -> WITHHELD (a wrong-matter name cannot render as the sole owner)', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({ ...b, survivorName: 'Someone Not A Co-Owner' });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('INCOMPLETE_SURVIVORSHIP_CHAIN');
+    expect(r.deed).toBeUndefined();
+  });
+
+  it('Q3: an explicit survivorName equal to the decedent -> WITHHELD', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({ ...b, survivorName: b.decedent!.name });
+    expect(r.status).toBe('WITHHELD');
+    expect(r.flags).toContain('INCOMPLETE_SURVIVORSHIP_CHAIN');
+  });
+
+  it('Q3: an explicit survivorName that IS a co-owner still resolves a decedent-name variant (the explicit path is preserved)', () => {
+    const b = survBase();
+    const r = assembleConfirmationDeed({
+      ...b,
+      decedent: { ...b.decedent!, name: 'Helene M. Quintero' }, // a middle-initial variant matching no co-owner
+      survivorName: 'Marcus Delacroix', // IS a co-owner
+    });
+    expect(r.status).toBe('OK');
+    expect(r.deed!.whereasRecitals).toContain('by operation of law Marcus Delacroix became the sole owner');
+  });
+
+  // ── S5-Q5: the two residual testate render sites are independent-city safe ──
+  it('Q5: testate + independent city -> "City of <X>" at the records recital + probate court, never a false "<X> County"', () => {
+    const b = testateBase();
+    const r = assembleConfirmationDeed({ ...b, localityType: 'city' });
+    expect(r.status).toBe('OK');
+    const d = r.deed!;
+    expect(d.whereasRecitals).toContain(`among the land records of City of ${b.locality}, Virginia,`);
+    expect(d.beingRecital).toContain(`in the Circuit Court of City of ${b.locality}, Virginia`);
+    // The CODE-rendered probate site must not name a nonexistent county for an independent city.
+    expect(d.beingRecital).not.toContain(`Circuit Court of ${b.locality} County`);
+  });
+
+  it('Q5: testate + county is byte-unchanged at the two code-rendered sites', () => {
+    const d = assembleConfirmationDeed(testateBase()).deed!;
+    expect(d.whereasRecitals).toContain('among the land records of Fairfax County, Virginia,');
+    expect(d.beingRecital).toContain('in the Circuit Court of Fairfax County, Virginia');
+  });
+});
