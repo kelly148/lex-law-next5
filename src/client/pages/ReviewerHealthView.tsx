@@ -15,7 +15,9 @@ const STATUS_ORDER = ['completed', 'running', 'queued', 'failed', 'timed_out', '
 export default function ReviewerHealthView(): React.ReactElement {
   const enabledQ = trpc.reviewerHealth.isEnabled.useQuery();
   const enabled = enabledQ.data?.enabled === true;
-  const snapQ = trpc.reviewerHealth.snapshot.useQuery(undefined, { enabled });
+  // W7 — request the 30-day window (720h) so the panel-composition decision sees the full window. The
+  // underlying collection is always-on, so the window is already accumulating.
+  const snapQ = trpc.reviewerHealth.snapshot.useQuery({ windowHours: 720 }, { enabled });
 
   if (enabledQ.isLoading) return <div className="p-8 text-sm text-ink-hint">Loading…</div>;
   if (!enabled) return <Navigate to="/matters" replace />;
@@ -47,6 +49,37 @@ export default function ReviewerHealthView(): React.ReactElement {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-ink mb-2">
+              Per-lane reviewer health — last {Math.round(snap.windowHours / 24)}d
+              {snap.stuckSessionCount > 0 && (
+                <span className="ml-2 text-xs text-accent">· {snap.stuckSessionCount} possibly-stuck session(s)</span>
+              )}
+            </h2>
+            {Object.keys(snap.perLane).length === 0 ? (
+              <p className="text-sm text-ink-hint">No reviewer outputs in this window yet.</p>
+            ) : (
+              <div className="border border-line rounded-lg divide-y divide-line" data-testid="rh-per-lane">
+                <div className="grid grid-cols-5 gap-2 px-3 py-2 text-xs font-medium text-ink-secondary">
+                  <span>Lane</span>
+                  <span className="text-right">Outputs</span>
+                  <span className="text-right">Parse fail</span>
+                  <span className="text-right">Empty</span>
+                  <span className="text-right">Adopted</span>
+                </div>
+                {Object.entries(snap.perLane).map(([role, h]) => (
+                  <div key={role} className="grid grid-cols-5 gap-2 px-3 py-2 text-sm tabular-nums" data-testid={`rh-lane-${role}`}>
+                    <span className="text-ink capitalize">{role}</span>
+                    <span className="text-right text-ink-secondary">{h.outputsCaptured}</span>
+                    <span className="text-right text-ink-secondary">{h.parseFailures}</span>
+                    <span className="text-right text-ink-secondary">{h.emptyReviews}</span>
+                    <span className="text-right text-ink-secondary">{h.findingsAdopted}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section>

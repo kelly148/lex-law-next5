@@ -103,8 +103,11 @@ export function isJobReaperEnabled(): boolean {
  * When OFF (the default), the gate runs in SHADOW MODE: every evaluation is still computed + logged
  * to sendability_evaluation per category, but NOTHING is enforced — the DOCX export proceeds exactly
  * as before. When exactly "true", the gate ENFORCES at the export boundary (v1 hard-stops only
- * wrong_matter_id; other categories warn) with the recorded attorney override path. The flip to
- * enforce is operator-gated on the shadow-mode false-positive data (FOLD-SEND-1 disposition).
+ * wrong_matter_id; other categories warn) with the recorded attorney override path. ULTRABUILD-1 W4:
+ * the wrong_matter_id-only scope is now a CODE-LEVEL lock (exportGate.ENFORCED_BLOCK_CATEGORIES), so the
+ * flip is provably wrong_matter_id-only even if a future rule row set another category to 'block'. The flip
+ * itself is operator-gated on the shadow-mode false-positive data (FOLD-SEND-1 disposition / QA-5 amendment)
+ * — a prod-DB analysis this batch cannot run.
  */
 export function isSendabilityGateEnabled(): boolean {
   return process.env['SENDABILITY_GATE_ENABLED'] === 'true';
@@ -449,6 +452,20 @@ export function isChatReviewPanelEnabled(): boolean {
  */
 export function isAutoReviewLoopEnabled(): boolean {
   return process.env['AUTO_REVIEW_LOOP_ENABLED'] === 'true';
+}
+
+/**
+ * EXPRESS durable records (E4b decision ledger + E7b attorney-approval attestation) — DEFAULT OFF.
+ * ULTRABUILD-1 W1. When OFF (the default), the Express procedure NEVER writes the durable ledger/attestation
+ * tables — behavior is byte-for-byte unchanged (the ledger is returned in the response, then dropped, exactly
+ * as before). When exactly "true" (operator-gated, and only AFTER migration 0051 has landed in prod), a
+ * completed loop run persists its decision ledger and the attorney's complete sign-off becomes durably
+ * attestable. This is a SEPARATE flag from AUTO_REVIEW_LOOP_ENABLED precisely so durable persistence can be
+ * enabled only once the additive tables exist in prod — flipping it before the migration lands would fail the
+ * write (fail-visible), never silently drop the supervision record.
+ */
+export function isExpressDurableRecordsEnabled(): boolean {
+  return process.env['EXPRESS_DURABLE_RECORDS_ENABLED'] === 'true';
 }
 
 /**

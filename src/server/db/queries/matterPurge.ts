@@ -27,7 +27,8 @@
  *     auditEvents, sourceAuthority, openItems, provisionProvenance, lddKeyTerm, closurePackageItem,
  *     sendabilityOverride, sendabilityEvaluation, matterParties, conflictChecks, conflictHits,
  *     matterAnalysis, kbAdoptions, matterDeadline (FOLD-PM-1), documentParty (DOC-CLIENT-TARGET-1),
- *     gateOverride (CONFLICT-GATE-OVERRIDE-1), promptSnapshots (INSTR-1A0), postureProvenance
+ *     gateOverride (CONFLICT-GATE-OVERRIDE-1), expressLoopRun + expressLedgerEntry +
+ *     expressApprovalAttestation (EXPRESS-AUTO-REVIEW-LOOP-1 E4b/E7b), promptSnapshots (INSTR-1A0), postureProvenance
  *     (CHAT-UI-1 W2), matterDeliverable (FOLD-PM-4), materialExtraction (FOLD-PM-2), notifications
  *     (FOLD-NOTIFY-1; matter-scoped rows only — a matter-less owner-level notice is retained), documents
  *     — then the `matters` row itself.
@@ -95,6 +96,9 @@ import {
   notifications,
   egressEvents,
   egressHold,
+  expressLoopRun,
+  expressLedgerEntry,
+  expressApprovalAttestation,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -222,6 +226,14 @@ export async function cascadeDeleteMatterChildren(
   // per deed document). Operational state; the PERMANENT record of each act is the auditEvents Matter-Record
   // event (preserved by the everyday delete), so the table purges WITH the matter — like matterConflictPosture.
   await step('deedGate', deedGate, byMatter(deedGate));
+  // EXPRESS-AUTO-REVIEW-LOOP-1 (E4b/E7b, ULTRABUILD-1 W1): the matter's durable Express auto-review records —
+  // the approval attestation + ledger entries (children of the run) before the run itself. Operational
+  // supervision STATE; the PERMANENT record of each attorney adopt/reject/approve is the auditEvents
+  // Matter-Record disposition event (preserved by the everyday delete), so these tables purge WITH the matter,
+  // exactly like deedGate / matterConflictPosture. Children-first (no FK; for clean counts). Owner+matter-scoped.
+  await step('expressApprovalAttestation', expressApprovalAttestation, byMatter(expressApprovalAttestation));
+  await step('expressLedgerEntry', expressLedgerEntry, byMatter(expressLedgerEntry));
+  await step('expressLoopRun', expressLoopRun, byMatter(expressLoopRun));
   // INSTR-1A0: per-draft-job prompt snapshots — their legacy-path systemText embeds matter-derived
   // content (matter state, PA profile), so they purge with the matter. matterId is nullable on the
   // table, but every draft-job row carries it; owner-scoped like every other step.
