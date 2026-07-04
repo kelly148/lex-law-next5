@@ -137,6 +137,9 @@ export const DocumentRowSchema = z.object({
   // so a pre-migration read / legacy fixture (key absent) still parses; a post-migration row
   // carries a boolean. FOLD-SEND-1 reads this artifact-level flag.
   drewOnUnverifiedKb: z.boolean().optional(),
+  // W3c deed provenance (agent_assembled | llm_authored). ADDITIVE + back-compat: .nullable().optional()
+  // so a pre-migration read / legacy fixture (key absent) parses and a NULL column value parses.
+  provenance: z.enum(['agent_assembled', 'llm_authored']).nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
