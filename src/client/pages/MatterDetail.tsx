@@ -102,6 +102,13 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
   const [createPair, setCreatePair] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const utils = trpc.useUtils();
+  const navigate = useNavigate();
+
+  // DEED-INTAKE-PARITY-1 Inc 2: when the deed-draft agent is enabled, selecting the "deed" type routes to the
+  // matter-scoped Express intake (/matters/:matterId/deed) instead of the generic create form. Flag OFF -> the
+  // generic create form, byte-for-byte unchanged (the ungated isEnabled probe, default OFF).
+  const { data: deedAgentFlag } = trpc.deedDraftAgent.isEnabled.useQuery();
+  const deedExpress = documentType === 'deed' && deedAgentFlag?.enabled === true;
 
   // DOC-CLIENT-TARGET-1: the matter's parties drive the principal selector. The targeting STRUCTURE +
   // role label are read from the shared doc-type config (the single accessor — never hardcoded here).
@@ -185,19 +192,21 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
         <h2 className="text-lg font-semibold text-firm-navy mb-4">New Document</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Title <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
-              placeholder="e.g., Engagement Letter"
-              autoFocus
-            />
-          </div>
+          {!deedExpress && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Title <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                placeholder="e.g., Engagement Letter"
+                autoFocus
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Document Type <span className="text-red-500">*</span>
@@ -213,6 +222,31 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
               ))}
             </select>
           </div>
+          {/* DEED-INTAKE-PARITY-1 Inc 2: deed + agent enabled -> the guided matter-scoped Express intake, not the
+              generic create form. Flag OFF -> the block below renders unchanged. */}
+          {deedExpress && (
+            <div data-testid="deed-express-cta" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-3 text-sm space-y-3">
+              <p className="text-ink-secondary">
+                Deeds use the guided deed intake — drop in the prior vesting deed and tax record (or describe the
+                deal), confirm the facts, and generate the house-style draft. This matter&apos;s conflicts check
+                applies, and the draft is created in this matter (never auto-recorded or sent).
+              </p>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-testid="deed-express-continue"
+                  onClick={() => navigate(`/matters/${matterId}/deed`)}
+                  className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover"
+                >
+                  Continue to the deed intake →
+                </button>
+              </div>
+            </div>
+          )}
+          {!deedExpress && (<>
           {documentType === 'custom' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -313,6 +347,7 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
               {createMutation.isPending ? 'Creating…' : 'Create Document'}
             </button>
           </div>
+          </>)}
         </form>
       </div>
     </div>

@@ -32,6 +32,9 @@ vi.mock('../../trpc.js', async () => {
       useUtils: () => utilsProxy,
       matterIntake: { listParties: { useQuery: q(() => mockState.parties) } },
       document: { instancesForType: { useQuery: q(() => mockState.instances) } },
+      // DEED-INTAKE-PARITY-1 Inc 2: CreateDocumentForm now probes the deed-agent flag (default OFF here, so the
+      // generic create form renders exactly as these tests expect).
+      deedDraftAgent: { isEnabled: { useQuery: q(() => ({ enabled: false })) } },
     },
   };
 });

@@ -1019,6 +1019,11 @@ const quickDeedGenerateInput = createGiftDraftInput.extend({
   tod: quickDeedTodInput.optional(),
   confirmation: quickDeedConfirmationInput.optional(),
   intoTrust: quickDeedIntoTrustInput.optional(),
+  // DEED-INTAKE-PARITY-1 Inc 2: when the Express intake is opened INSIDE a matter (the matter-scoped lane), the
+  // deed generation must honor that matter's conflicts-at-intake gate exactly like the matter-scoped create*Draft
+  // cores — never the standalone Quick-Deed bypass-and-stamp. DEFAULT undefined/false = the standalone behavior,
+  // byte-for-byte (the firm-toggle path). Set true only by the matter-scoped client entry.
+  enforceConflicts: z.boolean().optional(),
 });
 
 /** PURE: map the validated Deed-INTO-TRUST input + extracted facts onto DeedIntoTrustInput. The doc-derived fields
@@ -2628,16 +2633,25 @@ export const quickDeedRouter = router({
     //
     // LOCKSTEP (unchanged from QD-1): assertDeedDraftingAllowed RETURNS whether it actually bypassed; the stamp
     // and the return field are both driven from that ONE value, so "skipped" and "stamped" can never drift.
-    const firmPolicy = (await getFirmConflictPolicy(ctx.userId)).policy;
-    const quickDeedConflictsEnforced = firmPolicy.deedConflictsEnforced;
-    // Pass BOTH seams from the one firm toggle: OFF → bypass the gate + stamp (QD-1); ON → withdraw the bypass
-    // AND force the affirmative posture gate to run REGARDLESS of isConflictGateEnabled() — so an "enforced"
-    // Quick Deed can never silently fall through to the vacuous legacy-blocker check on the check-less
-    // auto-matter (it is honestly BLOCKED with CONFLICTS_NOT_CLEARED, no unstamped deed).
-    const { conflictsBypassed } = await assertDeedDraftingAllowed(ctx.userId, input.matterId, {
-      bypassConflicts: !quickDeedConflictsEnforced,
-      forceAffirmativeConflicts: quickDeedConflictsEnforced,
-    });
+    // DEED-INTAKE-PARITY-1 Inc 2 — matter-scoped Express intake: honor the matter's conflicts-at-intake gate
+    // EXACTLY like the matter-scoped create*Draft cores (no bypass, no stamp — assertDeedDraftingAllowed with no
+    // opts runs the SAME gate as document.create). This is the deliberately stricter path for a deed drafted
+    // inside a real matter (which has parties to check), never the standalone "duck-in" bypass-and-stamp.
+    let conflictsBypassed: boolean;
+    if (input.enforceConflicts === true) {
+      ({ conflictsBypassed } = await assertDeedDraftingAllowed(ctx.userId, input.matterId));
+    } else {
+      const firmPolicy = (await getFirmConflictPolicy(ctx.userId)).policy;
+      const quickDeedConflictsEnforced = firmPolicy.deedConflictsEnforced;
+      // Pass BOTH seams from the one firm toggle: OFF → bypass the gate + stamp (QD-1); ON → withdraw the bypass
+      // AND force the affirmative posture gate to run REGARDLESS of isConflictGateEnabled() — so an "enforced"
+      // Quick Deed can never silently fall through to the vacuous legacy-blocker check on the check-less
+      // auto-matter (it is honestly BLOCKED with CONFLICTS_NOT_CLEARED, no unstamped deed).
+      ({ conflictsBypassed } = await assertDeedDraftingAllowed(ctx.userId, input.matterId, {
+        bypassConflicts: !quickDeedConflictsEnforced,
+        forceAffirmativeConflicts: quickDeedConflictsEnforced,
+      }));
+    }
 
     // Deed-type dispatch gate: the surface lists the whole registry, and generation now wires every built
     // category. The wired set is shared with the selector (isQuickDeedTypeWired), so the two cannot drift.
