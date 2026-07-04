@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-04 — ULTRABUILD-1 batch deployed; DEED-INTAKE-PARITY-1 shipped + live-verified; flag-naming clarity
+
+**What changed.** The ULTRABUILD-1 audit-remediation batch and the deed-track work merged to `main` as a cascade (**#470–#485**) and were **deployed to prod** (`00c4899`). On top of that, **DEED-INTAKE-PARITY-1** landed: Inc 1 per-type collapse parity on `/deed` (**#487**, squash `a1e5f7e`) and Inc 2 the matter-side Express intake with the `enforceConflicts` conflicts-honoring seam (**#488**, squash `ff395f4`); prod was redeployed to `ff395f4`. Both DEED-INTAKE-PARITY-1 increments were **live-verified** (Cowork browser, 2026-07-04): all 7 `/deed` types render intake-first with the collapsed "Fill in all fields manually" toggle; matter New Document → Deed hands off to `/matters/{id}/deed` with that matter's conflicts check applying.
+
+**Current build state.** `main` HEAD = `ff395f4`, deployed to prod. Post-deploy prod flag state: `EXPRESS_DURABLE_RECORDS_ENABLED=true` and `REVIEWER_HEALTH_VIEW_ENABLED=true`; `D3_SIGNOFF_MODE=observe`; the FOLD-SEND-1 sendability gate stays in **shadow mode, cleared by the false-positive check** (11 evaluations, 0 `wrong_matter_id` hits). Migrations 0051/0052/0053 (Express durable records) applied to prod. `DEED_DRAFT_AGENT_ENABLED` remains **OFF** on prod — the deed agent + both DEED-INTAKE-PARITY-1 increments are deployed but dark until that flag is flipped (a separate operator decision that lights up the whole deed agent).
+
+**Flag-naming clarity (today's wrong-flag incident).** Three Express-adjacent flags are easy to confuse. `DEED_DRAFT_AGENT_ENABLED` gates the WHOLE `/deed` deed-agent surface + the matter intake entry (render-vs-redirect) — it is the lever for the deed Express intake. `AUTO_REVIEW_LOOP_ENABLED` gates a DIFFERENT feature: the DocumentDetail "Auto-review (Express)" reviewer LOOP. `EXPRESS_DURABLE_RECORDS_ENABLED` gates NO UI — it only turns on durable ledger/attestation PERSISTENCE inside the (separately-gated) auto-review loop, and is inert unless AUTO_REVIEW_LOOP is also on. Flipping EXPRESS_DURABLE_RECORDS to reveal the intake was the wrong lever; a cross-reference note now lives in `src/server/config/featureFlags.ts`.
+
+**Open items / gate residuals.** (1) `DEED_DRAFT_AGENT_ENABLED` OFF on prod — flip to activate the deed intake (operator decision; enables the entire deed agent). (2) Sendability gate stays shadow-mode pending the enforce decision. (3) D3 sign-off in `observe` mode. (4) STATE.md had drifted (no entries between 2026-07-03 and this backfill) — reconciled here.
+
+**Next.** The autonomous batch continues (this run): S5 cure-card audit (UB1-W3b-2), Express E8 suite hardening (dark), then the CAL-1 calibration rerun.
+
 ## 2026-07-03 (TRIAD DISPOSITIONS ADOPTED — C1-CONV-DESIGN + D3-SIGNOFF; briefs → v1.1; D3 A.1 build begins)
 
 **Disposition.** Both ULTRABUILD-1 W10 §3.1 FIRE packets returned from external triad review and were adopted by the operator. **C1-CONV-DESIGN:** PROCEED-WITH-NAMED-CHANGES (NC-C1-1..8); OQ1=CopilotPage is the base; OQ2=strictly-route (no promote-to-draft from conversation). C.2 closes; C.3 (E4b/E7b, shipped as UB1-W1 #470) unaffected; **C.4–C.6 remain gated on A.6.** **D3-SIGNOFF:** PROCEED-WITH-NAMED-CHANGES (NC-D3-1..7); OQ1=Fork-A-now + Fork-B follow-on (ticket D3B); OQ2=OBSERVE→ENFORCE via a named operator activation event, **NOT gated on A.6** (A.6 runs THROUGH the enforced gate). Consolidated dispositions + raw returns at the Desktop `phase2/reviews/` path.

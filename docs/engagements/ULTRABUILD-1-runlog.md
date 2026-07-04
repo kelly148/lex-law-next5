@@ -178,3 +178,13 @@ no `audit_events` enum change; no egress; no prod change.
 written to `audit_events` (`eventType='disposition'`), so these tables do not create a competing record of
 attorney decisions — they hold operational state + a pointer to the deciding audit-event, and decision history
 projects from `audit_events` (FOLD-L1-1 Fork C).
+
+---
+
+## 2026-07-04 — batch deployed + DEED-INTAKE-PARITY-1 shipped/verified
+
+The ULTRABUILD-1 batch merged to `main` as the **#470–#485** cascade and was **deployed to prod** (`00c4899`). Post-deploy prod flag state: `EXPRESS_DURABLE_RECORDS_ENABLED=true`, `REVIEWER_HEALTH_VIEW_ENABLED=true`, `D3_SIGNOFF_MODE=observe`; the FOLD-SEND-1 sendability gate **cleared its shadow-mode false-positive check** (11 evaluations, 0 `wrong_matter_id` hits). Migrations 0051/0052/0053 applied to prod.
+
+On top of the batch, **DEED-INTAKE-PARITY-1** shipped as a separate reversible build-and-PR pair: Inc 1 `/deed` per-type collapse parity (**#487** → `a1e5f7e`) and Inc 2 the matter-side Express intake + the `enforceConflicts` conflicts-honoring seam (**#488** → `ff395f4`). Prod was redeployed to `ff395f4`, and **both increments were live-verified** (Cowork browser, 2026-07-04): all 7 `/deed` types intake-first with the collapsed manual toggle; matter New Document → Deed hands off to `/matters/{id}/deed` with that matter's conflicts check applying.
+
+`DEED_DRAFT_AGENT_ENABLED` remains **OFF** on prod — the deed agent is deployed but dark until that flag is flipped (a separate operator decision). Auto-merge for the reversible build-and-PR lane is back in effect for standalone deed-track work (merge ≠ deploy; deploy stays operator-gated). A flag-naming clarity note (DEED_DRAFT_AGENT vs AUTO_REVIEW_LOOP vs EXPRESS_DURABLE_RECORDS — the 2026-07-04 wrong-flag incident) now lives in `src/server/config/featureFlags.ts`.

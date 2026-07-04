@@ -484,6 +484,21 @@ export function isExpressDurableRecordsEnabled(): boolean {
   return process.env['EXPRESS_DURABLE_RECORDS_ENABLED'] === 'true';
 }
 
+/*
+ * FLAG-NAMING CLARITY (recorded 2026-07-04 after a wrong-flag incident). Three Express-adjacent flags are easy to
+ * confuse — this pins what each ACTUALLY gates so nobody flips the wrong one again:
+ *
+ *   - DEED_DRAFT_AGENT_ENABLED  (isDeedDraftAgentEnabled, above) — the lever for the DEED EXPRESS INTAKE. Gates
+ *     the WHOLE deed-agent surface: the /deed page (render-vs-redirect), the top-nav "Deed" link, the matter
+ *     "Deed" entry (/matters/:id/deed), and fail-closes every quickDeed procedure. If the deed intake "won't
+ *     show," THIS is the flag.
+ *   - AUTO_REVIEW_LOOP_ENABLED  (isAutoReviewLoopEnabled, above) — a DIFFERENT feature: the DocumentDetail
+ *     "Auto-review (Express)" reviewer LOOP (ExpressReviewPane). Nothing to do with the deed intake.
+ *   - EXPRESS_DURABLE_RECORDS_ENABLED  (this function) — gates NO UI at all. It only turns on durable
+ *     ledger/attestation PERSISTENCE inside the auto-review loop, and is INERT unless AUTO_REVIEW_LOOP_ENABLED
+ *     is also on. Flipping this to "reveal the deed intake" is the wrong lever (2026-07-04 incident).
+ */
+
 /**
  * Pure predicate: is a selection of `count` reviewers permitted, given whether the
  * multi-reviewer flag is enabled? Selecting more than one reviewer is only allowed
