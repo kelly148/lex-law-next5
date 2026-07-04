@@ -23,6 +23,7 @@ import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import DeedIntake, { type DeedGiftIntakePayload } from '../components/DeedIntake.js';
 import QuickDeedCategoryForm from './quickDeedCategoryForms.js';
+import { ManualFieldsToggle, MISSING_RING_CLASS } from './deedManualForm.js';
 import { sellerProposalToFields, type SellerProposalInput } from './quickDeedProposalApply.js';
 
 const QUICK_DEED_GIFT_TYPE = 'deed_of_gift';
@@ -151,6 +152,10 @@ export default function QuickDeedPage(): React.ReactElement {
   const [proposeBlockedReason, setProposeBlockedReason] = useState<string | null>(null);
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [grantorNeedsConfirm, setGrantorNeedsConfirm] = useState(false);
+  // DEED-INTAKE-PARITY-1 (seller lane): intake-first — the confirm form + seller field wall start COLLAPSED behind
+  // the shared toggle (parity with the gift DeedIntake); a generate attempt with gaps expands + red-rings them.
+  const [sellerFormExpanded, setSellerFormExpanded] = useState(false);
+  const [sellerMissing, setSellerMissing] = useState<{ grantor: boolean; grantee: boolean }>({ grantor: false, grantee: false });
 
   const isSeller = deedType === QUICK_DEED_SELLER_TYPE;
 
@@ -274,14 +279,16 @@ export default function QuickDeedPage(): React.ReactElement {
     e.preventDefault();
     const cleanGrantors = cleanParties(grantors);
     const cleanGrantees = cleanParties(grantees);
-    if (cleanGrantors.length === 0) {
-      setError('At least one grantor (seller) name is required.');
+    const grantorMissing = cleanGrantors.length === 0;
+    const granteeMissing = cleanGrantees.length === 0;
+    if (grantorMissing || granteeMissing) {
+      // DEED-INTAKE-PARITY-1: expand + ring the missing parties; never a silent block.
+      setSellerMissing({ grantor: grantorMissing, grantee: granteeMissing });
+      setError(grantorMissing ? 'At least one grantor (seller) name is required.' : 'At least one grantee (buyer) name is required.');
+      if (!sellerFormExpanded) setSellerFormExpanded(true);
       return;
     }
-    if (cleanGrantees.length === 0) {
-      setError('At least one grantee (buyer) name is required.');
-      return;
-    }
+    setSellerMissing({ grantor: false, grantee: false });
     setError(null);
     runGenerate({
       deedType: QUICK_DEED_SELLER_TYPE,
@@ -311,6 +318,7 @@ export default function QuickDeedPage(): React.ReactElement {
     rows: PartyRow[],
     setRows: (next: PartyRow[]) => void,
     descriptorPlaceholder: string,
+    nameInvalid = false,
   ): React.ReactElement => (
     <div className="space-y-2">
       {rows.map((row, idx) => (
@@ -319,7 +327,7 @@ export default function QuickDeedPage(): React.ReactElement {
             type="text"
             value={row.name}
             onChange={(e) => setRows(rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)))}
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+            className={`flex-1 border ${nameInvalid ? MISSING_RING_CLASS : 'border-gray-300'} rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy`}
             placeholder="Full legal name"
           />
           <input
@@ -505,22 +513,26 @@ export default function QuickDeedPage(): React.ReactElement {
             </div>
           )}
 
+          {/* DEED-INTAKE-PARITY-1 (seller lane): surface the auto-seeded grantor ABOVE the collapse so it is never
+              silently authoritative (parity with the gift lane), then the intake-first "manual fields" toggle. */}
+          {grantorNeedsConfirm && (
+            <p data-testid="seller-grantor-seed-note" className="text-xs text-amber-700">
+              Read from the prior deed (the current owner(s) = seller(s)) — confirm or edit below.
+            </p>
+          )}
+          <ManualFieldsToggle expanded={sellerFormExpanded} onToggle={() => setSellerFormExpanded((v) => !v)} testId="quick-deed-seller-form-toggle" />
+          <div className={sellerFormExpanded ? 'space-y-6' : 'hidden'} data-testid="quick-deed-seller-form">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantor(s) — seller(s) <span className="text-red-500">*</span>
             </label>
-            {grantorNeedsConfirm && (
-              <p data-testid="seller-grantor-seed-note" className="text-xs text-amber-700 mb-1">
-                Read from the prior deed (the current owner(s) = seller(s)) — confirm or edit.
-              </p>
-            )}
-            {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')")}
+            {renderPartyRows(grantors, setGrantors, "Descriptor (e.g. 'husband and wife')", sellerMissing.grantor)}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantee(s) — buyer(s) <span className="text-red-500">*</span>
             </label>
-            {renderPartyRows(grantees, setGrantees, 'Descriptor (optional)')}
+            {renderPartyRows(grantees, setGrantees, 'Descriptor (optional)', sellerMissing.grantee)}
           </div>
 
           <div data-testid="quick-deed-seller-fields" className="space-y-4 rounded border border-line/60 bg-surface/40 p-3">
@@ -626,6 +638,7 @@ export default function QuickDeedPage(): React.ReactElement {
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
               placeholder="Mailing address for tax bills / notices" />
           </div>
+          </div>{/* end DEED-INTAKE-PARITY-1 seller collapse (data-testid quick-deed-seller-form) */}
 
           {error && <p data-testid="quick-deed-error" className="text-red-600 text-sm">{error}</p>}
           <div className="flex justify-end pt-1">
