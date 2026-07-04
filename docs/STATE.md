@@ -4,6 +4,23 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-03 (TRIAD DISPOSITIONS ADOPTED — C1-CONV-DESIGN + D3-SIGNOFF; briefs → v1.1; D3 A.1 build begins)
+
+**Disposition.** Both ULTRABUILD-1 W10 §3.1 FIRE packets returned from external triad review and were adopted by the operator. **C1-CONV-DESIGN:** PROCEED-WITH-NAMED-CHANGES (NC-C1-1..8); OQ1=CopilotPage is the base; OQ2=strictly-route (no promote-to-draft from conversation). C.2 closes; C.3 (E4b/E7b, shipped as UB1-W1 #470) unaffected; **C.4–C.6 remain gated on A.6.** **D3-SIGNOFF:** PROCEED-WITH-NAMED-CHANGES (NC-D3-1..7); OQ1=Fork-A-now + Fork-B follow-on (ticket D3B); OQ2=OBSERVE→ENFORCE via a named operator activation event, **NOT gated on A.6** (A.6 runs THROUGH the enforced gate). Consolidated dispositions + raw returns at the Desktop `phase2/reviews/` path.
+
+**Build state.** Briefs amended to v1.1 (`docs/reviews/C1-CONV-DESIGN_packet.v1.1.md`, `D3-SIGNOFF_packet.v1.1.md`, append-only; mirrored to Desktop). D3B follow-on ticket opened (`docs/engagements/D3B-source-image-signoff-ticket.md`; source-image retention; itself a future §3.1 FIRE). **D3 A.1 build is now build-ready and begins** under the v1.1 plan (Inc 1 = data core: thickened sign-off record + `D3_SIGNOFF_MODE` three-state flag [OFF/OBSERVE/ENFORCE, default OFF] + comparator-version stamp + additive migration; flag-dark). ULTRABUILD-1 W1–W10 all built + PR'd (#470–#478); the two FIRE packets were the only HALTED items — now released.
+
+**Open / residuals.** NC-C1-5 open sub-question for the operator (client/represented-party identity = a 9th deliberate act, or covered by matter-identity). D3 closes only at ENFORCE in prod. A.1 Inc 2–4 (comparator / export-route OBSERVE wiring / UI) follow Inc 1. No C.4–C.6 implementation begins (A.6-gated).
+## 2026-07-03 (ULTRABUILD-1 W2b — build-SHA visibility; run-sheet 0.7 / audit U-1/D2; NOT yet merged/deployed)
+
+**Disposition.** ULTRABUILD-1 audit-remediation batch, item W2b (hygiene). Reversible build-and-PR lane; PR to `main`, accept-gated (auto-merge suspended batch-wide — Railway auto-deploy status is unconfirmable from the repo). Adds a best-effort deployed build-SHA line to the AppShell sidebar footer (runtime read of the EXISTING `/api/version` stamp — no VITE_ build-flag hazard, no new endpoint), so "which commit is live" is a VISIBLE fact rather than an inference (Fable audit D2).
+
+**Build state.** `origin/main` unchanged at `2cc7ecc` at authoring. Prod was empirically fingerprinted as current `main` (`2cc7ecc`, EXPRESS-FANOUT-1) on 2026-07-03 per audit U-1 — the 2026-06-26 fix set IS live. `/api/version` already returns `{commit, builtAt}` from `dist/version.json` (RAILWAY_GIT_COMMIT_SHA at build); W2b only surfaces it in-app.
+
+**Open / residuals.** A precise per-deploy historical backfill (exact dates + commit SHAs of each prior prod deploy) needs Kelly's deploy log — the repo records no per-deploy events ([K]). The `/api/health` body was deliberately NOT extended (it is byte-locked by test T-S4-7; adding a field there is an assertion change), because `/api/version` already exposes the SHA. Desktop STATE-mirror sync is Rule-16 bookkeeping.
+
+---
+
 ## 2026-06-26e (LIVE-UAT FIX BATCH 2 — LIVE-7 nav regression-lock + LIVE-8/10 upload catch-22 + LIVE-9 deed-generation block [§3.1 FIRE]; 3 PRs merged; flag-dark, nothing deployed)
 
 **Disposition.** Operator-run deed live-UAT fix batch 2 (3 engagements), reversible build-and-PR lane, SEPARATE deed track, each its own worktree off the then-current `origin/main`, own PR, own accept gate (`operator approve accept:` — NOT auto-merged). Chain: `e9a0237` (LIVE-7 #458) → `3157ecb` (LIVE-8/10 #459) → **`50c6d1c`** (LIVE-9 #460). **`origin/main` = `50c6d1c`.** Flag-dark (`DEED_DRAFT_AGENT_ENABLED` is **ON in prod** — LIVE-8/10 change live self-use UX on the next deploy; LIVE-9 is a server-side safety block; Railway auto-deploy is OFF so merge ≠ deploy, deploy stays operator-gated). **No schema, no migration, no new egress, nothing deployed.** Continuation of the `LIVE_UAT_2026-06-26.md` evidence set.

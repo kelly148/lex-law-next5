@@ -22,7 +22,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc.js';
-import { isAutoReviewLoopEnabled } from '../config/featureFlags.js';
+import { isAutoReviewLoopEnabled, isExpressDurableRecordsEnabled } from '../config/featureFlags.js';
+import {
+  persistExpressLoopRun,
+  recordExpressAttestation,
+  getExpressLoopRunById,
+  listExpressLedgerEntriesByRun,
+} from '../db/queries/expressDurableRecords.js';
 import { getMatterById } from '../db/queries/matters.js';
 import { getDocumentById } from '../db/queries/documents.js';
 import { getLatestVersionForDocument } from '../db/queries/versions.js';
@@ -58,6 +64,9 @@ interface BlockedResult {
 interface CompletedResult {
   status: 'completed';
   isFinal: false;
+  /** The durable E4b run id when persistence is enabled (EXPRESS_DURABLE_RECORDS_ENABLED); null otherwise.
+   *  A later recordApproval call references this run to record the E7b attestation. */
+  runId: string | null;
   candidate: string;
   rounds: number;
   converged: boolean;
@@ -209,9 +218,50 @@ export const expressReviewLoopRouter = router({
       const entries = result.ledger.entries();
       // E7a SERVER approval truth — the banner reads canApprove directly (never client-derived).
       const approval = evaluateExpressApproval(result);
+
+      // E4b — durably persist the run + ledger when enabled (default OFF; requires migration 0051 in prod).
+      // FAIL-VISIBLE: with the flag ON the durable supervision record is the whole point of the write, so a
+      // persistence error must surface rather than silently drop it. Flag OFF (the default) -> byte-for-byte
+      // unchanged, runId null, no DB write.
+      let runId: string | null = null;
+      if (isExpressDurableRecordsEnabled()) {
+        runId = await persistExpressLoopRun({
+          userId: ctx.userId,
+          matterId: input.matterId,
+          documentId: input.documentId,
+          documentVersionId: version.id,
+          reviewerModel: modelString,
+          rounds: result.rounds,
+          converged: result.converged,
+          hitCap: result.hitCap,
+          adoptedCount: result.adopted.length,
+          escalationCount: result.escalations.length,
+          candidateText: result.candidate,
+          redline: result.redline,
+          roundSummaries: result.roundSummaries,
+          entries: entries.map((e) => ({
+            ledgerEntryId: e.id,
+            round: e.round,
+            route: e.route,
+            riskScore: e.riskScore,
+            riskBucket: e.riskBucket,
+            immutabilityForced: e.immutabilityForced,
+            isDeletion: e.isDeletion,
+            beforeText: e.beforeText,
+            afterText: e.afterText,
+            offsetStart: e.offsetStart,
+            offsetEnd: e.offsetEnd,
+            locus: e.locus,
+            classA: e.classA,
+            inlineEvent: e.inlineEvent,
+          })),
+        });
+      }
+
       return {
         status: 'completed',
         isFinal: false,
+        runId,
         candidate: result.candidate,
         rounds: result.rounds,
         converged: result.converged,
@@ -246,5 +296,44 @@ export const expressReviewLoopRouter = router({
         })),
         redline: result.redline,
       };
+    }),
+
+  /**
+   * E7b — record the attorney's COMPLETE per-escalation sign-off over a persisted Express loop run (durable
+   * attestation). Flag-gated (loop + durable records) + owner-scoped. Writes NOTHING unless every escalation
+   * carries an explicit adopt/reject — structural inertness (silence / timeout / loop-completion is never
+   * approval). Each per-escalation decision AND the approval act are recorded in audit_events (Fork C); the
+   * attestation row carries current state + a content hash + a pointer to the approval audit event.
+   */
+  recordApproval: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string().uuid(),
+        runId: z.string().uuid(),
+        decisions: z.record(z.enum(['adopt', 'reject'])),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!isAutoReviewLoopEnabled() || !isExpressDurableRecordsEnabled()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'EXPRESS_DURABLE_RECORDS_DISABLED: durable Express attestation is not enabled.',
+        });
+      }
+      const run = await getExpressLoopRunById(input.runId, ctx.userId);
+      if (!run || run.matterId !== input.matterId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Express loop run not found in this matter' });
+      }
+      const ledgerEntries = await listExpressLedgerEntriesByRun(input.runId, ctx.userId);
+      const escalationLedgerIds = ledgerEntries
+        .filter((e) => e.route === 'escalate')
+        .map((e) => e.ledgerEntryId);
+      return recordExpressAttestation({
+        run,
+        escalationLedgerIds,
+        decisions: input.decisions,
+        attorneyUserId: ctx.userId,
+        userId: ctx.userId,
+      });
     }),
 });
