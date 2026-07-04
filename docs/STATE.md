@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-03 (ULTRABUILD-1 W2b — build-SHA visibility; run-sheet 0.7 / audit U-1/D2; NOT yet merged/deployed)
+
+**Disposition.** ULTRABUILD-1 audit-remediation batch, item W2b (hygiene). Reversible build-and-PR lane; PR to `main`, accept-gated (auto-merge suspended batch-wide — Railway auto-deploy status is unconfirmable from the repo). Adds a best-effort deployed build-SHA line to the AppShell sidebar footer (runtime read of the EXISTING `/api/version` stamp — no VITE_ build-flag hazard, no new endpoint), so "which commit is live" is a VISIBLE fact rather than an inference (Fable audit D2).
+
+**Build state.** `origin/main` unchanged at `2cc7ecc` at authoring. Prod was empirically fingerprinted as current `main` (`2cc7ecc`, EXPRESS-FANOUT-1) on 2026-07-03 per audit U-1 — the 2026-06-26 fix set IS live. `/api/version` already returns `{commit, builtAt}` from `dist/version.json` (RAILWAY_GIT_COMMIT_SHA at build); W2b only surfaces it in-app.
+
+**Open / residuals.** A precise per-deploy historical backfill (exact dates + commit SHAs of each prior prod deploy) needs Kelly's deploy log — the repo records no per-deploy events ([K]). The `/api/health` body was deliberately NOT extended (it is byte-locked by test T-S4-7; adding a field there is an assertion change), because `/api/version` already exposes the SHA. Desktop STATE-mirror sync is Rule-16 bookkeeping.
+
+---
+
 ## 2026-06-26e (LIVE-UAT FIX BATCH 2 — LIVE-7 nav regression-lock + LIVE-8/10 upload catch-22 + LIVE-9 deed-generation block [§3.1 FIRE]; 3 PRs merged; flag-dark, nothing deployed)
 
 **Disposition.** Operator-run deed live-UAT fix batch 2 (3 engagements), reversible build-and-PR lane, SEPARATE deed track, each its own worktree off the then-current `origin/main`, own PR, own accept gate (`operator approve accept:` — NOT auto-merged). Chain: `e9a0237` (LIVE-7 #458) → `3157ecb` (LIVE-8/10 #459) → **`50c6d1c`** (LIVE-9 #460). **`origin/main` = `50c6d1c`.** Flag-dark (`DEED_DRAFT_AGENT_ENABLED` is **ON in prod** — LIVE-8/10 change live self-use UX on the next deploy; LIVE-9 is a server-side safety block; Railway auto-deploy is OFF so merge ≠ deploy, deploy stays operator-gated). **No schema, no migration, no new egress, nothing deployed.** Continuation of the `LIVE_UAT_2026-06-26.md` evidence set.
