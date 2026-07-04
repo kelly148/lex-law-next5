@@ -71,6 +71,7 @@ import {
   type DeedConfirmationInput,
   type DeedConfirmationResult,
 } from '../deed/deedConfirmationAssembler.js';
+import { deedCureCards } from '../deed/deedCureCards.js';
 import {
   assembleDeedIntoLlc,
   type DeedIntoLlcInput,
@@ -1515,10 +1516,12 @@ export const deedDraftAgentRouter = router({
 
     if (draft.status === 'WITHHELD' || !draft.deed) {
       // Fail-closed (parties mismatch / wrong exemption / truncated legal / incomplete or fabricable chain): no
-      // void deed; surface the flags so the attorney can complete the chain + retry.
+      // void deed; surface the flags AND plain-English cure cards (UB1-W3b-2) so the attorney knows which field
+      // to fix + can regenerate in place. The gate never guesses the operative recital.
       return {
         withheld: true,
         flags: draft.flags,
+        cureCards: deedCureCards(draft.flags),
         advisories: draft.advisories,
         documentId: null as string | null,
         versionId: null as string | null,
@@ -2230,6 +2233,9 @@ function quickDeedWithheldResult(
     conflictsChecked: !conflictsBypassed,
     failedClosed: true,
     failures: [...flags],
+    // UB1-W3b-2: plain-English cure cards (what's missing / which field / fix-and-regenerate) so an S5 (or any
+    // category) withhold NEVER surfaces as a bare machine code. Fail-closed unchanged: still no void deed.
+    cureCards: deedCureCards(flags),
     factsResolved: null,
     placeholders: [] as string[],
     vesting: null,

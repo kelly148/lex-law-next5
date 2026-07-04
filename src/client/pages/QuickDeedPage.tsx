@@ -61,6 +61,9 @@ export default function QuickDeedPage(): React.ReactElement {
   // + a generate must not both create) and is cleared on error so a failed create can be retried.
   const [matterId, setMatterId] = useState<string | null>(routeMatterId ?? null);
   const [createError, setCreateError] = useState<string | null>(null);
+  // UB1-W3b-2: plain-English cure cards from a fail-closed generate (S5 survivorship + every deed gate) — what's
+  // missing/mismatched, which field to fix, and how to regenerate in place. Empty on success / no withhold.
+  const [cureCards, setCureCards] = useState<Array<{ flag: string; field: string; problem: string; fix: string }>>([]);
   const [creating, setCreating] = useState(false);
   const createPromiseRef = useRef<Promise<string> | null>(null);
 
@@ -98,14 +101,21 @@ export default function QuickDeedPage(): React.ReactElement {
     {
       onSuccess: (res) => {
         if (res.documentId) {
+          setCureCards([]);
           navigate(`/matters/${res.matterId}/documents/${res.documentId}`);
           return;
         }
-        // Seller-side can fail closed (truncated legal / name bleed / estate scope): no void deed is persisted.
+        // Fail-closed (truncated legal / name bleed / incomplete S5 survivorship chain / etc.): no void deed is
+        // persisted. UB1-W3b-2: prefer plain-English cure cards (which field to fix + regenerate) over raw codes;
+        // fall back to the failures line only if the result predates cure cards.
+        const cards = ('cureCards' in res && Array.isArray(res.cureCards) ? res.cureCards : []) as Array<{ flag: string; field: string; problem: string; fix: string }>;
+        setCureCards(cards);
         setError(
-          res.failures && res.failures.length > 0
-            ? `The deed could not be generated: ${res.failures.join('; ')}`
-            : 'The deed could not be generated from the provided facts.',
+          cards.length > 0
+            ? null
+            : res.failures && res.failures.length > 0
+              ? `The deed could not be generated: ${res.failures.join('; ')}`
+              : 'The deed could not be generated from the provided facts.',
         );
       },
       onError: (err) => setError(err.message),
@@ -115,6 +125,7 @@ export default function QuickDeedPage(): React.ReactElement {
   // Resolve the owning matter, then dispatch the validated generate payload against it (matterId injected here,
   // never baked into the captured payload).
   const runGenerate = (payload: GeneratePayload): void => {
+    setCureCards([]); // clear any prior cure cards before a fresh attempt (fix-and-regenerate in place)
     void ensureMatterAsync()
       // DEED-INTAKE-PARITY-1 Inc 2: matter-scoped generation honors the matter's conflicts-at-intake gate.
       .then((id) => generate.mutate({ ...payload, matterId: id, ...(matterScoped ? { enforceConflicts: true } : {}) } as Parameters<typeof generate.mutate>[0]))
@@ -427,6 +438,25 @@ export default function QuickDeedPage(): React.ReactElement {
           <span className="font-medium">No conflicts check will be run for this deed.</span> Quick Deed skips
           the conflicts-at-intake check and stamps the draft &ldquo;No conflicts check performed (Quick Deed
           mode).&rdquo; You can require a conflicts check for Quick Deed in Settings.
+        </div>
+      )}
+
+      {/* UB1-W3b-2: when a generate fails closed (S5 survivorship gate/withhold, or any deed gate), surface
+          plain-English CURE CARDS — what's wrong, which field to fix, how to regenerate — never a bare code and
+          never a silent withhold. The form below stays populated, so the attorney fixes the field and regenerates
+          in place. Nothing was drafted, so no incorrect recital was produced. */}
+      {cureCards.length > 0 && (
+        <div data-testid="deed-cure-cards" role="alert" className="mb-6 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-3">
+          <p className="font-medium">The deed wasn&apos;t generated — nothing was drafted. Fix the item(s) below, then Generate again:</p>
+          <ul className="space-y-2">
+            {cureCards.map((c) => (
+              <li key={c.flag} data-testid={`cure-card-${c.flag}`} className="rounded border border-amber-200 bg-white/70 px-3 py-2">
+                <p className="font-medium text-ink">{c.field}</p>
+                <p className="mt-0.5">{c.problem}</p>
+                <p className="mt-0.5 text-ink-secondary">{c.fix}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
