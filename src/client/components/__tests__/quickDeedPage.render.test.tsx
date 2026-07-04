@@ -29,6 +29,8 @@ interface PreviewFacts {
 }
 const mockState = vi.hoisted(() => ({
   enabled: true,
+  // W2d — drives trpc.quickDeed.getConflictsSetting; false = the bypass-and-stamp default (waiver shown).
+  conflictsEnforced: false as boolean,
   deedTypes: [] as Array<{ key: string; title: string; category: string; status: string; quickDeedGenerates: boolean }>,
   previewFacts: null as null | {
     hasMaterials: boolean;
@@ -69,6 +71,7 @@ vi.mock('../../trpc.js', async () => {
       quickDeed: {
         listDeedTypes: { useQuery: q(() => mockState.deedTypes) },
         previewFacts: { useQuery: q(() => mockState.previewFacts) },
+        getConflictsSetting: { useQuery: q(() => ({ enforced: mockState.conflictsEnforced })) },
       },
     },
   };
@@ -139,11 +142,28 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   mockState.enabled = true;
+  mockState.conflictsEnforced = false;
   mockState.deedTypes = [];
   mockState.previewFacts = null;
 });
 
 describe('QuickDeedPage — DEED-DRAFT-AGENT-1 QD-1', () => {
+  it('W2d: shows the conflicts-waiver notice at generate-time when conflicts are NOT enforced (default)', () => {
+    mockState.enabled = true;
+    mockState.conflictsEnforced = false;
+    mockState.deedTypes = FULL_REGISTRY;
+    const c = renderPage();
+    expect(c.querySelector('[data-testid="quick-deed-conflicts-waiver"]')).toBeTruthy();
+  });
+
+  it('W2d: HIDES the waiver notice when conflicts ARE enforced', () => {
+    mockState.enabled = true;
+    mockState.conflictsEnforced = true;
+    mockState.deedTypes = FULL_REGISTRY;
+    const c = renderPage();
+    expect(c.querySelector('[data-testid="quick-deed-conflicts-waiver"]')).toBeNull();
+  });
+
   it('renders the type selector (gift enabled, others disabled), gift fields, and Generate when enabled', () => {
     mockState.enabled = true;
     mockState.deedTypes = FULL_REGISTRY;

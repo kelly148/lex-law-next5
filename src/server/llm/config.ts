@@ -56,7 +56,7 @@ export const WHITELISTED_MODELS = [
   'anthropic:claude-opus-4-5', // default for drafter and evaluator (decision #41)
   'anthropic:claude-sonnet-4-5',
   'openai:gpt-5.5',
-  'google:gemini-3.1-pro-preview',
+  'google:gemini-3.1-pro-preview', // PREVIEW-TIER — UNCALIBRATED-until-rerun (W5); perpetually swap-eligible
   'xai:grok-4.3',
 ] as const;
 
@@ -83,11 +83,23 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 export const REVIEWER_MODELS = {
   claude: 'anthropic:claude-opus-4-5',
   gpt: 'openai:gpt-5.5', // operator-pending-provider-confirmation
-  gemini: 'google:gemini-3.1-pro-preview', // operator-pending-provider-confirmation (preview-tier)
+  gemini: 'google:gemini-3.1-pro-preview', // operator-pending-provider-confirmation (PREVIEW-TIER — UNCALIBRATED-until-rerun; see isPreviewTierModel + docs/engagements/ULTRABUILD-1-model-pin-memo.md)
   grok: 'xai:grok-4.3', // operator-pending-provider-confirmation
 } as const;
 
 export type ReviewerKey = keyof typeof REVIEWER_MODELS;
+
+/**
+ * W5 (ULTRABUILD-1 / audit A-6, Top-5 #5) — is a model id a PREVIEW-tier slug? Preview endpoints are
+ * perpetually swap-eligible: a provider can deprecate/replace a `*-preview` slug with NO explicit swap event to
+ * trigger the model-swap⇒recalibrate rule, and its reviewer calibration is UNCALIBRATED-until-rerun (the
+ * ceiling was carried over unmeasured — see modelCapabilities.ts). Derived from the id string (single source of
+ * truth — no second registry to drift) so `google:gemini-3.1-pro-preview` flags true while GA slugs like
+ * `google:gemini-3.5-flash` correctly do not. Pure; used by governance/telemetry, not by any routing decision.
+ */
+export function isPreviewTierModel(modelId: string): boolean {
+  return modelId.toLowerCase().includes('-preview');
+}
 
 // ============================================================
 // Lite reviewer model identifiers (MR-LLM-LITE-1)

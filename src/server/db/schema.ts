@@ -1,5 +1,5 @@
 /**
- * Drizzle ORM schema — Lex Law Next v1
+ * Drizzle ORM schema â€” Lex Law Next v1
  *
  * This file is the source of truth for the database schema.
  * Migrations are generated via `drizzle-kit generate` and applied via `drizzle-kit migrate`.
@@ -83,7 +83,7 @@ import {
 import { NOTIFICATION_TYPE_VALUES } from '../../shared/schemas/notifications.js';
 
 // ============================================================
-// Ch 4.2 — users
+// Ch 4.2 â€” users
 // ============================================================
 // In v1 the users table contains exactly one row (the seeded attorney account).
 // Other tables' userId columns are foreign keys to users.id.
@@ -104,7 +104,7 @@ export const users = mysqlTable('users', {
 });
 
 // ============================================================
-// Ch 3.7 / Ch 4 — telemetry_events
+// Ch 3.7 / Ch 4 â€” telemetry_events
 // ============================================================
 // All system telemetry is recorded here.
 // Events are written synchronously on the hot path (Ch 3.7).
@@ -133,7 +133,7 @@ export const telemetryEvents = mysqlTable('telemetry_events', {
 });
 
 // ============================================================
-// Ch 4.6 — jobs
+// Ch 4.6 â€” jobs
 // ============================================================
 // Every LLM call runs as a job. The jobs table is the observability layer
 // over the canonical mutation pattern (Ch 23). Every in-flight mutation has
@@ -141,16 +141,16 @@ export const telemetryEvents = mysqlTable('telemetry_events', {
 // updated atomically with the document-state transition.
 //
 // Job lifecycle (Appendix C.2):
-//   queued → running → completed  (normal path)
-//   queued → running → timed_out  (AbortSignal fires; Ch 8.6)
-//   queued → running → failed     (HTTP/parse error; Ch 22.6)
-//   queued → running → cancelled  (job.cancel while running; Ch 21.10)
-//   queued → cancelled            (job.cancel while queued; Ch 21.10)
+//   queued â†’ running â†’ completed  (normal path)
+//   queued â†’ running â†’ timed_out  (AbortSignal fires; Ch 8.6)
+//   queued â†’ running â†’ failed     (HTTP/parse error; Ch 22.6)
+//   queued â†’ running â†’ cancelled  (job.cancel while running; Ch 21.10)
+//   queued â†’ cancelled            (job.cancel while queued; Ch 21.10)
 //
 // All terminal states (completed, failed, timed_out, cancelled) are sinks.
 //
 // promptVersion: captured at job creation from the active prompt version
-// for the job's role (Ch 22.8). Immutable after insert — no UPDATE ever
+// for the job's role (Ch 22.8). Immutable after insert â€” no UPDATE ever
 // touches this column (R11, enforced by grep in CI acceptance criteria).
 //
 // input/output: JSON columns, Zod-validated on every read via
@@ -164,9 +164,9 @@ export const telemetryEvents = mysqlTable('telemetry_events', {
 // from assuming it is a live health check.
 //
 // Indexes (Ch 4.6):
-//   idx_jobs_user_status   (userId, status, updatedAt DESC) — operational queries
-//   idx_jobs_document      (documentId, status)             — per-document job list
-//   idx_jobs_matter        (matterId, status)               — per-matter job list
+//   idx_jobs_user_status   (userId, status, updatedAt DESC) â€” operational queries
+//   idx_jobs_document      (documentId, status)             â€” per-document job list
+//   idx_jobs_matter        (matterId, status)               â€” per-matter job list
 // ============================================================
 
 export const JOB_STATUS_VALUES = [
@@ -192,11 +192,11 @@ export const JOB_TYPE_VALUES = [
   'evaluator',
   // context_summary_generation is reserved but not actively implemented in v1 (Ch 8.3 / D6)
   'context_summary_generation',
-  // matter_analysis — FOLD-L0-1 Layer-0 single-lane analysis generation (jobType column is
+  // matter_analysis â€” FOLD-L0-1 Layer-0 single-lane analysis generation (jobType column is
   // varchar(64), not a DB enum, so adding this value requires NO schema migration).
   'matter_analysis',
-  // chat_turn — CHAT-DISPATCH-1 single chat turn routed through the canonical LLM chokepoint
-  // (behind CHAT_DISPATCH_ENABLED, default OFF). Same varchar(64) column → NO migration.
+  // chat_turn â€” CHAT-DISPATCH-1 single chat turn routed through the canonical LLM chokepoint
+  // (behind CHAT_DISPATCH_ENABLED, default OFF). Same varchar(64) column â†’ NO migration.
   'chat_turn',
 ] as const;
 
@@ -217,7 +217,7 @@ export const jobs = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     userId: char('userId', { length: 36 }).notNull(),
-    // matterId and documentId are nullable — some job types may not be tied to a document
+    // matterId and documentId are nullable â€” some job types may not be tied to a document
     matterId: char('matterId', { length: 36 }),
     documentId: char('documentId', { length: 36 }),
     // idempotencyKey: EGRESS-CONTROL-PLANE-1 Inc 2 durable-outbox key per (session, lane) on reviewer
@@ -232,11 +232,11 @@ export const jobs = mysqlTable(
     // modelId: e.g. 'claude-opus-4-5', 'gpt-5', 'gemini-2-5-pro', 'grok-4'
     modelId: varchar('modelId', { length: 64 }).notNull(),
     // promptVersion: captured at job creation; IMMUTABLE after insert (R11 / Ch 22.8)
-    // No procedure ever issues UPDATE jobs SET promptVersion = ... — enforced by grep in CI
+    // No procedure ever issues UPDATE jobs SET promptVersion = ... â€” enforced by grep in CI
     promptVersion: varchar('promptVersion', { length: 32 }).notNull(),
     // status: full lifecycle enum per Ch 4.6 and Appendix C.2
     status: mysqlEnum('status', JOB_STATUS_VALUES).notNull().default('queued'),
-    // Lifecycle timestamps — nullable until the relevant transition occurs
+    // Lifecycle timestamps â€” nullable until the relevant transition occurs
     queuedAt: timestamp('queuedAt').notNull().default(sql`CURRENT_TIMESTAMP`),
     startedAt: timestamp('startedAt'),
     completedAt: timestamp('completedAt'),
@@ -249,11 +249,11 @@ export const jobs = mysqlTable(
     // errorClass: populated when status is failed or timed_out (Ch 22.6)
     errorClass: varchar('errorClass', { length: 64 }),
     errorMessage: text('errorMessage'),
-    // Token counts — populated on completion by the provider adapter
+    // Token counts â€” populated on completion by the provider adapter
     tokensPrompt: int('tokensPrompt'),
     tokensCompletion: int('tokensCompletion'),
     // REVIEWER-LATENCY-1 Step 0: provider-reported reasoning/thinking tokens, stored AS-REPORTED
-    // (no normalization). Per-provider semantics differ — OpenAI reasoning_tokens is a SUBSET of
+    // (no normalization). Per-provider semantics differ â€” OpenAI reasoning_tokens is a SUBSET of
     // tokensCompletion; Gemini thoughtsTokenCount is SEPARATE from it; xAI best-effort; Anthropic
     // not captured -> NULL. NULL means "not reported for this provider/model", distinct from 0.
     tokensReasoning: int('tokensReasoning'),
@@ -278,23 +278,23 @@ export const jobs = mysqlTable(
     // Per-matter job list: "what jobs are running in this matter?"
     idxJobsMatter: index('idx_jobs_matter').on(table.matterId, table.status),
     // EGRESS-CONTROL-PLANE-1 Inc 2: at most one reviewer job per (session, lane). NULLs (every
-    // non-reviewer job) are exempt — MySQL/TiDB unique indexes permit multiple NULL values.
+    // non-reviewer job) are exempt â€” MySQL/TiDB unique indexes permit multiple NULL values.
     uniqJobsIdempotencyKey: uniqueIndex('uniq_jobs_idempotency_key').on(table.idempotencyKey),
   }),
 );
 
 // ============================================================
-// Ch 4.3 — matters
+// Ch 4.3 â€” matters
 // ============================================================
 // Top-level container for all work on a single client engagement.
-// Lifecycle: intake → drafting → complete (Ch 5.2).
+// Lifecycle: intake â†’ drafting â†’ complete (Ch 5.2).
 // Archival is orthogonal to phase (Ch 5.5).
 //
 // Phase transitions (Ch 5.3):
-//   intake → drafting  fires automatically on first document.create
-//   drafting → complete fires automatically when last non-archived doc completes
-//   complete → drafting fires automatically when any doc is un-finalized
-//   any → archived     is explicit attorney action
+//   intake â†’ drafting  fires automatically on first document.create
+//   drafting â†’ complete fires automatically when last non-archived doc completes
+//   complete â†’ drafting fires automatically when any doc is un-finalized
+//   any â†’ archived     is explicit attorney action
 //
 // Indexes (Ch 4.3):
 //   idx_matters_user_phase   (userId, phase, archivedAt, updatedAt DESC)
@@ -304,8 +304,8 @@ export const jobs = mysqlTable(
 export const MATTER_PHASE_VALUES = ['intake', 'drafting', 'complete'] as const;
 export type MatterPhase = (typeof MATTER_PHASE_VALUES)[number];
 
-// FOLD-L0-1 (Fork D): Layer-0 analysis status is ORTHOGONAL to `phase` — it does NOT
-// perturb the linear intake→drafting→complete enum. none = no Layer-0 analysis;
+// FOLD-L0-1 (Fork D): Layer-0 analysis status is ORTHOGONAL to `phase` â€” it does NOT
+// perturb the linear intakeâ†’draftingâ†’complete enum. none = no Layer-0 analysis;
 // in_analysis = an assessment-and-plan is being worked; plan_locked = closed on a locked
 // plan (a non-document closure). Hard-block (Fork A): advancing to drafting / locking a
 // plan is blocked while blocker-severity conflict hits are undispositioned.
@@ -342,7 +342,7 @@ export const matters = mysqlTable(
     // Validated on read by the Zod Wall (MatterRowSchema.orchestrationLanes).
     orchestrationLanes: json('orchestrationLanes'),
     phase: mysqlEnum('phase', MATTER_PHASE_VALUES).notNull().default('intake'),
-    // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive —
+    // FOLD-L0-1 (Fork D): orthogonal Layer-0 analysis status; default 'none' (additive â€”
     // pre-L0 matters and all existing rows are 'none'). Does not affect `phase`.
     analysisStatus: mysqlEnum('analysisStatus', MATTER_ANALYSIS_STATUS_VALUES)
       .notNull()
@@ -357,7 +357,7 @@ export const matters = mysqlTable(
       .default('law_firm'),
     // CAPACITY-ELECTION-UX (R1): additive, NULLABLE marker recording that an AFFIRMATIVE capacity
     // election was made (NULL = never elected). Distinguishes "attorney elected law_firm" from "the
-    // column defaulted to law_firm and nobody chose" — the residual engagementCapacity (NOT NULL
+    // column defaulted to law_firm and nobody chose" â€” the residual engagementCapacity (NOT NULL
     // DEFAULT 'law_firm') cannot represent alone. Plain nullable timestamp (like archivedAt) so the
     // inferred type is Date | null; NO .$type<Date>() (that would drop the null). Set on intake when an
     // explicit capacity is passed (matter.create) and on every matter.setEngagementCapacity. NO backfill.
@@ -390,18 +390,18 @@ export const matters = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.4 — documents
+// Ch 4.4 â€” documents
 // ============================================================
 // Core drafting unit. Belongs to exactly one matter.
 // Drafting mode (template | iterative) is immutable after insert (Ch 6.3).
 // Workflow state machine (Ch 6.5):
-//   drafting → substantively_accepted → finalizing → complete
-//   complete → substantively_accepted (via document.unfinalize)
-//   any → archived
+//   drafting â†’ substantively_accepted â†’ finalizing â†’ complete
+//   complete â†’ substantively_accepted (via document.unfinalize)
+//   any â†’ archived
 //
 // templateBindingStatus (Ch 6.3):
-//   'bound'    — template-mode document actively rendered from template
-//   'detached' — template-mode document moved to freeform iteration
+//   'bound'    â€” template-mode document actively rendered from template
+//   'detached' â€” template-mode document moved to freeform iteration
 //   Iterative-mode documents default to 'bound' but the value is semantically unused.
 //
 // Indexes (Ch 4.4):
@@ -469,16 +469,22 @@ export const documents = mysqlTable(
     officialSubstantiveVersionNumber: int('officialSubstantiveVersionNumber'),
     // officialFinalVersionNumber: set on finalize/acceptSubstantiveUnformatted; cleared on unfinalize (Ch 6.5)
     officialFinalVersionNumber: int('officialFinalVersionNumber'),
-    // completedAt: system-managed; set when workflowState → complete (Ch 6.5)
+    // completedAt: system-managed; set when workflowState â†’ complete (Ch 6.5)
     completedAt: timestamp('completedAt'),
     // archivedAt: set on archive; cleared on unarchive (Ch 6.5)
     archivedAt: timestamp('archivedAt'),
     // notes: attorney-internal annotation; carve-out to COMPLETE_READONLY (Ch 21.4 / R12)
     notes: text('notes'),
-    // FOLD-KB-1 (Fork A): durable provenance flag — set TRUE when an unverified KB memo is
+    // FOLD-KB-1 (Fork A): durable provenance flag â€” set TRUE when an unverified KB memo is
     // adopted into this document; SURVIVES drafting/versioning (lives on the document, not a
     // version). FOLD-SEND-1 reads this to gate outbound. Additive, defaulted false.
     drewOnUnverifiedKb: boolean('drewOnUnverifiedKb').notNull().default(false),
+    // W3c (ULTRABUILD-1) â€” deed provenance: 'agent_assembled' (the deterministic deed agent minted it) vs
+    // 'llm_authored' (a legacy generic-LLM deed). Durable + artifact-level; SURVIVES versioning (lives on the
+    // document, mirrors drewOnUnverifiedKb). NULL = unknown/legacy â†’ treated as NON-sanctioned by the LIVE-9
+    // export scanner (fail-closed), closing the residual where a legacy 'deed' was indistinguishable from
+    // agent output. Additive, nullable.
+    provenance: varchar('provenance', { length: 32 }),
     // DOC-CLIENT-TARGET-1: RESERVED for `derived` document types (cert-of-trust / funding letter
     // inherit their party binding from a source document). Nullable; populated by the derived flow
     // (fast-follow). Present now so the bucket + provenance are complete.
@@ -508,12 +514,12 @@ export const documents = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.5 — versions
+// Ch 4.5 â€” versions
 // ============================================================
 // Immutable content snapshots. Each draft/render/regeneration creates a new
 // version row; content is never mutated in-place (Ch 7).
 //
-// versionNumber: monotonically increasing per document (1, 2, 3, …).
+// versionNumber: monotonically increasing per document (1, 2, 3, â€¦).
 // content: full text of the document at this version; MEDIUMTEXT.
 // generatedByJobId: FK to jobs.id; NULL for template renders (synchronous).
 // iterationNumber: which drafting iteration this version belongs to.
@@ -552,22 +558,22 @@ export const versions = mysqlTable(
 );
 
 // ============================================================
-// DOC-CLIENT-TARGET-1 — document_party (join table)
+// DOC-CLIENT-TARGET-1 â€” document_party (join table)
 // ============================================================
 // Binds a document instance to a matter party in a declared ROLE. A document's relationship to a
 // matter's parties is a role binding, NOT a scalar: an individual instrument (POA/will/directive)
 // binds exactly one `subject`; a joint instrument (trust) binds an explicit settlor set; a role-sided
 // instrument (deed) binds grantor + grantee groups. roleKey is a string validated at WRITE against the
-// document type's declared roles (src/shared/docTypes/docTypeConfig.ts) — no DB enum, so a new role
+// document type's declared roles (src/shared/docTypes/docTypeConfig.ts) â€” no DB enum, so a new role
 // needs no migration. NO role_label_snapshot: the label derives from the type's config; provenance is
 // the config-version snapshot at finalize. The disposition's logical key (documentId, partyId, roleKey)
 // is the UNIQUE index; the table keeps the repo's `id` PK. A bound party is soft-/block-deleted, never
 // hard-deleted out from under a finalized document.
 //
 // Indexes:
-//   uq_document_party_doc_party_role (documentId, partyId, roleKey)  — the logical key
-//   idx_document_party_doc   (userId, documentId)  — "this document's bound parties"
-//   idx_document_party_party (userId, partyId)     — "documents bound to this party" (block-delete guard)
+//   uq_document_party_doc_party_role (documentId, partyId, roleKey)  â€” the logical key
+//   idx_document_party_doc   (userId, documentId)  â€” "this document's bound parties"
+//   idx_document_party_party (userId, partyId)     â€” "documents bound to this party" (block-delete guard)
 // ============================================================
 
 export const documentParty = mysqlTable(
@@ -598,7 +604,7 @@ export type DocumentParty = typeof documentParty.$inferSelect;
 export type NewDocumentParty = typeof documentParty.$inferInsert;
 
 // ============================================================
-// Ch 4.9 — matter_materials
+// Ch 4.9 â€” matter_materials
 // ============================================================
 // Attorney-uploaded or paste-text materials for a matter.
 // Soft-delete via deletedAt (Ch 21.6).
@@ -615,8 +621,8 @@ export const EXTRACTION_STATUS_VALUES = [
   'failed',
   'not_supported',
   // MATERIALS-DROPZONE-1 Inc B (image + scanned-PDF OCR): async-OCR lifecycle states.
-  // 'processing' — OCR queued/running (set at upload, cleared when OCR finishes).
-  // 'low_confidence' — OCR ran but fell below the confidence floor; text is shown to the
+  // 'processing' â€” OCR queued/running (set at upload, cleared when OCR finishes).
+  // 'low_confidence' â€” OCR ran but fell below the confidence floor; text is shown to the
   //   user but EXCLUDED from the assessment context (honesty floor; see analysisContext).
   'processing',
   'low_confidence',
@@ -677,7 +683,7 @@ export const matterMaterials = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.13 — document_references
+// Ch 4.13 â€” document_references
 // ============================================================
 // Sibling references between documents in the same matter.
 // The ONLY mechanism by which one document's content appears in another's
@@ -720,26 +726,26 @@ export const documentReferences = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.15 — user_preferences
+// Ch 4.15 â€” user_preferences
 // ============================================================
 // One row per user (PK = userId). Stores all attorney-level settings.
 // The preferences JSON column is Zod-validated on read (Ch 35.1).
 //
 // v1 preferences (Ch 4.15):
-//   voiceInput.forceShowAll        boolean — always show mic button
-//   voiceInput.forceHideAll        boolean — disable voice input entirely
-//   voiceInput.dictationLanguage   string  — Web Speech API lang; default 'en-US'
-//   reviewerEnablement.claude      boolean — default true  (decision #43)
-//   reviewerEnablement.gpt         boolean — default true
-//   reviewerEnablement.gemini      boolean — default true
-//   reviewerEnablement.grok        boolean — default false (decision #43)
+//   voiceInput.forceShowAll        boolean â€” always show mic button
+//   voiceInput.forceHideAll        boolean â€” disable voice input entirely
+//   voiceInput.dictationLanguage   string  â€” Web Speech API lang; default 'en-US'
+//   reviewerEnablement.claude      boolean â€” default true  (decision #43)
+//   reviewerEnablement.gpt         boolean â€” default true
+//   reviewerEnablement.gemini      boolean â€” default true
+//   reviewerEnablement.grok        boolean â€” default false (decision #43)
 //
-// No separate user_settings table — "settings" and "preferences" both live here
+// No separate user_settings table â€” "settings" and "preferences" both live here
 // (Ch 4.15 namespace note).
 // ============================================================
 
 export const userPreferences = mysqlTable('user_preferences', {
-  // userId is the PK (1:1 with users) — no separate `id` column (Ch 4.15)
+  // userId is the PK (1:1 with users) â€” no separate `id` column (Ch 4.15)
   userId: char('userId', { length: 36 }).primaryKey(),
   // preferences: open JSON blob; Zod-validated on read; extensible without migration
   preferences: json('preferences').notNull().default(sql`('{}')`),
@@ -751,7 +757,7 @@ export const userPreferences = mysqlTable('user_preferences', {
 });
 
 // ============================================================
-// Ch 4.12 — templates, template_versions, template_variable_schemas
+// Ch 4.12 â€” templates, template_versions, template_variable_schemas
 // ============================================================
 // templates: one row per template library entry. activeVersionId points to the
 // currently-activated version (NULL until first activation).
@@ -856,7 +862,7 @@ export const templateVariableSchemas = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.10 — information_requests and information_request_items
+// Ch 4.10 â€” information_requests and information_request_items
 // ============================================================
 // information_requests: one active matrix per matter at a time (R10).
 // activeMatterKey generated column enforces the at-most-one-active invariant
@@ -887,7 +893,7 @@ export const informationRequests = mysqlTable(
       .default('draft'),
     archivedAt: timestamp('archivedAt'),
     // -----------------------------------------------------------------------
-    // D.1.2 — GENERATED column (raw SQL migration, not drizzle builder API)
+    // D.1.2 â€” GENERATED column (raw SQL migration, not drizzle builder API)
     // This is a GENERATED column in the database.
     // DO NOT write to this field from application code.
     // Any INSERT or UPDATE setting this column will be rejected by TiDB.
@@ -940,10 +946,10 @@ export const informationRequestItems = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.11 — document_outlines
+// Ch 4.11 â€” document_outlines
 // ============================================================
 // One outline per document (enforced at application level).
-// status: draft → approved | skipped.
+// status: draft â†’ approved | skipped.
 // sections: JSON array of { title, description, orderIndex }.
 //
 // Indexes (Ch 4.11):
@@ -985,7 +991,7 @@ export const documentOutlines = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.7 — feedback, feedback_evaluations, feedback_manual_selections
+// Ch 4.7 â€” feedback, feedback_evaluations, feedback_manual_selections
 // ============================================================
 // feedback: one row per reviewer-model invocation per document iteration.
 // feedback_evaluations: evaluator pass over multiple reviewers' output.
@@ -1078,7 +1084,7 @@ export const feedbackManualSelections = mysqlTable(
 );
 
 // ============================================================
-// Ch 4.8 — review_sessions
+// Ch 4.8 â€” review_sessions
 // ============================================================
 // One active session per (documentId, iterationNumber) at a time (R10).
 // activeSessionKey generated column enforces the at-most-one-active invariant
@@ -1112,20 +1118,20 @@ export const reviewSessions = mysqlTable(
     selectedReviewers: json('selectedReviewers').notNull().default(sql`(JSON_ARRAY())`),
     globalInstructions: text('globalInstructions').notNull().default(''),
     lastAutosavedAt: timestamp('lastAutosavedAt'),
-    // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) — the lifecycle SUB-state machine, a COMPANION to `state`
-    // (which is unchanged: migration 0043 — `state` is locked by the activeSessionKey generated column,
+    // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4) â€” the lifecycle SUB-state machine, a COMPANION to `state`
+    // (which is unchanged: migration 0043 â€” `state` is locked by the activeSessionKey generated column,
     // so the new phases live here). NULL = idle/active-normal (created, reviewers running, or the
     // attorney reviewing/selecting); 'dispatching' = the brief post-commit transmit handoff window
     // (recovery-refusal marker); 'completed' = all expected lanes terminal; 'held' / 'blocked_by_hold' /
     // 'partial_blocked_by_hold' are SET by the egress gate in Increment 3 (recovery already refuses them).
     // The Zod Wall reads it .nullable().optional().
     lifecyclePhase: varchar('lifecyclePhase', { length: 32 }),
-    // partialReason: 'non_response' (some reviewers failed/timed-out — informational) vs 'blocked_by_hold'
-    // (a no_external hold blocked reviewers — Inc 3's send gate requires the recorded one-click attorney
+    // partialReason: 'non_response' (some reviewers failed/timed-out â€” informational) vs 'blocked_by_hold'
+    // (a no_external hold blocked reviewers â€” Inc 3's send gate requires the recorded one-click attorney
     // acknowledgment). NULL = clean / not partial. The Inc-2 data foundation for the Inc-3 send gate.
     partialReason: varchar('partialReason', { length: 32 }),
     // -----------------------------------------------------------------------
-    // D.1.2 — GENERATED column (raw SQL migration, not drizzle builder API)
+    // D.1.2 â€” GENERATED column (raw SQL migration, not drizzle builder API)
     // This is a GENERATED column in the database.
     // DO NOT write to this field from application code.
     // Any INSERT or UPDATE setting this column will be rejected by TiDB.
@@ -1157,7 +1163,7 @@ export const reviewSessions = mysqlTable(
 );
 
 // ============================================================
-// MR-CAL-6B — locked_decisions
+// MR-CAL-6B â€” locked_decisions
 // ============================================================
 // Attorney-locked decisions a reviewer should respect ("do not re-raise
 // absent a material new fact"). Phase A: DOCUMENT-LEVEL scope only (a lock
@@ -1165,8 +1171,8 @@ export const reviewSessions = mysqlTable(
 // future matter-level rollout is additive (no destructive migration).
 //
 // Created via two attorney actions (origin):
-//   'declined' — decline-&-lock: a considered-and-declined suggestion
-//   'adopted'  — lock-on-adopt: an adopted suggestion remembered as a decision
+//   'declined' â€” decline-&-lock: a considered-and-declined suggestion
+//   'adopted'  â€” lock-on-adopt: an adopted suggestion remembered as a decision
 //
 // Provenance: userId (who), sourceSuggestionId / sourceIterationNumber /
 // reviewSessionId (where it came from), timestamps.
@@ -1174,7 +1180,7 @@ export const reviewSessions = mysqlTable(
 // Lifecycle: status 'active' -> 'unlocked' (unlock preserves the row for audit).
 //
 // Indexes:
-//   idx_locked_decisions_document (documentId, status) — prompt-injection read path
+//   idx_locked_decisions_document (documentId, status) â€” prompt-injection read path
 //   idx_locked_decisions_user_document (userId, documentId)
 //   uniq_locked_decision_suggestion (documentId, sourceSuggestionId)
 // ============================================================
@@ -1237,7 +1243,7 @@ export const lockedDecisions = mysqlTable(
 );
 
 // ============================================================
-// MR-CAL-7B — adopt_ledger
+// MR-CAL-7B â€” adopt_ledger
 // ============================================================
 // Cumulative record of reviewer suggestions the attorney ADOPTED (verbatim or
 // modified), tracked across regeneration. Separate from locked_decisions (6B):
@@ -1254,11 +1260,11 @@ export const lockedDecisions = mysqlTable(
 //   superseded = a newer version exists and advisory auto-detection no longer finds the text.
 //   resolved   = attorney explicitly closed it.
 // statusSource: auto | attorney. Auto-detection NEVER overwrites an attorney-set status,
-//   never deletes/hides a row; the attorney can always override (advisory by design — LLM
+//   never deletes/hides a row; the attorney can always override (advisory by design â€” LLM
 //   drafter paraphrase makes exact survival detection unreliable; MR-CAL-7A/7B).
 //
 // Indexes:
-//   idx_adopt_ledger_document (documentId, status) — prompt-injection + UI read path
+//   idx_adopt_ledger_document (documentId, status) â€” prompt-injection + UI read path
 //   idx_adopt_ledger_user_document (userId, documentId)
 //   uniq_adopt_ledger_session_suggestion (reviewSessionId, sourceSuggestionId)
 // ============================================================
@@ -1298,7 +1304,7 @@ export const adoptLedger = mysqlTable(
     statusSource: mysqlEnum('statusSource', ADOPT_LEDGER_STATUS_SOURCE_VALUES)
       .notNull()
       .default('auto'),
-    // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE — HOW the attorney
+    // FOLD-ORCH-1 Inc3 (audit named change): the per-item CONFIRMATION MODE â€” HOW the attorney
     // confirmed this adoption (bulk-acknowledged-low-severity-convergent vs individually-adopted
     // vs synthesis-adopted, etc). NEVER flattened to "adopted". Additive, nullable; legacy rows =
     // NULL. Values mirror CONFIRMATION_MODE_VALUES in shared/schemas/orchestration.ts.
@@ -1372,19 +1378,19 @@ export type AdoptLedger = typeof adoptLedger.$inferSelect;
 export type NewAdoptLedger = typeof adoptLedger.$inferInsert;
 
 // ============================================================
-// FOLD-GOV-1a — audit_events (Audit-as-Matter-Record)
+// FOLD-GOV-1a â€” audit_events (Audit-as-Matter-Record)
 // ============================================================
 // Immutable, append-only per-matter governance record, DISTINCT from the
 // operational telemetry_events stream: what each model said, what was
 // adopted/rejected/locked/sent/withheld, what authority was verified, what
-// required judgment. Append-only — the query wrapper exposes insert + read only
+// required judgment. Append-only â€” the query wrapper exposes insert + read only
 // (no updatedAt; rows are never modified after insert).
 // Indexes: (matterId, createdAt) read path; (userId, matterId) owner scope.
 // ============================================================
 // FOLD-L1-1 (Fork C / operator disposition item 4): 'disposition' is added so an
 // attorney decision (accept/override of an evaluator disposition, open-item, or
 // source tier) is recorded in the SAME append-only audit_events stream. Disposition
-// history is a READ-PROJECTION over audit_events — there is no separate authoritative
+// history is a READ-PROJECTION over audit_events â€” there is no separate authoritative
 // dispositions table.
 export const AUDIT_EVENT_TYPE_VALUES = [
   'model_output',
@@ -1397,11 +1403,11 @@ export const AUDIT_EVENT_TYPE_VALUES = [
   'authority_verified',
   'judgment_required',
   'disposition',
-  // FOLD-PM-1 Inc 3 — deadline engine system events (audited DISTINCTLY from attorney disposition).
+  // FOLD-PM-1 Inc 3 â€” deadline engine system events (audited DISTINCTLY from attorney disposition).
   'deadline_fired', // the system surfaced a tickler/deadline (system actor; not an acknowledgment)
   'deadline_acknowledged', // the attorney acknowledged a fired tickler (distinct from the firing)
   // EGRESS-CONTROL-PLANE-1 Inc 2 (CR-4): a review-session lifecycle transition (auto-recovery /
-  // attorney-initiated / hold-frozen — the reason is in the audit payload). Durable + append-only so a
+  // attorney-initiated / hold-frozen â€” the reason is in the audit payload). Durable + append-only so a
   // silent abandon can never occur (spoliation / incomplete-production exposure under long retention).
   'review_session_transition',
 ] as const;
@@ -1426,18 +1432,18 @@ export const auditEvents = mysqlTable(
     sourceSuggestionId: varchar('sourceSuggestionId', { length: 64 }),
     versionId: char('versionId', { length: 36 }),
     // --------------------------------------------------------------------------
-    // FOLD-L1-1 (Fork C / disposition item 4) — disposition-detail columns.
+    // FOLD-L1-1 (Fork C / disposition item 4) â€” disposition-detail columns.
     // ADDITIVE (migration 0005 ALTER TABLE ... ADD COLUMN). All nullable so every
     // pre-existing audit_events row remains valid. These let audit_events carry the
     // full attorney-decision record (and back the disposition-history read-projection)
     // without a new authoritative table:
-    //   targetType — what the decision acted on ('open_item','source_authority',
-    //                'adopt_ledger','locked_decision','document','matter', …)
-    //   targetId   — the acted-on row id (open_items.id, source_authority.id, …)
-    //   action     — the decision verb ('open','resolve','withdraw','set_tier',
-    //                'accept','override', …)
-    //   rationale  — attorney rationale (provenance; flows to LLM providers, no redaction)
-    //   scope      — 'matter' | 'document' (matter-vs-document scope of the decision)
+    //   targetType â€” what the decision acted on ('open_item','source_authority',
+    //                'adopt_ledger','locked_decision','document','matter', â€¦)
+    //   targetId   â€” the acted-on row id (open_items.id, source_authority.id, â€¦)
+    //   action     â€” the decision verb ('open','resolve','withdraw','set_tier',
+    //                'accept','override', â€¦)
+    //   rationale  â€” attorney rationale (provenance; flows to LLM providers, no redaction)
+    //   scope      â€” 'matter' | 'document' (matter-vs-document scope of the decision)
     // --------------------------------------------------------------------------
     targetType: varchar('targetType', { length: 32 }),
     targetId: varchar('targetId', { length: 64 }),
@@ -1458,21 +1464,21 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
 
 // ============================================================
-// FOLD-L1-1 (Fork A) — source_authority
+// FOLD-L1-1 (Fork A) â€” source_authority
 // ============================================================
 // Source-of-truth tier/authority for the materials and document artifacts in play.
 // DEDICATED TABLE (operator disposition item 3), NOT a column on matter_materials,
 // so the two axes stay first-class and a tier is an explicit attorney act with a
-// conservative default — NEVER inferred. This is DISTINCT from context/pipeline.ts
+// conservative default â€” NEVER inferred. This is DISTINCT from context/pipeline.ts
 // `contextPriority` (pinned|recency), which is context-WINDOW priority, not authority.
 //
 // Two orthogonal axes (disposition item 3):
-//   authorityOrigin — WHERE the authority comes from / whose instrument it is
+//   authorityOrigin â€” WHERE the authority comes from / whose instrument it is
 //                     (operative | counterparty | firm | client | model_derived | reference)
-//   lifecycle       — currency/recency (current_draft | operative | superseded)
+//   lifecycle       â€” currency/recency (current_draft | operative | superseded)
 //
 // Plus: designationSource (who set the tier), verificationStatus + staleness columns
-// (added now, NO currency/jurisdiction CHECKING behavior — disposition item 8), and a
+// (added now, NO currency/jurisdiction CHECKING behavior â€” disposition item 8), and a
 // supersession chain (effectiveFrom / supersededAt / supersededById).
 //
 // Subject: the artifact this authority record describes (a material, a document, or a
@@ -1540,23 +1546,23 @@ export const sourceAuthority = mysqlTable(
     // The artifact this authority record describes.
     subjectType: mysqlEnum('subjectType', SOURCE_AUTHORITY_SUBJECT_TYPE_VALUES).notNull(),
     subjectId: char('subjectId', { length: 36 }).notNull(),
-    // Axis 1 — authority/origin. Conservative default; an attorney act overrides it.
+    // Axis 1 â€” authority/origin. Conservative default; an attorney act overrides it.
     authorityOrigin: mysqlEnum('authorityOrigin', SOURCE_AUTHORITY_ORIGIN_VALUES)
       .notNull()
       .default('reference'),
-    // Axis 2 — lifecycle/recency.
+    // Axis 2 â€” lifecycle/recency.
     lifecycle: mysqlEnum('lifecycle', SOURCE_AUTHORITY_LIFECYCLE_VALUES)
       .notNull()
       .default('operative'),
     // Who set the tier. Default 'system' (the conservative default); 'attorney' once
-    // an attorney explicitly designates — the tier is NEVER inferred from content.
+    // an attorney explicitly designates â€” the tier is NEVER inferred from content.
     designationSource: mysqlEnum('designationSource', SOURCE_AUTHORITY_DESIGNATION_SOURCE_VALUES)
       .notNull()
       .default('system'),
     // Attorney-facing label/notes (provenance; flows to LLM providers, no redaction).
     label: varchar('label', { length: 256 }),
     notes: text('notes'),
-    // Staleness/verification — COLUMNS ONLY, no checking behavior (disposition item 8).
+    // Staleness/verification â€” COLUMNS ONLY, no checking behavior (disposition item 8).
     verificationStatus: mysqlEnum('verificationStatus', SOURCE_AUTHORITY_VERIFICATION_STATUS_VALUES)
       .notNull()
       .default('unverified'),
@@ -1593,9 +1599,9 @@ export type SourceAuthority = typeof sourceAuthority.$inferSelect;
 export type NewSourceAuthority = typeof sourceAuthority.$inferInsert;
 
 // ============================================================
-// FOLD-L1-1 (Fork B + Fork D) — open_items
+// FOLD-L1-1 (Fork B + Fork D) â€” open_items
 // ============================================================
-// Persistent registry of open items / blockers still requiring attorney action —
+// Persistent registry of open items / blockers still requiring attorney action â€”
 // the durable lifecycle that sendability blockers (MR-CAL-8C, advisory + non-persisted)
 // never had. Matter-level AND document-level from day one (Fork D): matter-level rows
 // (jurisdiction, client objective, negotiation posture, internal thresholds) leave
@@ -1659,7 +1665,7 @@ export const openItems = mysqlTable(
     // Resolution link to the immutable audit_events decision + rationale.
     resolvedByEventId: char('resolvedByEventId', { length: 36 }),
     resolutionRationale: text('resolutionRationale'),
-    // FOLD-ORCH-1 Inc3 (Fork E): content-preserving payload for a divergent reviewer item — the
+    // FOLD-ORCH-1 Inc3 (Fork E): content-preserving payload for a divergent reviewer item â€” the
     // per-reviewer positions (severity + rationale excerpt), optional evaluator synthesis, and
     // source session, so the disagreement survives intact (not collapsed to the summary string).
     // Additive, nullable JSON; non-orchestration open items leave it NULL. Validated by the
@@ -1688,7 +1694,7 @@ export type OpenItem = typeof openItems.$inferSelect;
 export type NewOpenItem = typeof openItems.$inferInsert;
 
 // ============================================================
-// FOLD-DRAFT-1 — provision_provenance (Increment 1: data core)
+// FOLD-DRAFT-1 â€” provision_provenance (Increment 1: data core)
 // ============================================================
 // Per draft SECTION (provision), where it came from. Version-anchored. DEFAULT-SAFE: recorded +
 // surfaced, NEVER used to auto-justify outbound legal assertions (mirrors KB private-by-default).
@@ -1746,7 +1752,7 @@ export type ProvisionProvenance = typeof provisionProvenance.$inferSelect;
 export type NewProvisionProvenance = typeof provisionProvenance.$inferInsert;
 
 // ============================================================
-// FOLD-DRAFT-1 / LDD — ldd_key_term (Increment 1: data core)
+// FOLD-DRAFT-1 / LDD â€” ldd_key_term (Increment 1: data core)
 // ============================================================
 // The "key-term dictionary" behind the LDD (LOI-vs-draft diff): per document+version, the defined
 // terms whose agreed VALUE must stay consistent between the operative source (LOI / material) and
@@ -1800,7 +1806,7 @@ export type LddKeyTerm = typeof lddKeyTerm.$inferSelect;
 export type NewLddKeyTerm = typeof lddKeyTerm.$inferInsert;
 
 // ============================================================
-// FOLD-DRAFT-1 / package — closure_package_item (Increment 1: data core)
+// FOLD-DRAFT-1 / package â€” closure_package_item (Increment 1: data core)
 // ============================================================
 // The "closing package": per matter, the artifacts (documents/materials/sources) + checklist items
 // gathered into a named, self-contained bundle for hand-off/closure, each marked required-vs-optional
@@ -1854,7 +1860,7 @@ export type ClosurePackageItem = typeof closurePackageItem.$inferSelect;
 export type NewClosurePackageItem = typeof closurePackageItem.$inferInsert;
 
 // ============================================================
-// FOLD-SEND-1 — export-safety / outbound-readiness data core (Increment 1)
+// FOLD-SEND-1 â€” export-safety / outbound-readiness data core (Increment 1)
 // ============================================================
 // Deterministic block/warn/pass gate data core (triad-reviewed; docs/reviews/FOLD-SEND-1_disposition.md).
 // Inc 1 = tables + idempotent firm-default seeds only; NO behavior change; SENDABILITY_GATE_ENABLED
@@ -1875,7 +1881,7 @@ export const JURISDICTION_REQUIREMENT_VALUES = [
   'notary', 'two_witnesses', 'self_proving_affidavit', 'signer_capacity_recital',
 ] as const;
 
-// sendability_rule — which checks are enabled + at what level; owner-null = firm default (no UI v1).
+// sendability_rule â€” which checks are enabled + at what level; owner-null = firm default (no UI v1).
 export const sendabilityRule = mysqlTable(
   'sendability_rule',
   {
@@ -1893,7 +1899,7 @@ export const sendabilityRule = mysqlTable(
   }),
 );
 
-// jurisdiction_rule — document-type-scoped, source-tagged execution formalities (scope-guarded).
+// jurisdiction_rule â€” document-type-scoped, source-tagged execution formalities (scope-guarded).
 export const jurisdictionRule = mysqlTable(
   'jurisdiction_rule',
   {
@@ -1912,7 +1918,7 @@ export const jurisdictionRule = mysqlTable(
   }),
 );
 
-// sendability_override — APPEND-ONLY; content-hash-bound; supersedes on version change.
+// sendability_override â€” APPEND-ONLY; content-hash-bound; supersedes on version change.
 export const sendabilityOverride = mysqlTable(
   'sendability_override',
   {
@@ -1934,7 +1940,7 @@ export const sendabilityOverride = mysqlTable(
   }),
 );
 
-// sendability_evaluation — APPEND-ONLY log of every evaluation (incl. shadow mode).
+// sendability_evaluation â€” APPEND-ONLY log of every evaluation (incl. shadow mode).
 export const sendabilityEvaluation = mysqlTable(
   'sendability_evaluation',
   {
@@ -1964,10 +1970,10 @@ export type SendabilityOverride = typeof sendabilityOverride.$inferSelect;
 export type SendabilityEvaluation = typeof sendabilityEvaluation.$inferSelect;
 
 // ============================================================
-// CONFLICT-GATE-OVERRIDE-1 — gate_override (attested per-matter, per-precondition gate override)
+// CONFLICT-GATE-OVERRIDE-1 â€” gate_override (attested per-matter, per-precondition gate override)
 // ============================================================
 // APPEND-ONLY record of an attorney attesting an override of ONE fail-closed drafting precondition
-// (conflicts clearance OR party identity verification) for ONE matter. The gate DEFAULT is UNCHANGED —
+// (conflicts clearance OR party identity verification) for ONE matter. The gate DEFAULT is UNCHANGED â€”
 // this records an explicit attorney act the gate CONSULTS, never a global toggle. snapshot/snapshotHash
 // bind the override to the precondition STATE at attestation; a material change re-arms it (the current
 // state's hash no longer matches the stored hash), the same "supersedes on change" pattern as
@@ -2009,13 +2015,13 @@ export type GateOverride = typeof gateOverride.$inferSelect;
 export type NewGateOverride = typeof gateOverride.$inferInsert;
 
 // ============================================================
-// CONFLICT-TOGGLE-1 (Inc 1) — firm_conflict_policy (firm-scoped conflicts posture policy)
+// CONFLICT-TOGGLE-1 (Inc 1) â€” firm_conflict_policy (firm-scoped conflicts posture policy)
 // ============================================================
 // APPEND-ONLY: one row per version of a firm's conflicts posture policy; the latest row (by
 // firmOwnerUserId, createdAt) is current, and the row history IS the tamper-evident settings-audit. The
-// policy relaxes only through an explicit, audited INSERT — never UPDATE/DELETE. FIRM-scoped (keyed by the
+// policy relaxes only through an explicit, audited INSERT â€” never UPDATE/DELETE. FIRM-scoped (keyed by the
 // firm's owning attorney, firm-shaped for a later multi-user firm), NOT per-user. NO DB FK (app-layer
-// ownerScope). Index is INLINE (migration 0047). DORMANT in Inc 1 — nothing reads the posture yet.
+// ownerScope). Index is INLINE (migration 0047). DORMANT in Inc 1 â€” nothing reads the posture yet.
 export const firmConflictPolicy = mysqlTable(
   'firm_conflict_policy',
   {
@@ -2036,7 +2042,7 @@ export const firmConflictPolicy = mysqlTable(
 export type FirmConflictPolicy = typeof firmConflictPolicy.$inferSelect;
 export type NewFirmConflictPolicy = typeof firmConflictPolicy.$inferInsert;
 
-// CONFLICT-TOGGLE-1 (Inc 2) — matter_conflict_posture (per-matter elected posture). APPEND-ONLY: latest row
+// CONFLICT-TOGGLE-1 (Inc 2) â€” matter_conflict_posture (per-matter elected posture). APPEND-ONLY: latest row
 // (by userId, matterId, createdAt) is the matter's current election; history is the tamper-evident audit. A
 // matter relaxes to ADVISORY only via an explicit, audited INSERT carrying the attestation reason. Owner-
 // scoped; NO DB FK; index INLINE (migration 0048). DORMANT in Inc 2 unless CONFLICT_GATE_ENABLED.
@@ -2062,11 +2068,11 @@ export const matterConflictPosture = mysqlTable(
 export type MatterConflictPosture = typeof matterConflictPosture.$inferSelect;
 export type NewMatterConflictPosture = typeof matterConflictPosture.$inferInsert;
 
-// FOLD-DEED-1 (Inc 1 foundation) — deed_gate (per-deed-document recordability gate state). One row per deed
+// FOLD-DEED-1 (Inc 1 foundation) â€” deed_gate (per-deed-document recordability gate state). One row per deed
 // document (documentId UNIQUE), holding the attorney-recorded affirmative-act checklist as a Zod-validated
 // JSON blob. The permanent record of each act is the audit_events Matter-Record event; this is the current
 // operational state. Owner+matter-scoped; NO DB FK; indexes INLINE (migration 0049). DORMANT unless
-// DEED_GATE_ENABLED. FAIL-CLOSED + KB-mandatory (no locality KB → never recordable).
+// DEED_GATE_ENABLED. FAIL-CLOSED + KB-mandatory (no locality KB â†’ never recordable).
 export const deedGate = mysqlTable(
   'deed_gate',
   {
@@ -2088,17 +2094,17 @@ export type DeedGate = typeof deedGate.$inferSelect;
 export type NewDeedGate = typeof deedGate.$inferInsert;
 
 // ============================================================
-// FOLD-L1-4 — reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
+// FOLD-L1-4 â€” reusable_artifacts (MM-8a registry + MM-8b cross-matter gate)
 // ============================================================
 // Reusable artifacts (templates / clauses / memos / snippets) that may be invoked
-// across matters — UNDER a contamination gate. ANTI-CONTAMINATION is the whole point:
+// across matters â€” UNDER a contamination gate. ANTI-CONTAMINATION is the whole point:
 //   - originMatterId records where the artifact came from (nullable = firm-level, not
 //     derived from a specific client matter).
 //   - reusableScope defaults to 'matter_only' (an artifact derived from matter A may NOT
 //     be invoked in matter B unless the attorney EXPLICITLY widens it to 'cross_matter').
 //   - Even when 'cross_matter', each cross-matter invocation requires an explicit per-use
 //     opt-in (enforced by the gate service, not the schema) and is fail-visibly audited.
-// The scope is an explicit attorney act with a conservative default — never inferred.
+// The scope is an explicit attorney act with a conservative default â€” never inferred.
 //
 // Indexes:
 //   idx_reusable_artifacts_user (userId)
@@ -2149,16 +2155,16 @@ export type ReusableArtifact = typeof reusableArtifacts.$inferSelect;
 export type NewReusableArtifact = typeof reusableArtifacts.$inferInsert;
 
 // ============================================================
-// FOLD-L0-1 — Layer-0 Matter Intake & Analysis (Phase 3)
+// FOLD-L0-1 â€” Layer-0 Matter Intake & Analysis (Phase 3)
 // ============================================================
 // Analysis-first intake: matter_parties (Fork B, thin/interim) feed the deterministic
 // conflicts-at-intake check (conflict_checks + conflict_hits, Fork A); matter_analysis
 // (Fork C) is the internal assessment-and-plan that closes on a locked plan (Fork F:
 // categorically NON-SENDABLE by type). All owner-scoped, additive. Conflicts matching is
-// deterministic DB-side — NO LLM in the check (Fork G).
+// deterministic DB-side â€” NO LLM in the check (Fork G).
 // ============================================================
 
-// --- matter_parties (Fork B — thin/interim; full cross-matter identity is FOLD-PM-3) ---
+// --- matter_parties (Fork B â€” thin/interim; full cross-matter identity is FOLD-PM-3) ---
 export const MATTER_PARTY_ROLE_VALUES = ['client', 'adverse', 'related', 'other'] as const;
 export type MatterPartyRole = (typeof MATTER_PARTY_ROLE_VALUES)[number];
 
@@ -2173,19 +2179,19 @@ export const matterParties = mysqlTable(
     matterId: char('matterId', { length: 36 }).notNull(),
     role: mysqlEnum('role', MATTER_PARTY_ROLE_VALUES).notNull(),
     displayName: varchar('displayName', { length: 256 }).notNull(),
-    // normalizedName: lower/trim/collapse-ws/strip-punct — the conflicts match key.
+    // normalizedName: lower/trim/collapse-ws/strip-punct â€” the conflicts match key.
     normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
     partyType: mysqlEnum('partyType', MATTER_PARTY_TYPE_VALUES).notNull().default('unknown'),
     // source: where the party came from. 'attorney'/'intake'/'imported' (manual);
     // 'auto_from_clientName' (R2-PRE-CONFLICT-1 Inc 2 auto-create); 'migration' (Inc 5 retroactive).
     source: varchar('source', { length: 64 }).notNull().default('attorney'),
-    // R2-PRE-CONFLICT-1 §3F: explicit-attorney-confirmation lifecycle. Existing rows default TRUE
+    // R2-PRE-CONFLICT-1 Â§3F: explicit-attorney-confirmation lifecycle. Existing rows default TRUE
     // (attorney-added). Auto-created/migration parties are confirmed=FALSE: screened immediately
     // but NOT clearance-satisfying until the attorney confirms identity (an explicit, logged act).
     confirmed: boolean('confirmed').notNull().default(true),
     confirmedAt: timestamp('confirmedAt'),
     confirmedByUserId: char('confirmedByUserId', { length: 36 }),
-    // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity — unused in L0-1.
+    // Forward-safe (nullable) hooks for FOLD-PM-3 cross-matter identity â€” unused in L0-1.
     aliasOfPartyId: char('aliasOfPartyId', { length: 36 }),
     externalIdentityKey: varchar('externalIdentityKey', { length: 128 }),
     // DOC-CLIENT-TARGET-1: soft-delete (mirrors matter_materials Ch 21.6). A party bound to a
@@ -2220,7 +2226,7 @@ export const conflictChecks = mysqlTable(
     matterId: char('matterId', { length: 36 }).notNull(),
     status: mysqlEnum('status', CONFLICT_CHECK_STATUS_VALUES).notNull().default('clear'),
     runAt: timestamp('runAt').notNull().default(sql`CURRENT_TIMESTAMP`),
-    // R2-PRE-CONFLICT-1 §3D: snapshot of the party-id set this check evaluated (JSON array). A
+    // R2-PRE-CONFLICT-1 Â§3D: snapshot of the party-id set this check evaluated (JSON array). A
     // party mutation after a terminal check invalidates the clear (re-check required). Set in Inc 4.
     checkedPartyIds: json('checkedPartyIds'),
     createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -2280,7 +2286,7 @@ export const conflictHits = mysqlTable(
 export type ConflictHit = typeof conflictHits.$inferSelect;
 export type NewConflictHit = typeof conflictHits.$inferInsert;
 
-// --- matter_analysis (Fork C — internal work-product; Fork F — categorically non-sendable) ---
+// --- matter_analysis (Fork C â€” internal work-product; Fork F â€” categorically non-sendable) ---
 export const MATTER_ANALYSIS_RECORD_STATUS_VALUES = ['draft', 'locked', 'superseded'] as const;
 export type MatterAnalysisRecordStatus = (typeof MATTER_ANALYSIS_RECORD_STATUS_VALUES)[number];
 
@@ -2298,7 +2304,7 @@ export const matterAnalysis = mysqlTable(
     assessment: json('assessment'),
     plan: json('plan'),
     openQuestions: json('openQuestions'),
-    // STRUCTURED planned-deliverables (not just prose) — feeds the later plan->drafting bridge.
+    // STRUCTURED planned-deliverables (not just prose) â€” feeds the later plan->drafting bridge.
     recommendedDocuments: json('recommendedDocuments'),
     // Conflicts linkage (Fork A/C): the check this plan was cleared against + the flag.
     conflictCheckId: char('conflictCheckId', { length: 36 }),
@@ -2311,8 +2317,8 @@ export const matterAnalysis = mysqlTable(
     lockedAt: timestamp('lockedAt'),
     lockRationale: text('lockRationale'),
     supersededById: char('supersededById', { length: 36 }),
-    // Fork F — categorically NON-SENDABLE by TYPE (the type is the enforcement, not a
-    // missing button). FOLD-SEND-1 must read these and return "N/A — not a sendable type".
+    // Fork F â€” categorically NON-SENDABLE by TYPE (the type is the enforcement, not a
+    // missing button). FOLD-SEND-1 must read these and return "N/A â€” not a sendable type".
     artifactKind: varchar('artifactKind', { length: 32 }).notNull().default('matter_analysis'),
     outboundEligible: boolean('outboundEligible').notNull().default(false),
     sendabilityRequired: boolean('sendabilityRequired').notNull().default(false),
@@ -2331,7 +2337,7 @@ export type MatterAnalysis = typeof matterAnalysis.$inferSelect;
 export type NewMatterAnalysis = typeof matterAnalysis.$inferInsert;
 
 // ============================================================
-// FOLD-KB-1 — Practice Knowledge Base (Phase 3) — Increment 1 data core
+// FOLD-KB-1 â€” Practice Knowledge Base (Phase 3) â€” Increment 1 data core
 // ============================================================
 // Two owner-private stores. Additive. The per-PA master-prompt layer auto-loads (it is
 // the attorney's own instruction); practice memos NEVER auto-inject (surface-not-inject).
@@ -2342,7 +2348,7 @@ export const paInstructionProfiles = mysqlTable(
     id: char('id', { length: 36 }).primaryKey(),
     userId: char('userId', { length: 36 }).notNull(),
     // Owner-defined practice-area key the matter's freeform practiceArea maps to (by
-    // EXPLICIT attorney confirmation — never silent string-guessing).
+    // EXPLICIT attorney confirmation â€” never silent string-guessing).
     paKey: varchar('paKey', { length: 64 }).notNull(),
     title: varchar('title', { length: 256 }).notNull(),
     // The tuned master prompt (the attorney's own instruction layer).
@@ -2385,7 +2391,7 @@ export type MemoAbstractedBy = (typeof MEMO_ABSTRACTED_BY_VALUES)[number];
 export const MEMO_REUSE_SCOPE_VALUES = ['matter_only', 'firm_wide'] as const;
 export type MemoReuseScope = (typeof MEMO_REUSE_SCOPE_VALUES)[number];
 
-// KNOWLEDGE-BACKBONE-PHASE2 (I1) — minimal-floor scope-metadata risk classification (low|medium|high).
+// KNOWLEDGE-BACKBONE-PHASE2 (I1) â€” minimal-floor scope-metadata risk classification (low|medium|high).
 // A v1 input to a FUTURE auto-apply gate (I3); I1 only STORES it. Stored as varchar; validated at the Zod Wall.
 export const MEMO_RISK_LEVEL_VALUES = ['low', 'medium', 'high'] as const;
 export type MemoRiskLevel = (typeof MEMO_RISK_LEVEL_VALUES)[number];
@@ -2423,19 +2429,19 @@ export const practiceMemos = mysqlTable(
     // Owner-only link from an abstracted memo back to its raw origin; never exposed cross-matter.
     abstractedFromMemoId: char('abstractedFromMemoId', { length: 36 }),
     supersededById: char('supersededById', { length: 36 }),
-    // KB-PROVENANCE-1 (WHEREAS_KB_CONSTITUTION §8 provenance/currency fields). Additive nullable.
+    // KB-PROVENANCE-1 (WHEREAS_KB_CONSTITUTION Â§8 provenance/currency fields). Additive nullable.
     // verified_date intentionally NOT added (duplicates verifiedThroughDate/lastVerifiedAt);
-    // supersedes_id deferred per §8 (supersededById already exists above).
+    // supersedes_id deferred per Â§8 (supersededById already exists above).
     effectiveDate: date('effectiveDate', { mode: 'string' }),
     reviewBy: date('reviewBy', { mode: 'string' }),
     authoritySnapshotId: char('authoritySnapshotId', { length: 36 }),
     negativeTreatmentFlag: boolean('negativeTreatmentFlag'),
-    // KNOWLEDGE-BACKBONE-PHASE2 (I1) scope-metadata floor (minimal now, accrete later) — the v1 inputs to a
+    // KNOWLEDGE-BACKBONE-PHASE2 (I1) scope-metadata floor (minimal now, accrete later) â€” the v1 inputs to a
     // FUTURE auto-apply gate (I3); I1 only STORES them, never applies. documentType + riskLevel are scope tags
     // (riskLevel validated low|medium|high at the Zod Wall). autoApplyEligible defaults FALSE and may be flipped
-    // true ONLY for an abstracted + firm-wide (graduated) entry — raw decision-stream entries never auto-apply
+    // true ONLY for an abstracted + firm-wide (graduated) entry â€” raw decision-stream entries never auto-apply
     // (D3). conflictsHook holds origin-matter conflict metadata captured at graduation (cheap now, impossible to
-    // reconstruct retroactively — D2); store-only this increment.
+    // reconstruct retroactively â€” D2); store-only this increment.
     documentType: varchar('documentType', { length: 64 }),
     riskLevel: varchar('riskLevel', { length: 16 }),
     autoApplyEligible: boolean('autoApplyEligible').notNull().default(false),
@@ -2454,7 +2460,7 @@ export const practiceMemos = mysqlTable(
 export type PracticeMemo = typeof practiceMemos.$inferSelect;
 export type NewPracticeMemo = typeof practiceMemos.$inferInsert;
 
-// kb_adoptions — FOLD-KB-1 Increment 2 (Fork A). Durable, matter-scoped provenance of a
+// kb_adoptions â€” FOLD-KB-1 Increment 2 (Fork A). Durable, matter-scoped provenance of a
 // memo pulled into a matter / work product. Snapshots the memo's currency posture at adoption.
 export const kbAdoptions = mysqlTable(
   'kb_adoptions',
@@ -2484,7 +2490,7 @@ export const kbAdoptions = mysqlTable(
 export type KbAdoption = typeof kbAdoptions.$inferSelect;
 export type NewKbAdoption = typeof kbAdoptions.$inferInsert;
 
-// kb_events — FOLD-KB-1 Increment 3. Owner-scoped, APPEND-ONLY audit trail for FIRM-LEVEL
+// kb_events â€” FOLD-KB-1 Increment 3. Owner-scoped, APPEND-ONLY audit trail for FIRM-LEVEL
 // (matter-less) KB attorney acts. audit_events stays the per-matter record; this is the KB
 // record. Insert + read only.
 export const kbEvents = mysqlTable(
@@ -2510,7 +2516,7 @@ export type KbEvent = typeof kbEvents.$inferSelect;
 export type NewKbEvent = typeof kbEvents.$inferInsert;
 
 // ============================================================
-// FOLD-PM-1 — deadline / tickler engine data core (Increment 1)
+// FOLD-PM-1 â€” deadline / tickler engine data core (Increment 1)
 // ============================================================
 // Phase-4 head. The first feature that computes legally consequential dates. Design triad-reviewed +
 // operator-APPROVED (FOLD-PM-1_consolidated_disposition_2026-06-07.md). Inc 1 = tables + schemas +
@@ -2535,7 +2541,7 @@ export const DEADLINE_STATUS_VALUES = [
 ] as const;
 export const ANCHOR_SOURCE_VALUES = ['attorney_entered', 'document_linked'] as const;
 
-// deadline_rule — a rule's identity + enable switch + pointer to its current immutable revision.
+// deadline_rule â€” a rule's identity + enable switch + pointer to its current immutable revision.
 export const deadlineRule = mysqlTable(
   'deadline_rule',
   {
@@ -2555,7 +2561,7 @@ export const deadlineRule = mysqlTable(
   }),
 );
 
-// deadline_rule_revision — IMMUTABLE legal-content snapshot. A rule edit writes a NEW revision; a
+// deadline_rule_revision â€” IMMUTABLE legal-content snapshot. A rule edit writes a NEW revision; a
 // matter_deadline that snapshotted an older revision keeps its historical basis (never silently mutates).
 export const deadlineRuleRevision = mysqlTable(
   'deadline_rule_revision',
@@ -2579,7 +2585,7 @@ export const deadlineRuleRevision = mysqlTable(
   }),
 );
 
-// matter_deadline — per-matter instance (computed from a rule revision, or manual). anchorDate is
+// matter_deadline â€” per-matter instance (computed from a rule revision, or manual). anchorDate is
 // visibly attorney-asserted. status lifecycle per G-C (pending_confirm fires ticklers; expired_unresolved
 // is permanent until a reasoned satisfy/waive).
 export const matterDeadline = mysqlTable(
@@ -2614,7 +2620,7 @@ export const matterDeadline = mysqlTable(
   }),
 );
 
-// tickler — per-deadline lead-time reminder rows, materialized over a rolling 12-month horizon and
+// tickler â€” per-deadline lead-time reminder rows, materialized over a rolling 12-month horizon and
 // refreshed deterministically on-load. ack/snooze keyed to the LOGICAL lead-time (leadDays) so the
 // state survives regeneration on recompute.
 export const tickler = mysqlTable(
@@ -2642,7 +2648,7 @@ export const tickler = mysqlTable(
   }),
 );
 
-// holiday_calendar — jurisdiction + date + label; business-day math unions US (federal) + the matter's
+// holiday_calendar â€” jurisdiction + date + label; business-day math unions US (federal) + the matter's
 // state. A coverage guard (computation core) returns a CONSTRAINT past the seeded range, never assumes.
 export const holidayCalendar = mysqlTable(
   'holiday_calendar',
@@ -2670,7 +2676,7 @@ export type HolidayCalendar = typeof holidayCalendar.$inferSelect;
 export type NewHolidayCalendar = typeof holidayCalendar.$inferInsert;
 
 // ============================================================
-// INSTR-1A0 (INSTRUCTIONS-LEG-1) — prompt_snapshots (migration 0026)
+// INSTR-1A0 (INSTRUCTIONS-LEG-1) â€” prompt_snapshots (migration 0026)
 // ============================================================
 // APPEND-ONLY per-draft-job record of the FULL composed system text actually sent to the
 // provider (both paths, flag on or off), with its SHA-256, the composed asset's logical
@@ -2715,7 +2721,7 @@ export type PromptSnapshot = typeof promptSnapshots.$inferSelect;
 export type NewPromptSnapshot = typeof promptSnapshots.$inferInsert;
 
 // ============================================================
-// CHAT-UI-1 W2 — posture_provenance (durable posture audit ledger, PROVENANCE-LEDGER-1)
+// CHAT-UI-1 W2 â€” posture_provenance (durable posture audit ledger, PROVENANCE-LEDGER-1)
 // ============================================================
 // Append-only, owner-scoped, per-matter audit ledger for the CHAT-UI-1 posture-confirm discipline.
 // One row per meaningful accept or dirty->confirmed transition (eventClass), carrying the full
@@ -2723,7 +2729,7 @@ export type NewPromptSnapshot = typeof promptSnapshots.$inferInsert;
 // hard-stop act, actor, slider position, trigger source, and the attorney confirm timestamp.
 // Tamper-EVIDENT via a per-matter sha256 hash chain (prevHash -> entryHash). Insert + read only (no
 // update/delete). Entirely behind CHAT_UI_1_ENABLED; inert (no rows) when off. ADDITIVE (migration
-// 0028, CREATE TABLE) — no existing table is altered.
+// 0028, CREATE TABLE) â€” no existing table is altered.
 export const POSTURE_PROVENANCE_EVENT_CLASS_VALUES = ['meaningful_accept', 'dirty_confirmed'] as const;
 export const POSTURE_PROVENANCE_ACT_VALUES = [
   'lock',
@@ -2754,7 +2760,7 @@ export const postureProvenance = mysqlTable(
     userId: char('userId', { length: 36 }).notNull(),
     matterId: char('matterId', { length: 36 }).notNull(),
     documentId: char('documentId', { length: 36 }),
-    // Per-matter monotonic sequence — the chain order (TIMESTAMP is second-resolution and can tie).
+    // Per-matter monotonic sequence â€” the chain order (TIMESTAMP is second-resolution and can tie).
     seq: int('seq').notNull(),
     eventClass: mysqlEnum('eventClass', POSTURE_PROVENANCE_EVENT_CLASS_VALUES).notNull(),
     act: mysqlEnum('act', POSTURE_PROVENANCE_ACT_VALUES).notNull(),
@@ -2772,7 +2778,7 @@ export const postureProvenance = mysqlTable(
     priorTriple: json('priorTriple'),
     verdictSeverity: mysqlEnum('verdictSeverity', POSTURE_PROVENANCE_VERDICT_VALUES).notNull(),
     findings: json('findings').notNull(),
-    // CHAT-UI-1 W3 (migration 0029) — the non-posture act's target (matter identity, undo, ...).
+    // CHAT-UI-1 W3 (migration 0029) â€” the non-posture act's target (matter identity, undo, ...).
     subject: json('subject'),
     // Per-matter tamper-evident hash chain.
     prevHash: varchar('prevHash', { length: 64 }).notNull(),
@@ -2788,10 +2794,10 @@ export type PostureProvenance = typeof postureProvenance.$inferSelect;
 export type NewPostureProvenance = typeof postureProvenance.$inferInsert;
 
 // ============================================================
-// REVIEWER-ASYNC-DISPLAY-1 (Gate 0, Component C) — reviewer_lanes
+// REVIEWER-ASYNC-DISPLAY-1 (Gate 0, Component C) â€” reviewer_lanes
 // ============================================================
 // One row per EXPECTED reviewer of an async multi-reviewer review iteration (the immutable expected
-// set, persisted at create BEFORE dispatch — condition 2). Server-owned per-reviewer terminal status
+// set, persisted at create BEFORE dispatch â€” condition 2). Server-owned per-reviewer terminal status
 // (a DIFFERENT vocabulary than job status) + a C-owned terminalDeadlineAt (condition 4, defense-in-
 // depth). Additive table (migration 0030_*); matter-scoped (purged with the matter). Written ONLY on
 // the async path (REVIEWER_ASYNC_ENABLED). Status values are sourced from the shared lane module.
@@ -2802,11 +2808,11 @@ export const reviewerLanes = mysqlTable(
     userId: char('userId', { length: 36 }).notNull(),
     matterId: char('matterId', { length: 36 }).notNull(),
     documentId: char('documentId', { length: 36 }).notNull(),
-    // versionId: the document revision under review at dispatch (== feedback.versionId) — condition 6
+    // versionId: the document revision under review at dispatch (== feedback.versionId) â€” condition 6
     versionId: char('versionId', { length: 36 }).notNull(),
     reviewSessionId: char('reviewSessionId', { length: 36 }).notNull(),
     iterationNumber: int('iterationNumber').notNull(),
-    // reviewerRole: free VARCHAR like feedback.reviewerRole (no DB enum — claude/gpt/gemini/grok + *_lite)
+    // reviewerRole: free VARCHAR like feedback.reviewerRole (no DB enum â€” claude/gpt/gemini/grok + *_lite)
     reviewerRole: varchar('reviewerRole', { length: 64 }).notNull(),
     reviewerTitle: varchar('reviewerTitle', { length: 128 }).notNull(),
     // jobId: the dispatched reviewer job (null until dispatched / if dispatch_failed)
@@ -2825,7 +2831,7 @@ export const reviewerLanes = mysqlTable(
     idxReviewerLanesMatter: index('idx_reviewer_lanes_matter').on(table.matterId, table.userId),
     // for C's per-lane deadline sweep: non-terminal lanes past terminalDeadlineAt
     idxReviewerLanesDeadline: index('idx_reviewer_lanes_deadline').on(table.status, table.terminalDeadlineAt),
-    // one lane per reviewer per session (latest-terminal-per-reviewer dedupe — condition 1)
+    // one lane per reviewer per session (latest-terminal-per-reviewer dedupe â€” condition 1)
     uniqReviewerLaneSessionReviewer: uniqueIndex('uniq_reviewer_lane_session_reviewer').on(
       table.reviewSessionId,
       table.reviewerRole,
@@ -2836,7 +2842,7 @@ export type ReviewerLane = typeof reviewerLanes.$inferSelect;
 export type NewReviewerLane = typeof reviewerLanes.$inferInsert;
 
 // ============================================================
-// CHAT-COPILOT-1 (Inc 1) — chat_conversations / chat_messages / chat_summaries
+// CHAT-COPILOT-1 (Inc 1) â€” chat_conversations / chat_messages / chat_summaries
 // ============================================================
 // Persisted matter-scoped chat copilot. Additive (migration 0033); written ONLY when
 // CHAT_COPILOT_ENABLED is ON (default OFF). STORE-BY-REFERENCE by construction: there is NO column for
@@ -2848,9 +2854,9 @@ export const chatConversations = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     userId: char('userId', { length: 36 }).notNull(),
-    // Immutable binding — a conversation belongs to exactly one matter, forever (never updated).
+    // Immutable binding â€” a conversation belongs to exactly one matter, forever (never updated).
     matterId: char('matterId', { length: 36 }).notNull(),
-    // Immutable / explicitly-versioned document binding (nullable — a conversation need not be doc-bound).
+    // Immutable / explicitly-versioned document binding (nullable â€” a conversation need not be doc-bound).
     documentId: char('documentId', { length: 36 }),
     documentVersionId: char('documentVersionId', { length: 36 }),
     title: varchar('title', { length: 256 }),
@@ -2897,13 +2903,13 @@ export const chatMessages = mysqlTable(
     // compiled master body or raw assembled context (store-by-reference).
     content: mediumtext('content'),
     contentHash: varchar('contentHash', { length: 64 }),
-    // masterApplied / masterSource: AUDIT-ONLY — never short-circuit the fresh per-turn gate.
+    // masterApplied / masterSource: AUDIT-ONLY â€” never short-circuit the fresh per-turn gate.
     masterApplied: boolean('masterApplied').notNull().default(false),
     masterSource: varchar('masterSource', { length: 64 }),
     capacitySnapshot: json('capacitySnapshot'),
     // draftingGateDecisionId: deterministic hash of the resolveDraftingGate decision at turn time.
     draftingGateDecisionId: varchar('draftingGateDecisionId', { length: 128 }),
-    // citations: [{ sourceId, locator }] references ONLY (Inc 3 populates) — never copied chunk text.
+    // citations: [{ sourceId, locator }] references ONLY (Inc 3 populates) â€” never copied chunk text.
     citations: json('citations'),
     modelProvider: varchar('modelProvider', { length: 64 }),
     modelId: varchar('modelId', { length: 64 }),
@@ -2946,11 +2952,11 @@ export const chatSummaries = mysqlTable(
 export type ChatSummary = typeof chatSummaries.$inferSelect;
 export type NewChatSummary = typeof chatSummaries.$inferInsert;
 
-// CHAT-COPILOT-2 Increment A (G1/G3) — the append-only egress audit log. Every copilot egress decision
+// CHAT-COPILOT-2 Increment A (G1/G3) â€” the append-only egress audit log. Every copilot egress decision
 // (allowed OR blocked) is written here in the SAME transaction as the gate decision, BY CONSTRUCTION:
 // the broker (src/server/llm/egressClient.ts) cannot dispatch a copilot send without first writing a row.
 // STORE-BY-REFERENCE / no-content: there is deliberately NO column for the prompt/payload, the response,
-// or any NPI value — only metadata + a salted/keyed hash over the MINIMIZED payload (inputBundleHash).
+// or any NPI value â€” only metadata + a salted/keyed hash over the MINIMIZED payload (inputBundleHash).
 // Append-only: only the dispatch-outcome fields (status/failureReason/completedAt/token counts) are
 // filled in by a single completion update; the decision + hash + metadata are never mutated. No DB FK
 // (app-layer isolation, codebase convention). Written ONLY when CHAT_COPILOT_ENABLED is ON (default OFF).
@@ -2974,7 +2980,7 @@ export const chatEgressEvents = mysqlTable(
     model: varchar('model', { length: 128 }).notNull(),
     minimizationApplied: boolean('minimizationApplied').notNull().default(false),
     minimizationProfile: varchar('minimizationProfile', { length: 64 }),
-    // JSON arrays of category labels / ids only — NEVER NPI values.
+    // JSON arrays of category labels / ids only â€” NEVER NPI values.
     npiCategoriesIncluded: json('npiCategoriesIncluded'),
     npiCategoriesWithheld: json('npiCategoriesWithheld'),
     holdHonored: boolean('holdHonored').notNull().default(false),
@@ -2982,7 +2988,7 @@ export const chatEgressEvents = mysqlTable(
     // Q1 hash-at-gate: salted/keyed hash over the COPILOT-COMPOSED minimized, hold-filtered bundle
     // (system + any layered master + grounded context + history + turn). NOT the raw payload (a
     // low-entropy field is not recoverable from the hash). Does NOT yet cover the platform's downstream
-    // matter-state metadata block (documented A1 follow-up — see egressClient EgressAuditContext).
+    // matter-state metadata block (documented A1 follow-up â€” see egressClient EgressAuditContext).
     inputBundleHash: varchar('inputBundleHash', { length: 128 }),
     attachmentIds: json('attachmentIds'),
     region: varchar('region', { length: 64 }),
@@ -3005,9 +3011,9 @@ export const chatEgressEvents = mysqlTable(
 export type ChatEgressEvent = typeof chatEgressEvents.$inferSelect;
 export type NewChatEgressEvent = typeof chatEgressEvents.$inferInsert;
 
-// EGRESS-CONTROL-PLANE-1 (Increment 1) — the surface-agnostic egress audit ledger. Every external-model
+// EGRESS-CONTROL-PLANE-1 (Increment 1) â€” the surface-agnostic egress audit ledger. Every external-model
 // send of client/matter content writes ONE durable decision row here BEFORE dispatch (allowed OR blocked +
-// reason). Store-by-reference: inputBundleHash is a salted/keyed hash over the minimized payload — NEVER
+// reason). Store-by-reference: inputBundleHash is a salted/keyed hash over the minimized payload â€” NEVER
 // the draft text. chat_egress_events is untouched; the DOCUMENT egress path (sendability pilot) writes here.
 export const egressEvents = mysqlTable(
   'egress_events',
@@ -3045,7 +3051,7 @@ export const egressEvents = mysqlTable(
 export type EgressEvent = typeof egressEvents.$inferSelect;
 export type NewEgressEvent = typeof egressEvents.$inferInsert;
 
-// EGRESS-CONTROL-PLANE-1 (Increment 1) — a scoped external-egress hold (matter/global; conversation.holdFlag
+// EGRESS-CONTROL-PLANE-1 (Increment 1) â€” a scoped external-egress hold (matter/global; conversation.holdFlag
 // covers chat). subjectId = conversationId | matterId (NULL for scope='global'). matterId is set for
 // conversation/matter scope (purges WITH the matter); NULL for a firm-level global hold (retained across
 // matter purge). Release is audit-preserving (active=false + releasedAt; no in-operation row delete).
@@ -3073,8 +3079,8 @@ export const egressHold = mysqlTable(
 export type EgressHold = typeof egressHold.$inferSelect;
 export type NewEgressHold = typeof egressHold.$inferInsert;
 
-// CHAT-COPILOT-2 A2 — ephemeral chat attachments. Store BY-REFERENCE (extracted text + metadata, NOT raw
-// file bytes — storageKey is a placeholder like matter_materials), conversation-scoped, EPHEMERAL by
+// CHAT-COPILOT-2 A2 â€” ephemeral chat attachments. Store BY-REFERENCE (extracted text + metadata, NOT raw
+// file bytes â€” storageKey is a placeholder like matter_materials), conversation-scoped, EPHEMERAL by
 // default (purged at conversation end / immediately on do-not-persist; a `pinned` provenance attachment
 // survives). textContent follows the honesty floor (NULL on low-confidence). Written ONLY when
 // CHAT_COPILOT_ENABLED is ON (default OFF). No DB FK (app-layer isolation, codebase convention).
@@ -3089,12 +3095,12 @@ export const chatAttachments = mysqlTable(
     mimeType: varchar('mimeType', { length: 128 }),
     fileSize: int('fileSize'),
     storageKey: varchar('storageKey', { length: 512 }),
-    // contentHash: SHA-256 of the uploaded bytes — cross-matter duplicate detection (Q3). NOT NPI.
+    // contentHash: SHA-256 of the uploaded bytes â€” cross-matter duplicate detection (Q3). NOT NPI.
     contentHash: varchar('contentHash', { length: 64 }),
     textContent: mediumtext('textContent'),
     extractionStatus: mysqlEnum('extractionStatus', EXTRACTION_STATUS_VALUES).notNull(),
     extractionError: text('extractionError'),
-    // ocrQuality: { meanConfidence, perPageConfidence, warnings, dangerousMiddleFieldTypes, ... } — labels
+    // ocrQuality: { meanConfidence, perPageConfidence, warnings, dangerousMiddleFieldTypes, ... } â€” labels
     // + confidences ONLY, never the field values (no NPI).
     ocrQuality: json('ocrQuality'),
     holdFlag: mysqlEnum('holdFlag', CHAT_HOLD_FLAG_VALUES).notNull().default('none'),
@@ -3116,7 +3122,7 @@ export const chatAttachments = mysqlTable(
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;
 
-// CHAT-COPILOT-2 A2 — optional party attribution captured at save-to-matter (Q3): which matter party a
+// CHAT-COPILOT-2 A2 â€” optional party attribution captured at save-to-matter (Q3): which matter party a
 // document belongs to, so role-based intra-matter exclusion is enforceable rather than aspirational.
 export const chatAttachmentParty = mysqlTable(
   'chat_attachment_party',
@@ -3138,11 +3144,11 @@ export const chatAttachmentParty = mysqlTable(
 export type ChatAttachmentPartyRowDb = typeof chatAttachmentParty.$inferSelect;
 export type NewChatAttachmentParty = typeof chatAttachmentParty.$inferInsert;
 
-// CHAT-COPILOT-2 Increment B — multi-model review panel. THREE additive, owner+matter-scoped tables
+// CHAT-COPILOT-2 Increment B â€” multi-model review panel. THREE additive, owner+matter-scoped tables
 // (migration 0040). WORK-PRODUCT: they purge WITH the matter (NOT in EVERYDAY_DELETE_PRESERVE). Written
 // ONLY when CHAT_REVIEW_PANEL_ENABLED is ON (default OFF). No DB FK (app-layer ownerScope isolation).
 //
-// chat_review_runs — one on-demand panel review of a chat work product: the panel-confirmed reviewer set
+// chat_review_runs â€” one on-demand panel review of a chat work product: the panel-confirmed reviewer set
 // + the provenance hashes (the work product reviewed + the minimized, hold-filtered bundle that actually
 // transmitted). The row id IS the panelConfirmId.
 export const chatReviewRuns = mysqlTable(
@@ -3172,7 +3178,7 @@ export const chatReviewRuns = mysqlTable(
 export type ChatReviewRunRowDb = typeof chatReviewRuns.$inferSelect;
 export type NewChatReviewRun = typeof chatReviewRuns.$inferInsert;
 
-// chat_review_raw_outputs — the VERBATIM raw reviewer output, BY-REFERENCE and DISTINCT from the itemized
+// chat_review_raw_outputs â€” the VERBATIM raw reviewer output, BY-REFERENCE and DISTINCT from the itemized
 // suggestions (synthesis fidelity). One row per reviewer lane; carries the per-lane status + the egress
 // back-link (every lane is its own logged egress event).
 export const chatReviewRawOutputs = mysqlTable(
@@ -3197,7 +3203,7 @@ export const chatReviewRawOutputs = mysqlTable(
 export type ChatReviewRawOutputRowDb = typeof chatReviewRawOutputs.$inferSelect;
 export type NewChatReviewRawOutput = typeof chatReviewRawOutputs.$inferInsert;
 
-// chat_review_items — ONE itemized reviewer suggestion + its PRIMARY disposition. 1:1 traceability (every
+// chat_review_items â€” ONE itemized reviewer suggestion + its PRIMARY disposition. 1:1 traceability (every
 // reviewer suggestion -> exactly one item; suggestionHash is the key), by-reference link to the raw
 // output, the flag-not-reject citation status, and the attorney's FINAL decision (nothing auto-applies).
 export const chatReviewItems = mysqlTable(
@@ -3231,7 +3237,7 @@ export type ChatReviewItemRowDb = typeof chatReviewItems.$inferSelect;
 export type NewChatReviewItem = typeof chatReviewItems.$inferInsert;
 
 // ============================================================
-// FOLD-PM-4 — matter_deliverable (ongoing-matters / to-do list)
+// FOLD-PM-4 â€” matter_deliverable (ongoing-matters / to-do list)
 // ============================================================
 // A simple owner+matter-scoped to-do item: one deliverable on one matter, owned by
 // one attorney. Additive, no DB FK by convention (app-layer ownerScope isolation).
@@ -3270,7 +3276,7 @@ export type MatterDeliverable = typeof matterDeliverable.$inferSelect;
 export type NewMatterDeliverable = typeof matterDeliverable.$inferInsert;
 
 // ============================================================
-// FOLD-PM-2 — material_extraction (document-type structured extraction)
+// FOLD-PM-2 â€” material_extraction (document-type structured extraction)
 // ============================================================
 // One latest structured extraction per material (commitment/deed/survey/settlement),
 // produced by the PURE no-egress document-type parsers over the material's already-
@@ -3306,15 +3312,15 @@ export type MaterialExtraction = typeof materialExtraction.$inferSelect;
 export type NewMaterialExtraction = typeof materialExtraction.$inferInsert;
 
 // ============================================================
-// KB-PROVENANCE-1 — authority_source (firm/jurisdiction legal-authority registry)
+// KB-PROVENANCE-1 â€” authority_source (firm/jurisdiction legal-authority registry)
 // ============================================================
-// A DURABLE firm/jurisdiction-level legal-authority (citation) registry — generalizes the
+// A DURABLE firm/jurisdiction-level legal-authority (citation) registry â€” generalizes the
 // embedded practice_memos.lawReliedOn structure into a first-class row. Owner/firm-level
 // (userId, NO matterId) so it SURVIVES matter closure and is NOT matter-purged (unlike the
-// matter-scoped source_authority artifact-tier table — do NOT conflate the two). Additive;
+// matter-scoped source_authority artifact-tier table â€” do NOT conflate the two). Additive;
 // NO DB FK (app-layer ownerScope). authorityType enum is the single source from
-// src/shared/schemas/authoritySource.ts. supersedes/superseded-by DEFERRED per Constitution §8;
-// the §2 pinned-citation+signature gate is enforced at the app-layer promotion boundary.
+// src/shared/schemas/authoritySource.ts. supersedes/superseded-by DEFERRED per Constitution Â§8;
+// the Â§2 pinned-citation+signature gate is enforced at the app-layer promotion boundary.
 export const authoritySource = mysqlTable(
   'authority_source',
   {
@@ -3346,7 +3352,7 @@ export type AuthoritySource = typeof authoritySource.$inferSelect;
 export type NewAuthoritySource = typeof authoritySource.$inferInsert;
 
 // ============================================================
-// FOLD-PM-3 — party / entity / contact data model (within-matter; owner-scoped)
+// FOLD-PM-3 â€” party / entity / contact data model (within-matter; owner-scoped)
 // ============================================================
 // An ADDITIVE, owner+matter-scoped entity/contact model that underpins conflicts +
 // persistent reference and unblocks FOLD-DEED-1. It does NOT alter or replace
@@ -3354,12 +3360,12 @@ export type NewAuthoritySource = typeof authoritySource.$inferInsert;
 // record that may OPTIONALLY reference a matter_parties row WITHIN THE SAME MATTER via
 // `partyRef` (nullable; a same-matter soft link, NOT a DB FK). matter_entity_contact
 // rows hang off a matter_entity (one entity, many contact points). No DB FK by
-// convention — owner + matter isolation is enforced in the app layer (ownerScope).
+// convention â€” owner + matter isolation is enforced in the app layer (ownerScope).
 // Behind PARTY_MODEL_ENABLED (default OFF).
 //
 // SCOPE FENCE: WITHIN-MATTER only. externalIdentityKey is a stable owner-scoped opaque
 // grouping string DEFINED so a FUTURE cross-matter identity resolver CAN group entities
-// later — NO cross-matter read/match/join is written in FOLD-PM-3. The enums are the
+// later â€” NO cross-matter read/match/join is written in FOLD-PM-3. The enums are the
 // single source from src/shared/schemas/partyModel.ts.
 
 export const matterEntity = mysqlTable(
@@ -3370,7 +3376,7 @@ export const matterEntity = mysqlTable(
     matterId: char('matterId', { length: 36 }).notNull(),
     entityKind: mysqlEnum('entityKind', MATTER_ENTITY_KIND_VALUES).notNull().default('unknown'),
     displayName: varchar('displayName', { length: 256 }).notNull(),
-    // normalizedName: lower/trim/collapse-ws/strip-punct — the WITHIN-MATTER lookup key
+    // normalizedName: lower/trim/collapse-ws/strip-punct â€” the WITHIN-MATTER lookup key
     // (same normalizeName() the conflicts engine uses).
     normalizedName: varchar('normalizedName', { length: 256 }).notNull(),
     legalName: varchar('legalName', { length: 256 }),
@@ -3438,19 +3444,19 @@ export type MatterEntityContact = typeof matterEntityContact.$inferSelect;
 export type NewMatterEntityContact = typeof matterEntityContact.$inferInsert;
 
 // ============================================================
-// FOLD-NOTIFY-1 — in-app notification core (store + read + display; owner-scoped)
+// FOLD-NOTIFY-1 â€” in-app notification core (store + read + display; owner-scoped)
 // ============================================================
 // An ADDITIVE, OWNER-scoped in-app notification record. One row is one informational
-// notice for ONE attorney, OPTIONALLY about one matter (matterId is nullable — a matter-
+// notice for ONE attorney, OPTIONALLY about one matter (matterId is nullable â€” a matter-
 // less owner-level notice is valid). readAt is the per-user "seen" marker (null = unread).
 // INFORMATIONAL ONLY: nothing here auto-adopts, auto-sends, or decides. No DB FK by
-// convention — owner isolation is enforced in the app layer (ownerScope). Behind
+// convention â€” owner isolation is enforced in the app layer (ownerScope). Behind
 // NOTIFICATIONS_ENABLED (default OFF). The type enum is the single source from
 // src/shared/schemas/notifications.ts.
 //
 // SCOPE FENCE (FOLD-NOTIFY-1): this is the STORE + READ + DISPLAY tier ONLY. The OUTBOX-
 // EMIT WIRING (producers that create notifications) and the hold/ack types are DEFERRED to
-// after EGRESS Inc 3b — no producer is wired now, so the table may sit empty until then.
+// after EGRESS Inc 3b â€” no producer is wired now, so the table may sit empty until then.
 //
 // PURGE: matterId-bearing rows purge WITH the matter (matterPurge.ts cascade); a matter-
 // less (NULL matterId) owner-level notice is retained by byMatter (never matches NULL).
@@ -3460,7 +3466,7 @@ export const notifications = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     userId: char('userId', { length: 36 }).notNull(),
-    // matterId: OPTIONAL — a matter-scoped notice (drives the per-matter "ready" badge) or
+    // matterId: OPTIONAL â€” a matter-scoped notice (drives the per-matter "ready" badge) or
     // a matter-less owner-level notice. Nullable; NOT a DB FK; NEVER cross-owner.
     matterId: char('matterId', { length: 36 }),
     type: mysqlEnum('type', NOTIFICATION_TYPE_VALUES).notNull().default('generic'),
@@ -3486,13 +3492,13 @@ export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 
 // ============================================================
-// D3-SIGNOFF (source-anchored deed sign-off, A.1) — deed_signoff
+// D3-SIGNOFF (source-anchored deed sign-off, A.1) â€” deed_signoff
 // ============================================================
 // APPEND-ONLY record of a source-extracted-facts sign-off at deed export (NC-D3-6: the record proves WHAT was
 // compared against WHAT, not that a click happened). One row per sign-off act; content-hash-bound +
 // supersede-on-version (a new version/content requires a fresh sign-off), mirroring gate_override /
 // sendability_override. DORMANT: written only when D3_SIGNOFF_MODE is observe/enforce (default OFF). NC-1:
-// nothing here stores model-composed operative text — the JSON blobs carry comparator RESULTS + value HASHES,
+// nothing here stores model-composed operative text â€” the JSON blobs carry comparator RESULTS + value HASHES,
 // not corrected strings. Additive migration 0053, operator-applied.
 export const D3_SIGNOFF_GATE_MODE_VALUES = ['observe', 'enforce'] as const;
 export type D3SignoffGateModeValue = (typeof D3_SIGNOFF_GATE_MODE_VALUES)[number];
@@ -3514,7 +3520,7 @@ export const deedSignoff = mysqlTable(
     // Prong (a): the deterministic comparator passed. Prong (b) attorney-attested-vs-original + the retained
     // not-OCR-only prong live in `attestations`.
     comparatorPassed: boolean('comparatorPassed').notNull(),
-    // NC-D3-4: the stamped comparator version — a later normalization change cannot launder this record.
+    // NC-D3-4: the stamped comparator version â€” a later normalization change cannot launder this record.
     comparatorVersion: varchar('comparatorVersion', { length: 32 }).notNull(),
     // Content-hash binding (supersede-on-version): the assembled deed + the source facts at sign-off time.
     assembledContentHash: varchar('assembledContentHash', { length: 128 }).notNull(),
@@ -3542,3 +3548,148 @@ export const deedSignoff = mysqlTable(
 );
 export type DeedSignoff = typeof deedSignoff.$inferSelect;
 export type NewDeedSignoff = typeof deedSignoff.$inferInsert;
+
+
+// ============================================================
+// EXPRESS-AUTO-REVIEW-LOOP-1 (E4b + E7b) â€” durable decision-ledger + attorney-approval attestation
+// ============================================================
+// ULTRABUILD-1 W1. Replaces the IN-MEMORY-ONLY E4a decision ledger (decisionLedger.ts) and E7a structural
+// approval predicate (approvalGate.ts) with DURABLE tables, so the supervision story for an Express
+// auto-review run â€” what auto-adopted/escalated, and the attorney's complete per-escalation sign-off â€” is
+// reconstructable after the fact (Fable audit Top-5 #2; E4b/E7b are blocking preconditions to Express
+// activation). DORMANT: nothing reads/writes these unless EXPRESS_DURABLE_RECORDS_ENABLED is ON (default OFF)
+// AND the Express loop is enabled (AUTO_REVIEW_LOOP_ENABLED default OFF). Additive migration 0051, operator-
+// applied out-of-band (NOT on the auto-apply allowlist).
+//
+// FORK-C CONSISTENCY (FOLD-L1-1): audit_events is the SINGLE source of truth for ATTORNEY DECISIONS and
+// disposition history is a read-projection over it. Every attorney adopt/reject on an escalation and the
+// approval attestation act are ALSO written to audit_events (eventType='disposition',
+// targetType='express_escalation'/'express_loop_run', action='adopt'/'reject'/'approve') â€” these tables do
+// NOT introduce a competing authoritative decision record. express_approval_attestation holds current
+// attestation STATE + a pointer (approvalEventId) to the deciding audit_events row; per-escalation decision
+// HISTORY projects from audit_events (queries/expressDurableRecords.ts).
+//
+// NO isFinal/sendable column anywhere â€” the ABSENCE of a finality field IS the structural inertness E7a
+// guarantees (approvalGate.ts Â§E7): an Express candidate is never final/recordable.
+export const EXPRESS_LEDGER_ROUTE_VALUES = ['auto_adopt', 'escalate'] as const;
+export type ExpressLedgerRoute = (typeof EXPRESS_LEDGER_ROUTE_VALUES)[number];
+
+export const EXPRESS_RISK_BUCKET_VALUES = ['high', 'medium', 'low'] as const;
+export type ExpressRiskBucket = (typeof EXPRESS_RISK_BUCKET_VALUES)[number];
+
+// express_loop_run â€” APPEND-ONLY snapshot of one completed bounded loop run (the E4b container). One per run.
+export const expressLoopRun = mysqlTable(
+  'express_loop_run',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    documentVersionId: char('documentVersionId', { length: 36 }).notNull(),
+    // The reviewer model string the loop dispatched with (provenance; A-6 model-drift audit).
+    reviewerModel: varchar('reviewerModel', { length: 128 }).notNull(),
+    rounds: int('rounds').notNull(),
+    converged: boolean('converged').notNull(),
+    hitCap: boolean('hitCap').notNull(),
+    adoptedCount: int('adoptedCount').notNull(),
+    escalationCount: int('escalationCount').notNull(),
+    // The NON-FINAL candidate the run produced (audit; never sendable/recordable).
+    candidateText: mediumtext('candidateText').notNull(),
+    redline: json('redline').notNull(), // the cumulative v1->candidate redline (E4a buildRedline output)
+    roundSummaries: json('roundSummaries').notNull(), // per-round summaries (round-cap + convergence audit)
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxExpressLoopRunUserMatter: index('idx_express_loop_run_user_matter').on(table.userId, table.matterId),
+    idxExpressLoopRunDocument: index('idx_express_loop_run_document').on(table.documentId, table.createdAt),
+  }),
+);
+
+// express_ledger_entry â€” one row per E4a LedgerEntry. MUTABLE: `reverted` flips when an attorney unwinds an
+// auto-adoption; the unwind DECISION is an audit_events row (revertedByEventId points to it â€” Fork C).
+export const expressLedgerEntry = mysqlTable(
+  'express_ledger_entry',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    runId: char('runId', { length: 36 }).notNull(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    // The deterministic in-run id ('e<round>-<seq>') â€” unique WITHIN a run only (id above is the global PK).
+    ledgerEntryId: varchar('ledgerEntryId', { length: 32 }).notNull(),
+    round: int('round').notNull(),
+    route: mysqlEnum('route', EXPRESS_LEDGER_ROUTE_VALUES).notNull(),
+    riskScore: int('riskScore').notNull(),
+    riskBucket: mysqlEnum('riskBucket', EXPRESS_RISK_BUCKET_VALUES).notNull(),
+    immutabilityForced: boolean('immutabilityForced').notNull(),
+    isDeletion: boolean('isDeletion').notNull(),
+    beforeText: mediumtext('beforeText').notNull(),
+    afterText: mediumtext('afterText').notNull(),
+    offsetStart: int('offsetStart').notNull(),
+    offsetEnd: int('offsetEnd').notNull(),
+    // Nested E1/E2/E3 verdicts JSON-encoded to stay migration-free (LocusResult, ClassAResult|null,
+    // InlineEscalationEvent|null).
+    locus: json('locus').notNull(),
+    classA: json('classA'),
+    inlineEvent: json('inlineEvent'),
+    reverted: boolean('reverted').notNull().default(false),
+    // Pointer to the audit_events row recording the attorney's unwind decision (Fork C: the DECISION lives in
+    // audit_events; this row holds current STATE). Null until an unwind is recorded.
+    revertedByEventId: char('revertedByEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`).onUpdateNow(),
+  },
+  (table) => ({
+    idxExpressLedgerEntryRun: index('idx_express_ledger_entry_run').on(table.runId),
+    idxExpressLedgerEntryUserMatter: index('idx_express_ledger_entry_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    uniqExpressLedgerEntry: uniqueIndex('uniq_express_ledger_entry').on(table.runId, table.ledgerEntryId),
+  }),
+);
+
+// express_approval_attestation â€” APPEND-ONLY durable E7b attestation (the E7a predicate's deferred durable
+// form). One row per COMPLETE attorney sign-off act; content-hash-bound + supersede-on-change (mirrors
+// gate_override / sendability_override). attestedAt == createdAt. attorneyUserId = WHO; decisionsSnapshot =
+// WHICH (the full per-escalation adopt/reject map at attestation time); approvalEventId points to the
+// audit_events approval row = the Fork-C decision act.
+export const expressApprovalAttestation = mysqlTable(
+  'express_approval_attestation',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    runId: char('runId', { length: 36 }).notNull(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    documentId: char('documentId', { length: 36 }).notNull(),
+    documentVersionId: char('documentVersionId', { length: 36 }).notNull(),
+    // WHO affirmatively signed off (the attorney). Explicit for the record even in single-attorney mode.
+    attorneyUserId: char('attorneyUserId', { length: 36 }).notNull(),
+    // The outcome of recordAttorneyApproval â€” TRUE only when EVERY escalation carried an explicit decision.
+    approved: boolean('approved').notNull(),
+    // WHICH: the complete per-escalation adopt/reject map + escalation-id list, snapshotted at attestation.
+    decisionsSnapshot: json('decisionsSnapshot').notNull(),
+    escalationCount: int('escalationCount').notNull(),
+    // Binds the attestation to the run+candidate+decisions STATE; a material change re-arms it (stored hash !=
+    // recomputed hash), the same supersede-on-change pattern as sendability_override.contentHash.
+    contentHash: varchar('contentHash', { length: 128 }).notNull(),
+    // Pointer to the audit_events row recording the approval decision act (Fork C source of truth).
+    approvalEventId: char('approvalEventId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxExpressAttestationRun: index('idx_express_attestation_run').on(table.runId),
+    idxExpressAttestationUserMatter: index('idx_express_attestation_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    idxExpressAttestationVersion: index('idx_express_attestation_version').on(table.documentVersionId),
+  }),
+);
+
+export type ExpressLoopRun = typeof expressLoopRun.$inferSelect;
+export type NewExpressLoopRun = typeof expressLoopRun.$inferInsert;
+export type ExpressLedgerEntry = typeof expressLedgerEntry.$inferSelect;
+export type NewExpressLedgerEntry = typeof expressLedgerEntry.$inferInsert;
+export type ExpressApprovalAttestation = typeof expressApprovalAttestation.$inferSelect;
+export type NewExpressApprovalAttestation = typeof expressApprovalAttestation.$inferInsert;

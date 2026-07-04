@@ -133,7 +133,7 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
   },
   'google:gemini-3.1-pro-preview': {
     providerMaxOutputTokens: 65536,
-    reviewerCeiling: 32768, // PRESERVE the Gemini-Pro calibration carried over from gemini-2.5-pro
+    reviewerCeiling: 32768, // PRESERVE the Gemini-Pro calibration carried over from gemini-2.5-pro. W5 (audit A-6): PREVIEW-TIER lane — this ceiling is UNCALIBRATED (carried over UNMEASURED); re-run the reviewer calibration harness on this slug before relying on it.
     supportsThinkingControl: true,
     defaultThinkingMode: 'dynamic',
     pricingClass: 'standard',

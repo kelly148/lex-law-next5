@@ -1192,6 +1192,22 @@ export function buildEngagementLetterDraft(
  *  gate and the check-less auto-matter is BLOCKED with CONFLICTS_NOT_CLEARED (honest). The matter-scoped
  *  procedures pass NEITHER seam (both undefined) → their `if (isConflictGateEnabled())` behavior is
  *  byte-for-byte unchanged. */
+/**
+ * W2c (QA-6 / run-sheet 0.8) — the deed-draft agent is VIRGINIA-ONLY. TRUE for a KNOWN, explicitly-set
+ * non-VA governing jurisdiction (e.g. 'MD'); normalized (trim + upper). A NULL/unset jurisdiction is NOT
+ * treated as non-VA here (LOOSE policy — it preserves the existing behavior for matters where the attorney
+ * has not affirmatively set a jurisdiction; matters.jurisdiction is attorney-set, never inferred). The STRICT
+ * alternative (also refuse null/unset) is an operator policy decision flagged at the ULTRABUILD-1 W2 accept
+ * gate. Pure + deterministic.
+ */
+export function isNonVaDeedJurisdiction(jurisdiction: string | null | undefined): boolean {
+  const norm = (jurisdiction ?? '').trim().toUpperCase();
+  return norm !== '' && norm !== 'VA';
+}
+
+/** Stable error code for the VA-only refusal (tests assert on the code, not the prose). */
+export const DEED_JURISDICTION_NOT_VA_CODE = 'DEED_JURISDICTION_NOT_VA';
+
 async function assertDeedDraftingAllowed(
   userId: string,
   matterId: string,
@@ -1203,6 +1219,20 @@ async function assertDeedDraftingAllowed(
   const matter = await getMatterById(matterId, userId);
   if (!matter) throw new TRPCError({ code: 'NOT_FOUND', message: 'Matter not found' });
   if (matter.archivedAt !== null) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'MATTER_ARCHIVED' });
+
+  // VA-ONLY refusal (W2c / QA-6 / run-sheet 0.8): the deed agent drafts Virginia deeds only. A KNOWN non-VA
+  // governing jurisdiction (e.g. MD) must produce a CLEAR refusal here — never silence, never a VA-styled
+  // instrument for a non-VA matter. Placed BEFORE the bypassConflicts return so it fires for Quick Deed +
+  // proposeIntake too (all 12 generation entry points await this helper before any assembly). A null/unset
+  // jurisdiction PASSES (loose policy; see isNonVaDeedJurisdiction) — refusing null too is a flagged operator
+  // policy decision, not adopted here.
+  if (isNonVaDeedJurisdiction(matter.jurisdiction)) {
+    const juris = (matter.jurisdiction ?? '').trim().toUpperCase();
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `${DEED_JURISDICTION_NOT_VA_CODE}: this agent drafts Virginia (VA) deeds only — ${juris} is out of scope. Draft this instrument manually. If this is a Virginia matter, set the matter's governing jurisdiction to VA and retry.`,
+    });
+  }
 
   // QD-1 conflicts BYPASS seam: Quick Deed mode skips the conflicts-at-intake gate by default (spec §5).
   if (opts.bypassConflicts) return { conflictsBypassed: true };
