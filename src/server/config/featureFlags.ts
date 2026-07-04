@@ -114,6 +114,22 @@ export function isSendabilityGateEnabled(): boolean {
 }
 
 /**
+ * D3 source-extracted-facts sign-off gate (D3-SIGNOFF, A.1). THREE-STATE, default OFF (NC-D3-7).
+ *   OFF (dev only) — no gate, no record; behavior byte-for-byte unchanged.
+ *   OBSERVE — compute + LOG a would-block at deed export, but NEVER enforce; measures the false-fail rate.
+ *             OBSERVE does NOT count as D3 complete.
+ *   ENFORCE — default-BLOCK a deed export until a source-extracted-facts sign-off exists. Requires a NAMED
+ *             operator activation event; D3 closes only at ENFORCE in prod (or a recorded observe-only decision).
+ * Any value other than exactly "observe" / "enforce" is OFF. Deliberately three-state (not a boolean) so the
+ * OBSERVE window is a first-class, recordable posture distinct from OFF and ENFORCE.
+ */
+export type D3SignoffMode = 'off' | 'observe' | 'enforce';
+export function getD3SignoffMode(): D3SignoffMode {
+  const v = process.env['D3_SIGNOFF_MODE'];
+  return v === 'observe' || v === 'enforce' ? v : 'off';
+}
+
+/**
  * Affirmative conflict-clearance enforcement gate (R2-PRE-CONFLICT-1 Inc 3b). DEFAULT OFF.
  *
  * When OFF (the default), every conflict-sensitive transition behaves EXACTLY as it did before Inc 3b:

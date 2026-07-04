@@ -96,6 +96,7 @@ import {
   notifications,
   egressEvents,
   egressHold,
+  deedSignoff,
   expressLoopRun,
   expressLedgerEntry,
   expressApprovalAttestation,
@@ -226,6 +227,10 @@ export async function cascadeDeleteMatterChildren(
   // per deed document). Operational state; the PERMANENT record of each act is the auditEvents Matter-Record
   // event (preserved by the everyday delete), so the table purges WITH the matter — like matterConflictPosture.
   await step('deedGate', deedGate, byMatter(deedGate));
+  // D3-SIGNOFF (A.1): the matter's append-only source-anchored deed sign-off records. Operational supervision
+  // records tied to the matter's deeds; purge WITH the matter (the permanent decision act is also an
+  // audit_events disposition in later increments). Owner+matter-scoped.
+  await step('deedSignoff', deedSignoff, byMatter(deedSignoff));
   // EXPRESS-AUTO-REVIEW-LOOP-1 (E4b/E7b, ULTRABUILD-1 W1): the matter's durable Express auto-review records —
   // the approval attestation + ledger entries (children of the run) before the run itself. Operational
   // supervision STATE; the PERMANENT record of each attorney adopt/reject/approve is the auditEvents
