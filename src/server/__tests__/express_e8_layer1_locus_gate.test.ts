@@ -83,6 +83,21 @@ function route(base: CorpusBase, s: RoutableSuggestion) {
   return routeWithImmutability(s, createImmutabilityTracker(), ctxFor(base));
 }
 
+// UB1-W3b-2/E8-HARDENING: the FULL Class-A safe-harbor vocabulary (adoptRouter.ts ClassACategory). The disguise
+// axis (d) + the evidence summary sweep EVERY one of these — the architectural ruling is that a Class-A label of
+// ANY kind, dropped inside a protected span, escalates on LOCUS before the classifier is consulted (the label is
+// never the gate). Previously only 3 of the 8 were exercised.
+const ALL_CLASS_A_DISGUISES: ClassACategory[] = [
+  'whitespace_spacing',
+  'punctuation',
+  'casing_non_operative',
+  'typo_fix',
+  'numbering',
+  'cross_reference_repair',
+  'non_operative_grammar',
+  'literal_duplicate_removal',
+];
+
 // ── feature-flag invariant (the whole Express program is flag-dark) ───────────────────────────────────────
 
 describe('E8 Layer 1 — the Express program is flag-dark (AUTO_REVIEW_LOOP_ENABLED default OFF)', () => {
@@ -198,13 +213,44 @@ describe('E8 Layer 1 (c) — a defined-term edit escalates (definition site OR a
       expect(r.decision).toBe('escalate');
       expect(r.touchedDefinedTerm).toBe(true);
     });
+
+    it(`${base.name}: renaming a single occurrence of EACH defined term escalates (every term, not just the first)`, () => {
+      // E8-HARDENING: the prior case only exercised definedTerms[0] ('Grantor'). Sweep ALL defined terms so
+      // later ones (e.g. trust_ldn's 'Trust') are proven to escalate too. Same R4b tracked-occurrence rail.
+      const spans = spansFor(base);
+      const body = base.body;
+      for (const term of base.definedTerms) {
+        const re = new RegExp(`(?<![A-Za-z0-9])${term}(?![A-Za-z0-9])`, 'g');
+        let m: RegExpExecArray | null;
+        let found: { start: number; end: number } | null = null;
+        while ((m = re.exec(body)) !== null) {
+          const occ = { start: m.index, end: m.index + m[0].length };
+          const insideAnySpan = spans.some((sp) => occ.start < sp.end && sp.start < occ.end);
+          const adjacentAnySpan = spans.some((sp) => occ.end === sp.start || occ.start === sp.end);
+          if (!insideAnySpan && !adjacentAnySpan) {
+            found = occ;
+            break;
+          }
+        }
+        if (found === null) {
+          // Every occurrence of this term sits inside/adjacent a protected span -> the intersection/adjacency rail
+          // already escalates it. Assert the definition site escalates as the fallback proof for this term.
+          const defSpan = spanFor(base, 'defined_terms_definitions')!;
+          expect(locus(base, defSpan.start, defSpan.end).decision, `term "${term}" fallback`).toBe('escalate');
+          continue;
+        }
+        const r = locus(base, found.start, found.end);
+        expect(r.decision, `term "${term}" occurrence`).toBe('escalate');
+        expect(r.touchedDefinedTerm, `term "${term}" touchedDefinedTerm`).toBe(true);
+      }
+    });
   }
 });
 
 // ── (d) DISGUISE — a Class-A label inside a protected span escalates REGARDLESS of label (the architecture) ─
 
 describe('E8 Layer 1 (d) — a DISGUISING Class-A label in a protected span escalates regardless of label', () => {
-  const DISGUISES: ClassACategory[] = ['typo_fix', 'whitespace_spacing', 'literal_duplicate_removal'];
+  const DISGUISES: ClassACategory[] = ALL_CLASS_A_DISGUISES; // E8-HARDENING: sweep ALL 8 safe-harbor labels, not 3
   for (const base of DEED_CORPUS_BASES) {
     for (const label of DEED_PROTECTED_SPAN_LABELS) {
       for (const disguise of DISGUISES) {
@@ -349,6 +395,28 @@ describe('E8 Layer 1 — boundary/encoding axis: content edits inside the legal 
   });
 });
 
+// ── zero-width insertion axis (E8-HARDENING) — a POINT edit at/inside a protected span escalates ────────────
+
+describe('E8 Layer 1 — a zero-width insertion (a point edit) interior to and at each boundary of a span escalates', () => {
+  // evaluateLocus handles zero-width points explicitly: strictly-interior insertion intersects (R2), and a point
+  // exactly on a span boundary is boundary-adjacent (R3) — both escalate. This pins that adversarial blind spot
+  // (a reviewer proposing an INSERTION, not a replacement, into operative text) across every base × span.
+  for (const base of DEED_CORPUS_BASES) {
+    for (const label of DEED_PROTECTED_SPAN_LABELS) {
+      it(`${base.name} × ${label}: a zero-width insertion interior to + at the start/end boundary escalates`, () => {
+        const s = spanFor(base, label)!;
+        expect(s.end - s.start, `span "${label}" on "${base.name}" too short for the interior point`).toBeGreaterThanOrEqual(2);
+        // interior point (strictly inside; span width >= 2) -> R2 strict-interior intersection
+        expect(locus(base, s.start + 1, s.start + 1).decision, 'interior point').toBe('escalate');
+        // point exactly on the START boundary -> R3 boundary-adjacent
+        expect(locus(base, s.start, s.start).decision, 'start-boundary point').toBe('escalate');
+        // point exactly on the END boundary -> R3 boundary-adjacent
+        expect(locus(base, s.end, s.end).decision, 'end-boundary point').toBe('escalate');
+      });
+    }
+  }
+});
+
 // ── SHIP-GATE EVIDENCE summary (REPORT, not a gate) ───────────────────────────────────────────────────────
 
 describe('E8 Layer 1 — SHIP-GATE EVIDENCE summary (report)', () => {
@@ -357,7 +425,7 @@ describe('E8 Layer 1 — SHIP-GATE EVIDENCE summary (report)', () => {
     let deletionCases = 0;
     let disguiseCases = 0;
     let holes = 0;
-    const DISGUISES: ClassACategory[] = ['typo_fix', 'whitespace_spacing', 'literal_duplicate_removal'];
+    const DISGUISES: ClassACategory[] = ALL_CLASS_A_DISGUISES; // E8-HARDENING: evidence now sweeps all 8 labels
 
     for (const base of DEED_CORPUS_BASES) {
       for (const label of DEED_PROTECTED_SPAN_LABELS) {
