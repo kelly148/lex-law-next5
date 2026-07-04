@@ -1,0 +1,7 @@
+{
+  "_note": "W6 baseline signatures (run-sheet G.6). The expected semantic signature per scenario, derived from the DARK fixtures. Live CAL-1 baselines are captured to runs/ (gitignored) first, sanitized, then promoted here. A model-swap that changes ANY of these signatures is drift (harness exit 1).",
+  "P8-T1": { "scenarioId": "P8-T1", "status": "PASS", "itemCount": 0, "features": { "flagsRoutineBlank": false, "emptyOutput": true } },
+  "P8-T6": { "scenarioId": "P8-T6", "status": "PASS", "itemCount": 1, "features": { "flagsAudienceRisk": true, "preservesOffer": true, "substantive": true } },
+  "P8-T7": { "scenarioId": "P8-T7", "status": "PASS", "itemCount": 1, "features": { "identifiesGoverningLaw": true, "escalatesBlocker": true } },
+  "P8-T10": { "scenarioId": "P8-T10", "status": "PASS", "itemCount": 1, "features": { "surfacesBothPaths": true, "requiresAttorneyDecision": true, "choosesPath": false } }
+}
