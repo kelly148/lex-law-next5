@@ -53,6 +53,7 @@ import ExpressReviewPane from '../components/ExpressReviewPane.js';
 import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import { DeedGatePanel } from '../components/DeedGatePanel.js';
+import { DeedSignoffPanel } from '../components/DeedSignoffPanel.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
 import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
@@ -993,8 +994,11 @@ export default function DocumentDetail(): React.ReactElement {
           docs. The panel itself surfaces the fail-closed states (unverified-locality KB banner, blocking
           reasons), so no jurisdiction pre-condition is needed here. */}
       {doc.documentType === 'deed' && (
-        <div data-no-print className="mb-4">
+        <div data-no-print className="mb-4 space-y-4">
           <DeedGatePanel documentId={documentId} />
+          {/* D3-SIGNOFF A.1: the source-extracted-facts sign-off (self-gates on deedSignoff.isEnabled — dark
+              on prod until the operator activates the mode). */}
+          <DeedSignoffPanel documentId={documentId} />
         </div>
       )}
 
