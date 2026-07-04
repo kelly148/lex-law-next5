@@ -17,7 +17,7 @@
  * default (spec §5). This screen never finalizes, records, or sends.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
@@ -47,6 +47,11 @@ export default function QuickDeedPage(): React.ReactElement {
   // All hooks run before any early return (Rules of Hooks).
   const navigate = useNavigate();
   const utils = trpc.useUtils();
+  // DEED-INTAKE-PARITY-1 Inc 2: the same page serves two routes. /deed = standalone (lazy auto-matter). The
+  // matter-scoped route /matters/:matterId/deed binds to an EXISTING matter — no lazy create, and generation
+  // honors that matter's conflicts gate (enforceConflicts) instead of the standalone bypass-and-stamp.
+  const { matterId: routeMatterId } = useParams<{ matterId?: string }>();
+  const matterScoped = typeof routeMatterId === 'string' && routeMatterId.length > 0;
   const { data: flag, isLoading: flagLoading } = trpc.deedDraftAgent.isEnabled.useQuery();
   const enabled = flag?.enabled === true;
 
@@ -54,7 +59,7 @@ export default function QuickDeedPage(): React.ReactElement {
   // persists nothing. It is created (and its id returned) the FIRST time the attorney actually does something
   // (drops a file, proposes the facts, or clicks Generate). createPromiseRef dedupes concurrent callers (a drop
   // + a generate must not both create) and is cleared on error so a failed create can be retried.
-  const [matterId, setMatterId] = useState<string | null>(null);
+  const [matterId, setMatterId] = useState<string | null>(routeMatterId ?? null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const createPromiseRef = useRef<Promise<string> | null>(null);
@@ -111,7 +116,8 @@ export default function QuickDeedPage(): React.ReactElement {
   // never baked into the captured payload).
   const runGenerate = (payload: GeneratePayload): void => {
     void ensureMatterAsync()
-      .then((id) => generate.mutate({ ...payload, matterId: id } as Parameters<typeof generate.mutate>[0]))
+      // DEED-INTAKE-PARITY-1 Inc 2: matter-scoped generation honors the matter's conflicts-at-intake gate.
+      .then((id) => generate.mutate({ ...payload, matterId: id, ...(matterScoped ? { enforceConflicts: true } : {}) } as Parameters<typeof generate.mutate>[0]))
       .catch(() => { /* create error already surfaced via createError */ });
   };
 
@@ -236,7 +242,7 @@ export default function QuickDeedPage(): React.ReactElement {
       </div>
     );
   }
-  if (!enabled) return <Navigate to="/matters" replace />;
+  if (!enabled) return <Navigate to={matterScoped ? `/matters/${routeMatterId}` : '/matters'} replace />;
 
   const cleanParties = (rows: PartyRow[]): { name: string; descriptor?: string }[] =>
     rows
@@ -364,9 +370,9 @@ export default function QuickDeedPage(): React.ReactElement {
       <div className="mb-5">
         <h1 className="text-2xl font-serif font-medium text-ink">Deed</h1>
         <p className="text-sm text-ink-secondary mt-0.5">
-          Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record (or
-          describe the deal), confirm the facts, and generate the house-style draft. The draft is never
-          auto-recorded or sent — you review and finalize it.
+          {matterScoped
+            ? 'Draft a deed in this matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. The draft is created in this matter — this matter’s conflicts check applies — and is never auto-recorded or sent; you review and finalize it.'
+            : 'Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. The draft is never auto-recorded or sent — you review and finalize it.'}
         </p>
       </div>
 
@@ -410,7 +416,9 @@ export default function QuickDeedPage(): React.ReactElement {
       {/* W2d — generate-time conflicts-waiver notice. Shown once above ALL three lanes (gift/seller/multi-cat)
           and every Generate button, driven by the live firm posture (getConflictsSetting.enforced === false =
           the bypass-and-stamp default). Purely informational — no behavior change. */}
-      {conflictsSetting.data?.enforced === false && (
+      {/* DEED-INTAKE-PARITY-1 Inc 2: the bypass-and-stamp waiver is a STANDALONE-lane notice only. In a matter the
+          Express intake honors that matter's conflicts gate (enforceConflicts), so the waiver never applies. */}
+      {!matterScoped && conflictsSetting.data?.enforced === false && (
         <div
           data-testid="quick-deed-conflicts-waiver"
           role="note"

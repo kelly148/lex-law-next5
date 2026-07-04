@@ -175,6 +175,48 @@ describe('quickDeed.generate — the QD-2 firm toggle drives conflicts bypass vs
   });
 });
 
+// ── DEED-INTAKE-PARITY-1 Inc 2: enforceConflicts (the matter-scoped Express intake) honors the matter's gate ──
+describe('quickDeed.generate — enforceConflicts routes through the matter conflicts gate (never bypass/stamp)', () => {
+  it('enforceConflicts + a conflict-clear matter: generates, does NOT bypass/stamp, and does NOT consult the firm toggle', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    delete process.env['CONFLICT_GATE_ENABLED']; // prod default (global gate OFF)
+    mockGenerateHappyDeps();
+    (hasUndispositionedBlocker as ReturnType<typeof vi.fn>).mockResolvedValue(false); // the matter is clear
+
+    const res = await quick().generate(fullGenerate({ enforceConflicts: true }));
+
+    // the matter-scoped path uses the SAME gate as document.create — NOT the standalone firm-toggle bypass path:
+    expect(getFirmConflictPolicy).not.toHaveBeenCalled();
+    expect(hasUndispositionedBlocker).toHaveBeenCalled();
+    // never a bypass, never the "No conflicts check performed" stamp:
+    expect(res.conflictsBypassed).toBe(false);
+    const docArg = (insertDocument as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(docArg.notes).not.toContain(QUICK_DEED_NO_CONFLICTS_NOTE);
+  });
+
+  it('enforceConflicts + an undispositioned blocker: BLOCKED, NO document (fail-closed)', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    delete process.env['CONFLICT_GATE_ENABLED'];
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+    (hasUndispositionedBlocker as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+
+    await expect(quick().generate(fullGenerate({ enforceConflicts: true }))).rejects.toThrow(/CONFLICTS_BLOCKER_UNDISPOSITIONED/);
+    expect(insertDocument).not.toHaveBeenCalled();
+    expect(getFirmConflictPolicy).not.toHaveBeenCalled(); // never the standalone bypass-and-stamp path
+  });
+
+  it('enforceConflicts + CONFLICT_GATE_ENABLED on + not cleared: BLOCKED by the affirmative gate, NO document', async () => {
+    process.env['DEED_DRAFT_AGENT_ENABLED'] = 'true';
+    process.env['CONFLICT_GATE_ENABLED'] = 'true';
+    (getMatterById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: M1, userId: U1, archivedAt: null });
+    (resolvePostureDraftingGate as ReturnType<typeof vi.fn>).mockResolvedValue({ allowed: false, blockingReasons: ['no_client_party'] });
+
+    await expect(quick().generate(fullGenerate({ enforceConflicts: true }))).rejects.toThrow(/CONFLICTS_NOT_CLEARED/);
+    expect(resolvePostureDraftingGate).toHaveBeenCalled();
+    expect(insertDocument).not.toHaveBeenCalled();
+  });
+});
+
 // ── the deed-specific UNGATED read/write path (works when isConflictGateEnabled() is OFF) ───────────────────
 describe('quickDeed.getConflictsSetting / setConflictsEnforced — flag-gated, conflict-gate-independent, firm-scoped', () => {
   it('getConflictsSetting refuses when the deed flag is OFF', async () => {

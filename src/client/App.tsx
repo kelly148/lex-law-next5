@@ -80,6 +80,10 @@ export default function App(): React.ReactElement {
       {/* DEED-DRAFT-AGENT-1 QD-1 — Quick Deed fast lane. Always registered; QuickDeedPage self-guards on
           deedDraftAgent.isEnabled (default OFF) and redirects to /matters when the flag is off. */}
       <Route path="/deed" element={<ProtectedLayout><QuickDeedPage /></ProtectedLayout>} />
+      {/* DEED-INTAKE-PARITY-1 Inc 2 — the SAME Express intake bound to an existing matter (matter-scoped lane):
+          conflicts-honoring generation, no lazy auto-matter. QuickDeedPage reads :matterId from the params and
+          self-guards on the same flag (redirects to the matter page when OFF). */}
+      <Route path="/matters/:matterId/deed" element={<ProtectedLayout><QuickDeedPage /></ProtectedLayout>} />
       <Route path="/templates" element={<ProtectedLayout><TemplatesPage /></ProtectedLayout>} />
       <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
       <Route path="/upload-format" element={<ProtectedLayout><UploadFormatPage /></ProtectedLayout>} />
