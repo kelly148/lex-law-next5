@@ -216,9 +216,9 @@ export interface DeedTextScan {
  * exporting a document that CONTAINS a deed but is NOT a sanctioned documentType==='deed' (the deterministic
  * agent's output) — i.e. a deed pasted/imported into a generic document that never went through the agent.
  *
- * Known limitation: a legacy documentType==='deed' produced by the generic LLM BEFORE this guard shipped
- * cannot be distinguished from agent output without a durable provenance field (a schema change, out of
- * scope). The generation guard prevents NEW ones; legacy cleanup is a separate concern. See the LIVE-9 packet.
+ * W3c (ULTRABUILD-1): the legacy-'deed' residual is now CLOSED by the durable documents.provenance field —
+ * see isSanctionedAgentDeed below. Only ('deed' AND provenance==='agent_assembled') is sanctioned; a legacy
+ * 'deed' with NULL/'llm_authored' provenance is routed through this fail-closed scan like any non-deed.
  */
 export function scanForDeedOperativeLanguage(text: string | null | undefined): DeedTextScan {
   if (!text) return { isDeedText: false, matched: [] };
@@ -228,4 +228,18 @@ export function scanForDeedOperativeLanguage(text: string | null | undefined): D
     if (m) matched.push(m[0].replace(/\s+/g, ' ').trim().slice(0, 60));
   }
   return { isDeedText: matched.length > 0, matched };
+}
+
+/**
+ * W3c — a SANCTIONED agent-assembled deed: documentType 'deed' AND provenance 'agent_assembled'. Only a
+ * sanctioned deed is allowed past the LIVE-9 export scanner without the operative-language check. A legacy
+ * 'deed' whose provenance is NULL/'llm_authored' (or any non-deed) is NOT sanctioned and is scanned
+ * fail-closed — closing the residual where a legacy generic-LLM 'deed' was indistinguishable from agent
+ * output. Pure + deterministic.
+ */
+export function isSanctionedAgentDeed(
+  documentType: string,
+  provenance: string | null | undefined,
+): boolean {
+  return documentType === 'deed' && provenance === 'agent_assembled';
 }

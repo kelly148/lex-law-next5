@@ -479,6 +479,12 @@ export const documents = mysqlTable(
     // adopted into this document; SURVIVES drafting/versioning (lives on the document, not a
     // version). FOLD-SEND-1 reads this to gate outbound. Additive, defaulted false.
     drewOnUnverifiedKb: boolean('drewOnUnverifiedKb').notNull().default(false),
+    // W3c (ULTRABUILD-1) — deed provenance: 'agent_assembled' (the deterministic deed agent minted it) vs
+    // 'llm_authored' (a legacy generic-LLM deed). Durable + artifact-level; SURVIVES versioning (lives on the
+    // document, mirrors drewOnUnverifiedKb). NULL = unknown/legacy → treated as NON-sanctioned by the LIVE-9
+    // export scanner (fail-closed), closing the residual where a legacy 'deed' was indistinguishable from
+    // agent output. Additive, nullable.
+    provenance: varchar('provenance', { length: 32 }),
     // DOC-CLIENT-TARGET-1: RESERVED for `derived` document types (cert-of-trust / funding letter
     // inherit their party binding from a source document). Nullable; populated by the derived flow
     // (fast-follow). Present now so the bucket + provenance are complete.
