@@ -57,6 +57,8 @@ import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
 import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode } from './config/featureFlags.js';
 import { consolidateDeedSourceFacts } from './deed/deedSourceFacts.js';
 import { observeD3Comparison, buildD3ObserveTelemetry } from './deed/d3Observe.js';
+import { hashDeedContent } from './deed/d3Signoff.js';
+import { getValidDeedSignoffForVersion } from './db/queries/deedSignoff.js';
 import { resolveRootServe } from './landingRoot.js';
 
 // ============================================================
@@ -656,6 +658,29 @@ app.get(
           { procedureName: 'd3SignoffObserve', errorCode: 'D3_OBSERVE_FAILED', errorMessage: err instanceof Error ? err.message : String(err) },
           { userId, matterId: doc.matterId, documentId, jobId: null },
         );
+      }
+    }
+
+    // ── D3-SIGNOFF ENFORCE (A.1 Inc 4) ─────────────────────────────────────────
+    // ENFORCE (operator-activated; NC-D3-7): block a deed export unless a CURRENT valid source-extracted-facts
+    // sign-off exists (content-hash-bound). A hard-block (legal/parcel MISMATCH) can never have a valid sign-off
+    // (the record mutation refuses it), so it blocks here too. Fail-CLOSED under ENFORCE (mirrors the conflicts
+    // gate) — a check failure blocks rather than silently letting an unsigned deed out.
+    if (d3Mode === 'enforce' && doc.documentType === 'deed') {
+      let allowExport = false;
+      try {
+        const valid = await getValidDeedSignoffForVersion(userId, version.id, hashDeedContent(version.content));
+        allowExport = valid !== null;
+      } catch {
+        allowExport = false; // fail-closed under ENFORCE
+      }
+      if (!allowExport) {
+        res.status(409).json({
+          error: 'D3_SIGNOFF_REQUIRED',
+          message:
+            'Export blocked: this deed requires a source-extracted-facts sign-off before export. Review the extracted source vs. the assembled deed, complete the attestation, and record the sign-off.',
+        });
+        return;
       }
     }
 

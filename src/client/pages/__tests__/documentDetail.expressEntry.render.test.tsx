@@ -60,6 +60,9 @@ vi.mock('../../components/DeedGatePanel.js', () => ({ DeedGatePanel: () => null 
 vi.mock('../../components/DeliberateActButton.js', () => ({ default: () => null }));
 vi.mock('../../components/ProvenanceBadge.js', () => ({ default: () => null }));
 vi.mock('../../components/DraftingTargetHeader.js', () => ({ DraftingTargetHeader: () => null }));
+// D3-SIGNOFF A.1 Inc 4 added DeedSignoffPanel as an (internally self-gated) child of DocumentDetail; stub it so
+// this render test mounts to the action bar without the panel's real trpc (deedSignoff) hooks (ci-gotchas #10).
+vi.mock('../../components/DeedSignoffPanel.js', () => ({ DeedSignoffPanel: () => null }));
 
 import DocumentDetail from '../DocumentDetail.js';
 
