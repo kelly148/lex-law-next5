@@ -312,6 +312,13 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
                               <span className={clsx('flex-1 text-sm', n.readAt == null ? 'text-ink font-medium' : 'text-ink-secondary')}>
                                 {n.title}
                                 {n.body ? <span className="block text-xs text-ink-hint font-normal">{n.body}</span> : null}
+                                {/* NOTIFY-STALE-1 Fix B — tombstone: the announced document was deleted; the
+                                    deep-link would land on an empty matter, so say so rather than dead-end. */}
+                                {n.targetLive === false ? (
+                                  <span data-testid="notification-tombstone" className="block text-xs text-amber-700 font-normal">
+                                    The document this notice referred to was deleted.
+                                  </span>
+                                ) : null}
                               </span>
                             </button>
                           </li>

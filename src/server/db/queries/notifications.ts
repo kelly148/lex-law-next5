@@ -314,3 +314,65 @@ export async function markAllNotificationsSeen(userId: string): Promise<number> 
 export async function markNotificationSeen(id: string, userId: string): Promise<void> {
   return store().markSeen(id, userId, new Date());
 }
+
+// ── NOTIFY-STALE-1 — stale-notice revocation (Fix A) + click-time staleness (Fix B) ───────────────────────
+
+/**
+ * The deterministic row id for a notification source event. IDENTICAL to the id emitNotificationOnce writes
+ * (uuidv5(dedupKey, namespace)). Exported so a delete/revoke path can address the exact row a producer wrote
+ * from the SAME dedupKey inputs — without the dedupKey being stored on the row.
+ */
+export function computeNotificationDedupId(dedupKey: string): string {
+  return uuidv5(dedupKey, NOTIFICATION_DEDUP_NAMESPACE);
+}
+
+/**
+ * NOTIFY-STALE-1 Fix A — revoke (mark read) the "Draft ready" notices keyed to a set of now-deleted document
+ * versionIds, best-effort (swallow-never-fail, mirroring the producers). The version ids are the delete-side
+ * inputs, so the dedup id is recomputable without the dedupKey stored. NOTE: the matter-delete cascade already
+ * deletes a matter's notifications BY MATTER (matterPurge), so this seam is for a future SINGLE-document
+ * hard-delete op — no single-document hard-delete exists in the app today (documents are archived, not
+ * individually hard-deleted), so it is exported ready-to-wire rather than called from a non-existent path.
+ */
+export async function revokeNotificationsForVersions(userId: string, versionIds: readonly string[]): Promise<void> {
+  for (const versionId of versionIds) {
+    try {
+      await markNotificationSeen(computeNotificationDedupId(`draft_ready:${versionId}`), userId);
+    } catch (e) {
+      console.error(`[notify-stale] revoke draft_ready for version ${versionId} failed:`, e);
+    }
+  }
+}
+
+/** NOTIFY-STALE-1 Fix A — revoke (mark read) the "Review ready" notices keyed to now-deleted reviewSessionIds. */
+export async function revokeNotificationsForReviewSessions(userId: string, reviewSessionIds: readonly string[]): Promise<void> {
+  for (const sessionId of reviewSessionIds) {
+    try {
+      await markNotificationSeen(computeNotificationDedupId(`review_ready:${sessionId}`), userId);
+    } catch (e) {
+      console.error(`[notify-stale] revoke review_ready for session ${sessionId} failed:`, e);
+    }
+  }
+}
+
+/** A notification enriched with whether its announced target still exists (NOTIFY-STALE-1 Fix B). */
+export type NotificationWithTarget = NotificationRow & { targetLive: boolean };
+
+/**
+ * NOTIFY-STALE-1 Fix B (PURE) — flag a stale "ready" notice. A 'matter_ready' badge ("Draft ready" / "Review
+ * ready") whose matter has NO documents at all (active OR archived) is STALE: the document it announced was
+ * deleted out-of-band, so its deep-link would land on an empty matter. The client renders a tombstone instead
+ * of the dead-end deep-link. Non-'matter_ready' notices and matter-less notices are never stale by this rule.
+ * Deliberately matter-level (schema-free): the dedupKey/versionId is not stored on the row, so precise
+ * version-level existence is not checkable without a schema change — the empty-matter signal catches the
+ * observed failure (a matter with zero documents) without one.
+ */
+export function annotateNotificationStaleness(
+  items: readonly NotificationRow[],
+  matterIdsWithDocuments: ReadonlySet<string>,
+): NotificationWithTarget[] {
+  return items.map((n) => {
+    const stale = n.type === 'matter_ready' && n.matterId !== null && !matterIdsWithDocuments.has(n.matterId);
+    return { ...n, targetLive: !stale };
+  });
+}
