@@ -26,6 +26,8 @@
  */
 
 import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
+import { extractEmbeddedFeedbackCards } from './parsers/embeddedFeedbackCards.js';
+import { legacySeverityFromCardSeverityString } from '../../shared/schemas/feedbackCards.js';
 
 /** Top-level wrapper key names a provider may use when the expected schema is a bare array. */
 export const KNOWN_ARRAY_WRAPPER_KEYS = ['feedback', 'suggestions', 'items', 'result', 'data'] as const;
@@ -36,14 +38,65 @@ export const KNOWN_OUTER_WRAPPER_KEYS = ['review', 'output', 'response', 'result
 /** Inner array keys expected inside a nested object wrapper. */
 export const KNOWN_INNER_ARRAY_KEYS = ['feedback', 'suggestions', 'items', 'issues'] as const;
 
+/** The canonical legacy reviewer severities. */
+const VALID_LEGACY_SEVERITIES = new Set(['critical', 'major', 'minor']);
+
+/**
+ * RPR-3 gate: is `o` the reviewer-item shape (a plain object with a non-empty string title AND body)?
+ * This is the self-gating predicate that keeps the severity backfill away from every non-reviewer shape
+ * — most importantly the object-shaped evaluator result ({dispositions:[...]}), which has no title/body.
+ */
+function isReviewerItemShape(o: unknown): o is { title: string; body: string; severity?: unknown } {
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) return false;
+  const r = o as Record<string, unknown>;
+  return typeof r.title === 'string' && r.title.length > 0 && typeof r.body === 'string' && r.body.length > 0;
+}
+
+/**
+ * RPR-3: if a reviewer item is missing a VALID legacy severity, DERIVE one from the reviewer's own
+ * embedded STRUCTURED_FEEDBACK_CARDS card (the model populated the card severity but dropped the
+ * top-level one — a prompt vocabulary collision). Returns a shallow-cloned item with the derived
+ * severity, or the SAME item unchanged when the severity is already valid or no card severity is
+ * recoverable (never flat-defaults — a BLOCKER derives to 'critical' and is never downgraded).
+ */
+function deriveSeverityForItem(item: { title: string; body: string; severity?: unknown }): unknown {
+  if (typeof item.severity === 'string' && VALID_LEGACY_SEVERITIES.has(item.severity)) return item;
+  for (const card of extractEmbeddedFeedbackCards(item.body)) {
+    const legacy = legacySeverityFromCardSeverityString(card.severity);
+    if (legacy) return { ...item, severity: legacy };
+  }
+  return item;
+}
+
+/**
+ * RPR-3: backfill missing severities across a bare array — but ONLY when EVERY element is the reviewer
+ * item shape (title+body). A single non-reviewer element aborts the whole backfill (returns the array
+ * untouched), so a non-reviewer array is never mutated. Returns the original array reference when nothing
+ * changed (happy path is a no-op).
+ */
+function backfillArraySeverity(arr: unknown[]): unknown[] {
+  if (arr.length === 0 || !arr.every(isReviewerItemShape)) return arr;
+  let changed = false;
+  const out = arr.map((it) => {
+    const derived = deriveSeverityForItem(it as { title: string; body: string; severity?: unknown });
+    if (derived !== it) changed = true;
+    return derived;
+  });
+  return changed ? out : arr;
+}
+
 /**
  * Normalize a parsed structured-output value toward the canonical reviewer-feedback array, applying
- * Rules 1-6 above. Shared by every reviewer adapter. Never throws.
+ * Rules 1-6 above, plus Rule 7 (RPR-3): a reviewer-shape-gated per-item legacy-severity backfill that
+ * DERIVES a dropped top-level severity from the item's embedded feedback card (self-gating; never touches
+ * object-shaped inputs such as the evaluator schema; never flat-defaults). Shared by every reviewer
+ * adapter. Never throws.
  */
 export function normalizeStructuredOutput(value: unknown): unknown {
-  // Rule 1: Direct array — pass through unchanged
+  // Rule 1: Direct array — pass through, applying the RPR-3 severity backfill (a no-op unless the array
+  // is reviewer items missing a valid severity; a non-reviewer array is returned untouched).
   if (Array.isArray(value)) {
-    return value;
+    return backfillArraySeverity(value);
   }
 
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
@@ -88,6 +141,17 @@ export function normalizeStructuredOutput(value: unknown): unknown {
     if (singletonCandidate.success) {
       return [obj];
     }
+
+    // Rule 7 (RPR-3): a lone reviewer item (title+body) whose top-level severity was dropped — derive it
+    // from the embedded card and wrap to a one-element array. Gated on the reviewer-item shape, so the
+    // evaluator object ({dispositions:[...]}) — which has no title/body — is never wrapped or mutated.
+    if (isReviewerItemShape(obj)) {
+      const derived = deriveSeverityForItem(obj);
+      if (derived !== obj) {
+        return [derived];
+      }
+    }
+
     // Rule 5 failed — arbitrary object, leave unchanged; Zod will reject with parse_error
   }
 

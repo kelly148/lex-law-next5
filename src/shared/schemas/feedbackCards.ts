@@ -257,6 +257,20 @@ function feedbackCardSeverityToLegacySeverity(
   }
 }
 
+/**
+ * REVIEWER-PARSE-RELIABILITY-1 (RPR-3): validate an arbitrary card-severity string and map it to the
+ * legacy reviewer severity, or return null if it is not a recognized FeedbackCardSeverity. Used by the
+ * shared structured-output normalizer to DERIVE a missing top-level legacy severity from the reviewer's
+ * own embedded card (never a flat default — a null here means "leave the item for Zod to reject"), so a
+ * BLOCKER is derived to 'critical' and never silently downgraded. Total; never throws.
+ */
+export function legacySeverityFromCardSeverityString(
+  severity: unknown,
+): 'critical' | 'major' | 'minor' | null {
+  const parsed = FeedbackCardSeveritySchema.safeParse(severity);
+  return parsed.success ? feedbackCardSeverityToLegacySeverity(parsed.data) : null;
+}
+
 export interface LegacySuggestionToFeedbackCardInput {
   suggestion: FeedbackSuggestion;
   reviewCycleId: string;

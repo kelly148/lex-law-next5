@@ -349,7 +349,24 @@ export class OpenAiAdapter implements LlmClient {
       // gpt-4.1-mini wrap reviewer-feedback arrays in a wrapper. Extract the array if
       // present (single-key or known multi-key wrapper); pass through unchanged otherwise
       // (Zod will reject with parse_error).
-      const normalized = normalizeOpenAiStructuredOutput(parsed);
+      let normalized = normalizeOpenAiStructuredOutput(parsed);
+
+      // RPR-4: OpenAI response_format json_object mode structurally cannot emit a bare `[]`, so GPT
+      // returns `{}` for the calibrated-correct "no feedback" answer (CAL-1 P8-T1 x gpt, all 3 runs).
+      // Coerce a zero-key object to `[]` ONLY when the target schema accepts an empty array — never for
+      // the object-shaped evaluator schema (where `{}` is a legitimate empty result). Adapter-local
+      // (OpenAI has no direct-first guard); an interim tactical fix pending the RPR-6 strict-json_schema
+      // request shape. NOTE (accepted ambiguity): a degraded/near-empty generation also serializes to
+      // `{}`; the finish_reason 'length'/'content_filter' guards above already diverted the
+      // truncation/filter cases, so a `{}` reaching here is a deliberate empty result.
+      const isEmptyObject =
+        normalized !== null &&
+        typeof normalized === 'object' &&
+        !Array.isArray(normalized) &&
+        Object.keys(normalized as Record<string, unknown>).length === 0;
+      if (isEmptyObject && (structuredOutputSchema as z.ZodSchema).safeParse([]).success) {
+        normalized = [];
+      }
 
       // Re-serialize if normalization extracted a wrapper, so that content is
       // always a JSON string of the canonical array (consistent with the
