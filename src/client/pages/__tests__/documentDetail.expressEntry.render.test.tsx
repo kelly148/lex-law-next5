@@ -63,6 +63,9 @@ vi.mock('../../components/DraftingTargetHeader.js', () => ({ DraftingTargetHeade
 // D3-SIGNOFF A.1 Inc 4 added DeedSignoffPanel as an (internally self-gated) child of DocumentDetail; stub it so
 // this render test mounts to the action bar without the panel's real trpc (deedSignoff) hooks (ci-gotchas #10).
 vi.mock('../../components/DeedSignoffPanel.js', () => ({ DeedSignoffPanel: () => null }));
+// DEED-DOC-PAGE-LAYOUT-1 (S1) added DeedStatusStrip (self-gates on trpc.deedGate). Stub it here — this test's
+// trpc mock has no deedGate router, so the real strip's isEnabled probe would throw (ci-gotchas #10).
+vi.mock('../../components/DeedStatusStrip.js', () => ({ DeedStatusStrip: () => null }));
 
 import DocumentDetail from '../DocumentDetail.js';
 
