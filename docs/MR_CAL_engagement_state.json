@@ -111,7 +111,8 @@
     "FOLD-INTEG-1",
     "FOLD-SEED-1",
     "FOLD-MIGRATE-1",
-    "FOLD-VERIFY-1"
+    "FOLD-VERIFY-1",
+    "NOTIFY-STALE-1"
   ],
   "history": [
     {
@@ -898,10 +899,15 @@
       "ts": "2026-06-20T13:32:14-04:00",
       "decision": "live-verified:FOLD-L0-1 pass",
       "notes": "FOLD-L0-1 (conflicts-at-intake) LIVE-VERIFIED on prod 4e07e51 — STRONG PASS, no correctness defects (Cowork UAT, 3 synthetic cross-conflict matters). Verified: cross-matter conflict check at intake; BLOCKER on client/adverse crossing both directions, exact + normalized name match; REVIEW correctly not escalated on role-only match; blocker disposition hard-gated on recorded rationale (review optional); server-side defense-in-depth — lock rejected (CONFLICTS_NOT_CLEARED/unconfirmed_client_party) despite UI-enabled button; plan-lock on genuine clearance → plan:locked, sendability:not_applicable; single-lane default analysis; clean path no false positives; drafting gate fail-closed and releases on full clearance. This satisfies the self-use-only lift condition for the conflicts-at-intake vertical (operator decision to go client-facing is separate). Full results: outputs/FOLD-L0-1_UAT_RESULTS_2026-06-20.md (Cowork scratchpad)."
+    },
+    {
+      "ts": "2026-07-05T14:13:00-04:00",
+      "decision": "state-transition:NOTIFY-STALE-1 queued (operator-approved membership add)",
+      "notes": "NOTIFY-STALE-1 added to the queue per operator direction (Rule 11 membership add approved: y). Reversible build-and-PR class (stale 'ready'-notification lifecycle fix; no access-control/send-safety surface, no FIRE). Dispatch: docs/engagements/NOTIFY-STALE-1-dispatch.md. Built same-batch on lex-next/notify-stale-1."
     }
   ],
-  "last_updated": "2026-06-20T13:32:14-04:00",
-  "last_updater": "FOLD-L0-1 live-verification bookkeeping (Claude Code, lex-next/state-fold-l0-1-live-verified) — recorded live-verified:FOLD-L0-1 on prod 4e07e51; pure history append + status upkeep, NO list-membership change (FOLD-L0-1 already in completed_engagements; awaiting_live_verification unchanged = [FOLD-PM-1])",
+  "last_updated": "2026-07-05T14:13:00-04:00",
+  "last_updater": "NOTIFY-STALE-1 queue insertion (Claude Code, lex-next/notify-stale-1) — Rule 11 membership add (operator-approved: y): appended NOTIFY-STALE-1 to queue + history entry. No other list-membership change.",
   "notes": "Initial queue. LLN-PROD-CLEANUP-1 omitted from automated queue per plan Â§0.4 (operator-approved only). MR-CAL-2H added on-demand only if MR-CAL-2F surfaces need. As of 2026-05-31: deploy pipeline fixed; /api/version is the canonical one-request deploy check. AUTH_BYPASS_ENABLED left ON in prod for the native-card live verification -> operator to disable.",
   "accepted_risks": [
     {

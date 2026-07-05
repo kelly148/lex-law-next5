@@ -26,7 +26,9 @@ import {
   listUnreadMatterIdsForOwner,
   markAllNotificationsSeen,
   markNotificationSeen,
+  annotateNotificationStaleness,
 } from '../db/queries/notifications.js';
+import { mattersWithDocuments } from '../db/queries/documents.js';
 import { buildNotificationDigest } from '../../shared/schemas/notifications.js';
 
 function assertEnabled(): void {
@@ -58,7 +60,23 @@ export const notificationsRouter = router({
         countUnreadForOwner(ctx.userId),
         listUnreadMatterIdsForOwner(ctx.userId),
       ]);
-      return { items, unreadCount, unreadMatterIds };
+      // NOTIFY-STALE-1 Fix B: flag a "ready" notice whose matter has NO documents (its announced document was
+      // deleted out-of-band) so the client renders a tombstone instead of a dead-end deep-link to an empty matter.
+      // FAIL-OPEN: this is a display enrichment — a staleness-check failure must NEVER break the notification
+      // feed, so on any error we treat all notices as live (no tombstone) rather than error the list.
+      let annotated;
+      try {
+        const candidateMatterIds = [
+          ...new Set(items.filter((n) => n.type === 'matter_ready' && n.matterId !== null).map((n) => n.matterId as string)),
+        ];
+        const liveMatterIds =
+          candidateMatterIds.length > 0 ? await mattersWithDocuments(ctx.userId, candidateMatterIds) : new Set<string>();
+        annotated = annotateNotificationStaleness(items, liveMatterIds);
+      } catch (e) {
+        console.error('[notify-stale] targetLive enrichment failed; treating all notices as live:', e);
+        annotated = items.map((n) => ({ ...n, targetLive: true }));
+      }
+      return { items: annotated, unreadCount, unreadMatterIds };
     }),
 
   // ── NOTIFY-SUITE-1 N1 — "while you were away" digest ───────────────────────

@@ -6,7 +6,7 @@
  * Raw Drizzle results are never consumed directly by business logic.
  */
 
-import { eq, and, isNull, desc, ne } from 'drizzle-orm';
+import { eq, and, isNull, desc, ne, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { db } from '../connection.js';
 import { documents, type Document, type NewDocument } from '../schema.js';
@@ -266,4 +266,22 @@ export async function setDrewOnUnverifiedKb(
     .update(documents)
     .set({ drewOnUnverifiedKb: true })
     .where(and(eq(documents.id, documentId), ownerScope(documents.userId, userId)));
+}
+
+/**
+ * NOTIFY-STALE-1 (Fix B) — of the given matterIds, which have AT LEAST ONE document row (active OR archived).
+ * Owner-scoped. Used to flag a stale "ready" notification whose matter is empty (its announced document was
+ * deleted out-of-band). Counts archived docs too, so an archived-but-present document is NOT treated as gone.
+ */
+export async function mattersWithDocuments(
+  userId: string,
+  matterIds: readonly string[],
+): Promise<Set<string>> {
+  if (matterIds.length === 0) return new Set<string>();
+  const rows = await db
+    .select({ matterId: documents.matterId })
+    .from(documents)
+    .where(and(inArray(documents.matterId, [...matterIds]), ownerScope(documents.userId, userId)))
+    .groupBy(documents.matterId);
+  return new Set(rows.map((r) => r.matterId));
 }
