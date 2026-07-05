@@ -27,6 +27,12 @@
  *
  * MODES:  default = --smoke (bounded build-validation subset)
  *         --full  = the entire Block A/B/C grid (this is the CAL-7B-LIVE run)
+ *
+ * LANE FILTER (CLAUDE-LANE-MODERNIZATION-1): --lanes=<a,b,...> restricts either mode's grid to the named
+ *         reviewer lanes only, so a G.3 model-swap rerun can exercise ONLY the changed lanes instead of
+ *         the whole grid. Lane names are the config keys (gpt, claude, gemini, grok, gpt_lite, claude_lite,
+ *         gemini_lite, grok_lite). Unknown names abort loudly. Example (rerun both Claude lanes after a
+ *         Claude model swap):  node tools/calibration/cal7b_harness.mjs --full --lanes=claude,claude_lite
  */
 
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -215,7 +221,13 @@ async function callAnthropic(modelId, system, user) {
   }
   if (!resp.ok) { const t = await resp.text().catch(() => ''); return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: `API ${resp.status}: ${t.slice(0, 250)}` }); }
   const data = await resp.json();
-  const rawText = data.content?.[0]?.text ?? '';
+  // CLAUDE-LANE-MODERNIZATION-1: text is NOT reliably content[0] — adaptive-thinking Claude models
+  // (e.g. claude-sonnet-5, adaptive-ON by default when `thinking` is omitted) return a leading
+  // `thinking` block, so content[0].text is undefined (empty content -> api_error on every review).
+  // Join every text-type block instead (matches the production adapter's extractAnthropicText).
+  const rawText = Array.isArray(data.content)
+    ? data.content.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('')
+    : '';
   const fr = data.stop_reason;
   if (!rawText) return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: 'empty content', finishReason: fr });
   return toResult({ httpOk: true, rawText, finishReason: fr, tokensP: data.usage?.input_tokens, tokensC: data.usage?.output_tokens });
@@ -514,6 +526,21 @@ function buildGrid(mode) {
   return cells;
 }
 
+// CLAUDE-LANE-MODERNIZATION-1: optional per-lane filter so a G.3 model-swap rerun can exercise ONLY the
+// changed lanes (e.g. --lanes=claude,claude_lite) instead of the whole grid. Accepts `--lanes=a,b` or
+// `--lanes a,b`. Returns null when absent (unfiltered). Unknown lane names are rejected in main().
+function parseLaneFilter(argv) {
+  let raw = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a.startsWith('--lanes=')) { raw = a.slice('--lanes='.length); break; }
+    if (a === '--lanes') { raw = argv[i + 1] ?? ''; break; }
+  }
+  if (raw === null) return null;
+  const lanes = raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  return lanes.length ? lanes : null;
+}
+
 // classify-then-tag-and-flag (CAL-7B-PLAN revision 2)
 function acceptedRiskEval(scenarioId, reviewerKey, status) {
   const isGpt = reviewerKey === 'gpt' || reviewerKey === 'gpt_lite';
@@ -591,14 +618,29 @@ function summarizeCell(cell, runs) {
 
 async function main() {
   const mode = process.argv.includes('--full') ? 'full' : 'smoke';
+  const laneFilter = parseLaneFilter(process.argv);
   const runId = isoStamp();
   const runDir = join(HERE, 'runs', runId);
   mkdirSync(runDir, { recursive: true });
-  const grid = buildGrid(mode);
+  let grid = buildGrid(mode);
+  if (laneFilter) {
+    const known = new Set(Object.keys(TRACK_LABEL));
+    const unknown = laneFilter.filter((l) => !known.has(l));
+    if (unknown.length) {
+      console.error(`ABORT: --lanes names unknown lane(s): ${unknown.join(', ')}. Valid: ${[...known].join(', ')}`);
+      process.exit(2);
+    }
+    const want = new Set(laneFilter);
+    grid = grid.filter((c) => want.has(c.reviewerKey));
+    if (grid.length === 0) {
+      console.error(`ABORT: --lanes=${laneFilter.join(',')} matched 0 cells in mode=${mode} (nothing to run).`);
+      process.exit(2);
+    }
+  }
 
   // run-cap guard
   const totalCalls = grid.reduce((a, c) => a + c.n, 0);
-  console.log(`[CAL-7B harness] mode=${mode} runId=${runId} cells=${grid.length} calls=${totalCalls} (cap ${RUN_CAP}) snapshot=${SNAPSHOT_COMMIT}`);
+  console.log(`[CAL-7B harness] mode=${mode}${laneFilter ? ` lanes=${laneFilter.join(',')}` : ''} runId=${runId} cells=${grid.length} calls=${totalCalls} (cap ${RUN_CAP}) snapshot=${SNAPSHOT_COMMIT}`);
   // CAL-1B: report the EXACT model list sourced from config.ts (dispatch step 2), so the run records which
   // currently-pinned lanes were tested (no hardcoded drift).
   console.log('[CAL-7B harness] lane models (from src/server/llm/config.ts): ' +

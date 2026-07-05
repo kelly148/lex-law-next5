@@ -70,7 +70,8 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 // flagship ids (operator-confirmed, verified against provider docs). This is REVIEWER-SCOPED ONLY — the
 // drafter (draft_generation), copilot-primary (chat_primary), and lite generation read
 // PRIMARY_DRAFTER_MODEL / LITE_GENERATION_MODEL (anthropic by default), NOT these constants, so client-
-// facing drafting/copilot models are unaffected. Claude is left unchanged. NOTE: Google currently has no
+// facing drafting/copilot models are unaffected. Claude was later modernized too (CLAUDE-LANE-MODERNIZATION-1,
+// the claude / claude_lite pins below). NOTE: Google currently has no
 // GA Gemini "Pro" — gemini-3.1-pro-preview is the recommended Pro slug (preview-tier; operator-accepted).
 // Each id below has a matching entry in modelCapabilities.ts (Gemini keeps its calibrated 32768 ceiling).
 // ============================================================
@@ -81,7 +82,12 @@ export type WhitelistedModel = (typeof WHITELISTED_MODELS)[number];
 // but code cannot prove a slug is real — the operator must confirm gpt-5.5 / gemini-3.1-pro-preview /
 // grok-4.3 against provider docs.
 export const REVIEWER_MODELS = {
-  claude: 'anthropic:claude-opus-4-5',
+  // CLAUDE-LANE-MODERNIZATION-1 (2026-07-04): opus-4-5 -> opus-4-8 (operator's current daily-driver
+  // Claude). Slug confirmed LIVE against the Anthropic Models API before pinning (GET /v1/models/
+  // claude-opus-4-8 -> 200: "Claude Opus 4.8", 1M ctx / 128K out). The adapter sends only
+  // {model, max_tokens, system, messages} (no temperature / thinking / prefill) — exactly the request
+  // surface opus-4-8 accepts — so no adapter change is needed. G.3: rerun the calibration grid on swap.
+  claude: 'anthropic:claude-opus-4-8',
   gpt: 'openai:gpt-5.5', // operator-pending-provider-confirmation
   gemini: 'google:gemini-3.1-pro-preview', // operator-pending-provider-confirmation (PREVIEW-TIER — UNCALIBRATED-until-rerun; see isPreviewTierModel + docs/engagements/ULTRABUILD-1-model-pin-memo.md)
   grok: 'xai:grok-4.3', // operator-pending-provider-confirmation
@@ -115,7 +121,8 @@ function resolveLiteModel(envVar: string, defaultModel: string): string {
 }
 
 // REVIEWER-MODEL-MODERNIZATION-1: lite tier modernized to current GA ids (env overrides preserved).
-// claude_lite unchanged. grok-3-mini was RETIRED with no GA Grok "mini", so the lite Grok track reuses
+// claude_lite modernized sonnet-4-5 -> sonnet-5 (CLAUDE-LANE-MODERNIZATION-1, live-confirmed;
+// env override preserved). grok-3-mini was RETIRED with no GA Grok "mini", so the lite Grok track reuses
 // the fast GA flagship grok-4.3 (deliberate operator choice — the full and lite Grok ids are intentionally
 // the same until a distinct GA Grok mini exists).
 // REVIEWER-MODEL-VALIDATION-FIX-1 (CR-2): the gpt_lite DEFAULT was 'openai:gpt-5.4-mini', an
@@ -126,7 +133,7 @@ function resolveLiteModel(envVar: string, defaultModel: string): string {
 // gemini_lite ('gemini-3.5-flash') and grok_lite ('grok-4.3') remain OPERATOR-PENDING-PROVIDER-
 // CONFIRMATION — registered (boot-valid) but not verified against live provider docs.
 export const LITE_REVIEWER_MODELS = {
-  claude_lite: resolveLiteModel('LITE_ANTHROPIC_REVIEWER_MODEL', 'anthropic:claude-sonnet-4-5'),
+  claude_lite: resolveLiteModel('LITE_ANTHROPIC_REVIEWER_MODEL', 'anthropic:claude-sonnet-5'), // CLAUDE-LANE-MODERNIZATION-1: sonnet-4-5 -> sonnet-5 (live-confirmed)
   gpt_lite: resolveLiteModel('LITE_OPENAI_REVIEWER_MODEL', 'openai:gpt-4.1-mini'),
   gemini_lite: resolveLiteModel('LITE_GOOGLE_REVIEWER_MODEL', 'google:gemini-3.5-flash'), // operator-pending-provider-confirmation
   grok_lite: resolveLiteModel('LITE_XAI_REVIEWER_MODEL', 'xai:grok-4.3'), // operator-pending-provider-confirmation
