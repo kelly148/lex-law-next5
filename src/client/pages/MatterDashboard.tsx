@@ -49,7 +49,7 @@ type EngagementCapacity = (typeof CAPACITY_OPTIONS)[number]['value'];
 
 interface CreateMatterFormProps {
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (matterId: string) => void;
 }
 
 export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps): React.ReactElement {
@@ -72,9 +72,11 @@ export function CreateMatterForm({ onClose, onCreated }: CreateMatterFormProps):
       engagementCapacity?: EngagementCapacity;
     }) => utils.client.matter.create.mutate(input),
     {
-      onSuccess: () => {
+      // S14 (UI-ATTORNEY-SWEEP-1): after Create, navigate into the new matter (matter.create returns
+      // the full matter). onCreated receives its id; the parent closes the modal and routes to it.
+      onSuccess: (created) => {
         void utils.matter.list.invalidate();
-        onCreated();
+        onCreated(created.id);
       },
       onError: (err) => {
         setError(err.message);
@@ -194,9 +196,11 @@ interface MatterRowProps {
     createdAt: string;
   };
   onRefresh: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }
 
-function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
+function MatterRow({ matter, onRefresh, selected, onToggleSelect }: MatterRowProps): React.ReactElement {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
 
@@ -230,6 +234,14 @@ function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
         isArchived && 'opacity-60'
       )}
     >
+      {/* S14 (UI-ATTORNEY-SWEEP-1): per-row selection for bulk archive/delete (cleanup). */}
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggleSelect}
+        aria-label={`Select matter ${matter.title}`}
+        className="flex-shrink-0 rounded"
+      />
       <div
         className="flex-1 min-w-0 cursor-pointer"
         onClick={() => navigate(`/matters/${matter.id}`)}
@@ -237,7 +249,7 @@ function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
         <div className="flex items-center gap-2">
           <span className="font-serif font-medium text-firm-navy text-sm truncate">{matter.title}</span>
           {isArchived && (
-            <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Archived</span>
+            <span className="text-xs bg-surface-2 text-ink-secondary px-1.5 py-0.5 rounded">Archived</span>
           )}
         </div>
         <div className="flex items-center gap-3 mt-0.5">
@@ -247,11 +259,13 @@ function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
           {matter.practiceArea && (
             <span className="text-xs text-gray-400">{matter.practiceArea}</span>
           )}
+          {/* G6 (UI-ATTORNEY-SWEEP-1): status phase chip on the Whereas ramps (neutral / warn / ok),
+              not raw Tailwind blue/amber/green. Status colours only — non-interactive. */}
           <span className={clsx(
             'text-xs px-1.5 py-0.5 rounded capitalize',
-            matter.phase === 'intake' && 'bg-blue-100 text-blue-700',
-            matter.phase === 'drafting' && 'bg-amber-100 text-amber-700',
-            matter.phase === 'complete' && 'bg-green-100 text-green-700',
+            matter.phase === 'intake' && 'bg-surface-2 text-ink-secondary',
+            matter.phase === 'drafting' && 'bg-warning-tint text-warning',
+            matter.phase === 'complete' && 'bg-success-tint text-success',
           )}>
             {matter.phase}
           </span>
@@ -298,14 +312,56 @@ function MatterRow({ matter, onRefresh }: MatterRowProps): React.ReactElement {
 }
 
 export default function MatterDashboard(): React.ReactElement {
+  const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const [showCreate, setShowCreate] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
+  // S14 (UI-ATTORNEY-SWEEP-1): multi-select for bulk archive/delete (cleanup). Uses the existing
+  // per-matter archive/delete mutations — same semantics, batched over the selection.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set<string>());
 
   const { data, isLoading, refetch } = trpc.matter.list.useQuery(
     includeArchived ? { includeArchived: true } : undefined
   );
 
   const matters = data ?? [];
+
+  const toggleSelect = (id: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const clearSelection = (): void => setSelected(new Set<string>());
+  const afterBulk = (): void => {
+    void utils.matter.list.invalidate();
+    void refetch();
+    clearSelection();
+  };
+
+  const bulkArchiveMutation = useGuardedMutation(
+    (ids: string[]) => Promise.all(ids.map((id) => utils.client.matter.archive.mutate({ matterId: id }))),
+    { onSuccess: afterBulk },
+  );
+  const bulkDeleteMutation = useGuardedMutation(
+    (ids: string[]) => Promise.all(ids.map((id) => utils.client.matter.delete.mutate({ matterId: id }))),
+    { onSuccess: afterBulk },
+  );
+
+  const selectedMatters = matters.filter((m) => selected.has(m.id));
+  const archivableIds = selectedMatters.filter((m) => m.archivedAt === null).map((m) => m.id);
+  const bulkPending = bulkArchiveMutation.isPending || bulkDeleteMutation.isPending;
+  const handleBulkArchive = (): void => {
+    if (archivableIds.length > 0) bulkArchiveMutation.mutate(archivableIds);
+  };
+  const handleBulkDelete = (): void => {
+    const ids = selectedMatters.map((m) => m.id);
+    if (ids.length === 0) return;
+    if (window.confirm(`Delete ${ids.length} matter${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      bulkDeleteMutation.mutate(ids);
+    }
+  };
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -340,6 +396,34 @@ export default function MatterDashboard(): React.ReactElement {
       {/* FOLD-PM-1 — minimal cross-matter next-30-days + integrity (NOT PM-4); flag-gated, surfaces only */}
       <UpcomingDeadlines />
 
+      {/* S14 (UI-ATTORNEY-SWEEP-1): bulk-action bar — appears only when rows are selected. Archives the
+          non-archived selection / deletes the selection using the existing per-matter mutations. */}
+      {selected.size > 0 && (
+        <div
+          data-testid="bulk-action-bar"
+          className="mb-3 flex items-center gap-3 px-4 py-2 rounded-lg border border-line bg-surface-2 text-sm"
+        >
+          <span className="text-ink-secondary">{selected.size} selected</span>
+          <button
+            onClick={handleBulkArchive}
+            disabled={bulkPending || archivableIds.length === 0}
+            className="text-ink hover:text-accent disabled:opacity-40"
+          >
+            Archive{archivableIds.length > 0 ? ` (${archivableIds.length})` : ''}
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkPending}
+            className="text-ink hover:text-danger disabled:opacity-40"
+          >
+            Delete
+          </button>
+          <button onClick={clearSelection} disabled={bulkPending} className="ml-auto text-ink-hint hover:text-ink">
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Matter list */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         {isLoading ? (
@@ -360,6 +444,8 @@ export default function MatterDashboard(): React.ReactElement {
               key={matter.id}
               matter={matter}
               onRefresh={() => void refetch()}
+              selected={selected.has(matter.id)}
+              onToggleSelect={() => toggleSelect(matter.id)}
             />
           ))
         )}
@@ -369,7 +455,7 @@ export default function MatterDashboard(): React.ReactElement {
       {showCreate && (
         <CreateMatterForm
           onClose={() => setShowCreate(false)}
-          onCreated={() => setShowCreate(false)}
+          onCreated={(matterId) => { setShowCreate(false); navigate(`/matters/${matterId}`); }}
         />
       )}
     </div>
