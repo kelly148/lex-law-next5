@@ -44,6 +44,9 @@ import { getVersionById, getVersionByNumber } from './db/queries/versions.js';
 import type { VersionRow } from '../shared/schemas/matters.js';
 import { Document as DocxDocument, Packer } from 'docx';
 import { buildSatterwhiteSection } from './utils/markdownToDocx.js';
+// DEED-EXPORT-FORMAT-1: deeds export as a PLAIN, BLACK-ONLY, recordable instrument (no firm branding / colors),
+// NOT the Whereas house style. All 7 deed types inherit this via documentType 'deed'.
+import { buildRecordableDeedSection, RECORDABLE_DEED_STYLES } from './utils/recordableDeedFormatter.js';
 import { buildLetterSection } from './utils/letterFormatter.js';
 import { buildLegalInstrumentSection } from './utils/instrumentFormatter.js';
 import { buildEngagementLetterSection, isEngagementLetterDocType } from './deed/engagementLetterFormatter.js';
@@ -701,10 +704,16 @@ app.get(
     // DEED-DRAFT-AGENT-1 Inc 3: a companion engagement letter (documentType 'engagement_letter') renders with
     // the Bien-Aime Mason letterhead/formatting; every other document keeps the Satterwhite house style
     // byte-for-byte (this branch is keyed on a brand-new type, so no existing document is affected).
+    const isDeed = doc.documentType === 'deed';
     const section = isEngagementLetterDocType(doc.documentType)
       ? buildEngagementLetterSection(version.content, { watermarkText })
-      : buildSatterwhiteSection(version.content, { watermarkText });
-    const docxFile = new DocxDocument({ sections: [section] });
+      : isDeed
+        ? buildRecordableDeedSection(version.content, { watermarkText })
+        : buildSatterwhiteSection(version.content, { watermarkText });
+    // Deeds also get the color-neutralized document styles so styles.xml carries no branding blues.
+    const docxFile = isDeed
+      ? new DocxDocument({ sections: [section], styles: RECORDABLE_DEED_STYLES })
+      : new DocxDocument({ sections: [section] });
 
     const buffer = await Packer.toBuffer(docxFile);
 
