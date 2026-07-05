@@ -106,40 +106,69 @@ function isoStamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }
 async function runLive() {
   const prompts = readJson(join(GOLDEN, 'prompts.json'));
   const scenarios = prompts.scenarios;
+  const force = process.argv.includes('--force');
   const runId = isoStamp();
   const runDir = join(GOLDEN, 'runs', runId);
   mkdirSync(runDir, { recursive: true });
-  console.log(`[golden --live] runId=${runId} contract=${prompts.contract}`);
+  console.log(`[golden --live] runId=${runId} contract=${prompts.contract}${force ? ' (--force: re-capture ALL lanes)' : ' (incremental: skip already-baselined lanes)'}`);
   console.log('[golden --live] lane models: ' + Object.keys(TRACKS).map((k) => `${k}=${TRACKS[k].modelString}`).join('  '));
 
-  const fixtures = { _note: 'W6 golden reviewer outputs — LIVE-captured PER LANE from the post-modernization reviewer models (W6-LIVE-CAPTURE-1). Synthetic scenarios, prod-free. Shape: { scenarioId: { track: canonicalArrayString } }. Re-capture with `node golden_reviewer_harness.mjs --live`.' };
-  const baselines = { _note: 'W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.' };
+  // INCREMENTAL / MERGE (W6-BASELINE-EXPANSION-1): start from the EXISTING committed fixtures+baselines so a
+  // scoped capture ADDS new lanes without dropping — or needlessly re-calling — lanes already baselined. Pass
+  // --force to re-capture every declared lane. A lane whose call THROWS or returns an errorClass / PARSE_FAILURE
+  // is NEVER promoted (an error is not a baseline) — it is reported so the operator can act (e.g. an
+  // unconfirmed / invalid model id). This is what makes attempting an operator-pending model id safe.
+  const fixtures = (() => { try { return readJson(join(GOLDEN, 'fixtures.json')); } catch { return {}; } })();
+  const baselines = (() => { try { return readJson(join(GOLDEN, 'baselines.json')); } catch { return {}; } })();
+  fixtures._note = 'W6 golden reviewer outputs — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1 / W6-BASELINE-EXPANSION-1; incremental). Synthetic scenarios, prod-free. Shape: { scenarioId: { track: canonicalArrayString } }. Re-capture with `node golden_reviewer_harness.mjs --live` (add --force to re-capture present lanes).';
+  baselines._note = 'W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1 / W6-BASELINE-EXPANSION-1; incremental). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.';
 
   let calls = 0;
+  let promoted = 0;
+  const failed = [];
   for (const scenarioId of Object.keys(scenarios)) {
     const sc = scenarios[scenarioId];
-    fixtures[scenarioId] = {};
-    baselines[scenarioId] = {};
+    fixtures[scenarioId] = fixtures[scenarioId] ?? {};
+    baselines[scenarioId] = baselines[scenarioId] ?? {};
     for (const track of sc.tracks) {
       const t = TRACKS[track];
       if (!t) { console.error(`  ${scenarioId} x ${track}: SKIP (no such track in config)`); continue; }
+      if (!force && baselines[scenarioId][track] && typeof fixtures[scenarioId][track] === 'string') {
+        console.log(`  ${scenarioId} x ${track}: skip (already baselined; --force to re-capture)`);
+        continue;
+      }
       const system = buildReviewerSystemPrompt(track, t.track);
       calls += 1;
-      const res = await resolveAndCall(t.modelString, system, sc.userPrompt);
-      // Prefer the normalized canonical array (what the signature extractor expects); fall back to raw.
+      let res;
+      try {
+        res = await resolveAndCall(t.modelString, system, sc.userPrompt);
+      } catch (e) {
+        const msg = String(e && e.message ? e.message : e).slice(0, 140);
+        console.error(`  ${scenarioId} x ${track} (${t.modelString}): CALL THREW — NOT promoted [${msg}]`);
+        failed.push(`${scenarioId} x ${track} (${t.modelString}): threw ${msg}`);
+        continue;
+      }
       const fixtureText = res.canonical ?? res.rawText ?? '';
       writeFileSync(join(runDir, `${scenarioId}__${track}.rawOutput.txt`), res.rawText ?? '');
       writeFileSync(join(runDir, `${scenarioId}__${track}.canonical.json`), res.canonical ?? '');
       const sig = extractSignature(scenarioId, fixtureText);
+      // Do NOT promote an errored/unparseable lane — an error/timeout/invalid-model is not a baseline.
+      if (res.errorClass || sig.status === 'PARSE_FAILURE') {
+        console.error(`  ${scenarioId} x ${track} (${t.modelString}): ${sig.status}${res.errorClass ? ' [' + res.errorClass + ']' : ''} — NOT promoted`);
+        failed.push(`${scenarioId} x ${track} (${t.modelString}): ${res.errorClass ?? sig.status}`);
+        continue;
+      }
       fixtures[scenarioId][track] = fixtureText;
       baselines[scenarioId][track] = sig;
-      console.log(`  ${scenarioId} x ${track} (${t.modelString}): ${sig.status} items=${sig.itemCount}${res.errorClass ? ' [' + res.errorClass + ']' : ''}`);
+      promoted += 1;
+      console.log(`  ${scenarioId} x ${track} (${t.modelString}): ${sig.status} items=${sig.itemCount} — promoted`);
     }
   }
 
   writeFileSync(join(GOLDEN, 'fixtures.json'), JSON.stringify(fixtures, null, 2) + '\n');
   writeFileSync(join(GOLDEN, 'baselines.json'), JSON.stringify(baselines, null, 2) + '\n');
-  console.log(`\n[golden --live] ${calls} live call(s). Promoted per-lane fixtures.json + baselines.json (raw captures in golden/runs/${runId}/, gitignored).`);
+  console.log(`\n[golden --live] ${calls} live call(s); ${promoted} promoted; ${failed.length} NOT promoted (raw captures in golden/runs/${runId}/, gitignored).`);
+  if (failed.length) console.log('[golden --live] NOT promoted (operator action may be needed):\n  ' + failed.join('\n  '));
 }
 
 // ── DARK: committed per-lane fixtures vs committed per-lane baselines, zero egress (the CI drift gate) ──
