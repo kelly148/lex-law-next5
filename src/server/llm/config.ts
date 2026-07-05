@@ -155,6 +155,63 @@ export function resolveReviewerModel(key: string): string | undefined {
 }
 
 // ============================================================
+// TITLE-EXAM-1 (§4b) — provider-agnostic role bindings.
+// ============================================================
+// The title-exam exam lanes, the reconciler, and the Express reviewer bind to ROLES, not providers. Each
+// role resolves to a model STRING sourced from the central pinned-model config here (never a literal in the
+// title-exam module or its prompts), so any of the four providers — or a future one — can fill any role by
+// configuration alone. The default binding follows spec §4b (examiner-A manual-anchored = Claude lane;
+// examiner-B research-capable = GPT lane); each role is env-overridable to ANY reviewer key. Activation of a
+// role on a new model remains subject to the standing gates (panel-disposition calibration + provider-policy,
+// the provider allowlist, and the G.3 swap⇒recalibrate rule) — this only resolves the pin.
+export const TITLE_EXAM_ROLES = ['examiner_a', 'examiner_b', 'reconciler', 'express_reviewer'] as const;
+export type TitleExamRole = (typeof TITLE_EXAM_ROLES)[number];
+
+// Default role → reviewer key. These are CONFIG KEYS (claude/gpt/…), not model literals; the model string
+// is resolved through resolveReviewerModel so a model-id modernization carries automatically.
+const TITLE_EXAM_ROLE_DEFAULT_KEY: Record<TitleExamRole, AnyReviewerKey> = {
+  examiner_a: 'claude', // manual-anchored epistemology (PROMPT_A_v2)
+  examiner_b: 'gpt', // research-capable epistemology (PROMPT_B_v2)
+  reconciler: 'claude', // fresh-context reconciler (NC-2)
+  express_reviewer: 'claude_lite', // §4a Express critique round
+};
+
+// Per-role env override — set to any reviewer key (claude|gpt|gemini|grok|claude_lite|gpt_lite|…) to have
+// that provider fill the role. An unrecognized value falls back to the default (and boot validation still
+// asserts the resolved model is registered).
+const TITLE_EXAM_ROLE_ENV: Record<TitleExamRole, string> = {
+  examiner_a: 'TITLE_EXAM_EXAMINER_A_MODEL',
+  examiner_b: 'TITLE_EXAM_EXAMINER_B_MODEL',
+  reconciler: 'TITLE_EXAM_RECONCILER_MODEL',
+  express_reviewer: 'TITLE_EXAM_EXPRESS_REVIEWER_MODEL',
+};
+
+/** Resolve the reviewer key a title-exam role is bound to (honoring the env override; default otherwise). */
+export function resolveTitleExamRoleKey(role: TitleExamRole): AnyReviewerKey {
+  const raw = process.env[TITLE_EXAM_ROLE_ENV[role]];
+  if (raw && raw.trim().length > 0) {
+    const key = raw.trim();
+    if (key in REVIEWER_MODELS || key in LITE_REVIEWER_MODELS) return key as AnyReviewerKey;
+    // Unrecognized override → fall back to the default binding (never a hard failure at resolve time).
+  }
+  return TITLE_EXAM_ROLE_DEFAULT_KEY[role];
+}
+
+/**
+ * Resolve a title-exam role to its model STRING via the central config. Throws if the bound key resolves to
+ * no model (cannot happen for the built-in reviewer keys, which are boot-validated). This is the ONLY
+ * sanctioned way the title-exam module obtains a model id — the module never hardcodes one.
+ */
+export function resolveTitleExamModel(role: TitleExamRole): string {
+  const key = resolveTitleExamRoleKey(role);
+  const model = resolveReviewerModel(key);
+  if (!model) {
+    throw new Error(`Title-exam role "${role}" is bound to unknown reviewer key "${key}".`);
+  }
+  return model;
+}
+
+// ============================================================
 // Reviewer human-readable titles (MR-1 S3c, MR-LLM-LITE-1)
 // Server-local mapping; do not import client-side REVIEWER_LABELS.
 // ============================================================
@@ -237,6 +294,18 @@ export function validateLlmConfig(): void {
 
   // REVIEWER-MODEL-VALIDATION-FIX-1 (CR-1): validate the reviewer + lite-reviewer ids at boot.
   validateReviewerModels(REVIEWER_MODELS, LITE_REVIEWER_MODELS);
+
+  // TITLE-EXAM-1 (§4b): assert every title-exam role resolves to a recognized model at boot, so a bad env
+  // override (or a future default) fails fast, naming the role, before the server accepts connections.
+  for (const role of TITLE_EXAM_ROLES) {
+    const model = resolveTitleExamModel(role);
+    if (!getModelCapability(model)) {
+      throw new Error(
+        `Invalid title-exam role model for "${role}": "${model}" has no MODEL_CAPABILITIES entry. ` +
+          `Correct the ${TITLE_EXAM_ROLE_ENV[role]} override or register the model in modelCapabilities.ts.`,
+      );
+    }
+  }
 }
 
 /**
