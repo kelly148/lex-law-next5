@@ -229,7 +229,7 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
               <p className="text-ink-secondary">
                 Deeds use the guided deed intake — drop in the prior vesting deed and tax record (or describe the
                 deal), confirm the facts, and generate the house-style draft. This matter&apos;s conflicts check
-                applies, and the draft is created in this matter (never auto-recorded or sent).
+                applies, and the draft is created in this matter.
               </p>
               <div className="flex justify-end gap-3">
                 <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
