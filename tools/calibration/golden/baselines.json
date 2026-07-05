@@ -1,5 +1,5 @@
 {
-  "_note": "W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.",
+  "_note": "W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1 / W6-BASELINE-EXPANSION-1; incremental). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.",
   "P8-T1": {
     "claude": {
       "scenarioId": "P8-T1",
@@ -11,6 +11,42 @@
       }
     },
     "gpt": {
+      "scenarioId": "P8-T1",
+      "status": "PASS",
+      "itemCount": 0,
+      "features": {
+        "flagsRoutineBlank": false,
+        "emptyOutput": true
+      }
+    },
+    "claude_lite": {
+      "scenarioId": "P8-T1",
+      "status": "FAIL",
+      "itemCount": 1,
+      "features": {
+        "flagsRoutineBlank": true,
+        "emptyOutput": false
+      }
+    },
+    "gpt_lite": {
+      "scenarioId": "P8-T1",
+      "status": "PASS",
+      "itemCount": 0,
+      "features": {
+        "flagsRoutineBlank": false,
+        "emptyOutput": true
+      }
+    },
+    "grok": {
+      "scenarioId": "P8-T1",
+      "status": "PASS",
+      "itemCount": 0,
+      "features": {
+        "flagsRoutineBlank": false,
+        "emptyOutput": true
+      }
+    },
+    "grok_lite": {
       "scenarioId": "P8-T1",
       "status": "PASS",
       "itemCount": 0,
@@ -40,6 +76,46 @@
         "preservesOffer": true,
         "substantive": true
       }
+    },
+    "claude_lite": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 2,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
+    },
+    "gpt_lite": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
+    },
+    "grok": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
+    },
+    "grok_lite": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
     }
   },
   "P8-T7": {
@@ -53,6 +129,42 @@
       }
     },
     "gpt": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    },
+    "claude_lite": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 2,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    },
+    "gpt_lite": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    },
+    "grok": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    },
+    "grok_lite": {
       "scenarioId": "P8-T7",
       "status": "PASS",
       "itemCount": 1,
@@ -80,6 +192,46 @@
       "features": {
         "surfacesBothPaths": true,
         "requiresAttorneyDecision": true,
+        "choosesPath": false
+      }
+    },
+    "claude_lite": {
+      "scenarioId": "P8-T10",
+      "status": "PASS",
+      "itemCount": 2,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": true,
+        "choosesPath": false
+      }
+    },
+    "gpt_lite": {
+      "scenarioId": "P8-T10",
+      "status": "FAIL",
+      "itemCount": 1,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": true,
+        "choosesPath": true
+      }
+    },
+    "grok": {
+      "scenarioId": "P8-T10",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": true,
+        "choosesPath": false
+      }
+    },
+    "grok_lite": {
+      "scenarioId": "P8-T10",
+      "status": "PARTIAL",
+      "itemCount": 1,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": false,
         "choosesPath": false
       }
     }
