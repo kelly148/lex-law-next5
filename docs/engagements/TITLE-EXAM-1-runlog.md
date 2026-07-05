@@ -115,8 +115,9 @@ Design notes:
 - No tRPC surface yet — the orchestration is a pure/seam library (byte-neutral). A thin flag-gated router
   for operator live-verification is deferred to a later increment (T6/T8).
 
-### T4 — fresh-context reconciler (NC-1/NC-2/NC-4) — IN PROGRESS
-Branch `lex-next/tex1-4` off `origin/main` (`203fbf1`). Pure reconciliation + mock-tx decision logging. Files:
+### T4 — fresh-context reconciler (NC-1/NC-2/NC-4) — MERGED (PR #503, squash `36e3a57`)
+Branch `lex-next/tex1-4` off `origin/main` (`203fbf1`). CI green; auto-merged under Rule 15; branch deleted.
+Pure reconciliation + mock-tx decision logging. Files:
 - `src/server/titleExam/judgmentTopics.ts` — the NC-1 two-tier taxonomy: the escalate-only JUDGMENT topic
   recognizers (vesting/tenancy, marital rights, estate/fiduciary/entity authority incl. "PR deed"/"estate"
   but not "real estate", insurability, lien sufficiency/release theory, deed construction, requirement/
@@ -137,3 +138,17 @@ Branch `lex-next/tex1-4` off `origin/main` (`203fbf1`). Pure reconciliation + mo
 Design note: a T4 test surfaced (and fixed) an under-escalation gap — the DC "PR deed required" scenario
 (a seeded failure class) wasn't caught by the estate pattern; strengthened the recognizer (escalate-only is
 fail-toward-escalation; under-escalation is the dangerous error per the disposition).
+
+### T5 — contamination guards (NC-7) — IN PROGRESS
+Branch `lex-next/tex1-5` off `origin/main` (`36e3a57`). Pure guard + mock-tx import logging. Files:
+- `src/server/titleExam/contaminationGuard.ts` — `evaluateContamination` (a seed fact is a HYPOTHESIS:
+  auto-flag on a source-matter-ID mismatch, or when a seed would support a requirement/exception/vesting
+  conclusion until re-verified); `assessReconciliationClosure` (reconciliation CANNOT close while any
+  contamination-flagged finding lacks a completed import-justification); `resolveImport` (import requires a
+  non-empty justification — silence is not import; do-not-import records the exclusion).
+- `src/server/db/queries/titleExamContamination.ts` — the logged import / do-not-import resolution (Fork-C):
+  one audit_events disposition row + the finding update (importJustification/importResolved, clears the block),
+  in one tx; pure builder + mock-tx write; refuses to write an unjustified import.
+- `src/server/__tests__/title_exam_5_contamination.test.ts` — seed hypothesis auto-flag (mismatch /
+  requirement / vesting), flag-clears-on-re-verify, non-seed never flagged, reconciliation-close block +
+  release, resolveImport validation, logged-resolution audit shape + mock-tx write + refusal.
