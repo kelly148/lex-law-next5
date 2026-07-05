@@ -521,14 +521,19 @@ function SuggestionCard({
     >
       {/* Chip row: severity + attorney-decision (highest-stakes signal) + accepted/declined status */}
       <div className="flex items-center gap-2 flex-wrap mb-2">
-        {severityLabel && (
-          <span className={clsx('text-[11px] font-medium px-2 py-0.5 rounded-full', SEVERITY_CHIP[severity] ?? 'bg-surface-2 text-ink-secondary')}>
-            {severityLabel}
-          </span>
-        )}
-        {requiresAttorney && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent-tint text-accent">
-            <Gavel className="w-3 h-3" /> Attorney decision required
+        {/* UI-ATTORNEY-SWEEP-1 S6/G4: the always-escalate "Attorney decision required" pill folds
+            into the severity/escalation chip — the Gavel marker + a title tooltip carry the
+            (unchanged) escalate semantic at the right altitude for a single-attorney product. */}
+        {(severityLabel || requiresAttorney) && (
+          <span
+            title={requiresAttorney ? 'Attorney decision required' : undefined}
+            className={clsx(
+              'inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full',
+              severityLabel ? (SEVERITY_CHIP[severity] ?? 'bg-surface-2 text-ink-secondary') : 'bg-accent-tint text-accent',
+            )}
+          >
+            {requiresAttorney && <Gavel className="w-3 h-3" />}
+            {severityLabel ?? 'Attorney decision'}
           </span>
         )}
         {accepted && (

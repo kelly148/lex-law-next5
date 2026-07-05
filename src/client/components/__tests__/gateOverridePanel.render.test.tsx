@@ -14,7 +14,7 @@
  * so the per-test data lives in vi.hoisted(mockState).
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 
 const MATTER_ID = '22222222-2222-2222-2222-222222222222';
 
@@ -75,7 +75,7 @@ describe('GateOverridePanel — block-point action + persistent banner', () => {
     expect(container.textContent ?? '').toBe('');
   });
 
-  it('shows the persistent "Intake gate overridden" banner while an override is active', () => {
+  it('shows the recorded-override CHIP while active; expanding it reveals the preserved attestation record', () => {
     mockState.gate = {
       enforced: true,
       state: 'NOT_ESTABLISHED',
@@ -92,10 +92,16 @@ describe('GateOverridePanel — block-point action + persistent banner', () => {
         },
       ],
     } satisfies GateData;
-    const { container } = render(<GateOverridePanel matterId={MATTER_ID} />);
-    expect(container.textContent).toContain('Intake gate overridden');
+    const { container, getByRole } = render(<GateOverridePanel matterId={MATTER_ID} />);
+    // UI-ATTORNEY-SWEEP-1 S4: the standing override is a CHIP (collapsed by default), not a persistent banner.
+    // Semantics unchanged — it names the same recorded, attested override. The chip carries the label + reason.
+    expect(container.textContent).toContain('Intake gate: overridden by attestation');
     expect(container.textContent).toContain('conflicts clearance');
     expect(container.textContent).toContain('cleared via signed memo');
+    // The full attestation RECORD is preserved byte-identical behind a one-click expand.
+    fireEvent.click(getByRole('button'));
+    expect(container.textContent).toContain('Intake gate overridden');
+    expect(container.textContent).toContain('attested by the attorney');
   });
 
   it('offers an inline override action when ENFORCED and a precondition is blocking', () => {

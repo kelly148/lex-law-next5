@@ -227,9 +227,7 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
           {deedExpress && (
             <div data-testid="deed-express-cta" className="rounded border border-firm-navy/20 bg-firm-navy/5 px-3 py-3 text-sm space-y-3">
               <p className="text-ink-secondary">
-                Deeds use the guided deed intake — drop in the prior vesting deed and tax record (or describe the
-                deal), confirm the facts, and generate the house-style draft. This matter&apos;s conflicts check
-                applies, and the draft is created in this matter.
+                Draft a deed in this matter — its conflicts check applies.
               </p>
               <div className="flex justify-end gap-3">
                 <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
