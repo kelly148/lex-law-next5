@@ -2340,7 +2340,10 @@ async function runCategoryProposeIntake<T>(
       llmParams: {
         systemPrompt,
         userPrompt: freeText,
-        temperature: 0.1,
+        // DEED-INTAKE-POLISH-1 (YELLOW-5): temperature 0 for a DETERMINISTIC describe-box parse. The propose/
+        // clarify CODE is unchanged since ff395f4 (git-verified — the observed "clean sentence clarify-gated
+        // twice" flake was run-to-run model variance, not a code regression). 0 removes that variance.
+        temperature: 0,
         maxTokens: 2048,
         structuredOutputSchema: cfg.schema,
         signal,
@@ -2473,7 +2476,7 @@ export const quickDeedRouter = router({
           llmParams: {
             systemPrompt,
             userPrompt,
-            temperature: 0.1,
+            temperature: 0, // DEED-INTAKE-POLISH-1 (YELLOW-5): deterministic describe-box parse (see note above)
             maxTokens: 2048,
             structuredOutputSchema: ProposeIntakeOutputSchema,
             signal,
