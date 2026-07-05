@@ -32,6 +32,36 @@ const RawSuggestionSchema = z.object({
 
 export const RawSuggestionsArraySchema = z.array(RawSuggestionSchema);
 
+/**
+ * REVIEWER-PARSE-RELIABILITY-1 (RPR-6): the strict JSON Schema for OpenAI/xAI Structured Outputs. Wraps
+ * the reviewer feedback ARRAY as a required `{feedback: Item[]}` OBJECT, because response_format
+ * json_object mode structurally cannot emit a bare top-level array (the source of GPT's `{}` on the
+ * no-feedback case and its dropped-severity singletons). `severity` is required + enumerated at the item
+ * level, so the model cannot omit it. The existing normalizer Rule 2/3 reduces `{feedback:[...]}` to the
+ * canonical bare array and `{feedback:[]}` to `[]`, so downstream parsing is unchanged. Strict mode
+ * requires every property listed in `required` and `additionalProperties:false`.
+ */
+export const REVIEWER_FEEDBACK_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    feedback: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          body: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'major', 'minor'] },
+        },
+        required: ['title', 'body', 'severity'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['feedback'],
+  additionalProperties: false,
+} as const;
+
 // ────────────────────────────────────────────────────────────
 // Output type
 // ────────────────────────────────────────────────────────────

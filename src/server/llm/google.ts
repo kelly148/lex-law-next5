@@ -34,6 +34,26 @@ import { sseDataLines } from './sseParse.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 import { looksLikeTruncatedJson } from './truncationDetect.js';
 import { tryRepairArrayJson } from './tolerantJsonParse.js';
+import { supportsNativeStructuredOutput } from './modelCapabilities.js';
+import { RawSuggestionsArraySchema } from './parsers/feedbackParser.js';
+import { isReviewerNativeStructuredOutputEnabled } from '../config/featureFlags.js';
+
+// RPR-7: Gemini native responseSchema for the reviewer feedback ARRAY (Gemini supports a top-level array
+// and uses its own uppercase-type schema subset). Constrains decoding at source to reduce the invalid-JSON
+// class (e.g. the array-closed-with-`}` case). Kept minimal — only title/body/severity are constrained
+// (body carries the embedded card as free text) — to avoid Gemini's weak-schema field-drop risk.
+const GEMINI_REVIEWER_RESPONSE_SCHEMA = {
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      title: { type: 'STRING' },
+      body: { type: 'STRING' },
+      severity: { type: 'STRING', enum: ['critical', 'major', 'minor'] },
+    },
+    required: ['title', 'body', 'severity'],
+  },
+} as const;
 
 interface GeminiContent {
   role: 'user' | 'model';
@@ -47,6 +67,8 @@ interface GeminiRequest {
     maxOutputTokens?: number;
     temperature?: number;
     responseMimeType?: string;
+    // RPR-7: Gemini native constrained decoding (its own uppercase-type schema subset).
+    responseSchema?: unknown;
   };
   safetySettings?: Array<{
     category: string;
@@ -179,6 +201,15 @@ export class GoogleAdapter implements LlmClient {
       requestBody.generationConfig = {
         ...requestBody.generationConfig,
         responseMimeType: 'application/json',
+        // RPR-7: add native constrained decoding for the reviewer array ONLY (reference-identity to
+        // RawSuggestionsArraySchema, so the object-shaped evaluator is never affected) when the
+        // native-structured-output flag is on AND the model is capable. Fail-open to responseMimeType-only
+        // otherwise (default).
+        ...(isReviewerNativeStructuredOutputEnabled() &&
+        supportsNativeStructuredOutput(`google:${this.modelId}`) &&
+        structuredOutputSchema === RawSuggestionsArraySchema
+          ? { responseSchema: GEMINI_REVIEWER_RESPONSE_SCHEMA }
+          : {}),
       };
     }
 

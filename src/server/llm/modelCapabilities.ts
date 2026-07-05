@@ -183,7 +183,12 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
   },
   'anthropic:claude-sonnet-5': {
     providerMaxOutputTokens: 128000, // live-confirmed (Models API)
-    reviewerCeiling: 16384, // HOLD — unmeasured lite floor
+    // RPR-7: RAISED 16384 -> 32768. claude-sonnet-5 runs adaptive thinking by DEFAULT (the adapter omits
+    // `thinking`), so thinking shares the output budget; on the large T1 fixture the CAL-1 lite lane
+    // errored at ~190s (candidate: thinking exhausted the 16384 ceiling before emitting the JSON). The
+    // headroom mirrors Gemini's calibrated 32768; the model only consumes what it needs, so cost rises
+    // only when it would otherwise truncate. Confirm via the calibration rerun.
+    reviewerCeiling: 32768,
     supportsThinkingControl: false, // adapter does not configure extended-thinking
     defaultThinkingMode: 'dynamic', // adaptive-on-by-default when `thinking` is omitted
     pricingClass: 'lite',
@@ -203,4 +208,28 @@ export function getModelCapability(modelString: string): ModelCapability | undef
  */
 export function getReviewerCeiling(modelString: string): number {
   return MODEL_CAPABILITIES[modelString]?.reviewerCeiling ?? DEFAULT_REVIEWER_CEILING;
+}
+
+/**
+ * REVIEWER-PARSE-RELIABILITY-1 (RPR-6/RPR-7): reviewer models whose provider offers a strict NATIVE
+ * structured-output request shape — OpenAI/xAI strict json_schema, Google Gemini responseSchema.
+ * Consulted ONLY when isReviewerNativeStructuredOutputEnabled() is on. Anthropic is intentionally absent
+ * (no native JSON-schema request mode; it uses the prompt-based structured-output path). Keys are the
+ * provider-prefixed ids (matching MODEL_CAPABILITIES). Validate provider compliance LIVE before adoption.
+ */
+export const NATIVE_STRUCTURED_OUTPUT_MODELS: ReadonlySet<string> = new Set<string>([
+  'openai:gpt-5.5',
+  'openai:gpt-5',
+  'openai:gpt-4.1-mini',
+  'openai:gpt-5.4-mini',
+  'xai:grok-4.3',
+  'google:gemini-3.1-pro-preview',
+  'google:gemini-3.5-flash',
+  'google:gemini-2.5-pro',
+  'google:gemini-2.5-flash',
+]);
+
+/** True when the given provider:model exposes a native strict structured-output request shape (RPR-6/7). */
+export function supportsNativeStructuredOutput(modelString: string): boolean {
+  return NATIVE_STRUCTURED_OUTPUT_MODELS.has(modelString);
 }

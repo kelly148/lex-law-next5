@@ -40,10 +40,12 @@ import { z } from 'zod';
 import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGenerateParams, type LlmGenerateResult, type LlmStreamChunk } from './types.js';
 import { llmFetch } from './llmFetch.js';
 import { sseDataLines } from './sseParse.js';
-import { getModelCapability } from './modelCapabilities.js';
+import { getModelCapability, supportsNativeStructuredOutput } from './modelCapabilities.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 import { looksLikeTruncatedJson } from './truncationDetect.js';
 import { tryRepairArrayJson } from './tolerantJsonParse.js';
+import { RawSuggestionsArraySchema, REVIEWER_FEEDBACK_JSON_SCHEMA } from './parsers/feedbackParser.js';
+import { isReviewerNativeStructuredOutputEnabled } from '../config/featureFlags.js';
 
 interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -56,7 +58,9 @@ interface OpenAiRequest {
   max_tokens?: number;
   max_completion_tokens?: number;
   temperature?: number;
-  response_format?: { type: 'json_object' | 'text' };
+  response_format?:
+    | { type: 'json_object' | 'text' }
+    | { type: 'json_schema'; json_schema: { name: string; strict: boolean; schema: unknown } };
   // REVIEWER-LATENCY-1 Step 2a: Chat Completions top-level latency knobs. Set ONLY when the caller
   // supplies them (the flag-gated reviewer lane) — absent on every other request.
   reasoning_effort?: string;
@@ -223,7 +227,24 @@ export class OpenAiAdapter implements LlmClient {
     };
 
     if (structuredOutputSchema) {
-      requestBody.response_format = { type: 'json_object' };
+      // RPR-6: for the reviewer feedback array specifically (reference-identity to RawSuggestionsArraySchema,
+      // so the object-shaped evaluator is never affected), use OpenAI strict Structured Outputs — a
+      // {feedback: Item[]} object with severity required + enumerated — when the native-structured-output
+      // flag is on AND the model is capable. This structurally eliminates the {}-not-[], dropped-severity,
+      // and bare-singleton failure modes; the normalizer reduces {feedback:[...]} back to the bare array.
+      // Fail-open to json_object otherwise (default, and for every non-reviewer schema).
+      if (
+        isReviewerNativeStructuredOutputEnabled() &&
+        supportsNativeStructuredOutput(`openai:${this.modelId}`) &&
+        structuredOutputSchema === RawSuggestionsArraySchema
+      ) {
+        requestBody.response_format = {
+          type: 'json_schema',
+          json_schema: { name: 'reviewer_feedback', strict: true, schema: REVIEWER_FEEDBACK_JSON_SCHEMA },
+        };
+      } else {
+        requestBody.response_format = { type: 'json_object' };
+      }
     }
 
     // REVIEWER-LATENCY-1 Step 2a: flag-gated reviewer-lane speed knobs. These are set on the

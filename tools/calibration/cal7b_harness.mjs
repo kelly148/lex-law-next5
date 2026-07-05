@@ -225,13 +225,26 @@ function toResult({ httpOk = true, rawText = '', errorClass = null, errorMessage
   return { httpOk, rawText, canonical, errorClass: effErrorClass, errorMessage: effErrorMessage, finishReason, tokensP, tokensC };
 }
 
+// REVIEWER-PARSE-RELIABILITY-1 (RPR-6/RPR-7) — native structured-output request shapes, inlined to mirror
+// the production adapters so the rerun can validate provider compliance. Gated on
+// REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED + a capable model; flag OFF (default) = byte-identical request.
+const RPR_NATIVE_ENABLED = process.env['REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED'] === 'true';
+const RPR_NATIVE_MODELS = new Set(['gpt-5.5', 'gpt-5', 'gpt-4.1-mini', 'gpt-5.4-mini', 'grok-4.3', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']);
+const RPR_JSON_SCHEMA = { type: 'object', properties: { feedback: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'major', 'minor'] } }, required: ['title', 'body', 'severity'], additionalProperties: false } } }, required: ['feedback'], additionalProperties: false };
+const RPR_GEMINI_SCHEMA = { type: 'ARRAY', items: { type: 'OBJECT', properties: { title: { type: 'STRING' }, body: { type: 'STRING' }, severity: { type: 'STRING', enum: ['critical', 'major', 'minor'] } }, required: ['title', 'body', 'severity'] } };
+// RPR-7: sonnet-5 lite gets adaptive-thinking output headroom (mirrors modelCapabilities getReviewerCeiling).
+function maxTokensFor(modelId) { return modelId === 'claude-sonnet-5' ? 32768 : REVIEWER_MAX_TOKENS; }
+
 async function callOpenAiLike(url, apiKey, modelId, system, user) {
   const usesCompletionTokens = /^(gpt-5|o1|o3|o4)/.test(modelId);
+  const useJsonSchema = RPR_NATIVE_ENABLED && RPR_NATIVE_MODELS.has(modelId);
   const body = {
     model: modelId,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    ...(usesCompletionTokens ? { max_completion_tokens: REVIEWER_MAX_TOKENS } : { max_tokens: REVIEWER_MAX_TOKENS, temperature: 0.3 }),
-    response_format: { type: 'json_object' },
+    ...(usesCompletionTokens ? { max_completion_tokens: maxTokensFor(modelId) } : { max_tokens: maxTokensFor(modelId), temperature: 0.3 }),
+    response_format: useJsonSchema
+      ? { type: 'json_schema', json_schema: { name: 'reviewer_feedback', strict: true, schema: RPR_JSON_SCHEMA } }
+      : { type: 'json_object' },
   };
   let resp;
   try {
@@ -264,7 +277,7 @@ async function callAnthropic(modelId, system, user) {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: 'ANTHROPIC_API_KEY not set' });
   const effSystem = `${system}\n\nRespond ONLY with valid JSON matching the required schema. Do not include any text outside the JSON object.`;
-  const body = { model: modelId, max_tokens: REVIEWER_MAX_TOKENS, system: effSystem, messages: [{ role: 'user', content: user }] };
+  const body = { model: modelId, max_tokens: maxTokensFor(modelId), system: effSystem, messages: [{ role: 'user', content: user }] };
   let resp;
   try {
     resp = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
@@ -293,7 +306,12 @@ async function callGoogle(modelId, system, user) {
   const body = {
     contents: [{ role: 'user', parts: [{ text: user }] }],
     systemInstruction: { parts: [{ text: system }] },
-    generationConfig: { maxOutputTokens: REVIEWER_MAX_TOKENS, temperature: 0.3, responseMimeType: 'application/json' },
+    generationConfig: {
+      maxOutputTokens: maxTokensFor(modelId),
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+      ...(RPR_NATIVE_ENABLED && RPR_NATIVE_MODELS.has(modelId) ? { responseSchema: RPR_GEMINI_SCHEMA } : {}),
+    },
     safetySettings: [
       { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
       { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },

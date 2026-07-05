@@ -484,6 +484,21 @@ export function isExpressDurableRecordsEnabled(): boolean {
   return process.env['EXPRESS_DURABLE_RECORDS_ENABLED'] === 'true';
 }
 
+/**
+ * REVIEWER-PARSE-RELIABILITY-1 (RPR-6/RPR-7) — reviewer NATIVE structured-output request shapes — DEFAULT
+ * OFF. When OFF (the default), every reviewer request is byte-identical to today: OpenAI/xAI use
+ * response_format json_object and Google uses responseMimeType application/json only. When exactly "true"
+ * (operator-gated, only AFTER live-compliance validation), a capable reviewer model (MODEL_CAPABILITIES
+ * supportsNativeStructuredOutput) is asked with its provider-native strict shape — OpenAI/xAI strict
+ * json_schema wrapping {feedback: Item[]} with severity required, and Gemini a native responseSchema —
+ * which structurally eliminates the {}-not-[], dropped-severity, and bare-singleton failure modes at the
+ * source. Fail-open: this only CHANGES the request when the flag is on AND the model is capable, and the
+ * recovery nets (RPR-1..4) plus the RPR-5 prompt remain the backstop either way.
+ */
+export function isReviewerNativeStructuredOutputEnabled(): boolean {
+  return process.env['REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED'] === 'true';
+}
+
 /*
  * FLAG-NAMING CLARITY (recorded 2026-07-04 after a wrong-flag incident). Three Express-adjacent flags are easy to
  * confuse — this pins what each ACTUALLY gates so nobody flips the wrong one again:

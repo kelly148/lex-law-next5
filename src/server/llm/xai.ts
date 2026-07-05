@@ -46,6 +46,9 @@ import { sseDataLines } from './sseParse.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
 import { looksLikeTruncatedJson } from './truncationDetect.js';
 import { tryRepairArrayJson } from './tolerantJsonParse.js';
+import { supportsNativeStructuredOutput } from './modelCapabilities.js';
+import { RawSuggestionsArraySchema, REVIEWER_FEEDBACK_JSON_SCHEMA } from './parsers/feedbackParser.js';
+import { isReviewerNativeStructuredOutputEnabled } from '../config/featureFlags.js';
 
 // xAI uses OpenAI-compatible API shape
 interface XaiMessage {
@@ -58,7 +61,9 @@ interface XaiRequest {
   messages: XaiMessage[];
   max_tokens?: number;
   temperature?: number;
-  response_format?: { type: 'json_object' | 'text' };
+  response_format?:
+    | { type: 'json_object' | 'text' }
+    | { type: 'json_schema'; json_schema: { name: string; strict: boolean; schema: unknown } };
   /** F3 streaming (DRAFT-STREAMING-1 Inc 3): set on the generateStream path. */
   stream?: boolean;
   stream_options?: { include_usage?: boolean };
@@ -200,7 +205,22 @@ export class XaiAdapter implements LlmClient {
     };
 
     if (structuredOutputSchema) {
-      requestBody.response_format = { type: 'json_object' };
+      // RPR-6: for the reviewer feedback array only (reference-identity to RawSuggestionsArraySchema —
+      // never the object-shaped evaluator), use strict json_schema ({feedback: Item[]}, severity required)
+      // when the native-structured-output flag is on AND the model is capable; fail-open to json_object
+      // otherwise. (Grok is default-disabled in prod; this validates via the calibration rerun.)
+      if (
+        isReviewerNativeStructuredOutputEnabled() &&
+        supportsNativeStructuredOutput(`xai:${this.modelId}`) &&
+        structuredOutputSchema === RawSuggestionsArraySchema
+      ) {
+        requestBody.response_format = {
+          type: 'json_schema',
+          json_schema: { name: 'reviewer_feedback', strict: true, schema: REVIEWER_FEEDBACK_JSON_SCHEMA },
+        };
+      } else {
+        requestBody.response_format = { type: 'json_object' };
+      }
     }
 
     let response: Response;
