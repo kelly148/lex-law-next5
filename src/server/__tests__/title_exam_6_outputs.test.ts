@@ -207,13 +207,13 @@ describe('T6 — Approve-for-Client-Delivery attestation (Fork-C)', () => {
   });
 });
 
-describe('T6 — migration 0055 additive-only + out-of-band; purge coverage', () => {
-  it('migration creates the table idempotently, no destructive DDL, not on the allowlist', () => {
+describe('T6 — migration 0055 additive-only + allowlisted (MIGRATION-ALLOWLIST-1); purge coverage', () => {
+  it('migration creates the table idempotently, no destructive DDL, and is registered on the allowlist', () => {
     const MIG = read('src/server/db/migrations/0055_title_exam_6_client_delivery_approval.sql');
     expect(MIG).toContain('CREATE TABLE IF NOT EXISTS `title_exam_client_delivery_approval`');
     const stripped = MIG.replace(/--[^\n]*/g, '');
     expect(/\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i.test(stripped)).toBe(false);
-    expect(read('scripts/apply-prod-migrations.mjs')).not.toContain('0055_title_exam_6_client_delivery_approval.sql');
+    expect(read('scripts/apply-prod-migrations.mjs')).toContain('0055_title_exam_6_client_delivery_approval.sql');
   });
 
   it('the new matter-scoped table is registered in the purge cascade', () => {
