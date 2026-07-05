@@ -46,7 +46,9 @@ import { evaluateExpressApproval } from '../express/approvalGate.js';
  * and risk over-adoption. FAIL-CLOSED: E6 refuses to run for a type without a recognizer set. (As POA/will/etc.
  * earn their recognizer sets in E8, add them here.)
  */
-const SUPPORTED_DOCUMENT_TYPES: ReadonlySet<DocumentType> = new Set<DocumentType>(['deed']);
+// TITLE-EXAM-1 (T8, §4a): the title-exam memo rides the platform loop (no new flag). Byte-neutral when the
+// loop flag is OFF; and no 'title_exam' document exists unless TITLE_EXAM_ENABLED produced one.
+const SUPPORTED_DOCUMENT_TYPES: ReadonlySet<DocumentType> = new Set<DocumentType>(['deed', 'title_exam']);
 
 /** Map a document row's free-string documentType to the E1 DocumentType, or null when unsupported. */
 function toSupportedDocumentType(raw: string): DocumentType | null {

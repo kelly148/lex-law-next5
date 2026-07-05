@@ -125,6 +125,13 @@ const SPAN_RISK_WEIGHT: Record<ProtectedSpanLabel, number> = {
   consideration_recital: 58,
   dates: 55,
   signature_acknowledgment_notary: 50,
+  // TITLE-EXAM-1 (T8): title-exam memo spans (ordering only — never flips a route). The judgment/escalation
+  // and requirement/exception regions and the incompleteness banner are the operative, high-risk regions.
+  escalation_block: 95,
+  incompleteness_banner: 90,
+  escalation_action: 88,
+  requirements_block: 85,
+  exceptions_block: 80,
 };
 
 /** The additive risk signals (documented constants so the scoring is auditable and stable). */

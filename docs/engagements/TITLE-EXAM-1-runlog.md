@@ -182,8 +182,9 @@ Branch `lex-next/tex1-6` off `origin/main` (`31b09ab`). CI green; auto-merged un
 
 Migration inventory (out-of-band): 0054 (T1), **0055 (T6)** — additive, NOT on the auto-apply allowlist.
 
-### T7 — hat gating + knowledge scoping (NC-5, PB-1) — IN PROGRESS
-Branch `lex-next/tex1-7` off `origin/main` (`3ad9051`). Pure gate; loads NO FATIC content. Files:
+### T7 — hat gating + knowledge scoping (NC-5, PB-1) — MERGED (PR #506, squash `6abd1c2`)
+Branch `lex-next/tex1-7` off `origin/main` (`3ad9051`). CI green; auto-merged under Rule 15; branch deleted.
+Pure gate; loads NO FATIC content. Files:
 - `src/server/titleExam/hatGate.ts` — `resolveHat` (only an affirmative `title_settlement_agent` election is
   the Universal Title hat; everything else is the conservative law-firm hat); `resolveFaticAvailability`
   (PB-1 interim: UT-hat only until the written agency/underwriter basis exists — builds the gate, loads no
@@ -194,3 +195,27 @@ Branch `lex-next/tex1-7` off `origin/main` (`3ad9051`). Pure gate; loads NO FATI
   advice off; law-firm hat may advise); `resolveHatProfile` ties it together.
 - `src/server/__tests__/title_exam_7_hatgate.test.ts` — hat resolution, PB-1 FATIC gate, knowledge-lane
   scoping + cross-hat default NO, template/disclaimer/advice posture, full profile (6 tests).
+
+### T8 — Express Mode wiring (§4a) — IN PROGRESS
+Branch `lex-next/tex1-8` off `origin/main` (`6abd1c2`). Wiring-only; rides the platform Express loop (no new
+flag); byte-neutral when AUTO_REVIEW_LOOP_ENABLED is OFF. Files:
+- `src/server/express/protectedSpans.ts` (edit) — `DocumentType` += `title_exam`; `TITLE_EXAM_PROTECTED_SPAN_LABELS`
+  + widened `ProtectedSpanLabel` (additive union — deed labels unchanged); `TITLE_EXAM_RECOGNIZERS` marking the
+  exam memo's escalation / ADOPT-MODIFY-HOLD / requirements / exceptions / incompleteness-banner regions;
+  `buildProtectedSpans` now dispatches on document type.
+- `src/server/procedures/expressReviewLoop.ts` (edit) — `SUPPORTED_DOCUMENT_TYPES` += `title_exam` (rides the
+  existing `isAutoReviewLoopEnabled` gate; no independent title Express flag, §4a).
+- `src/server/express/decisionLedger.ts` (edit) — added the title span labels to `SPAN_RISK_WEIGHT` (ordering
+  only; never flips a route) so the widened label union stays exhaustive.
+- `src/server/titleExam/expressProfile.ts` — the title ALWAYS-ESCALATE profile: `shouldAlwaysEscalate` (the
+  additive `modelEscalates` hint for the non-locus properties — judgment conflicts, abstract-only/OCR-only
+  basis, unverified externally-verified citation, cross-matter seed). It can only RAISE an escalation, never
+  authorize an auto-adopt (widening the platform Class-A safe harbor is deliberately NOT done — a potential
+  §3.1 re-fire). The NC-1 auto-disposition stays inside the T4 reconciler.
+- `src/server/__tests__/title_exam_8_express.test.ts` — DocumentType/SUPPORTED include title_exam (no new
+  flag); memo protected spans; deed regression + unsupported-type empty; always-escalate profile coverage.
+
+Regression: the full Express suite (E1..E8 locus gate, ledger, corpus) — 719 tests — stays green; the deed
+E8 gate-hole count is unchanged (0). Design note: §4a's "durable adopt ledger" is the Express E4b tables, not
+MR-CAL adopt_ledger; T8 introduces no new decision record (audit_events stays the source of truth). E8 remains
+the operator-only ship gate — this wiring ships byte-neutral (flag OFF) and never self-clears E8.
