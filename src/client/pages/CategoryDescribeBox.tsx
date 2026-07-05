@@ -99,7 +99,11 @@ export function CategoryDescribeBox<P>({
       {status === 'proposed' && (
         <p data-testid="category-proposed-note" className="text-xs text-ink-secondary">
           Proposed from your description — the routine facts you stated are filled in below. Review and confirm,
-          then Generate.
+          then Generate.{' '}
+          <span className="text-amber-700">
+            Grantor (current-owner) names are not proposed from a description — add them from a recorded-deed
+            upload or by hand, or Generate will block.
+          </span>
         </p>
       )}
       {status === 'needs_clarification' && (

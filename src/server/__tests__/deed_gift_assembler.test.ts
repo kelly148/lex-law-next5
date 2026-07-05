@@ -313,3 +313,35 @@ describe('feature flag', () => {
     expect(isDeedDraftAgentEnabled()).toBe(false);
   });
 });
+
+describe('DEED-INTAKE-POLISH-1 (YELLOW-6) — shared-couple grantor descriptor dedup', () => {
+  const facts = consolidateDeedSourceFacts(PACKET);
+
+  it('two grantors both "husband and wife" render as "A and B, husband and wife" (deduped to the pair)', () => {
+    const draft = assembleGiftDeed(facts, {
+      ...fullGiftInput(),
+      grantors: [
+        { name: 'Walter Testvendor', descriptor: 'husband and wife' },
+        { name: 'Prudence Testvendor', descriptor: 'husband and wife' },
+      ],
+    });
+    expect(draft.text).toContain('Walter Testvendor and Prudence Testvendor, husband and wife');
+    expect(draft.text).not.toContain('Walter Testvendor, husband and wife and Prudence Testvendor');
+  });
+
+  it('a descriptor on one grantor only is unchanged (per-party render)', () => {
+    const draft = assembleGiftDeed(facts, {
+      ...fullGiftInput(),
+      grantors: [{ name: 'Marcus T. Ellison' }, { name: 'Priya Ellison', descriptor: 'husband and wife' }],
+    });
+    expect(draft.text).toContain('Marcus T. Ellison and Priya Ellison, husband and wife');
+  });
+
+  it('a single grantor with a descriptor renders per-party', () => {
+    const draft = assembleGiftDeed(facts, {
+      ...fullGiftInput(),
+      grantors: [{ name: 'Solo Grantor', descriptor: 'an unmarried man' }],
+    });
+    expect(draft.text).toContain('Solo Grantor, an unmarried man');
+  });
+});

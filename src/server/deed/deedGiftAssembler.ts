@@ -166,6 +166,15 @@ function vestingPhrase(language: string): string {
 }
 
 function partyClause(parties: GiftDeedPartyInput[]): string {
+  // DEED-INTAKE-POLISH-1 (YELLOW-6): shared-couple descriptor dedup. When EVERY party in the set carries the
+  // SAME non-empty descriptor (e.g. two spouses both "husband and wife"), attach it ONCE to the pair —
+  // "A and B, husband and wife" — instead of per-person ("A, husband and wife and B, husband and wife"). A
+  // single party, or parties with differing/empty descriptors, render per-party unchanged.
+  const descs = parties.map((p) => (p.descriptor ?? '').trim());
+  const shared = descs[0] ?? '';
+  if (parties.length > 1 && shared.length > 0 && descs.every((d) => d === shared)) {
+    return `${parties.map((p) => p.name.trim()).join(' and ')}, ${shared}`;
+  }
   return parties
     .map((p) => {
       const name = p.name.trim();
