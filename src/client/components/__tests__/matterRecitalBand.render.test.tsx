@@ -35,6 +35,17 @@ vi.mock('../../trpc.js', async () => {
           },
         },
       },
+      // S13 (UI-ATTORNEY-SWEEP-1): the band now probes conflict-enforcement to quiet the conflicts block
+      // when it's OFF. Default the probe ENABLED here so the conflicts block stays present (these tests
+      // assert all seven blocks incl. conflicts).
+      conflictPolicy: {
+        isEnabled: {
+          useQuery: () => {
+            React.useRef(null);
+            return { data: { enabled: true }, isLoading: false, isError: false, error: null };
+          },
+        },
+      },
     },
   };
 });
