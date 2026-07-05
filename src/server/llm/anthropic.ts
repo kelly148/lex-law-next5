@@ -62,7 +62,9 @@ interface AnthropicResponse {
   id: string;
   type: 'message';
   role: 'assistant';
-  content: Array<{ type: 'text'; text: string }>;
+  // Content may include non-text blocks (e.g. a leading `thinking` block on adaptive-thinking models
+  // such as claude-sonnet-5) — text is not reliably content[0]. See extractAnthropicText below.
+  content: Array<{ type: string; text?: string }>;
   model: string;
   stop_reason: string | null;
   usage: {
@@ -108,6 +110,27 @@ export function stripJsonCodeFenceIfWholeResponse(text: string): string {
  */
 export function normalizeAnthropicStructuredOutput(value: unknown): unknown {
   return normalizeStructuredOutput(value);
+}
+
+/**
+ * Extract the assistant's TEXT from an Anthropic Messages response's `content` array.
+ *
+ * CLAUDE-LANE-MODERNIZATION-1: reading `content[0].text` blindly is unsafe. Claude models that run
+ * adaptive thinking return a leading `thinking` content block, so the text is NOT content[0].
+ * claude-sonnet-5 enables adaptive thinking by DEFAULT when the `thinking` parameter is omitted — which
+ * this adapter does — so its responses are `[{type:'thinking',...}, {type:'text',...}]` and the old
+ * `content[0]?.text ?? ''` yielded '' (empty content -> parse_error) on every review (confirmed live).
+ * Collect every text-type block instead — robust to a leading thinking block AND to multi-segment text.
+ * Non-text blocks (thinking / tool_use / etc.) are ignored. For a thinking-OFF model (e.g. opus-4-8, or
+ * the opus-4-5 drafter/evaluator — thinking is off when `thinking` is omitted) the response is a single
+ * text block, so this returns exactly what `content[0].text` did: a strict no-op for those.
+ */
+export function extractAnthropicText(content: Array<{ type: string; text?: string }> | undefined): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string)
+    .join('');
 }
 
 export class AnthropicAdapter implements LlmClient {
@@ -182,7 +205,7 @@ export class AnthropicAdapter implements LlmClient {
       throw new LlmProviderError('api_error', `Failed to parse Anthropic response JSON: ${String(err)}`, err);
     }
 
-    const rawText = data.content[0]?.text ?? '';
+    const rawText = extractAnthropicText(data.content);
 
     if (structuredOutputSchema) {
       // GEMINI-BUDGET-CAL-1 (Inc 1): truncation guard, for parity with the OpenAI

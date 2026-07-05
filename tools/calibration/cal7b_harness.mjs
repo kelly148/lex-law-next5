@@ -221,7 +221,13 @@ async function callAnthropic(modelId, system, user) {
   }
   if (!resp.ok) { const t = await resp.text().catch(() => ''); return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: `API ${resp.status}: ${t.slice(0, 250)}` }); }
   const data = await resp.json();
-  const rawText = data.content?.[0]?.text ?? '';
+  // CLAUDE-LANE-MODERNIZATION-1: text is NOT reliably content[0] — adaptive-thinking Claude models
+  // (e.g. claude-sonnet-5, adaptive-ON by default when `thinking` is omitted) return a leading
+  // `thinking` block, so content[0].text is undefined (empty content -> api_error on every review).
+  // Join every text-type block instead (matches the production adapter's extractAnthropicText).
+  const rawText = Array.isArray(data.content)
+    ? data.content.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('')
+    : '';
   const fr = data.stop_reason;
   if (!rawText) return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: 'empty content', finishReason: fr });
   return toResult({ httpOk: true, rawText, finishReason: fr, tokensP: data.usage?.input_tokens, tokensC: data.usage?.output_tokens });
