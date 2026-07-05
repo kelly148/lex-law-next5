@@ -59,8 +59,8 @@ Design notes carried forward:
 - NC-9 source-page pincites are carried per-finding (`ocrSourcePagePincite`) for the fixture-tested Phase A;
   a page-structured OCR store, if needed, is a T2 decision.
 
-### T2 — intake + completeness guard (spec §3; NC-9/NC-10) — IN PROGRESS
-Branch `lex-next/tex1-2` off `origin/main` (`6acfe24`). Establishes the `src/server/titleExam/` pure-module
+### T2 — intake + completeness guard (spec §3; NC-9/NC-10) — MERGED (PR #501, squash `c466967`)
+Branch `lex-next/tex1-2` off `origin/main` (`6acfe24`). CI green; auto-merged under Rule 15; branch deleted. Establishes the `src/server/titleExam/` pure-module
 directory. Flag-dark by construction (pure library code nothing live imports until the exam is wired in T3+).
 Files:
 - `src/server/titleExam/coverageChunker.ts` — NC-10 coverage-GUARANTEED chunker (deliberate opposite of the
@@ -84,3 +84,33 @@ Design notes:
   already-extracted text (fixtures in tests). Live re-OCR of raw bytes is out of scope for Phase A.
 - The OCR confidence floor is mirrored locally (60) rather than imported from the OCR-deps-heavy intake
   module, to keep the title-exam module self-contained and testable in isolation.
+
+### T3 — two-lane exam orchestration (spec §4; §4b; PB-3; NC-10) — IN PROGRESS
+Branch `lex-next/tex1-3` off `origin/main` (`c466967`). Flag-dark library + seam-based orchestration; mocks
+only (no live provider call). Files:
+- `src/server/llm/config.ts` (edit) — §4b provider-agnostic role bindings: `TITLE_EXAM_ROLES`,
+  `resolveTitleExamRoleKey`/`resolveTitleExamModel` (role → reviewer key → model STRING via
+  `resolveReviewerModel`; per-role env override so ANY provider can fill ANY role by config alone; default
+  examiner-A=Claude/manual-anchored, examiner-B=GPT/research-capable). Boot validation in `validateLlmConfig`.
+- `src/server/titleExam/roles.ts` — re-exports the config role API (module never names a model).
+- `src/server/titleExam/lanePrompts.ts` — the two ported v2 master lane instructions (A manual-anchored, B
+  research-capable) sharing one doctrine block (recorded-instrument-controls, jurisdiction non-blending,
+  source hierarchy, source-basis tagging + classification + sendability, escalation five-field); the PB-3
+  egress rule embedded in B; `buildExamRecordSet` (the IDENTICAL record both lanes receive; seed facts
+  labeled NC-7 hypotheses). Prompts embedded as constants because `docs/title-exam/` is untracked (local-only).
+- `src/server/titleExam/laneEgressGuard.ts` — PB-3 pure guard: flags client identifiers (addresses, party
+  names + bare surnames, case/instrument numbers) in a retrieval query; `PB3_EGRESS_RULE` text.
+- `src/server/titleExam/laneOutput.ts` — Zod lane-finding contract (vocabulary single-sourced from the T1
+  enums) + fail-loud `parseTitleExamLaneOutput` (empty [] valid; malformed/out-of-taxonomy throws).
+- `src/server/titleExam/examOrchestrator.ts` — `runTwoLaneExam` over an injected `LaneExaminer` port: both
+  lanes get the byte-identical record; a lane error OR malformed output → single-lane mode + a PROMINENT
+  banner (NC-10), never silent; honest N-of-2 lane results with per-lane model provenance.
+- `src/server/__tests__/title_exam_3_lanes.test.ts` — role resolution + env override, lane-doctrine + PB-3
+  presence, egress guard, output parser, orchestrator identical-record + single/both-lane fallback (19 tests).
+
+Design notes:
+- §4b: the model string is NEVER a literal in the module — resolved via `config.resolveTitleExamModel`; the
+  `title_exam_no_model_literal` guard scans the whole module (it caught a "GPT-lane" prose token in a comment,
+  reworded to the role-based "research-capable lane" framing).
+- No tRPC surface yet — the orchestration is a pure/seam library (byte-neutral). A thin flag-gated router
+  for operator live-verification is deferred to a later increment (T6/T8).
