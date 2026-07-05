@@ -113,7 +113,7 @@ function ReviewerEnablementSection({ initial }: ReviewerEnablementSectionProps):
               onClick={() => toggle(key)}
               disabled={updateMutation.isPending}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-                values[key] ? 'bg-firm-navy' : 'bg-gray-300'
+                values[key] ? 'bg-accent' : 'bg-gray-300'
               }`}
               role="switch"
               aria-checked={values[key]}
@@ -185,7 +185,7 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
           <button
             onClick={() => setForceShowAll(!forceShowAll)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              forceShowAll ? 'bg-firm-navy' : 'bg-gray-300'
+              forceShowAll ? 'bg-accent' : 'bg-gray-300'
             }`}
             role="switch"
             aria-checked={forceShowAll}
@@ -207,7 +207,7 @@ function VoiceInputSection({ initial }: VoiceInputSectionProps): React.ReactElem
           <button
             onClick={() => setForceHideAll(!forceHideAll)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              forceHideAll ? 'bg-firm-navy' : 'bg-gray-300'
+              forceHideAll ? 'bg-accent' : 'bg-gray-300'
             }`}
             role="switch"
             aria-checked={forceHideAll}
@@ -296,7 +296,7 @@ function ToggleRow({
         role="switch"
         aria-checked={checked}
         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-          checked ? 'bg-firm-navy' : 'bg-gray-300'
+          checked ? 'bg-accent' : 'bg-gray-300'
         }`}
       >
         <span
@@ -698,7 +698,7 @@ function QuickDeedConflictsPanel(): React.ReactElement {
           role="switch"
           aria-checked={effective}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-            effective ? 'bg-firm-navy' : 'bg-gray-300'
+            effective ? 'bg-accent' : 'bg-gray-300'
           }`}
         >
           <span

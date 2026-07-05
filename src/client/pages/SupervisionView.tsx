@@ -100,13 +100,19 @@ export default function SupervisionView(): React.ReactElement {
         </label>
         <label className="flex flex-col text-xs text-ink-secondary">
           Provider
-          <input
-            type="text"
+          {/* S19 (UI-ATTORNEY-SWEEP-1): a select of the known providers instead of free text — the
+              query param stays a plain string, so filtering semantics are unchanged. */}
+          <select
             value={provider}
             onChange={(e) => onFilterChange(setProvider)(e.target.value)}
-            placeholder="e.g. anthropic"
             className="mt-1 text-sm bg-surface border border-line rounded px-2 py-1 text-ink"
-          />
+          >
+            <option value="">All</option>
+            <option value="anthropic">anthropic</option>
+            <option value="openai">openai</option>
+            <option value="google">google</option>
+            <option value="xai">xai</option>
+          </select>
         </label>
         <label className="flex flex-col text-xs text-ink-secondary">
           Kind
@@ -185,7 +191,7 @@ export default function SupervisionView(): React.ReactElement {
                 <span className="text-ink-hint text-xs w-36 flex-shrink-0">
                   {new Date(e.createdAt).toLocaleString()}
                 </span>
-                <span className="text-ink w-40 flex-shrink-0 truncate">
+                <span className="text-ink w-56 flex-shrink-0">
                   {e.provider}
                   <span className="text-ink-hint"> / {e.model}</span>
                 </span>

@@ -408,7 +408,7 @@ export default function DeedIntake({
               data-testid="deed-intake-propose"
               disabled={propose.isPending}
               onClick={handlePropose}
-              className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50"
+              className="px-3 py-1.5 text-sm border border-line text-ink rounded hover:bg-surface disabled:opacity-50 whitespace-nowrap"
             >
               {propose.isPending ? 'Reading…' : 'Propose the facts'}
             </button>
