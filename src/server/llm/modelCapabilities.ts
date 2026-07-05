@@ -164,6 +164,31 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapability>> = {
     pricingClass: 'lite',
     timeoutClass: 'standard',
   },
+  // ── CLAUDE-LANE-MODERNIZATION-1 (2026-07-04): current daily-driver Claude reviewer ids ──────────────
+  // Added ALONGSIDE the prior opus-4-5 / sonnet-4-5 entries (kept so historical jobs still resolve their
+  // ceiling). providerMaxOutputTokens are the LIVE-confirmed provider caps (Anthropic Models API, GET
+  // /v1/models/{id} -> max_tokens 128000 for both). reviewerCeiling is HELD at the calibrated 16384
+  // floor (unmeasured for these new slugs — a future calibration can raise from a measured demand curve).
+  // supportsThinkingControl stays false: the Anthropic adapter does not wire a thinking control (parity
+  // with every existing Claude entry). NOTE: sonnet-5 runs adaptive thinking by DEFAULT when `thinking`
+  // is omitted (which the adapter does) — its reviewer latency is unmeasured; the CAL rerun will reveal
+  // whether it warrants an 'extended' timeoutClass, held at 'standard' for now.
+  'anthropic:claude-opus-4-8': {
+    providerMaxOutputTokens: 128000, // live-confirmed (Models API)
+    reviewerCeiling: 16384, // HOLD — unmeasured for 4.8; mirrors the opus-4-5 premium-tier floor
+    supportsThinkingControl: false, // adapter does not configure extended-thinking
+    defaultThinkingMode: 'default',
+    pricingClass: 'premium',
+    timeoutClass: 'standard',
+  },
+  'anthropic:claude-sonnet-5': {
+    providerMaxOutputTokens: 128000, // live-confirmed (Models API)
+    reviewerCeiling: 16384, // HOLD — unmeasured lite floor
+    supportsThinkingControl: false, // adapter does not configure extended-thinking
+    defaultThinkingMode: 'dynamic', // adaptive-on-by-default when `thinking` is omitted
+    pricingClass: 'lite',
+    timeoutClass: 'standard',
+  },
 };
 
 /** Look up a model's capability record, or undefined if unregistered. */

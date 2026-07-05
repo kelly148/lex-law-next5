@@ -42,6 +42,17 @@ describe('getReviewerCeiling — calibrated per-model budgets', () => {
     expect(getReviewerCeiling('openai:gpt-5.4-mini')).toBe(16384);
     expect(getReviewerCeiling('google:gemini-3.5-flash')).toBe(16384);
   });
+  // CLAUDE-LANE-MODERNIZATION-1: the current daily-driver Claude reviewer ids are registered at the
+  // 16384 floor (unmeasured) with the live-confirmed 128000 provider cap. The prior opus-4-5 / sonnet-4-5
+  // entries remain registered (asserted above) so historical jobs still resolve their ceiling.
+  it('registers the modernized Claude reviewer ids (opus-4-8 full, sonnet-5 lite) at the floor', () => {
+    expect(getReviewerCeiling('anthropic:claude-opus-4-8')).toBe(16384);
+    expect(getReviewerCeiling('anthropic:claude-sonnet-5')).toBe(16384);
+    expect(getModelCapability('anthropic:claude-opus-4-8')?.providerMaxOutputTokens).toBe(128000);
+    expect(getModelCapability('anthropic:claude-sonnet-5')?.providerMaxOutputTokens).toBe(128000);
+    expect(getModelCapability('anthropic:claude-opus-4-8')?.pricingClass).toBe('premium');
+    expect(getModelCapability('anthropic:claude-sonnet-5')?.pricingClass).toBe('lite');
+  });
 });
 
 describe('registry coverage + capability metadata', () => {
