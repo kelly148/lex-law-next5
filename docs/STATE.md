@@ -4,6 +4,18 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-05 (deploy) — reviewer batch + held autonomous batch DEPLOYED to prod
+
+**Deploy.** Operator deployed `main` (HEAD `4375d78`) to prod (operator assertion; Railway manual trigger — auto-deploy-on-merge is OFF). Prod advanced from the DEED-INTAKE-PARITY-1 commit (`ff395f4`). **SCHEMA-FREE** — no migrations changed between `ff395f4` and HEAD (verified via `git diff` over the migration paths), so no pre-deploy migration step was required.
+
+**Now LIVE (activated by this deploy):** the Claude reviewer lane pins — full `claude=anthropic:claude-opus-4-8`, lite `claude_lite=anthropic:claude-sonnet-5` — and the RPR-1..5 structured-output recovery + prompt fixes. Real reviewer runs now use the modernized Claude models and no longer hit the systemic parse-failure class (live-validated 0/40). Also carried in: the prior 2026-07-04 autonomous batch (#489-494) that had been held dark — its only product code (deed cure cards, #490) stays behind `DEED_DRAFT_AGENT_ENABLED` (OFF), so no user-visible deed change.
+
+**Still DARK (no behavior change from this deploy):** RPR-6/7 native structured-output request shapes (`REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED` OFF); the deed agent + cure cards (`DEED_DRAFT_AGENT_ENABLED` OFF).
+
+**Live verification (Pattern 16, operator-driven).** Code + deploy closure done; live closure is confirmed by exercising a real reviewer run in prod and observing it completes cleanly (no "No return" / parse failures) with the new Claude models. The reviewer-side changes are internal (not a user-visible UI feature), so this is a functional prod check, operator-driven.
+
+**Next (operator-gated).** (1) Adopt RPR-6/7 — flip `REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED=true` in prod (live-validated compatible) to prevent parse failures at source. (2) The P8-T1 execution-blank over-flag calibration follow-up.
+
 ## 2026-07-05 — reviewer engagements: CLAUDE-LANE-MODERNIZATION-1 + REVIEWER-PARSE-RELIABILITY-1 (RPR-1..7) + W6-LIVE-CAPTURE-1
 
 **What changed.** Three reversible build-and-PR engagements merged to `main` (all squash, NO prod deploy). **CLAUDE-LANE-MODERNIZATION-1** (**#495**, squash `b44263f`): the Claude reviewer lanes bumped to the operator's daily-driver models — full `claude=anthropic:claude-opus-4-8`, lite `claude_lite=anthropic:claude-sonnet-5` (both slugs live-confirmed via the Anthropic Models API before pinning). Caught + fixed a reliability-critical adapter defect: the Anthropic adapter read `content[0].text`, which is the leading THINKING block on adaptive-thinking models (sonnet-5 defaults thinking ON) → empty content → parse_error; fix = new `extractAnthropicText` joins all text blocks. Added a `cal7b --lanes` filter for partial G.3 reruns. **REVIEWER-PARSE-RELIABILITY-1** (**#496**, squash `1a131b5`): shared structured-output hardening across all 4 adapters as 7 reversible increments (RPR-1 structural-truncation reclassification; RPR-2 array-gated tolerant-parse; RPR-3 derive-severity-from-card backfill; RPR-4 GPT `{}`→`[]`; RPR-5 prompt severity-disambiguation root-cause; RPR-6 OpenAI/xAI strict json_schema; RPR-7 Gemini responseSchema + sonnet-5 lite ceiling→32768). The RPR-1 truncation change SUPERSEDED the prior "surgical guard" (operator-approved; 4 pins flipped). **W6-LIVE-CAPTURE-1** (**#497**, squash `8fef056`): implemented the golden reviewer-prompt drift harness's `--live` per-lane capture (was refused) reusing cal7b's now-exported machinery, and seeded initial per-lane baselines.
