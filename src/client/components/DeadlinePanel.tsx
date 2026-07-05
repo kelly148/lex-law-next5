@@ -20,8 +20,7 @@ interface DeadlinePanelProps {
   matterId: string;
 }
 
-const LIMITATION =
-  'In-app ticklers only — no email, push, or external calendar. You are responsible for monitoring these panels.';
+const LIMITATION = 'In-app ticklers only — no email, push, or external calendar.';
 
 type DeadlineLike = {
   id: string;

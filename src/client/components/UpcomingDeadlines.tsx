@@ -12,7 +12,7 @@ import React from 'react';
 import { CalendarClock, AlertTriangle } from 'lucide-react';
 import { trpc } from '../trpc.js';
 
-const LIMITATION = 'In-app only — no email, push, or external calendar. You are responsible for monitoring these.';
+const LIMITATION = 'In-app only — no email, push, or external calendar.';
 
 export default function UpcomingDeadlines(): React.ReactElement | null {
   const enabledQ = trpc.deadline.isEnabled.useQuery();

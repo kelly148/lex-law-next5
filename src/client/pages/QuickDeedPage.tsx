@@ -382,8 +382,8 @@ export default function QuickDeedPage(): React.ReactElement {
         <h1 className="text-2xl font-serif font-medium text-ink">Deed</h1>
         <p className="text-sm text-ink-secondary mt-0.5">
           {matterScoped
-            ? 'Draft a deed in this matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. The draft is created in this matter — this matter’s conflicts check applies — and is never auto-recorded or sent; you review and finalize it.'
-            : 'Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. The draft is never auto-recorded or sent — you review and finalize it.'}
+            ? 'Draft a deed in this matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. This matter’s conflicts check applies. You review and finalize it.'
+            : 'Make a deed without opening a matter. Pick the type, drop in the prior vesting deed and tax record (or describe the deal), confirm the facts, and generate the house-style draft. You review and finalize it.'}
         </p>
       </div>
 

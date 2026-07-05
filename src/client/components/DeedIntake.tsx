@@ -381,8 +381,8 @@ export default function DeedIntake({
             autoCommit
           />
           <p className="text-xs text-ink-hint mt-1">
-            The property facts (legal description, parcel, assessed value) are read from these uploads. The draft
-            is never auto-recorded or sent — you review and finalize it.
+            The property facts (legal description, parcel, assessed value) are read from these uploads. You
+            review and finalize the draft.
           </p>
         </div>
       )}
