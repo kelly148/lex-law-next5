@@ -55,7 +55,9 @@ export default function ReviewerHealthView(): React.ReactElement {
             <h2 className="text-base font-semibold text-ink mb-2">
               Per-lane reviewer health — last {Math.round(snap.windowHours / 24)}d
               {snap.stuckSessionCount > 0 && (
-                <span className="ml-2 text-xs text-accent">· {snap.stuckSessionCount} possibly-stuck session(s)</span>
+                /* G7 (UI-ATTORNEY-SWEEP-1): not an action — neutral text, not accent (which reads as a
+                   link). SESSION-UNSTICK-1 turns this into a real per-session list + abandon action. */
+                <span className="ml-2 text-xs text-ink-secondary">· {snap.stuckSessionCount} possibly-stuck session(s)</span>
               )}
             </h2>
             {Object.keys(snap.perLane).length === 0 ? (

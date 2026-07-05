@@ -199,6 +199,12 @@ function TemplateVersionRow({ version, templateId, isActive, onRefresh }: Templa
           Activate
         </button>
       )}
+      {/* G9 (UI-ATTORNEY-SWEEP-1): no silent 412 — surface the activate error instead of swallowing it. */}
+      {activateMutation.error && (
+        <span data-testid="template-activate-error" className="text-xs text-warning" title={activateMutation.error.message}>
+          Couldn’t activate
+        </span>
+      )}
       <span className="ml-auto text-xs text-gray-400">
         {new Date(version.createdAt).toLocaleDateString()}
       </span>
