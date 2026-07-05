@@ -30,8 +30,9 @@ downstream implementation rides the parent reviews.
 
 ## Increment log
 
-### T1 — additive title-examination data model (spec §5) — IN PROGRESS
-Branch `lex-next/tex1-1` off `origin/main` (`4375d78`).
+### T1 — additive title-examination data model (spec §5) — MERGED (PR #500, squash `6acfe24`)
+Branch `lex-next/tex1-1` off `origin/main` (`4375d78`). CI green (Lint + Type Check + Tests); auto-merged
+under Rule 15; branch deleted.
 Files:
 - `src/server/config/featureFlags.ts` — `isTitleExamEnabled()` (default OFF; byte-neutral OFF documented).
 - `src/server/db/schema.ts` — three additive, matter-scoped tables + their §5 enum vocabularies + type
@@ -57,3 +58,29 @@ Design notes carried forward:
   finding's nullable `adoptLedgerId` is a forward-safe linkage, not a coupling.
 - NC-9 source-page pincites are carried per-finding (`ocrSourcePagePincite`) for the fixture-tested Phase A;
   a page-structured OCR store, if needed, is a T2 decision.
+
+### T2 — intake + completeness guard (spec §3; NC-9/NC-10) — IN PROGRESS
+Branch `lex-next/tex1-2` off `origin/main` (`6acfe24`). Establishes the `src/server/titleExam/` pure-module
+directory. Flag-dark by construction (pure library code nothing live imports until the exam is wired in T3+).
+Files:
+- `src/server/titleExam/coverageChunker.ts` — NC-10 coverage-GUARANTEED chunker (deliberate opposite of the
+  silent-truncation analysis-context builder): every input char lands in exactly one contiguous chunk, with
+  machine-readable coverage accounting (coveredChars vs totalChars, droppedRanges).
+- `src/server/titleExam/intakeCompleteness.ts` — NC-10 incompleteness verdict combining chunk coverage with
+  upstream drops (page cap, OCR-failed pages, lane char budget); emits the session completeness /
+  incompletenessReason (enumerated causes) / droppedPageCount banner state. A truncated exam never reads complete.
+- `src/server/titleExam/ocrHonesty.ts` — NC-9 OCR honesty: critical fields (parties, instrument/recording
+  refs, dates, testacy, legal description) asserted from OCR are flagged OCR-derived with a source-page
+  pincite; sub-floor (60) values are WITHHELD (field + confidence stay visible), mirroring the intake floor.
+  `toFindingOcrBasis` maps to the T1 finding posture (ocr_extracted + downgraded until instrument reviewed).
+- `src/server/__tests__/title_exam_2_intake.test.ts` — chunker no-drop invariant, completeness verdicts +
+  causes + dropped counts, OCR withhold-below-floor + pincites.
+- `src/server/__tests__/title_exam_no_model_literal.test.ts` — §4b guard: scans the whole `titleExam/` module
+  and asserts NO provider/model-family literal appears (roles resolve via config.ts). Auto-covers future files.
+
+Design notes:
+- Reuse boundary (NC-10 gotcha): the shared /api/materials upload + OCR pipeline is ALWAYS-ON and is NOT
+  touched — flag-off byte-neutrality is preserved by building a separate pure title-exam intake layer over
+  already-extracted text (fixtures in tests). Live re-OCR of raw bytes is out of scope for Phase A.
+- The OCR confidence floor is mirrored locally (60) rather than imported from the OCR-deps-heavy intake
+  module, to keep the title-exam module self-contained and testable in isolation.
