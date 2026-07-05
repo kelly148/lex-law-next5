@@ -36,7 +36,7 @@
  */
 
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -108,7 +108,7 @@ const styleByTrack = {
   Grok: 'Use clean numbered markdown and direct do/don\'t rules inside the body memo.',
   Gemini: 'Use structured sections and explicit behavioral constraints inside the body memo.',
 };
-function buildReviewerSystemPrompt(reviewerKey, track) {
+export function buildReviewerSystemPrompt(reviewerKey, track) {
   return [
     `You are the ${track} legal document reviewer (${reviewerKey}).`,
     jurisdictionDiscipline, severityTaxonomy, sevenMissingRules, businessDecisionCalibration,
@@ -131,6 +131,10 @@ function normalizeWrapper(value) {
   if (Array.isArray(value)) return value;
   if (value !== null && typeof value === 'object') {
     const obj = value, keys = Object.keys(obj);
+    // RPR-4 mirror: a zero-key object -> [] (GPT json_object mode emits {} for "no feedback"; the harness
+    // always targets the reviewer ARRAY, so this is the openai.ts adapter-local coercion, applied here so
+    // the calibration/golden parser matches production instead of PARSE_FAILURE-ing an empty result).
+    if (keys.length === 0) return [];
     if (keys.length === 1 && Array.isArray(obj[keys[0]])) return obj[keys[0]];
     for (const k of KNOWN_ARRAY_WRAPPER_KEYS) if (k in obj && Array.isArray(obj[k])) return obj[k];
     const nested = [];
@@ -335,7 +339,7 @@ async function callGoogle(modelId, system, user) {
   if (!rawText) return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: `no candidate text (finishReason ${fr ?? 'unknown'})`, finishReason: fr });
   return toResult({ httpOk: true, rawText, finishReason: fr, tokensP: data.usageMetadata?.promptTokenCount, tokensC: data.usageMetadata?.candidatesTokenCount });
 }
-async function resolveAndCall(modelString, system, user) {
+export async function resolveAndCall(modelString, system, user) {
   const { provider, modelId } = splitModel(modelString);
   if (provider === 'openai') return callOpenAi(modelId, system, user);
   if (provider === 'anthropic') return callAnthropic(modelId, system, user);
@@ -567,9 +571,9 @@ function loadConfigModels() {
   return out;
 }
 
-const CONFIG_MODELS = loadConfigModels();
+export const CONFIG_MODELS = loadConfigModels();
 const TRACK_LABEL = { gpt: 'GPT', claude: 'Claude', gemini: 'Gemini', grok: 'Grok', gpt_lite: 'GPT', claude_lite: 'Claude', gemini_lite: 'Gemini', grok_lite: 'Grok' };
-const TRACKS = Object.fromEntries(
+export const TRACKS = Object.fromEntries(
   Object.keys(TRACK_LABEL).map((key) => [key, { modelString: CONFIG_MODELS[key], track: TRACK_LABEL[key] }]),
 );
 const SCENARIOS = ['P8-T1', 'P8-T6', 'P8-T7', 'P8-T10'];
@@ -762,4 +766,9 @@ async function main() {
   console.log(`\nartifacts: tools/calibration/runs/${runId}/`);
 }
 
-main().catch((e) => { console.error('HARNESS ERROR:', e); process.exit(1); });
+// W6-LIVE-CAPTURE-1: run the full calibration ONLY when invoked directly. When this module is IMPORTED
+// (by golden_reviewer_harness.mjs --live, which reuses buildReviewerSystemPrompt / resolveAndCall /
+// CONFIG_MODELS / TRACKS), main() must NOT run — importing is zero-egress (only config.ts is read).
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((e) => { console.error('HARNESS ERROR:', e); process.exit(1); });
+}

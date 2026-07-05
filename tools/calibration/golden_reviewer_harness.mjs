@@ -1,11 +1,15 @@
 /**
  * golden_reviewer_harness.mjs — ULTRABUILD-1 W6 (run-sheet G.6): the golden reviewer-prompt drift harness.
  *
- * DARK BY DEFAULT — NO provider egress. It reads the committed synthetic golden set (prompts + canned reviewer
- * outputs), reduces each output to a semantic signature, and diffs it against the stored baseline. Exit 0 = no
- * drift; non-zero = drift (a CI-gateable contract). The FIRST live baseline capture is CAL-1, a separate
- * operator-gated dispatch that IS an egress action — this harness hard-refuses any provider call unless the
- * (not-yet-built) --live path is explicitly requested.
+ * DARK BY DEFAULT — NO provider egress. It reads the committed golden set (per-lane fixtures + baselines),
+ * reduces each captured output to a semantic signature, and diffs it against the stored per-lane baseline.
+ * Exit 0 = no drift; non-zero = drift (a CI-gateable contract).
+ *
+ * W6-LIVE-CAPTURE-1: --live is now IMPLEMENTED. It calls the live reviewer providers on the pinned golden
+ * prompts (reusing cal7b's reviewer-prompt builder + provider machinery + config-sourced lane models),
+ * captures per-lane raw outputs to golden/runs/ (gitignored), and PROMOTES per-lane fixtures.json +
+ * baselines.json. It IS an egress action (operator-gated) and is the durable RE-BASELINING path after an
+ * authorized model/prompt change. baselines.json shape: { scenarioId: { track: signature } }.
  *
  * MIRROR-AND-SYNC: extractSignature/diffSignature below are a VERBATIM inline copy of
  * src/server/calibration/goldenReviewerDiff.ts (this file runs as plain Node ESM without the TS build). Keep
@@ -13,12 +17,16 @@
  * truth (the tokenAccounting.ts convention). SNAPSHOT of the TS module: 2026-07-03 (ULTRABUILD-1 W6).
  *
  * Usage:
- *   node tools/calibration/golden_reviewer_harness.mjs           # DARK: fixtures vs baselines (no egress)
- *   node tools/calibration/golden_reviewer_harness.mjs --live    # refuses (CAL-1 owns live capture)
+ *   node tools/calibration/golden_reviewer_harness.mjs           # DARK: per-lane fixtures vs baselines (no egress)
+ *   node tools/calibration/golden_reviewer_harness.mjs --live    # LIVE: capture + promote per-lane baselines (egress)
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// W6-LIVE-CAPTURE-1: reuse the cal7b harness's reviewer prompt builder, provider-call machinery (incl.
+// the RPR-1..7 parsing + request-shape handling), and config-sourced lane models. Importing is
+// zero-egress — cal7b's main() is guarded to run only when cal7b is invoked directly.
+import { buildReviewerSystemPrompt, resolveAndCall, TRACKS } from './cal7b_harness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN = join(HERE, 'golden');
@@ -87,26 +95,80 @@ function diffSignature(baseline, current) {
 // ── end inline copy ──────────────────────────────────────────────────────────────────────────────────
 
 function readJson(p) { return JSON.parse(readFileSync(p, 'utf8')); }
+function isoStamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }
 
-function main() {
-  if (process.argv.includes('--live')) {
-    console.error('REFUSED: --live provider capture is NOT implemented here. Live golden-baseline capture is CAL-1 (operator-gated, an egress action). This harness is DARK-only: it runs committed fixtures against committed baselines with zero egress.');
-    process.exit(2);
+// ── W6-LIVE-CAPTURE-1: --live per-lane baseline capture ─────────────────────────────────────────────────
+// For each golden scenario × each of its declared tracks, build the reviewer system prompt (the current
+// production builder, reused from cal7b) + the pinned golden userPrompt, call the live provider, reduce the
+// output to a semantic signature, and PROMOTE per-lane fixtures.json + baselines.json. Raw captures go to
+// golden/runs/<runId>/ (gitignored). Re-runnable: this is the durable re-baselining path after an authorized
+// model/prompt change. baselines.json shape: { [scenarioId]: { [track]: signature } }.
+async function runLive() {
+  const prompts = readJson(join(GOLDEN, 'prompts.json'));
+  const scenarios = prompts.scenarios;
+  const runId = isoStamp();
+  const runDir = join(GOLDEN, 'runs', runId);
+  mkdirSync(runDir, { recursive: true });
+  console.log(`[golden --live] runId=${runId} contract=${prompts.contract}`);
+  console.log('[golden --live] lane models: ' + Object.keys(TRACKS).map((k) => `${k}=${TRACKS[k].modelString}`).join('  '));
+
+  const fixtures = { _note: 'W6 golden reviewer outputs — LIVE-captured PER LANE from the post-modernization reviewer models (W6-LIVE-CAPTURE-1). Synthetic scenarios, prod-free. Shape: { scenarioId: { track: canonicalArrayString } }. Re-capture with `node golden_reviewer_harness.mjs --live`.' };
+  const baselines = { _note: 'W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.' };
+
+  let calls = 0;
+  for (const scenarioId of Object.keys(scenarios)) {
+    const sc = scenarios[scenarioId];
+    fixtures[scenarioId] = {};
+    baselines[scenarioId] = {};
+    for (const track of sc.tracks) {
+      const t = TRACKS[track];
+      if (!t) { console.error(`  ${scenarioId} x ${track}: SKIP (no such track in config)`); continue; }
+      const system = buildReviewerSystemPrompt(track, t.track);
+      calls += 1;
+      const res = await resolveAndCall(t.modelString, system, sc.userPrompt);
+      // Prefer the normalized canonical array (what the signature extractor expects); fall back to raw.
+      const fixtureText = res.canonical ?? res.rawText ?? '';
+      writeFileSync(join(runDir, `${scenarioId}__${track}.rawOutput.txt`), res.rawText ?? '');
+      writeFileSync(join(runDir, `${scenarioId}__${track}.canonical.json`), res.canonical ?? '');
+      const sig = extractSignature(scenarioId, fixtureText);
+      fixtures[scenarioId][track] = fixtureText;
+      baselines[scenarioId][track] = sig;
+      console.log(`  ${scenarioId} x ${track} (${t.modelString}): ${sig.status} items=${sig.itemCount}${res.errorClass ? ' [' + res.errorClass + ']' : ''}`);
+    }
   }
-  const fixtures = readJson(join(GOLDEN, 'fixtures.json'));   // { [scenarioId]: rawOutputString }
-  const baselines = readJson(join(GOLDEN, 'baselines.json')); // { [scenarioId]: signature }
-  let drift = 0;
-  for (const scenarioId of Object.keys(baselines)) {
-    if (scenarioId.startsWith('_')) continue; // skip _note metadata
-    const raw = fixtures[scenarioId];
-    if (typeof raw !== 'string') { console.error(`MISSING fixture for ${scenarioId}`); drift++; continue; }
-    const current = extractSignature(scenarioId, raw);
-    const diffs = diffSignature(baselines[scenarioId], current);
-    if (diffs.length === 0) { console.log(`OK   ${scenarioId} (${current.status})`); }
-    else { drift++; console.log(`DRIFT ${scenarioId}: ${diffs.map((d) => `${d.field} ${JSON.stringify(d.baseline)}->${JSON.stringify(d.current)}`).join('; ')}`); }
-  }
-  if (drift > 0) { console.error(`\n${drift} scenario(s) drifted from baseline.`); process.exit(1); }
-  console.log('\nAll golden scenarios match baseline (DARK; zero egress).');
+
+  writeFileSync(join(GOLDEN, 'fixtures.json'), JSON.stringify(fixtures, null, 2) + '\n');
+  writeFileSync(join(GOLDEN, 'baselines.json'), JSON.stringify(baselines, null, 2) + '\n');
+  console.log(`\n[golden --live] ${calls} live call(s). Promoted per-lane fixtures.json + baselines.json (raw captures in golden/runs/${runId}/, gitignored).`);
 }
 
-main();
+// ── DARK: committed per-lane fixtures vs committed per-lane baselines, zero egress (the CI drift gate) ──
+function runDark() {
+  const fixtures = readJson(join(GOLDEN, 'fixtures.json'));
+  const baselines = readJson(join(GOLDEN, 'baselines.json'));
+  let drift = 0;
+  let checked = 0;
+  for (const scenarioId of Object.keys(baselines)) {
+    if (scenarioId.startsWith('_')) continue; // skip _note metadata
+    const laneBaselines = baselines[scenarioId];
+    const laneFixtures = fixtures[scenarioId] ?? {};
+    for (const track of Object.keys(laneBaselines)) {
+      checked += 1;
+      const raw = laneFixtures[track];
+      if (typeof raw !== 'string') { console.error(`MISSING fixture for ${scenarioId} x ${track}`); drift += 1; continue; }
+      const current = extractSignature(scenarioId, raw);
+      const diffs = diffSignature(laneBaselines[track], current);
+      if (diffs.length === 0) { console.log(`OK    ${scenarioId} x ${track} (${current.status})`); }
+      else { drift += 1; console.log(`DRIFT ${scenarioId} x ${track}: ${diffs.map((d) => `${d.field} ${JSON.stringify(d.baseline)}->${JSON.stringify(d.current)}`).join('; ')}`); }
+    }
+  }
+  if (drift > 0) { console.error(`\n${drift}/${checked} lane-scenario(s) drifted from baseline.`); process.exit(1); }
+  console.log(`\nAll ${checked} golden lane-scenarios match baseline (DARK; zero egress).`);
+}
+
+async function main() {
+  if (process.argv.includes('--live')) { await runLive(); return; }
+  runDark();
+}
+
+main().catch((e) => { console.error('GOLDEN HARNESS ERROR:', e); process.exit(1); });
