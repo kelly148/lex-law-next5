@@ -100,6 +100,9 @@ import {
   expressLoopRun,
   expressLedgerEntry,
   expressApprovalAttestation,
+  titleExamFinding,
+  titleExamSession,
+  titleExamMatterAttribute,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -239,6 +242,14 @@ export async function cascadeDeleteMatterChildren(
   await step('expressApprovalAttestation', expressApprovalAttestation, byMatter(expressApprovalAttestation));
   await step('expressLedgerEntry', expressLedgerEntry, byMatter(expressLedgerEntry));
   await step('expressLoopRun', expressLoopRun, byMatter(expressLoopRun));
+  // TITLE-EXAM-1 (T1): the matter's title-examination work-product — findings (children of the session)
+  // before the session itself, then the per-matter attribute. Operational STATE; the PERMANENT record of
+  // each attorney ADOPT/MODIFY/HOLD + Approve-for-Client-Delivery act is the auditEvents disposition event
+  // (preserved by the everyday delete), so these tables purge WITH the matter, exactly like deedGate /
+  // expressLoopRun. Children-first (no FK; for clean counts). Owner+matter-scoped.
+  await step('titleExamFinding', titleExamFinding, byMatter(titleExamFinding));
+  await step('titleExamSession', titleExamSession, byMatter(titleExamSession));
+  await step('titleExamMatterAttribute', titleExamMatterAttribute, byMatter(titleExamMatterAttribute));
   // INSTR-1A0: per-draft-job prompt snapshots — their legacy-path systemText embeds matter-derived
   // content (matter state, PA profile), so they purge with the matter. matterId is nullable on the
   // table, but every draft-job row carries it; owner-scoped like every other step.

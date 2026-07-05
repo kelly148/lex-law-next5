@@ -3693,3 +3693,272 @@ export type ExpressLedgerEntry = typeof expressLedgerEntry.$inferSelect;
 export type NewExpressLedgerEntry = typeof expressLedgerEntry.$inferInsert;
 export type ExpressApprovalAttestation = typeof expressApprovalAttestation.$inferSelect;
 export type NewExpressApprovalAttestation = typeof expressApprovalAttestation.$inferInsert;
+
+// ============================================================
+// TITLE-EXAM-1 (T1) — title-examination data model (spec v2.1 §5)
+// ============================================================
+// Attorney-supervised full title examinations from an abstractor's report. THREE additive,
+// matter-scoped, flag-dark tables (migration 0054; operator-applied OUT-OF-BAND — deliberately
+// NOT on the apply-prod-migrations.mjs allowlist). Written/read ONLY when TITLE_EXAM_ENABLED is
+// ON (default OFF); flag-off is byte-for-byte neutral (no query ever touches these tables).
+//
+// FORK-C consistency (FOLD-L1-1): audit_events is the SINGLE source of truth for attorney
+// DECISIONS. These tables hold operational STATE + a pointer to the deciding audit_events row
+// (title_exam_finding.decisionEventId), exactly like express_ledger_entry.revertedByEventId /
+// express_approval_attestation.approvalEventId. NO competing decision record; NO DB FK
+// (app-layer ownerScope); NO ENUM narrowing of any existing table.
+//
+// All tables purge WITH the matter (registered in matterPurge.ts cascade) — operational
+// work-product; the PERMANENT decision record is the preserved audit_events event.
+// ============================================================
+
+// NC-12 — per-matter NPI handling posture. Default-safe = the most conservative ('no_external_call'):
+// no NPI leaves for an external (provider) call until the attorney affirmatively elects a posture.
+export const TITLE_EXAM_NPI_POSTURE_VALUES = [
+  'full_upload_approved',
+  'partial_redaction',
+  'local_only_preprocessing',
+  'no_external_call',
+] as const;
+export type TitleExamNpiPosture = (typeof TITLE_EXAM_NPI_POSTURE_VALUES)[number];
+
+// NC-10 — two-lane vs single-lane (lane-failure fallback); completeness of the ingested abstract.
+export const TITLE_EXAM_LANE_MODE_VALUES = ['two_lane', 'single_lane'] as const;
+export type TitleExamLaneMode = (typeof TITLE_EXAM_LANE_MODE_VALUES)[number];
+
+export const TITLE_EXAM_COMPLETENESS_VALUES = ['complete', 'incomplete'] as const;
+export type TitleExamCompleteness = (typeof TITLE_EXAM_COMPLETENESS_VALUES)[number];
+
+export const TITLE_EXAM_SESSION_STATUS_VALUES = [
+  'intake',
+  'examining',
+  'reconciling',
+  'awaiting_attorney',
+  'memo_ready',
+  'client_approved',
+  'error',
+] as const;
+export type TitleExamSessionStatus = (typeof TITLE_EXAM_SESSION_STATUS_VALUES)[number];
+
+// Which lane surfaced / owns the finding. 'both' = concordant across both lanes; 'reconciler' =
+// synthesized/labeled by the fresh-context reconciler (NC-2).
+export const TITLE_EXAM_LANE_ORIGIN_VALUES = [
+  'examiner_a',
+  'examiner_b',
+  'reconciler',
+  'both',
+] as const;
+export type TitleExamLaneOrigin = (typeof TITLE_EXAM_LANE_ORIGIN_VALUES)[number];
+
+// NC-8 — typed source basis. Abstract-only or OCR-only legal conclusions are downgraded + flagged
+// until the instrument is reviewed.
+export const TITLE_EXAM_SOURCE_BASIS_VALUES = [
+  'instrument',
+  'court_record',
+  'tax_record',
+  'abstractor_stated',
+  'ocr_extracted',
+  'prior_matter_seed',
+  'attorney_instruction',
+  'model_inference',
+  'externally_verified',
+] as const;
+export type TitleExamSourceBasis = (typeof TITLE_EXAM_SOURCE_BASIS_VALUES)[number];
+
+// NC-4 — sendability status carried on every finding; reconciliation outputs the sendability matrix.
+export const TITLE_EXAM_SENDABILITY_VALUES = [
+  'internal_only',
+  'client_facing_ok',
+  'client_facing_with_caveat',
+  'underwriter_facing_only',
+  'do_not_send_without_attorney_rewrite',
+  'requires_source_review',
+] as const;
+export type TitleExamSendability = (typeof TITLE_EXAM_SENDABILITY_VALUES)[number];
+
+// §5 — finding classification.
+export const TITLE_EXAM_CLASSIFICATION_VALUES = [
+  'closing_requirement',
+  'recording_requirement',
+  'disbursement_condition',
+  'policy_exception',
+  'informational_note',
+  'underwriting_escalation',
+  'lender_escalation',
+  'counsel_referral',
+] as const;
+export type TitleExamClassification = (typeof TITLE_EXAM_CLASSIFICATION_VALUES)[number];
+
+// NC-1 / NC-2 — reconciliation classification (set at reconcile time).
+export const TITLE_EXAM_RECON_CLASS_VALUES = [
+  'concordant',
+  'unique_catch',
+  'conflict',
+  'housekeeping',
+] as const;
+export type TitleExamReconClass = (typeof TITLE_EXAM_RECON_CLASS_VALUES)[number];
+
+// NC-1 — per-finding escalation lifecycle. 'auto_resolved' is reserved for record-resolvable /
+// housekeeping items per the written taxonomy (rationale is recorded + visible); judgment conflicts
+// are 'escalated' then dispositioned by the attorney (adopted | modified | held) — never auto.
+export const TITLE_EXAM_ESCALATION_STATE_VALUES = [
+  'none',
+  'auto_resolved',
+  'escalated',
+  'adopted',
+  'modified',
+  'held',
+] as const;
+export type TitleExamEscalationState = (typeof TITLE_EXAM_ESCALATION_STATE_VALUES)[number];
+
+// title_exam_matter_attribute — one row per matter. Carries the NC-12 NPI posture and the §2 DC
+// occasional-and-sporadic caveat acknowledgment. matterId is UNIQUE (one attribute row per matter).
+export const titleExamMatterAttribute = mysqlTable(
+  'title_exam_matter_attribute',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // NC-12 posture; default-safe conservative ('no_external_call').
+    npiPosture: mysqlEnum('npiPosture', TITLE_EXAM_NPI_POSTURE_VALUES)
+      .notNull()
+      .default('no_external_call'),
+    // Provenance: the engagement-capacity hat (matters.engagementCapacity) at the time the posture was
+    // set. The LIVE gate (T7) reads matters.engagementCapacity; this only records what it was. NC-5.
+    entityHatAtSet: varchar('entityHatAtSet', { length: 64 }),
+    // §2 DC occasional-and-sporadic caveat: attorney acknowledgment timestamp (NULL = not acknowledged).
+    dcCaveatAcknowledgedAt: timestamp('dcCaveatAcknowledgedAt'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    uniqTitleExamMatterAttribute: uniqueIndex('uniq_title_exam_matter_attribute').on(table.matterId),
+    idxTitleExamMatterAttributeUser: index('idx_title_exam_matter_attr_user').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+
+// title_exam_session — one row per exam RUN on a matter (the §4 orchestration container).
+export const titleExamSession = mysqlTable(
+  'title_exam_session',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // Free VARCHAR (not enum) so future jurisdictions never trip the Zod Wall (matters.jurisdiction
+    // convention). 'VA' | 'MD' | 'DC'. Indexed with matterId for the §2 DC-exam count read-projection.
+    jurisdiction: varchar('jurisdiction', { length: 16 }),
+    // Snapshot of the engagement-capacity hat at exam time (provenance; the live gate reads matters).
+    entityHat: varchar('entityHat', { length: 64 }),
+    laneMode: mysqlEnum('laneMode', TITLE_EXAM_LANE_MODE_VALUES).notNull().default('two_lane'),
+    // NC-10 — the prominent single-lane banner text when one lane errored (NULL = both lanes ran).
+    laneFailureBanner: text('laneFailureBanner'),
+    // NC-10 — input-completeness guard. A truncated exam must never read as complete.
+    completeness: mysqlEnum('completeness', TITLE_EXAM_COMPLETENESS_VALUES)
+      .notNull()
+      .default('complete'),
+    incompletenessReason: text('incompletenessReason'),
+    droppedPageCount: int('droppedPageCount').notNull().default(0),
+    status: mysqlEnum('status', TITLE_EXAM_SESSION_STATUS_VALUES).notNull().default('intake'),
+    // §4a Express — bounded rounds run + whether the loop converged (a round with no adopted changes).
+    roundsRun: int('roundsRun').notNull().default(0),
+    converged: boolean('converged').notNull().default(false),
+    // §4b provider-agnostic role bindings — the resolved model STRING per role (A-6 model-drift audit
+    // provenance). These are DATA (resolved from src/server/llm/config.ts at runtime), never a literal.
+    examinerAModel: varchar('examinerAModel', { length: 128 }),
+    examinerBModel: varchar('examinerBModel', { length: 128 }),
+    reconcilerModel: varchar('reconcilerModel', { length: 128 }),
+    // Per-lane state [{ role, status, model, findingCount }] — honest N-of-2 lane display + provenance.
+    lanes: json('lanes'),
+    // The synthesized internal exam memo. NON-FINAL, never sendable/recordable (NC-3); the attorney
+    // reviews + approves before any client-facing artifact is generated.
+    candidateMemoText: mediumtext('candidateMemoText'),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxTitleExamSessionUserMatter: index('idx_title_exam_session_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+    idxTitleExamSessionMatterJuris: index('idx_title_exam_session_matter_juris').on(
+      table.matterId,
+      table.jurisdiction,
+    ),
+  }),
+);
+
+// title_exam_finding — one row per material finding (spec §5 findings data model, the heart).
+export const titleExamFinding = mysqlTable(
+  'title_exam_finding',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    sessionId: char('sessionId', { length: 36 }).notNull(),
+    laneOrigin: mysqlEnum('laneOrigin', TITLE_EXAM_LANE_ORIGIN_VALUES).notNull(),
+    // Short attorney-facing statement of the finding + the full detail.
+    title: text('title').notNull(),
+    detail: mediumtext('detail'),
+    // NC-8 — typed source basis + external-facing source map; abstract-only/OCR-only downgrade flag.
+    sourceBasis: mysqlEnum('sourceBasis', TITLE_EXAM_SOURCE_BASIS_VALUES).notNull(),
+    sourceMap: json('sourceMap'),
+    downgraded: boolean('downgraded').notNull().default(false),
+    // NC-9 — OCR honesty. Critical fields asserted from OCR carry a source-page pincite.
+    ocrDerived: boolean('ocrDerived').notNull().default(false),
+    ocrSourcePagePincite: varchar('ocrSourcePagePincite', { length: 255 }),
+    // NC-4 — sendability status; §5 — classification.
+    sendability: mysqlEnum('sendability', TITLE_EXAM_SENDABILITY_VALUES).notNull(),
+    classification: mysqlEnum('classification', TITLE_EXAM_CLASSIFICATION_VALUES).notNull(),
+    // NC-1 / NC-2 — reconciliation classification + the escalate-only lifecycle. Judgment conflicts
+    // are escalate-only; the reconciliation view shows EVERY conflict, including auto-resolved ones.
+    reconClassification: mysqlEnum('reconClassification', TITLE_EXAM_RECON_CLASS_VALUES),
+    isJudgmentConflict: boolean('isJudgmentConflict').notNull().default(false),
+    escalationState: mysqlEnum('escalationState', TITLE_EXAM_ESCALATION_STATE_VALUES)
+      .notNull()
+      .default('none'),
+    autoResolvedRationale: text('autoResolvedRationale'),
+    // NC-1 full visibility — both lanes' positions + the reconciler's labeled recommendation.
+    laneAPosition: text('laneAPosition'),
+    laneBPosition: text('laneBPosition'),
+    recommendation: text('recommendation'),
+    // NC-7 — contamination guards. A seed fact is a HYPOTHESIS: it may not support a requirement,
+    // exception, or vesting conclusion until re-verified. A source-matter-ID mismatch auto-flags; the
+    // attorney completes an import-justification before reconciliation closes.
+    seedSourceMatterId: varchar('seedSourceMatterId', { length: 64 }),
+    seedContaminationFlag: boolean('seedContaminationFlag').notNull().default(false),
+    importJustification: text('importJustification'),
+    importResolved: boolean('importResolved').notNull().default(false),
+    // Decision linkage (Fork-C): adopt-ledger linkage + a pointer to the audit_events row that records
+    // the attorney's ADOPT/MODIFY/HOLD decision (audit_events is the decision source of truth).
+    adoptLedgerId: char('adoptLedgerId', { length: 36 }),
+    decisionEventId: char('decisionEventId', { length: 36 }),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`)
+      .onUpdateNow(),
+  },
+  (table) => ({
+    idxTitleExamFindingSession: index('idx_title_exam_finding_session').on(table.sessionId),
+    idxTitleExamFindingUserMatter: index('idx_title_exam_finding_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+
+export type TitleExamMatterAttribute = typeof titleExamMatterAttribute.$inferSelect;
+export type NewTitleExamMatterAttribute = typeof titleExamMatterAttribute.$inferInsert;
+export type TitleExamSession = typeof titleExamSession.$inferSelect;
+export type NewTitleExamSession = typeof titleExamSession.$inferInsert;
+export type TitleExamFinding = typeof titleExamFinding.$inferSelect;
+export type NewTitleExamFinding = typeof titleExamFinding.$inferInsert;
