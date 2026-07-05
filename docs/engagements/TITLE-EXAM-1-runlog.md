@@ -154,8 +154,8 @@ Pure guard + mock-tx import logging. Files:
   requirement / vesting), flag-clears-on-re-verify, non-seed never flagged, reconciliation-close block +
   release, resolveImport validation, logged-resolution audit shape + mock-tx write + refusal.
 
-### T6 — outputs + gates (spec §7; NC-3) — IN PROGRESS
-Branch `lex-next/tex1-6` off `origin/main` (`31b09ab`). Files:
+### T6 — outputs + gates (spec §7; NC-3) — MERGED (PR #505, squash `3ad9051`)
+Branch `lex-next/tex1-6` off `origin/main` (`31b09ab`). CI green; auto-merged under Rule 15; branch deleted. Files:
 - `src/server/titleExam/internalMemo.ts` — the internal exam memo assembler: AI-ASSISTED / NON-FINAL label;
   NC-10 banners first; BLUF; escalations in the FIVE-FIELD format with a route; requirements / exceptions /
   notes; curative roadmap (identification only); auto-resolved items shown (full visibility); sendability
@@ -181,3 +181,16 @@ Branch `lex-next/tex1-6` off `origin/main` (`31b09ab`). Files:
   purge coverage (14 tests).
 
 Migration inventory (out-of-band): 0054 (T1), **0055 (T6)** — additive, NOT on the auto-apply allowlist.
+
+### T7 — hat gating + knowledge scoping (NC-5, PB-1) — IN PROGRESS
+Branch `lex-next/tex1-7` off `origin/main` (`3ad9051`). Pure gate; loads NO FATIC content. Files:
+- `src/server/titleExam/hatGate.ts` — `resolveHat` (only an affirmative `title_settlement_agent` election is
+  the Universal Title hat; everything else is the conservative law-firm hat); `resolveFaticAvailability`
+  (PB-1 interim: UT-hat only until the written agency/underwriter basis exists — builds the gate, loads no
+  content); hat-scoped `accessibleKnowledgeLanes` (each hat sees its own matter lane + public authority +
+  cross-hat-approved, never the other hat's matter lane; underwriter-derived = title seat); `canSeedAcrossHats`
+  (cross-hat default NO both directions, only an affirmative promotion allows it); `resolveTemplateFamily` /
+  `resolveDisclaimerSet` / `isAdvicePermitted` (title hat frames requirements + not-your-attorney disclaimer,
+  advice off; law-firm hat may advise); `resolveHatProfile` ties it together.
+- `src/server/__tests__/title_exam_7_hatgate.test.ts` — hat resolution, PB-1 FATIC gate, knowledge-lane
+  scoping + cross-hat default NO, template/disclaimer/advice posture, full profile (6 tests).
