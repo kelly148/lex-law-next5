@@ -42,6 +42,8 @@ import { llmFetch } from './llmFetch.js';
 import { sseDataLines } from './sseParse.js';
 import { getModelCapability } from './modelCapabilities.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
+import { looksLikeTruncatedJson } from './truncationDetect.js';
+import { tryRepairArrayJson } from './tolerantJsonParse.js';
 
 interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -311,14 +313,35 @@ export class OpenAiAdapter implements LlmClient {
         );
       }
       let parsed: unknown;
+      let structuralRepair = false;
       try {
         parsed = JSON.parse(rawText);
       } catch (err) {
-        throw new LlmProviderError(
-          'parse_error',
-          `OpenAI response is not valid JSON for structured output: ${String(err)}`,
-          err,
-        );
+        // RPR-1: a structural truncation (unterminated string / unclosed brackets) that arrived WITHOUT
+        // finish_reason 'length' is retriable, not a terminal parse_error. Checked BEFORE any repair so a
+        // real truncation is never silently patched.
+        if (looksLikeTruncatedJson(rawText)) {
+          throw new LlmProviderError(
+            'api_error',
+            `OpenAI structured output appears truncated (unbalanced/unterminated JSON, finish_reason ` +
+              `${data.choices[0]?.finish_reason ?? 'unknown'}) — an output-budget/stream truncation, not ` +
+              `a malformed response. Retriable.`,
+            err,
+          );
+        }
+        // RPR-2: minimal, array-gated structural repair (mismatched closer / trailing comma). Accepted
+        // only if the repaired value passes Zod below; otherwise fail open to parse_error.
+        const repair = tryRepairArrayJson(rawText);
+        if (repair) {
+          parsed = repair.value;
+          structuralRepair = true;
+        } else {
+          throw new LlmProviderError(
+            'parse_error',
+            `OpenAI response is not valid JSON for structured output: ${String(err)}`,
+            err,
+          );
+        }
       }
 
       // MR-LLM-GPT-1 / MR-LLM-LITE-2: normalize object wrapper before Zod validation.
@@ -331,7 +354,7 @@ export class OpenAiAdapter implements LlmClient {
       // Re-serialize if normalization extracted a wrapper, so that content is
       // always a JSON string of the canonical array (consistent with the
       // non-wrapped path and with the xAI adapter after MR-LLM-GROK-1).
-      const effectiveRawText = normalized !== parsed
+      const effectiveRawText = normalized !== parsed || structuralRepair
         ? JSON.stringify(normalized)
         : rawText;
 
@@ -359,6 +382,9 @@ export class OpenAiAdapter implements LlmClient {
           completionId: data.id,
           // REVIEWER-LATENCY-1 Step 2a: granted service tier echo (undefined when not requested).
           serviceTier: data.service_tier,
+          // RPR-2: flag when a minimal structural repair was applied, so calibration still sees the
+          // provider emitted malformed JSON (absent on the happy path).
+          ...(structuralRepair ? { structuralRepair: true } : {}),
         },
       };
     }

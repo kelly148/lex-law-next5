@@ -150,6 +150,41 @@ function stripFence(text) {
   return m && m[1] !== undefined ? m[1].trim() : text;
 }
 
+// REVIEWER-PARSE-RELIABILITY-1 — inlined mirrors of src/server/llm/truncationDetect.ts (RPR-1) and
+// tolerantJsonParse.ts (RPR-2), so the calibration parser stays honest with production (a repairable
+// malformed array is recovered; a signal-less structural truncation is reclassified, not PARSE_FAILURE'd).
+function looksLikeTruncatedJson(text) {
+  if (typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.length === 0) return false;
+  const first = t[0];
+  if (first !== '[' && first !== '{') return false;
+  let depth = 0, inString = false, escaped = false;
+  for (let i = 0; i < t.length; i += 1) {
+    const c = t[i];
+    if (inString) { if (escaped) escaped = false; else if (c === '\\') escaped = true; else if (c === '"') inString = false; continue; }
+    if (c === '"') inString = true; else if (c === '[' || c === '{') depth += 1; else if (c === ']' || c === '}') depth -= 1;
+  }
+  if (inString) return true;
+  const lastChar = t[t.length - 1];
+  return depth > 0 && (lastChar === ',' || lastChar === ':');
+}
+function tryRepairArrayJson(text) {
+  if (typeof text !== 'string') return null;
+  const t = text.trim();
+  if (t[0] !== '[') return null;
+  let last = -1;
+  for (let i = t.length - 1; i >= 0; i -= 1) { const c = t[i]; if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') { last = i; break; } }
+  const candidates = [];
+  const closerFixed = last >= 0 && t[last] === '}' ? t.slice(0, last) + ']' + t.slice(last + 1) : null;
+  if (closerFixed) candidates.push(closerFixed);
+  const commaStripped = t.replace(/,(\s*[\]}]\s*)$/, '$1');
+  if (commaStripped !== t) candidates.push(commaStripped);
+  if (closerFixed) { const both = closerFixed.replace(/,(\s*[\]}]\s*)$/, '$1'); if (both !== closerFixed) candidates.push(both); }
+  for (const cand of candidates) { try { return { value: JSON.parse(cand) }; } catch { /* next */ } }
+  return null;
+}
+
 // ============================================================
 // Provider calls — VERBATIM REST shapes @ 6f69c68
 // Each returns: { httpOk, rawText, canonical|null, errorClass, errorMessage, finishReason, tokensP, tokensC }
@@ -161,14 +196,32 @@ function splitModel(modelString) {
 }
 function toResult({ httpOk = true, rawText = '', errorClass = null, errorMessage = null, finishReason = null, tokensP = null, tokensC = null }) {
   let canonical = null;
+  let effErrorClass = errorClass;
+  let effErrorMessage = errorMessage;
   if (httpOk && rawText) {
+    const stripped = stripFence(rawText);
+    let parsed;
+    let ok = true;
     try {
-      const parsed = JSON.parse(stripFence(rawText));
+      parsed = JSON.parse(stripped);
+    } catch {
+      ok = false;
+      // RPR-1: a signal-less structural truncation is an api_error (truncation), not a PARSE_FAILURE.
+      if (!effErrorClass && looksLikeTruncatedJson(stripped)) {
+        effErrorClass = 'api_error';
+        effErrorMessage = effErrorMessage ?? 'structural truncation (RPR-1)';
+      } else {
+        // RPR-2: minimal array-gated structural repair.
+        const repair = tryRepairArrayJson(stripped);
+        if (repair) { parsed = repair.value; ok = true; }
+      }
+    }
+    if (ok) {
       const norm = normalizeWrapper(parsed);
       if (Array.isArray(norm)) canonical = JSON.stringify(norm);
-    } catch { /* leave canonical null -> scoring will PARSE_FAILURE */ }
+    }
   }
-  return { httpOk, rawText, canonical, errorClass, errorMessage, finishReason, tokensP, tokensC };
+  return { httpOk, rawText, canonical, errorClass: effErrorClass, errorMessage: effErrorMessage, finishReason, tokensP, tokensC };
 }
 
 async function callOpenAiLike(url, apiKey, modelId, system, user) {

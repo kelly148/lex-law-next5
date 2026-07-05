@@ -32,6 +32,8 @@ import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGener
 import { llmFetch } from './llmFetch.js';
 import { sseDataLines } from './sseParse.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
+import { looksLikeTruncatedJson } from './truncationDetect.js';
+import { tryRepairArrayJson } from './tolerantJsonParse.js';
 
 interface GeminiContent {
   role: 'user' | 'model';
@@ -248,14 +250,34 @@ export class GoogleAdapter implements LlmClient {
       const effectiveText = stripJsonCodeFenceIfWholeResponse(rawText);
 
       let parsed: unknown;
+      let structuralRepair = false;
       try {
         parsed = JSON.parse(effectiveText);
       } catch (err) {
-        throw new LlmProviderError(
-          'parse_error',
-          `Google Gemini response is not valid JSON for structured output (finishReason: ${finishReason ?? 'unknown'}): ${String(err)}`,
-          err,
-        );
+        // RPR-1: a truncation without a MAX_TOKENS signal is retriable, not a terminal parse_error.
+        // Checked BEFORE any repair so a real truncation is never silently patched.
+        if (looksLikeTruncatedJson(effectiveText)) {
+          throw new LlmProviderError(
+            'api_error',
+            `Google Gemini structured output appears truncated (unbalanced/unterminated JSON, finishReason ` +
+              `${finishReason ?? 'unknown'}) — an output-budget/stream truncation, not a malformed response. Retriable.`,
+            err,
+          );
+        }
+        // RPR-2: minimal, array-gated structural repair (Gemini's confirmed array-closed-with-`}` case,
+        // CAL-1 P8-T7 x gemini run2). Accepted only if the repaired value passes Zod below; otherwise
+        // fail open to parse_error.
+        const repair = tryRepairArrayJson(effectiveText);
+        if (repair) {
+          parsed = repair.value;
+          structuralRepair = true;
+        } else {
+          throw new LlmProviderError(
+            'parse_error',
+            `Google Gemini response is not valid JSON for structured output (finishReason: ${finishReason ?? 'unknown'}): ${String(err)}`,
+            err,
+          );
+        }
       }
 
       // MODEL-RELIABILITY-UAT-1: validate the raw parsed value FIRST so object-shaped
@@ -283,9 +305,11 @@ export class GoogleAdapter implements LlmClient {
         usedNormalization = normalized !== parsed;
       }
 
-      // Return content as a string (consistent with the other adapters). Re-serialize
-      // only when normalization actually transformed the value.
-      const contentText = usedNormalization ? JSON.stringify(validated) : effectiveText;
+      // Return content as a string (consistent with the other adapters). Re-serialize when
+      // normalization transformed the value OR a structural repair was applied — in the repair case
+      // effectiveText is the ORIGINAL malformed bytes, so downstream must receive the repaired value.
+      const contentText =
+        usedNormalization || structuralRepair ? JSON.stringify(validated) : effectiveText;
 
       return {
         content: contentText,
@@ -296,6 +320,8 @@ export class GoogleAdapter implements LlmClient {
           provider: 'google',
           model: this.modelId,
           finishReason: data.candidates[0]?.finishReason,
+          // RPR-2: flag when a minimal structural repair was applied (absent on the happy path).
+          ...(structuralRepair ? { structuralRepair: true } : {}),
         },
       };
     }

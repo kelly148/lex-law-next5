@@ -44,6 +44,8 @@ import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGener
 import { llmFetch } from './llmFetch.js';
 import { sseDataLines } from './sseParse.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
+import { looksLikeTruncatedJson } from './truncationDetect.js';
+import { tryRepairArrayJson } from './tolerantJsonParse.js';
 
 // xAI uses OpenAI-compatible API shape
 interface XaiMessage {
@@ -253,14 +255,35 @@ export class XaiAdapter implements LlmClient {
         );
       }
       let parsed: unknown;
+      let structuralRepair = false;
       try {
         parsed = JSON.parse(rawText);
       } catch (err) {
-        throw new LlmProviderError(
-          'parse_error',
-          `xAI Grok response is not valid JSON for structured output: ${String(err)}`,
-          err,
-        );
+        // RPR-1: a mid-string / unbalanced truncation that arrived WITHOUT finish_reason 'length'
+        // (confirmed in the CAL-1 corpus: P8-T7 x grok run1) is retriable, not a terminal parse_error.
+        // Checked BEFORE any repair so a real truncation is never silently patched.
+        if (looksLikeTruncatedJson(rawText)) {
+          throw new LlmProviderError(
+            'api_error',
+            `xAI Grok structured output appears truncated (unbalanced/unterminated JSON, finish_reason ` +
+              `${data.choices[0]?.finish_reason ?? 'unknown'}) — an output-budget/stream truncation, not ` +
+              `a malformed response. Retriable.`,
+            err,
+          );
+        }
+        // RPR-2: minimal, array-gated structural repair. Accepted only if the repaired value passes Zod
+        // below; otherwise fail open to parse_error.
+        const repair = tryRepairArrayJson(rawText);
+        if (repair) {
+          parsed = repair.value;
+          structuralRepair = true;
+        } else {
+          throw new LlmProviderError(
+            'parse_error',
+            `xAI Grok response is not valid JSON for structured output: ${String(err)}`,
+            err,
+          );
+        }
       }
 
       // MR-LLM-GROK-1: normalize object wrapper before Zod validation.
@@ -283,7 +306,7 @@ export class XaiAdapter implements LlmClient {
       // txn2Commit in reviewSession.ts handles string output via parseFeedbackOutput.
       // If normalization extracted an array from a wrapper, re-serialize so downstream
       // parseFeedbackOutput receives valid JSON array text.
-      const contentText = Array.isArray(normalized) && !Array.isArray(parsed)
+      const contentText = structuralRepair || (Array.isArray(normalized) && !Array.isArray(parsed))
         ? JSON.stringify(normalized)
         : rawText;
 
@@ -297,6 +320,8 @@ export class XaiAdapter implements LlmClient {
           model: data.model,
           finishReason: data.choices[0]?.finish_reason,
           completionId: data.id,
+          // RPR-2: flag when a minimal structural repair was applied (absent on the happy path).
+          ...(structuralRepair ? { structuralRepair: true } : {}),
         },
       };
     }
