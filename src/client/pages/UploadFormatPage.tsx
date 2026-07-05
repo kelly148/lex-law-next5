@@ -337,15 +337,9 @@ export default function UploadFormatPage(): React.ReactElement {
         )}
       </div>
 
-      {/* Supported types note */}
+      {/* Substantive-content note (format support is already stated at the drop zone + intro; deduped per S8). */}
       <div className="mt-6 text-xs text-gray-400 border-t pt-4">
         <p>
-          <strong>Supported formats:</strong> .docx (Word), .txt (plain text), .md (Markdown).
-        </p>
-        <p className="mt-1">
-          <strong>PDF:</strong> Not supported in this version. Convert to .docx or paste text.
-        </p>
-        <p className="mt-1">
           Substantive content is preserved. No AI rewriting or review is applied.
         </p>
       </div>

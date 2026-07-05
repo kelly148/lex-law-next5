@@ -95,7 +95,7 @@ export default function CapacityElectionPanel({
       </div>
       <p className="text-xs text-gray-500 mb-3">
         {isElected
-          ? 'How the firm is acting on this matter. Correcting it re-stamps the election and is recorded in the matter record.'
+          ? 'How the firm is acting on this matter.'
           : 'This matter was never given an affirmative capacity election, so firm master prompts stay off for it. Elect a capacity to set the posture (recorded in the matter record).'}
       </p>
       <div className="flex items-end gap-3">
@@ -116,6 +116,7 @@ export default function CapacityElectionPanel({
           type="button"
           onClick={handleSave}
           disabled={electMutation.isPending || !selected}
+          title={isElected ? 'Correcting it re-stamps the election and is recorded in the matter record.' : undefined}
           className="px-4 py-2 text-sm bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
         >
           {electMutation.isPending ? 'Saving…' : isElected ? 'Correct election' : 'Elect capacity'}

@@ -430,15 +430,16 @@ export default function QuickDeedPage(): React.ReactElement {
       {/* DEED-INTAKE-PARITY-1 Inc 2: the bypass-and-stamp waiver is a STANDALONE-lane notice only. In a matter the
           Express intake honors that matter's conflicts gate (enforceConflicts), so the waiver never applies. */}
       {!matterScoped && conflictsSetting.data?.enforced === false && (
-        <div
-          data-testid="quick-deed-conflicts-waiver"
-          role="note"
-          className="mb-6 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
-          <span className="font-medium">No conflicts check will be run for this deed.</span> Quick Deed skips
-          the conflicts-at-intake check and stamps the draft &ldquo;No conflicts check performed (Quick Deed
-          mode).&rdquo; You can require a conflicts check for Quick Deed in Settings.
-        </div>
+        <details data-testid="quick-deed-conflicts-waiver" className="mb-6 text-sm text-ink-secondary">
+          <summary className="cursor-pointer select-none">
+            No conflicts check in Quick Deed mode — change in Settings.
+          </summary>
+          <p className="mt-1.5 text-ink-hint">
+            Quick Deed skips the conflicts-at-intake check and stamps the draft &ldquo;No conflicts check
+            performed (Quick Deed mode).&rdquo; To require a conflicts check before a Quick Deed generates,
+            turn it on in Settings.
+          </p>
+        </details>
       )}
 
       {/* UB1-W3b-2: when a generate fails closed (S5 survivorship gate/withhold, or any deed gate), surface

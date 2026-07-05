@@ -678,12 +678,8 @@ function QuickDeedConflictsPanel(): React.ReactElement {
   return wrap(
     <>
       <p className="text-sm text-gray-500 mb-4">
-        This is a firm-level setting. <span className="font-medium">When OFF</span> (the default), Quick Deed
-        skips the conflicts-at-intake check and records a non-blocking &ldquo;no conflicts check performed&rdquo;
-        note on the deed.{' '}
-        <span className="font-medium">When ON</span>, Quick Deed requires conflict clearance before generating.
-        The quick screen has no clearance step yet, so with this ON, Quick Deed generation is blocked until you
-        clear conflicts in the full matter workflow.
+        When ON, Quick Deed requires conflict clearance before generating; the quick screen has no clearance
+        step, so generation is blocked until cleared in the matter workflow.
       </p>
       <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
         <div>

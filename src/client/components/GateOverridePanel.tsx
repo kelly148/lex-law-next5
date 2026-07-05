@@ -13,7 +13,7 @@
  * via the guarded mutation. All hooks run unconditionally before any early return (#310).
  */
 import React, { useState } from 'react';
-import { AlertTriangle, ShieldOff, BadgeCheck } from 'lucide-react';
+import { AlertTriangle, ShieldOff, BadgeCheck, ChevronDown, ChevronUp } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import { type GateOverrideReasonCode } from '../../shared/schemas/gateOverride.js';
@@ -41,6 +41,8 @@ export default function GateOverridePanel({ matterId }: GateOverridePanelProps):
   const utils = trpc.useUtils();
   const gate = trpc.gateOverride.getGate.useQuery({ matterId });
   const [draft, setDraft] = useState<Record<string, { reasonCode: GateOverrideReasonCode; reasonText: string }>>({});
+  // UI-ATTORNEY-SWEEP-1 S4a: the recorded override collapses to a chip; expand reveals the byte-identical attestation record.
+  const [overrideDetailOpen, setOverrideDetailOpen] = useState(false);
 
   const record = useGuardedMutation(
     (input: { matterId: string; precondition: Precondition; reasonCode: GateOverrideReasonCode; reasonText?: string | null }) =>
@@ -64,23 +66,41 @@ export default function GateOverridePanel({ matterId }: GateOverridePanelProps):
   return (
     <div className="mb-4 space-y-3">
       {active.length > 0 && (
-        <div className="flex items-start gap-2 text-[12px] text-amber-900 bg-amber-50 border border-amber-300 rounded p-3">
-          <ShieldOff className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
-          <div>
-            <div className="font-semibold">Intake gate overridden</div>
-            {active.map((o) => (
-              <div key={o.id} className="mt-0.5">
-                {PRECONDITION_LABEL[o.precondition as Precondition]} — attested by the attorney on{' '}
-                {new Date(o.createdAt).toLocaleString()}
-                {o.reasonText ? ` · ${o.reasonText}` : ` · ${o.reasonCode}`}
+        <div className="text-[12px]">
+          <button
+            type="button"
+            onClick={() => setOverrideDetailOpen((v) => !v)}
+            title="Recorded attested override — expand to view the attestation record"
+            className="flex items-center gap-1.5 text-amber-900 bg-amber-50 border border-amber-300 rounded px-2 py-1 hover:bg-amber-100"
+          >
+            <ShieldOff className="w-3.5 h-3.5 flex-shrink-0 text-amber-600" />
+            <span>
+              Intake gate: overridden by attestation{' '}
+              {active
+                .map((o) => {
+                  const label = PRECONDITION_LABEL[o.precondition as Precondition];
+                  const reason = o.reasonText ? o.reasonText : o.reasonCode;
+                  return `${new Date(o.createdAt).toLocaleDateString()} · ${label} (${reason})`;
+                })
+                .join('; ')}
+            </span>
+            {overrideDetailOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {overrideDetailOpen && (
+            <div className="mt-1 flex items-start gap-2 text-amber-900 bg-amber-50 border border-amber-300 rounded p-3">
+              <ShieldOff className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+              <div>
+                <div className="font-semibold">Intake gate overridden</div>
+                {active.map((o) => (
+                  <div key={o.id} className="mt-0.5">
+                    {PRECONDITION_LABEL[o.precondition as Precondition]} — attested by the attorney on{' '}
+                    {new Date(o.createdAt).toLocaleString()}
+                    {o.reasonText ? ` · ${o.reasonText}` : ` · ${o.reasonCode}`}
+                  </div>
+                ))}
               </div>
-            ))}
-            <div className="mt-1 text-[11px] text-amber-700">
-              The gate remains fail-closed by default; this is a recorded, attested override. A material
-              change (a new party, or an identity-record change) re-arms the gate and requires a fresh
-              attestation.
             </div>
-          </div>
+          )}
         </div>
       )}
 

@@ -528,6 +528,25 @@ export default function DocumentDetail(): React.ReactElement {
     { enabled: !!documentId }
   );
 
+  // S11 (UI-ATTORNEY-SWEEP-1): the deed drafter's-notes page is written into the free-text `notes`
+  // field server-side (deedGiftNotes/deedCategoryNotes via deedDraftAgent). For that page ONLY, collapse
+  // it by default under a one-line count header with a persisted expand state; non-deed notes render
+  // exactly as before. Display only — the notes text is passed through unchanged.
+  const isDrafterNotesDoc = (doc?.notes ?? '').includes("DRAFTER'S NOTES — DELETE BEFORE RECORDING");
+  const drafterNoteCount = ((doc?.notes ?? '').match(/^\s*\d+\.\s/gm) ?? []).length;
+  const DRAFTER_NOTES_EXPANDED_KEY = `lln.drafterNotesExpanded.${documentId}`;
+  const [drafterNotesExpanded, setDrafterNotesExpanded] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(DRAFTER_NOTES_EXPANDED_KEY) === 'true'; } catch { return false; }
+  });
+  const toggleDrafterNotes = (): void => {
+    setDrafterNotesExpanded((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem(DRAFTER_NOTES_EXPANDED_KEY, String(next)); } catch { /* non-fatal */ }
+      return next;
+    });
+  };
+
   // Query materials to detect empty-drawer state before drafting (Option A)
   const { data: materialsData } = trpc.materials.list.useQuery(
     { matterId: matterId! },
@@ -1353,6 +1372,21 @@ export default function DocumentDetail(): React.ReactElement {
                         Save
                       </button>
                     </div>
+                  </div>
+                ) : isDrafterNotesDoc ? (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={toggleDrafterNotes}
+                      aria-expanded={drafterNotesExpanded}
+                      className="flex items-center gap-1.5 text-sm font-medium text-firm-navy hover:underline"
+                    >
+                      {drafterNotesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>Drafter&apos;s notes — {drafterNoteCount} item{drafterNoteCount === 1 ? '' : 's'} (delete before recording)</span>
+                    </button>
+                    {drafterNotesExpanded && (
+                      <p className="text-sm text-gray-500 whitespace-pre-line">{doc.notes}</p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-gray-500">{doc.notes || <em className="text-gray-300">No notes</em>}</p>

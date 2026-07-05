@@ -127,10 +127,13 @@ beforeEach(() => {
 
 describe('REVIEW-UX-REDESIGN-1 — SuggestionCard + three decision states', () => {
   it('renders a per-suggestion card with the structured rows + the attorney-decision signal', () => {
-    const { getByTestId, getByText } = render(<ActiveSessionView {...AV_PROPS} />);
+    const { getByTestId, getByText, getByTitle } = render(<ActiveSessionView {...AV_PROPS} />);
     expect(getByTestId('suggestion-card')).toBeTruthy();
     expect(getByText('Governing law state left blank')).toBeTruthy();
-    expect(getByText(/Attorney decision required/)).toBeTruthy();
+    // UI-ATTORNEY-SWEEP-1 S6/G4: the verbose "Attorney decision required" pill now folds into the
+    // severity/escalation chip — the Gavel marker + a title tooltip carry the (unchanged) escalate
+    // semantic, so assert the tooltip (getByTitle) rather than visible body text (getByText).
+    expect(getByTitle('Attorney decision required')).toBeTruthy();
     expect(getByText('Issue')).toBeTruthy();
     expect(getByText('Recommend')).toBeTruthy();
     expect(getByText('Revision')).toBeTruthy();
