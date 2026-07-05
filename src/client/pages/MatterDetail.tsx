@@ -17,9 +17,9 @@
  * Ch 35.3 — No business logic in React.
  * Ch 35.13 — Every mutation uses useGuardedMutation.
  */
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot } from 'lucide-react';
+import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot, UserPlus } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
@@ -462,6 +462,11 @@ export default function MatterDetail(): React.ReactElement {
   const [showEditMatter, setShowEditMatter] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [includeArchivedDocs, setIncludeArchivedDocs] = useState(false);
+  // S16 (UI-ATTORNEY-SWEEP-1): interim "Add client" header affordance — opens + scrolls to the intake
+  // party control (the full parties card arrives with C.4–C.6). Hooks declared here, before the early
+  // returns below (Rules of Hooks). Display/navigation only.
+  const [intakeOpenSignal, setIntakeOpenSignal] = useState(0);
+  const intakePanelRef = useRef<HTMLDivElement>(null);
 
   const { data: matter, isLoading: matterLoading } = trpc.matter.get.useQuery(
     { matterId: matterId! },
@@ -494,6 +499,16 @@ export default function MatterDetail(): React.ReactElement {
 
   const docs = documents ?? [];
 
+  const handleAddClient = (): void => {
+    setIntakeOpenSignal((s) => s + 1);
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        const el = intakePanelRef.current;
+        if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Breadcrumb */}
@@ -513,30 +528,41 @@ export default function MatterDetail(): React.ReactElement {
           <div className="flex items-center gap-3 mt-1">
             {matter.clientName && <span className="text-sm text-gray-600">{matter.clientName}</span>}
             {matter.practiceArea && <span className="text-sm text-gray-400">{matter.practiceArea}</span>}
+            {/* G6 (UI-ATTORNEY-SWEEP-1): status phase chip on the Whereas neutral/warn/ok ramps. */}
             <span className={clsx(
               'text-xs px-1.5 py-0.5 rounded capitalize',
-              matter.phase === 'intake' && 'bg-blue-100 text-blue-700',
-              matter.phase === 'drafting' && 'bg-amber-100 text-amber-700',
-              matter.phase === 'complete' && 'bg-green-100 text-green-700',
+              matter.phase === 'intake' && 'bg-surface-2 text-ink-secondary',
+              matter.phase === 'drafting' && 'bg-warning-tint text-warning',
+              matter.phase === 'complete' && 'bg-success-tint text-success',
             )}>
               {matter.phase}
             </span>
             {matter.archivedAt && (
-              <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Archived</span>
+              <span className="text-xs bg-surface-2 text-ink-secondary px-1.5 py-0.5 rounded">Archived</span>
             )}
           </div>
         </div>
+        {/* FL-18 (UI-ATTORNEY-SWEEP-1): fixed-height (h-9) header buttons so the row doesn't jog as
+            flag-gated entries appear/disappear. Display only. */}
         <div className="flex items-center gap-2">
+          {/* S16: interim Add-client affordance (opens + scrolls to the intake party control). */}
+          <button
+            onClick={handleAddClient}
+            className="flex items-center gap-1.5 px-3 h-9 text-sm rounded btn-secondary"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add client
+          </button>
           <button
             onClick={() => setShowMaterials(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
+            className="flex items-center gap-1.5 px-3 h-9 text-sm rounded btn-secondary"
           >
             <Layers className="w-4 h-4" />
             Materials
           </button>
           <Link
             to={`/matters/${matterId}/information-requests`}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
+            className="flex items-center gap-1.5 px-3 h-9 text-sm rounded btn-secondary"
           >
             <BookOpen className="w-4 h-4" />
             Info Request
@@ -545,7 +571,7 @@ export default function MatterDetail(): React.ReactElement {
           {chatEnabled && (
             <Link
               to={`/matters/${matterId}/chat`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
+              className="flex items-center gap-1.5 px-3 h-9 text-sm rounded btn-secondary"
             >
               <MessageSquare className="w-4 h-4" />
               Conversation
@@ -556,7 +582,7 @@ export default function MatterDetail(): React.ReactElement {
           {copilotEnabled && (
             <Link
               to={`/matters/${matterId}/copilot`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded btn-secondary"
+              className="flex items-center gap-1.5 px-3 h-9 text-sm rounded btn-secondary"
             >
               <Bot className="w-4 h-4" />
               Copilot
@@ -564,7 +590,7 @@ export default function MatterDetail(): React.ReactElement {
           )}
           <button
             onClick={() => setShowEditMatter(true)}
-            className="p-1.5 text-gray-400 hover:text-firm-navy rounded"
+            className="flex items-center justify-center h-9 w-9 text-gray-400 hover:text-firm-navy rounded"
             title="Edit matter"
           >
             <Edit2 className="w-4 h-4" />
@@ -635,7 +661,7 @@ export default function MatterDetail(): React.ReactElement {
                 <div className="flex items-center gap-2">
                   <span className="font-serif font-medium text-firm-navy text-sm truncate">{doc.title}</span>
                   {doc.archivedAt && (
-                    <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Archived</span>
+                    <span className="text-xs bg-surface-2 text-ink-secondary px-1.5 py-0.5 rounded">Archived</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
@@ -643,12 +669,14 @@ export default function MatterDetail(): React.ReactElement {
                   <span className="text-xs text-gray-300">·</span>
                   <span className="text-xs text-gray-400 capitalize">{doc.draftingMode}</span>
                   <span className="text-xs text-gray-300">·</span>
+                  {/* G6 (UI-ATTORNEY-SWEEP-1): workflow-state chip on the Whereas ramps (warn in-progress /
+                      neutral / ok complete), not raw blue/amber/green/purple. */}
                   <span className={clsx(
                     'text-xs px-1.5 py-0.5 rounded capitalize',
-                    doc.workflowState === 'drafting' && 'bg-amber-100 text-amber-700',
-                    doc.workflowState === 'substantively_accepted' && 'bg-blue-100 text-blue-700',
-                    doc.workflowState === 'finalizing' && 'bg-green-100 text-green-700',
-                    doc.workflowState === 'complete' && 'bg-purple-100 text-purple-700',
+                    doc.workflowState === 'drafting' && 'bg-warning-tint text-warning',
+                    doc.workflowState === 'substantively_accepted' && 'bg-surface-2 text-ink-secondary',
+                    doc.workflowState === 'finalizing' && 'bg-surface-2 text-ink-secondary',
+                    doc.workflowState === 'complete' && 'bg-success-tint text-success',
                   )}>
                     {doc.workflowState.replace(/_/g, ' ')}
                   </span>
@@ -660,8 +688,11 @@ export default function MatterDetail(): React.ReactElement {
         )}
       </div>
 
-      {/* FOLD-L0-1 — Layer-0 matter intake & analysis (conflicts-at-intake + plan closure) */}
-      <MatterIntakePanel matterId={matterId} />
+      {/* FOLD-L0-1 — Layer-0 matter intake & analysis (conflicts-at-intake + plan closure).
+          S16: the header "Add client" affordance opens + scrolls here via openSignal. */}
+      <div ref={intakePanelRef}>
+        <MatterIntakePanel matterId={matterId} openSignal={intakeOpenSignal} />
+      </div>
 
       {/* FOLD-KB-1 — Practice Knowledge Base (surface-not-inject; adopt; memos; per-PA profile) */}
       <KnowledgeBasePanel matterId={matterId} />

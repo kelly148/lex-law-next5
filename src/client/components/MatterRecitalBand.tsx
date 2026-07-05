@@ -112,6 +112,10 @@ export default function MatterRecitalBand({ matterId }: MatterRecitalBandProps):
   const dash = trpc.matterState.dashboard.useQuery({ matterId });
   // G5: reuse the existing parties query (no new endpoint); derive client-side.
   const partiesQ = trpc.matterIntake.listParties.useQuery({ matterId });
+  // S13 (UI-ATTORNEY-SWEEP-1): when conflicts enforcement is OFF, the conflicts block is noise — quiet
+  // it. Display only; the server still enforces whatever the policy dictates. Default (undefined/loading)
+  // = SHOWN so the band never flickers the block out during load; only an explicit disabled omits it.
+  const conflictPolicyQ = trpc.conflictPolicy.isEnabled.useQuery();
 
   // After all hooks: a boundary-safe skeleton until the reads resolve. Never blank (anti-#310).
   if (dash.isLoading || !dash.data || dash.data.full.mode !== 'full') {
@@ -197,10 +201,13 @@ export default function MatterRecitalBand({ matterId }: MatterRecitalBandProps):
   const send = sendabilityBlock(full.safeToSend.posture);
   const sendabilityBlockData: BlockData = { key: 'sendability', label: 'Sendability', value: send.value, tone: send.tone };
 
+  // S13: omit the conflicts block only when enforcement is explicitly OFF (undefined/loading -> shown).
+  const conflictsEnabled = conflictPolicyQ.data?.enabled !== false;
+
   const blocks: BlockData[] = [
     jurisdictionBlock,
     clientBlock,
-    conflictsBlock,
+    ...(conflictsEnabled ? [conflictsBlock] : []),
     sourcesBlock,
     openItemsBlock,
     documentBlock,

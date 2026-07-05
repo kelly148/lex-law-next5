@@ -20,13 +20,24 @@ import { RecommendedInstances } from './RecommendedInstances.js';
 
 interface MatterIntakePanelProps {
   matterId: string;
+  /** S16 (UI-ATTORNEY-SWEEP-1): bumping this integer asks the panel to open (the header "Add client"
+   *  affordance in MatterDetail). Optional — omitted usage is byte-for-byte unchanged. */
+  openSignal?: number;
 }
 
 type Role = 'client' | 'adverse' | 'related' | 'other';
 type Disposition = 'cleared' | 'screened' | 'declined';
 
-export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps): React.ReactElement {
+export default function MatterIntakePanel({ matterId, openSignal }: MatterIntakePanelProps): React.ReactElement {
   const [open, setOpen] = useState(false);
+  // S16: open on an external signal (the header "Add client" affordance). React's "adjust state during
+  // render on prop change" pattern — NOT an effect — so no cascading-render lint/perf issue. The initial
+  // value (0/undefined) is the seed, so mount is byte-for-byte unchanged.
+  const [seenOpenSignal, setSeenOpenSignal] = useState(openSignal);
+  if (openSignal !== seenOpenSignal) {
+    setSeenOpenSignal(openSignal);
+    if (openSignal && openSignal > 0) setOpen(true);
+  }
   const [partyName, setPartyName] = useState('');
   const [partyRole, setPartyRole] = useState<Role>('client');
   const [rationales, setRationales] = useState<Record<string, string>>({});
@@ -88,7 +99,7 @@ export default function MatterIntakePanel({ matterId }: MatterIntakePanelProps):
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
       <button onClick={() => setOpen(!open)} className="flex items-center gap-2 w-full px-4 py-3 bg-gray-50 border-b border-gray-200 hover:bg-gray-100">
         <ScanSearch className="w-4 h-4 text-firm-navy" />
-        <h3 className="text-sm font-semibold text-firm-navy flex-1 text-left">Matter Intake &amp; Analysis (Layer 0)</h3>
+        <h3 className="text-sm font-semibold text-firm-navy flex-1 text-left">Intake analysis</h3>
         {pendingHits.length > 0 && (
           <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{pendingHits.length} conflict(s) to disposition</span>
         )}
