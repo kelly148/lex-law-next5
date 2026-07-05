@@ -85,9 +85,9 @@ Design notes:
 - The OCR confidence floor is mirrored locally (60) rather than imported from the OCR-deps-heavy intake
   module, to keep the title-exam module self-contained and testable in isolation.
 
-### T3 — two-lane exam orchestration (spec §4; §4b; PB-3; NC-10) — IN PROGRESS
-Branch `lex-next/tex1-3` off `origin/main` (`c466967`). Flag-dark library + seam-based orchestration; mocks
-only (no live provider call). Files:
+### T3 — two-lane exam orchestration (spec §4; §4b; PB-3; NC-10) — MERGED (PR #502, squash `203fbf1`)
+Branch `lex-next/tex1-3` off `origin/main` (`c466967`). CI green; auto-merged under Rule 15; branch deleted.
+Flag-dark library + seam-based orchestration; mocks only (no live provider call). Files:
 - `src/server/llm/config.ts` (edit) — §4b provider-agnostic role bindings: `TITLE_EXAM_ROLES`,
   `resolveTitleExamRoleKey`/`resolveTitleExamModel` (role → reviewer key → model STRING via
   `resolveReviewerModel`; per-role env override so ANY provider can fill ANY role by config alone; default
@@ -114,3 +114,26 @@ Design notes:
   reworded to the role-based "research-capable lane" framing).
 - No tRPC surface yet — the orchestration is a pure/seam library (byte-neutral). A thin flag-gated router
   for operator live-verification is deferred to a later increment (T6/T8).
+
+### T4 — fresh-context reconciler (NC-1/NC-2/NC-4) — IN PROGRESS
+Branch `lex-next/tex1-4` off `origin/main` (`203fbf1`). Pure reconciliation + mock-tx decision logging. Files:
+- `src/server/titleExam/judgmentTopics.ts` — the NC-1 two-tier taxonomy: the escalate-only JUDGMENT topic
+  recognizers (vesting/tenancy, marital rights, estate/fiduciary/entity authority incl. "PR deed"/"estate"
+  but not "real estate", insurability, lien sufficiency/release theory, deed construction, requirement/
+  exception change) + the record-resolvable/housekeeping categories; `classifyConflictTier` OVER-escalates
+  (reconciler flag OR topic match) so a mislabel can never cause a silent auto-adopt.
+- `src/server/titleExam/reconciler.ts` — the fresh-context system prompt (no memory of its own lane;
+  steelman requirement; §10.5 watch-list) + `reconcileLaneFindings`: the DETERMINISTIC NC-1 apply — judgment
+  conflicts escalate-only (never auto-resolved even if the reconciler proposes housekeeping); concordance
+  RE-DERIVED from the actual lane presence (a bad ref is not trusted as "both", groupFromEvaluator
+  discipline); full visibility (every finding, incl. auto-resolved with rationale); NC-4 sendability matrix.
+- `src/server/db/queries/titleExamDecisions.ts` — the attorney ADOPT/MODIFY/HOLD logging (Fork-C): one
+  audit_events disposition row (the deciding act) + the finding's escalationState + decisionEventId pointer,
+  in one tx; pure builder + mock-tx write seam. A changed disposition is a NEW audit row (no update/delete).
+- `src/server/__tests__/title_exam_4_reconciler.test.ts` — judgment taxonomy + over-escalation + real-estate
+  exclusion; escalate-only override; record-resolvable auto-resolve with rationale; concordance re-derivation;
+  full visibility + sendability matrix; decision audit-row shape + mock-tx write + disposition→state mapping.
+
+Design note: a T4 test surfaced (and fixed) an under-escalation gap — the DC "PR deed required" scenario
+(a seeded failure class) wasn't caught by the estate pattern; strengthened the recognizer (escalate-only is
+fail-toward-escalation; under-escalation is the dangerous error per the disposition).
