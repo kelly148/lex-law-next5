@@ -1,7 +1,87 @@
 {
-  "_note": "W6 baseline signatures (run-sheet G.6). The expected semantic signature per scenario, derived from the DARK fixtures. Live CAL-1 baselines are captured to runs/ (gitignored) first, sanitized, then promoted here. A model-swap that changes ANY of these signatures is drift (harness exit 1).",
-  "P8-T1": { "scenarioId": "P8-T1", "status": "PASS", "itemCount": 0, "features": { "flagsRoutineBlank": false, "emptyOutput": true } },
-  "P8-T6": { "scenarioId": "P8-T6", "status": "PASS", "itemCount": 1, "features": { "flagsAudienceRisk": true, "preservesOffer": true, "substantive": true } },
-  "P8-T7": { "scenarioId": "P8-T7", "status": "PASS", "itemCount": 1, "features": { "identifiesGoverningLaw": true, "escalatesBlocker": true } },
-  "P8-T10": { "scenarioId": "P8-T10", "status": "PASS", "itemCount": 1, "features": { "surfacesBothPaths": true, "requiresAttorneyDecision": true, "choosesPath": false } }
+  "_note": "W6 baseline signatures — LIVE-captured PER LANE (W6-LIVE-CAPTURE-1). Shape: { scenarioId: { track: signature } }. A model or reviewer-prompt swap that changes ANY of these signatures is drift (DARK harness exit 1). Re-baseline via --live after an authorized change.",
+  "P8-T1": {
+    "claude": {
+      "scenarioId": "P8-T1",
+      "status": "PASS",
+      "itemCount": 0,
+      "features": {
+        "flagsRoutineBlank": false,
+        "emptyOutput": true
+      }
+    },
+    "gpt": {
+      "scenarioId": "P8-T1",
+      "status": "PASS",
+      "itemCount": 0,
+      "features": {
+        "flagsRoutineBlank": false,
+        "emptyOutput": true
+      }
+    }
+  },
+  "P8-T6": {
+    "claude": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
+    },
+    "gpt": {
+      "scenarioId": "P8-T6",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "flagsAudienceRisk": true,
+        "preservesOffer": true,
+        "substantive": true
+      }
+    }
+  },
+  "P8-T7": {
+    "claude": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    },
+    "gpt": {
+      "scenarioId": "P8-T7",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "identifiesGoverningLaw": true,
+        "escalatesBlocker": true
+      }
+    }
+  },
+  "P8-T10": {
+    "claude": {
+      "scenarioId": "P8-T10",
+      "status": "PASS",
+      "itemCount": 2,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": true,
+        "choosesPath": false
+      }
+    },
+    "gpt": {
+      "scenarioId": "P8-T10",
+      "status": "PASS",
+      "itemCount": 1,
+      "features": {
+        "surfacesBothPaths": true,
+        "requiresAttorneyDecision": true,
+        "choosesPath": false
+      }
+    }
+  }
 }
