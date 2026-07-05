@@ -703,3 +703,27 @@ export function isReviewerHealthViewEnabled(): boolean {
 export function isDraftStreamingEnabled(): boolean {
   return process.env['DRAFT_STREAMING_ENABLED'] === 'true';
 }
+
+/**
+ * Title-examination module (TITLE-EXAM-1). DEFAULT OFF.
+ *
+ * When OFF (the default), the title-exam surface is entirely dormant: the titleExam
+ * procedures refuse with PRECONDITION_FAILED (except an ungated isEnabled probe), no
+ * title_exam_* row is ever read or written, no exam lane / reconciler / output path runs,
+ * and every existing surface is byte-for-byte unchanged with ZERO extra reads. The three
+ * additive tables (migration 0054, operator-applied out-of-band — NOT on the
+ * apply-prod-migrations allowlist) simply sit absent/empty.
+ *
+ * When exactly "true", the attorney-supervised title-examination surface and its ops are
+ * live. INVARIANTS (the §3.1-dispositioned spine): two independent role-bound exam lanes
+ * over an identical record set; a fresh-context reconciler; judgment conflicts are
+ * escalate-only (never auto-resolved); the attorney is always the final decision-maker;
+ * client-facing artifacts generate only from the attorney-approved, version-locked memo
+ * behind a logged Approve-for-Client-Delivery action; NO send path anywhere. Phase A is
+ * mocks/fixtures only — NO live provider call is made from this module in the build; live
+ * exam runs are operator-driven later. Activation is operator-gated and requires migration
+ * 0054 applied to prod first.
+ */
+export function isTitleExamEnabled(): boolean {
+  return process.env['TITLE_EXAM_ENABLED'] === 'true';
+}

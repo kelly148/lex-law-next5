@@ -1,0 +1,59 @@
+# TITLE-EXAM-1 — Phase A overnight autonomous build runlog
+
+**Standalone engagement OUTSIDE the fold queue (run like ULTRABUILD).** Design of record:
+`docs/title-exam/TITLE-EXAM-1_design_spec_v2_2026-07-04.md` (v2.1, incl. §4a Express Mode + §4b
+provider-agnostic role bindings). Adopted §3.1 disposition:
+`docs/reviews/TITLE-EXAM-1_consolidated_disposition_2026-07-04.md` (PB-1..3, NC-1..12). Operator start
+authorization recorded 2026-07-05 (overnight). Checkpoint triage: FIRE dispositioned + adopted — no re-fire;
+downstream implementation rides the parent reviews.
+
+## Standing constraints (built as controls)
+- ALL code flag-dark behind `TITLE_EXAM_ENABLED` (default OFF; flag-off byte-neutral).
+- NO live provider calls in this batch — lanes/reconciler tested against fixtures/mocks only.
+- NO real matter content — synthetic anonymized fixtures only; the real client files under `docs/title-exam/`
+  (GOLD_RUN_*, the four client PDFs/docx, FirstAm capture) are NEVER used/copied/committed.
+- FATIC knowledge gated by the entity-attribute hat (Universal Title only, PB-1 interim) — gate built; no
+  FATIC content loaded.
+- Express Mode (§4a) is wiring-only — inherits the platform loop behind
+  `AUTO_REVIEW_LOOP_ENABLED` + `EXPRESS_DURABLE_RECORDS_ENABLED` + the E8 gate; no independent activation path.
+- §4b provider-agnostic role bindings — role→model resolved from `src/server/llm/config.ts` at runtime,
+  never a model-ID literal in module code or prompts; a unit test asserts no literal in the module.
+- ADDITIVE-ONLY migrations, registered OUTSIDE the `apply-prod-migrations.mjs` auto-apply allowlist
+  ("operator-applied out-of-band"), NEVER applied to prod by this batch — enumerated in the final summary.
+
+## Build environment
+- Isolated worktree `C:\Users\Kelly\Documents\lex-tex1-wt` off `origin/main` (`4375d78`), with a
+  `node_modules` junction so local gates (tsc/eslint/vitest) run. Branch per increment `lex-next/tex1-<n>`,
+  commit `feat(title-exam): TEX1-<n> — <summary>`, squash-merge to `main` on green CI (Rule 15), delete branch.
+- NOTE: the primary clone was on a stale branch behind `origin/main`; all builds are on the worktree at
+  `origin/main`, which is authoritative.
+
+## Increment log
+
+### T1 — additive title-examination data model (spec §5) — IN PROGRESS
+Branch `lex-next/tex1-1` off `origin/main` (`4375d78`).
+Files:
+- `src/server/config/featureFlags.ts` — `isTitleExamEnabled()` (default OFF; byte-neutral OFF documented).
+- `src/server/db/schema.ts` — three additive, matter-scoped tables + their §5 enum vocabularies + type
+  exports: `title_exam_matter_attribute` (NC-12 NPI posture + §2 DC caveat ack), `title_exam_session`
+  (the §4 exam-run container; NC-10 completeness/lane-failure; §4b per-role model provenance),
+  `title_exam_finding` (§5 data model: NC-8 typed source basis + downgrade, NC-9 OCR pincite, NC-4
+  sendability, §5 classification, NC-1/2 reconciliation + escalate-only lifecycle, NC-7 contamination,
+  adopt-ledger + audit_events decision linkage).
+- `src/server/db/migrations/0054_title_exam_1_data_model.sql` — additive CREATE TABLE IF NOT EXISTS,
+  idempotent, NOT on the apply-prod-migrations allowlist (operator-applied out-of-band).
+- `src/server/db/queries/titleExam.ts` — owner-scoped (`ownerScope()`) query layer + exported
+  `writeXxxTx` mock-tx seams; the §2 `deriveDcExamVisibility` pure helper + DC-session counter.
+- `src/server/db/queries/matterPurge.ts` — registered all three matter-scoped tables in the purge cascade
+  (required by `lln_prod_cleanup_1_purge.test.ts`).
+- `src/server/__tests__/title_exam_1.test.ts` — §5 vocabulary completeness, flag-default byte-neutral,
+  §2 DC-visibility helper, mock-tx write shape/defaults, migration additive-only + out-of-band, purge coverage.
+
+Design notes carried forward:
+- FORK-C: audit_events stays the single source of truth for attorney decisions; `title_exam_finding` holds
+  operational STATE + a `decisionEventId` pointer (mirrors express_ledger_entry.revertedByEventId). T4/T6
+  write the audit_events decision rows.
+- The §4a "durable adopt ledger" maps to the Express E4b tables at T8, NOT to MR-CAL adopt_ledger; the
+  finding's nullable `adoptLedgerId` is a forward-safe linkage, not a coupling.
+- NC-9 source-page pincites are carried per-finding (`ocrSourcePagePincite`) for the fixture-tested Phase A;
+  a page-structured OCR store, if needed, is a T2 decision.
