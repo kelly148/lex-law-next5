@@ -56,6 +56,10 @@ import { matterEntityRouter } from './procedures/matterEntity.js';
 import { notificationsRouter } from './procedures/notifications.js';
 import { expressReviewLoopRouter } from './procedures/expressReviewLoop.js';
 import { kbBackboneRouter } from './procedures/kbBackbone.js';
+// TITLE-EXAM-1 (TEX1-10) — gated behind TITLE_EXAM_ENABLED (default OFF; refuses every real op with
+// PRECONDITION_FAILED when OFF, only the ungated isEnabled probe is callable). Live provider calls occur
+// ONLY inside runExam when the flag is ON and the operator drives a run.
+import { titleExamRouter } from './procedures/titleExam.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -181,6 +185,9 @@ export const appRouter = router({
   // Gift; the type selector lists the whole registry (others disabled). Gated behind DEED_DRAFT_AGENT_ENABLED
   // (default OFF, refuses when OFF). Schema-free: no new column/table/enum/migration.
   quickDeed: quickDeedRouter,
+  // TITLE-EXAM-1 (TEX1-10) — the attorney-supervised title-examination surface; gated behind
+  // TITLE_EXAM_ENABLED (default OFF, refuses with PRECONDITION_FAILED when OFF).
+  titleExam: titleExamRouter,
 });
 
 export type AppRouter = typeof appRouter;

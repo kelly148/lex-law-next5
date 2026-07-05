@@ -27,20 +27,26 @@ export interface FaticAvailability {
 }
 
 /**
- * FATIC knowledge availability (PB-1). Gated to the Universal Title hat only until the written agency/
- * underwriter basis (`pb1PaperInHand`) exists — then the law-firm hat may use it too. This gate returns a
- * verdict; it never itself loads FATIC content (the loader consults this first and stays empty when false).
+ * FATIC knowledge availability (PB-1 — RESOLVED, operator resolution 2026-07-05,
+ * docs/title-exam/PB-1_operator_resolution_2026-07-05.md). The interim Universal-Title-hat-only gate is LIFTED:
+ * the operator is a First American agent and the module is Stage-1 PERSONAL-USE ONLY (single operator; no other
+ * users, no processors), so use of the FATIC underwriting manual inside her own working tool is within her
+ * agent rights — FATIC is available for BOTH hats at Stage-1. This gate returns a verdict; it never itself
+ * loads FATIC content (the loader consults this first).
+ *
+ * STAGE-2 CAVEAT (carried, not a blocker): before any second user (the Stage-2 firm-attorney parity gate) or
+ * any productization (Stage 3), the FATIC basis is re-examined against the agency agreement's terms — the
+ * original 4/4 reviewer concern (use inside a tool serving law-firm exams, external AI providers, derivative
+ * vault storage) was aimed at exactly that scale-up. `pb1PaperInHand` is retained as the Stage-2 re-gate hook.
  */
 export function resolveFaticAvailability(hat: EntityHat, pb1PaperInHand = false): FaticAvailability {
-  if (hat === 'universal_title') {
-    return { available: true, reason: 'PB-1 interim: FATIC knowledge is available to the Universal Title hat.' };
-  }
-  if (pb1PaperInHand) {
-    return { available: true, reason: 'PB-1 paper in hand: FATIC authorized for the law-firm hat.' };
-  }
+  void pb1PaperInHand; // retained for the Stage-2 re-gate; not consulted at Stage-1 (PB-1 resolved)
   return {
-    available: false,
-    reason: 'PB-1 interim gate: FATIC is Universal-Title-hat only until the written agency/underwriter basis exists.',
+    available: true,
+    reason:
+      hat === 'universal_title'
+        ? 'FATIC available (Universal Title hat).'
+        : 'FATIC available (law-firm hat) — PB-1 resolved for Stage-1 personal use; re-examine the basis at Stage-2.',
   };
 }
 

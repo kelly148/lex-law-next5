@@ -26,11 +26,11 @@ describe('T7 — resolveHat (only an affirmative title election is the Universal
   });
 });
 
-describe('T7 — FATIC availability (PB-1 interim: UT-hat only; law-firm hat needs the paper)', () => {
-  it('Universal Title hat has FATIC; law-firm hat does NOT until the paper is in hand', () => {
+describe('T7 — FATIC availability (PB-1 RESOLVED 2026-07-05: available for BOTH hats at Stage-1)', () => {
+  it('both hats have FATIC at Stage-1 (the interim UT-only gate is lifted); law-firm reason carries the Stage-2 caveat', () => {
     expect(resolveFaticAvailability('universal_title').available).toBe(true);
-    expect(resolveFaticAvailability('satterwhite_law_firm').available).toBe(false);
-    expect(resolveFaticAvailability('satterwhite_law_firm').reason).toContain('PB-1 interim');
+    expect(resolveFaticAvailability('satterwhite_law_firm').available).toBe(true);
+    expect(resolveFaticAvailability('satterwhite_law_firm').reason).toContain('Stage-2');
     expect(resolveFaticAvailability('satterwhite_law_firm', true).available).toBe(true);
   });
 });
@@ -78,6 +78,6 @@ describe('T7 — template family / disclaimer set / advice posture per hat (NC-5
     expect(p.templateFamily).toBe('title_underwriting');
     expect(p.advicePermitted).toBe(false);
     // a law-firm matter, no paper: FATIC unavailable
-    expect(resolveHatProfile('law_firm').fatic.available).toBe(false);
+    expect(resolveHatProfile('law_firm').fatic.available).toBe(true); // PB-1 resolved (both hats, Stage-1)
   });
 });

@@ -255,3 +255,30 @@ lanes/reconciler make live provider calls only when TITLE_EXAM_ENABLED is on and
 no live call was made in this batch). Binding the T3 exam lanes / T4 reconciler as the Express reviewPort/
 regeneratePort (so a title memo actually loops) is part of that live wiring, gated on E8. Real-run fixtures
 join after the operator's W2a scrub review. Standing PB-1/PB-2/xAI-ZDR/malpractice items are operator out-of-band.
+
+### TEX1-10 — live wiring (flag-gated tRPC surface + real-adapter lane binding + Express ports + PB-1 relax) — IN PROGRESS
+Branch `lex-next/tex1-10` off `origin/main`. Flag-dark behind `TITLE_EXAM_ENABLED` (OFF); NO live provider
+calls (mocks only). Files:
+- `src/server/titleExam/hatGate.ts` (edit) — PB-1 RESOLVED (2026-07-05): the interim UT-hat-only FATIC gate is
+  lifted; FATIC available for BOTH hats at Stage-1 (operator is a FATIC agent + personal-use only); Stage-2
+  re-gate caveat in the code comment. T7 test assertions flipped to match.
+- `src/server/titleExam/laneExaminer.ts` — `makeLlmLaneExaminer`: binds the T3 LaneExaminer port to the real
+  adapters THROUGH the fail-closed egress broker (surface 'reviewer', allowlist enforced); model per lane
+  arrives resolved from §4b config (no literal). Injectable `send` (mock in tests).
+- `src/server/titleExam/reconcilerDispatch.ts` — the reconciler output contract + fail-loud parser +
+  `makeReconcilerDispatch` (surface 'evaluator', fresh-context prompt over both lanes' outputs as data).
+- `src/server/titleExam/titleExpressPorts.ts` — `makeTitleExpressPorts`: the memo rides the PLATFORM Express
+  review/regenerate ports (escalation enforced downstream by the T8 protected spans + always-escalate profile;
+  no Class-A widening).
+- `src/server/titleExam/runExamPipeline.ts` — `runTitleExamPipeline`: intake record → two lanes → reconcile →
+  memo → persist, every provider/DB touch behind an injected seam (mock-testable end-to-end, no live call);
+  fail-closed (both-lanes-fail → status 'error'; reconciler-fail → raw findings surfaced, never dropped).
+- `src/server/procedures/titleExam.ts` + `router.ts` (edit) — the flag-gated tRPC surface: isEnabled probe +
+  setMatterAttribute / getMatterAttribute / dcExamVisibility / runExam / getExamSession / listExamSessions /
+  recordFindingDecision / recordImportResolution / approveForClientDelivery; all owner-scoped + gated
+  (PRECONDITION_FAILED when OFF). Live calls occur ONLY inside runExam when the flag is ON.
+- `src/server/__tests__/title_exam_10_wiring.test.ts` — lane/reconciler dispatch (mock send), full pipeline
+  (mock examiner/reconcile/persist incl. reconciler-fail + both-lanes-fail), ports, router gating source-audit.
+
+Design note: the live surface's activation (flipping TITLE_EXAM_ENABLED + the first operator-driven exam) is a
+future operator step; this ships the surface dark. Full title-exam suite 111 tests green.
