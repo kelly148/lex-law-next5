@@ -91,6 +91,7 @@ const sourceAndModeDiscipline = [
 const outputContract = [
   'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
   'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "Detailed attorney-facing feedback", "severity": "critical"|"major"|"minor" }.',
+  'The item-level "severity" (critical, major, or minor) is REQUIRED on every item and is a DIFFERENT field from the feedback-card severity used inside the body (BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH). Always include the top-level critical/major/minor severity on each item; never omit it or replace it with a feedback-card tier.',
   'Inside each body string, include both sections labeled NARRATIVE_REVIEWER_MEMO and STRUCTURED_FEEDBACK_CARDS.',
   'NARRATIVE_REVIEWER_MEMO must be an attorney-readable reviewer memo explaining issue, source basis, jurisdiction treatment, recommended action, and attorney decision points.',
   'STRUCTURED_FEEDBACK_CARDS must contain a JSON array compatible with the MR-CAL-1 feedback-card contract using exact field names only.',
@@ -150,6 +151,41 @@ function stripFence(text) {
   return m && m[1] !== undefined ? m[1].trim() : text;
 }
 
+// REVIEWER-PARSE-RELIABILITY-1 — inlined mirrors of src/server/llm/truncationDetect.ts (RPR-1) and
+// tolerantJsonParse.ts (RPR-2), so the calibration parser stays honest with production (a repairable
+// malformed array is recovered; a signal-less structural truncation is reclassified, not PARSE_FAILURE'd).
+function looksLikeTruncatedJson(text) {
+  if (typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.length === 0) return false;
+  const first = t[0];
+  if (first !== '[' && first !== '{') return false;
+  let depth = 0, inString = false, escaped = false;
+  for (let i = 0; i < t.length; i += 1) {
+    const c = t[i];
+    if (inString) { if (escaped) escaped = false; else if (c === '\\') escaped = true; else if (c === '"') inString = false; continue; }
+    if (c === '"') inString = true; else if (c === '[' || c === '{') depth += 1; else if (c === ']' || c === '}') depth -= 1;
+  }
+  if (inString) return true;
+  const lastChar = t[t.length - 1];
+  return depth > 0 && (lastChar === ',' || lastChar === ':');
+}
+function tryRepairArrayJson(text) {
+  if (typeof text !== 'string') return null;
+  const t = text.trim();
+  if (t[0] !== '[') return null;
+  let last = -1;
+  for (let i = t.length - 1; i >= 0; i -= 1) { const c = t[i]; if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') { last = i; break; } }
+  const candidates = [];
+  const closerFixed = last >= 0 && t[last] === '}' ? t.slice(0, last) + ']' + t.slice(last + 1) : null;
+  if (closerFixed) candidates.push(closerFixed);
+  const commaStripped = t.replace(/,(\s*[\]}]\s*)$/, '$1');
+  if (commaStripped !== t) candidates.push(commaStripped);
+  if (closerFixed) { const both = closerFixed.replace(/,(\s*[\]}]\s*)$/, '$1'); if (both !== closerFixed) candidates.push(both); }
+  for (const cand of candidates) { try { return { value: JSON.parse(cand) }; } catch { /* next */ } }
+  return null;
+}
+
 // ============================================================
 // Provider calls — VERBATIM REST shapes @ 6f69c68
 // Each returns: { httpOk, rawText, canonical|null, errorClass, errorMessage, finishReason, tokensP, tokensC }
@@ -161,23 +197,54 @@ function splitModel(modelString) {
 }
 function toResult({ httpOk = true, rawText = '', errorClass = null, errorMessage = null, finishReason = null, tokensP = null, tokensC = null }) {
   let canonical = null;
+  let effErrorClass = errorClass;
+  let effErrorMessage = errorMessage;
   if (httpOk && rawText) {
+    const stripped = stripFence(rawText);
+    let parsed;
+    let ok = true;
     try {
-      const parsed = JSON.parse(stripFence(rawText));
+      parsed = JSON.parse(stripped);
+    } catch {
+      ok = false;
+      // RPR-1: a signal-less structural truncation is an api_error (truncation), not a PARSE_FAILURE.
+      if (!effErrorClass && looksLikeTruncatedJson(stripped)) {
+        effErrorClass = 'api_error';
+        effErrorMessage = effErrorMessage ?? 'structural truncation (RPR-1)';
+      } else {
+        // RPR-2: minimal array-gated structural repair.
+        const repair = tryRepairArrayJson(stripped);
+        if (repair) { parsed = repair.value; ok = true; }
+      }
+    }
+    if (ok) {
       const norm = normalizeWrapper(parsed);
       if (Array.isArray(norm)) canonical = JSON.stringify(norm);
-    } catch { /* leave canonical null -> scoring will PARSE_FAILURE */ }
+    }
   }
-  return { httpOk, rawText, canonical, errorClass, errorMessage, finishReason, tokensP, tokensC };
+  return { httpOk, rawText, canonical, errorClass: effErrorClass, errorMessage: effErrorMessage, finishReason, tokensP, tokensC };
 }
+
+// REVIEWER-PARSE-RELIABILITY-1 (RPR-6/RPR-7) — native structured-output request shapes, inlined to mirror
+// the production adapters so the rerun can validate provider compliance. Gated on
+// REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED + a capable model; flag OFF (default) = byte-identical request.
+const RPR_NATIVE_ENABLED = process.env['REVIEWER_NATIVE_STRUCTURED_OUTPUT_ENABLED'] === 'true';
+const RPR_NATIVE_MODELS = new Set(['gpt-5.5', 'gpt-5', 'gpt-4.1-mini', 'gpt-5.4-mini', 'grok-4.3', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']);
+const RPR_JSON_SCHEMA = { type: 'object', properties: { feedback: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'major', 'minor'] } }, required: ['title', 'body', 'severity'], additionalProperties: false } } }, required: ['feedback'], additionalProperties: false };
+const RPR_GEMINI_SCHEMA = { type: 'ARRAY', items: { type: 'OBJECT', properties: { title: { type: 'STRING' }, body: { type: 'STRING' }, severity: { type: 'STRING', enum: ['critical', 'major', 'minor'] } }, required: ['title', 'body', 'severity'] } };
+// RPR-7: sonnet-5 lite gets adaptive-thinking output headroom (mirrors modelCapabilities getReviewerCeiling).
+function maxTokensFor(modelId) { return modelId === 'claude-sonnet-5' ? 32768 : REVIEWER_MAX_TOKENS; }
 
 async function callOpenAiLike(url, apiKey, modelId, system, user) {
   const usesCompletionTokens = /^(gpt-5|o1|o3|o4)/.test(modelId);
+  const useJsonSchema = RPR_NATIVE_ENABLED && RPR_NATIVE_MODELS.has(modelId);
   const body = {
     model: modelId,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    ...(usesCompletionTokens ? { max_completion_tokens: REVIEWER_MAX_TOKENS } : { max_tokens: REVIEWER_MAX_TOKENS, temperature: 0.3 }),
-    response_format: { type: 'json_object' },
+    ...(usesCompletionTokens ? { max_completion_tokens: maxTokensFor(modelId) } : { max_tokens: maxTokensFor(modelId), temperature: 0.3 }),
+    response_format: useJsonSchema
+      ? { type: 'json_schema', json_schema: { name: 'reviewer_feedback', strict: true, schema: RPR_JSON_SCHEMA } }
+      : { type: 'json_object' },
   };
   let resp;
   try {
@@ -210,7 +277,7 @@ async function callAnthropic(modelId, system, user) {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) return toResult({ httpOk: false, errorClass: 'api_error', errorMessage: 'ANTHROPIC_API_KEY not set' });
   const effSystem = `${system}\n\nRespond ONLY with valid JSON matching the required schema. Do not include any text outside the JSON object.`;
-  const body = { model: modelId, max_tokens: REVIEWER_MAX_TOKENS, system: effSystem, messages: [{ role: 'user', content: user }] };
+  const body = { model: modelId, max_tokens: maxTokensFor(modelId), system: effSystem, messages: [{ role: 'user', content: user }] };
   let resp;
   try {
     resp = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
@@ -239,7 +306,12 @@ async function callGoogle(modelId, system, user) {
   const body = {
     contents: [{ role: 'user', parts: [{ text: user }] }],
     systemInstruction: { parts: [{ text: system }] },
-    generationConfig: { maxOutputTokens: REVIEWER_MAX_TOKENS, temperature: 0.3, responseMimeType: 'application/json' },
+    generationConfig: {
+      maxOutputTokens: maxTokensFor(modelId),
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+      ...(RPR_NATIVE_ENABLED && RPR_NATIVE_MODELS.has(modelId) ? { responseSchema: RPR_GEMINI_SCHEMA } : {}),
+    },
     safetySettings: [
       { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
       { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },

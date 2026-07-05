@@ -41,6 +41,8 @@ import { LlmProviderError, httpStatusToErrorClass, type LlmClient, type LlmGener
 import { llmFetch } from './llmFetch.js';
 import { LLM_FETCH_TIMEOUT_MS } from './config.js';
 import { normalizeStructuredOutput } from './structuredOutputNormalize.js';
+import { looksLikeTruncatedJson } from './truncationDetect.js';
+import { tryRepairArrayJson } from './tolerantJsonParse.js';
 
 // Anthropic Messages API types (minimal — we only use what v1 needs)
 interface AnthropicMessage {
@@ -228,14 +230,33 @@ export class AnthropicAdapter implements LlmClient {
       const effectiveText = stripJsonCodeFenceIfWholeResponse(rawText);
 
       let parsed: unknown;
+      let structuralRepair = false;
       try {
         parsed = JSON.parse(effectiveText);
       } catch (err) {
-        throw new LlmProviderError(
-          'parse_error',
-          `Anthropic response is not valid JSON for structured output: ${String(err)}`,
-          err,
-        );
+        // RPR-1: a truncation without the stop_reason 'max_tokens' signal (guarded above) is retriable,
+        // not a terminal parse_error. Checked BEFORE any repair so a real truncation is never patched.
+        if (looksLikeTruncatedJson(effectiveText)) {
+          throw new LlmProviderError(
+            'api_error',
+            `Anthropic structured output appears truncated (unbalanced/unterminated JSON, stop_reason ` +
+              `${data.stop_reason ?? 'unknown'}) — an output-budget/stream truncation, not a malformed response. Retriable.`,
+            err,
+          );
+        }
+        // RPR-2: minimal, array-gated structural repair (never touches the object-shaped evaluator
+        // input, which is object-first). Accepted only if the repaired value passes Zod below.
+        const repair = tryRepairArrayJson(effectiveText);
+        if (repair) {
+          parsed = repair.value;
+          structuralRepair = true;
+        } else {
+          throw new LlmProviderError(
+            'parse_error',
+            `Anthropic response is not valid JSON for structured output: ${String(err)}`,
+            err,
+          );
+        }
       }
 
       // MR-CAL-5D: validate the parsed value against the target schema FIRST, and only
@@ -271,11 +292,11 @@ export class AnthropicAdapter implements LlmClient {
         usedNormalization = normalized !== parsed;
       }
 
-      // MR-LLM-LITE-2: return content as string (consistent with OpenAI/Google/xAI).
-      // Re-serialize only if normalization actually transformed the value.
-      const contentText = usedNormalization
-        ? JSON.stringify(validated)
-        : effectiveText;
+      // MR-LLM-LITE-2: return content as string (consistent with OpenAI/Google/xAI). Re-serialize when
+      // normalization transformed the value OR a structural repair was applied (effectiveText is the
+      // original malformed bytes in the repair case, so downstream must receive the repaired value).
+      const contentText =
+        usedNormalization || structuralRepair ? JSON.stringify(validated) : effectiveText;
 
       return {
         content: contentText,
@@ -286,6 +307,8 @@ export class AnthropicAdapter implements LlmClient {
           model: data.model,
           stopReason: data.stop_reason,
           messageId: data.id,
+          // RPR-2: flag when a minimal structural repair was applied (absent on the happy path).
+          ...(structuralRepair ? { structuralRepair: true } : {}),
         },
       };
     }

@@ -121,9 +121,15 @@ describe('GEMINI-BUDGET-CAL-1 — truncation classifies as api_error, never pars
     mockFetch.mockResolvedValueOnce(makeOkResponse(openAiLikeBody(PARTIAL_JSON, 'length')));
     await expectErrorClass(new OpenAiAdapter('gpt-5').generate({ ...BASE_PARAMS }), 'api_error');
   });
-  it('OpenAI: same partial JSON with finish_reason "stop" → parse_error (guard is surgical)', async () => {
+  // REVIEWER-PARSE-RELIABILITY-1 (RPR-1): a STRUCTURAL truncation (PARTIAL_JSON is cut mid-string) now
+  // classifies as the retriable api_error class even when the provider mislabels finish_reason (here
+  // 'stop'), DECOUPLED from the finish_reason signal. This SUPERSEDES the prior "surgical guard" (which
+  // left a signal-less truncation as parse_error) and fixes the Grok CAL-1 mid-string-truncation
+  // miscalibration. Garbage with NO truncation signal (e.g. '{ broken json') still stays parse_error —
+  // see reviewer_parse_reliability_rpr1_rpr2.test.ts.
+  it('OpenAI: partial JSON with finish_reason "stop" → api_error (RPR-1: structural truncation, no signal needed)', async () => {
     mockFetch.mockResolvedValueOnce(makeOkResponse(openAiLikeBody(PARTIAL_JSON, 'stop')));
-    await expectErrorClass(new OpenAiAdapter('gpt-5').generate({ ...BASE_PARAMS }), 'parse_error');
+    await expectErrorClass(new OpenAiAdapter('gpt-5').generate({ ...BASE_PARAMS }), 'api_error');
   });
 
   // ── Gemini (regression pin — the UAT-1 fix) ───────────────────────────────
@@ -131,9 +137,10 @@ describe('GEMINI-BUDGET-CAL-1 — truncation classifies as api_error, never pars
     mockFetch.mockResolvedValueOnce(makeOkResponse(geminiBody(PARTIAL_JSON, 'MAX_TOKENS')));
     await expectErrorClass(new GoogleAdapter('gemini-2.5-pro').generate({ ...BASE_PARAMS }), 'api_error');
   });
-  it('Gemini: same partial JSON with finishReason "STOP" → parse_error (guard is surgical)', async () => {
+  // RPR-1: structural truncation → api_error even with a non-truncation finishReason (supersedes the guard).
+  it('Gemini: partial JSON with finishReason "STOP" → api_error (RPR-1: structural truncation, no signal needed)', async () => {
     mockFetch.mockResolvedValueOnce(makeOkResponse(geminiBody(PARTIAL_JSON, 'STOP')));
-    await expectErrorClass(new GoogleAdapter('gemini-2.5-pro').generate({ ...BASE_PARAMS }), 'parse_error');
+    await expectErrorClass(new GoogleAdapter('gemini-2.5-pro').generate({ ...BASE_PARAMS }), 'api_error');
   });
 
   // ── Anthropic (FIXED in this increment) ───────────────────────────────────
@@ -141,9 +148,10 @@ describe('GEMINI-BUDGET-CAL-1 — truncation classifies as api_error, never pars
     mockFetch.mockResolvedValueOnce(makeOkResponse(anthropicBody(PARTIAL_JSON, 'max_tokens')));
     await expectErrorClass(new AnthropicAdapter('claude-opus-4-5').generate({ ...BASE_PARAMS }), 'api_error');
   });
-  it('Anthropic: same partial JSON with stop_reason "end_turn" → parse_error (guard is surgical)', async () => {
+  // RPR-1: structural truncation → api_error even with stop_reason 'end_turn' (supersedes the guard).
+  it('Anthropic: partial JSON with stop_reason "end_turn" → api_error (RPR-1: structural truncation, no signal needed)', async () => {
     mockFetch.mockResolvedValueOnce(makeOkResponse(anthropicBody(PARTIAL_JSON, 'end_turn')));
-    await expectErrorClass(new AnthropicAdapter('claude-opus-4-5').generate({ ...BASE_PARAMS }), 'parse_error');
+    await expectErrorClass(new AnthropicAdapter('claude-opus-4-5').generate({ ...BASE_PARAMS }), 'api_error');
   });
 
   // ── xAI / Grok (FIXED in this increment) ──────────────────────────────────
@@ -151,9 +159,10 @@ describe('GEMINI-BUDGET-CAL-1 — truncation classifies as api_error, never pars
     mockFetch.mockResolvedValueOnce(makeOkResponse(openAiLikeBody(PARTIAL_JSON, 'length')));
     await expectErrorClass(new XaiAdapter('grok-4').generate({ ...BASE_PARAMS }), 'api_error');
   });
-  it('xAI: same partial JSON with finish_reason "stop" → parse_error (guard is surgical)', async () => {
+  // RPR-1: structural truncation → api_error even with finish_reason 'stop' (supersedes the guard).
+  it('xAI: partial JSON with finish_reason "stop" → api_error (RPR-1: structural truncation, no signal needed)', async () => {
     mockFetch.mockResolvedValueOnce(makeOkResponse(openAiLikeBody(PARTIAL_JSON, 'stop')));
-    await expectErrorClass(new XaiAdapter('grok-4').generate({ ...BASE_PARAMS }), 'parse_error');
+    await expectErrorClass(new XaiAdapter('grok-4').generate({ ...BASE_PARAMS }), 'api_error');
   });
 
   // ── Composition with MODEL-RELIABILITY-UAT-1 ──────────────────────────────
