@@ -183,30 +183,20 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
           )}
         </div>
 
-        {/* Navigation */}
+        {/* Navigation — S12 (UI-ATTORNEY-SWEEP-1): ordered Overview, Matters, Deed, Templates, Upload &
+            Format, Notifications, Settings, Supervision, Diagnostics. Flag-gated links keep their gates
+            (unchanged); this is order/display only. */}
         <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavLink to="/matters" className={navLinkClass}>
-            <FileText className="w-4 h-4 flex-shrink-0" />
-            <span data-rail-label>Matters</span>
-          </NavLink>
           {deliverableFlag.data?.enabled === true && (
             <NavLink to="/overview" className={navLinkClass}>
               <ClipboardList className="w-4 h-4 flex-shrink-0" />
               <span data-rail-label>Overview</span>
             </NavLink>
           )}
-          {supervisionFlag.data?.enabled === true && (
-            <NavLink to="/supervision" className={navLinkClass}>
-              <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-              <span data-rail-label>Supervision</span>
-            </NavLink>
-          )}
-          {reviewerHealthFlag.data?.enabled === true && (
-            <NavLink to="/diagnostics" className={navLinkClass}>
-              <Activity className="w-4 h-4 flex-shrink-0" />
-              <span data-rail-label>Diagnostics</span>
-            </NavLink>
-          )}
+          <NavLink to="/matters" className={navLinkClass}>
+            <FileText className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Matters</span>
+          </NavLink>
           {/* DEED-DRAFT-AGENT-1 QD-1 — top-level "Deed" fast-lane entry. Rendered only when the deed-draft
               agent flag is ON (default OFF -> absent). The /deed page also self-guards on the same flag. */}
           {deedAgentFlag.data?.enabled === true && (
@@ -222,10 +212,6 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
           <NavLink to="/upload-format" className={navLinkClass}>
             <FilePlus className="w-4 h-4 flex-shrink-0" />
             <span data-rail-label>Upload &amp; Format</span>
-          </NavLink>
-          <NavLink to="/settings" className={navLinkClass}>
-            <Settings className="w-4 h-4 flex-shrink-0" />
-            <span data-rail-label>Settings</span>
           </NavLink>
           {/* FOLD-NOTIFY-1 — bell + unread badge. Rendered only when NOTIFICATIONS_ENABLED
               is ON (default OFF -> absent). INFORMATIONAL: the badge surfaces a count; it
@@ -329,6 +315,22 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
                 </>
               )}
             </div>
+          )}
+          <NavLink to="/settings" className={navLinkClass}>
+            <Settings className="w-4 h-4 flex-shrink-0" />
+            <span data-rail-label>Settings</span>
+          </NavLink>
+          {supervisionFlag.data?.enabled === true && (
+            <NavLink to="/supervision" className={navLinkClass}>
+              <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+              <span data-rail-label>Supervision</span>
+            </NavLink>
+          )}
+          {reviewerHealthFlag.data?.enabled === true && (
+            <NavLink to="/diagnostics" className={navLinkClass}>
+              <Activity className="w-4 h-4 flex-shrink-0" />
+              <span data-rail-label>Diagnostics</span>
+            </NavLink>
           )}
         </nav>
 
