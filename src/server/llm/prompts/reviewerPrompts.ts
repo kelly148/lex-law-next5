@@ -157,6 +157,7 @@ const sourceAndModeDiscipline = [
 const outputContract = [
   'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
   'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "Detailed attorney-facing feedback", "severity": "critical"|"major"|"minor" }.',
+  'The item-level "severity" (critical, major, or minor) is REQUIRED on every item and is a DIFFERENT field from the feedback-card severity used inside the body (BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH). Always include the top-level critical/major/minor severity on each item; never omit it or replace it with a feedback-card tier.',
   'Inside each body string, include both sections labeled NARRATIVE_REVIEWER_MEMO and STRUCTURED_FEEDBACK_CARDS.',
   'NARRATIVE_REVIEWER_MEMO must be an attorney-readable reviewer memo explaining issue, source basis, jurisdiction treatment, recommended action, and attorney decision points.',
   'STRUCTURED_FEEDBACK_CARDS must contain a JSON array compatible with the MR-CAL-1 feedback-card contract using exact field names only.',
@@ -208,6 +209,7 @@ const outputContractLean = [
   'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
   'Emit ONE array item PER FINDING: the outer array must contain one item for EACH distinct material issue you find. Surface ALL material issues at the same coverage standard you would otherwise apply — do NOT collapse multiple issues into a single item and do NOT under-report. If you find ten issues, return ten items.',
   'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "the body string described below", "severity": "critical"|"major"|"minor" }.',
+  'The item-level "severity" (critical, major, or minor) is REQUIRED on every item and is a DIFFERENT field from the feedback-card severity used inside the body (BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH). Always include the top-level critical/major/minor severity on each item; never omit it or replace it with a feedback-card tier.',
   'Inside EACH item\'s body string, return ONLY a section labeled STRUCTURED_FEEDBACK_CARDS followed by a JSON array containing one lean feedback-card object describing THAT item\'s finding. Do NOT write any prose, narrative, or memo section, and do NOT put any text outside that JSON array.',
   'Each feedback-card object must use EXACTLY these field names and no others: ' +
     FEEDBACK_CARD_FIELD_NAMES_LEAN.join(', ') +

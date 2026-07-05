@@ -97,6 +97,14 @@ describe('MR-CAL-2 calibrated reviewer prompts', () => {
     }
   });
 
+  it('REVIEWER-PARSE-RELIABILITY-1 (RPR-5) disambiguates the item-level severity from the card severity in every prompt', () => {
+    expectEveryPromptToContain([
+      'The item-level "severity" (critical, major, or minor) is REQUIRED on every item',
+      'DIFFERENT field from the feedback-card severity used inside the body',
+      'never omit it or replace it with a feedback-card tier',
+    ]);
+  });
+
   it('T-CAL2-3 includes the five-tier severity taxonomy and SUBSTANTIVE subtypes in every prompt', () => {
     expectEveryPromptToContain([
       'BLOCKER',

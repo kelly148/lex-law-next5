@@ -91,6 +91,7 @@ const sourceAndModeDiscipline = [
 const outputContract = [
   'Return ONLY a JSON array of legacy feedback items so the active parser can persist the result. Do not include text outside the JSON array.',
   'Each item must keep this exact legacy wrapper shape: { "title": "Short issue title (under 80 characters)", "body": "Detailed attorney-facing feedback", "severity": "critical"|"major"|"minor" }.',
+  'The item-level "severity" (critical, major, or minor) is REQUIRED on every item and is a DIFFERENT field from the feedback-card severity used inside the body (BLOCKER, SUBSTANTIVE, STRUCTURAL, PRECISION, POLISH). Always include the top-level critical/major/minor severity on each item; never omit it or replace it with a feedback-card tier.',
   'Inside each body string, include both sections labeled NARRATIVE_REVIEWER_MEMO and STRUCTURED_FEEDBACK_CARDS.',
   'NARRATIVE_REVIEWER_MEMO must be an attorney-readable reviewer memo explaining issue, source basis, jurisdiction treatment, recommended action, and attorney decision points.',
   'STRUCTURED_FEEDBACK_CARDS must contain a JSON array compatible with the MR-CAL-1 feedback-card contract using exact field names only.',
