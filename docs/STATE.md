@@ -4,6 +4,23 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-05 — UI-ATTORNEY-SWEEP-1 inc 2 (S2/S3/S4/S6/S7/S8/S10/S11) MERGED — display-only, awaiting deploy
+
+**What changed.** UI-ATTORNEY-SWEEP-1 increment 2 (#523 squash `7f8f7b2`) merged to `main` — display-only attorney-audience polish across seven surfaces + one docs carry-forward. **No safeguard semantics, gates, audit writes, or attestation RECORDS change**; attestation text is preserved byte-identical (now behind a one-click expand where relevant). Mapped with a 7-agent parallel workflow, implemented + verified in the main loop.
+- **S2** QuickDeedPage — the standing 3-line amber conflicts LECTURE collapses to one muted line + a native `<details>` expandable (the deed-output stamp wording is preserved verbatim inside; render condition + `data-testid` unchanged).
+- **S3** MatterDetail — the matter-side deed intro trims to one sentence.
+- **S4** GateOverridePanel — the "Intake gate overridden" amber box → a CHIP that expands to the full attestation RECORD (byte-identical); only the fail-closed LECTURE prose is dropped. CapacityElectionPanel: the "Correcting it re-stamps the election…" explainer moves to a tooltip.
+- **S6** ReviewPane — the "Attorney decision required" pill folds into the severity/escalation chip (Gavel marker + `title` tooltip carry the unchanged always-escalate semantic, G4).
+- **S7** SettingsPage — the Quick-Deed-conflicts paragraph trims 4→2 sentences; notifications caption kept once.
+- **S8** UploadFormatPage — the footer's duplicated supported-formats/PDF notes are deduped (the drop-zone hint + intro already state them); "Substantive content is preserved. No AI rewriting" kept.
+- **S10** — recorded the G1–G5 principle in `docs/engagements/C1-CONV-DESIGN_implementation-notes.md` as a build input for the C.4–C.6 conversational build + Copilot UI.
+- **S11** DocumentDetail — the deed drafter's-notes page renders COLLAPSED by default under "Drafter's notes — N items (delete before recording)" with a localStorage-persisted expand; content passed through unchanged.
+Two RENDER (display) tests updated to match the new presentation (semantic preserved; NO behavioral test modified): `reviewUxRedesign1` asserts the escalate tooltip via `getByTitle`; `gateOverridePanel` asserts the chip AND now expands it to prove the attestation is preserved. New inc-2 sweep-grep invariants in `ui_attorney_sweep_1.test.ts`. Full affected render suite (84) + sweep test green; tsc + eslint clean.
+
+**Current build state.** `main` HEAD = `7f8f7b2`. **prod = `0c4f090`** (inc 2 is NOT yet deployed — awaiting the operator's deploy). No schema/flag change; all product flags still OFF. inc 2 is safe to deploy on top of the current prod (display-only, no migration).
+
+**Open items / gate residuals.** (1) **UI-ATTORNEY-SWEEP-1 is complete EXCEPT S1** — the deed document page (S1) is BLOCKED on the `DEED-DOC-PAGE-LAYOUT-1` dispatch (referenced as "the template for the rest" but never provided); S9 needed no changes. (2) inc 2 awaits deploy. (3) Prior carry-forwards unchanged (flag flips, the `0052` provenance backfill, the DEED-EXPORT re-deploy-if-you-deployed-873f1d0 ordering check).
+
 ## 2026-07-05 — PROD DEPLOY: `main` `0c4f090` (operator-confirmed) — DEED-EXPORT-FORMAT-1 + UI-ATTORNEY-SWEEP-1 inc 1
 
 **What changed.** The operator accepted and deployed `main` HEAD **`0c4f090`** to prod (Railway) and directed it be recorded (Rule 16 / Rule 18). Two engagements land, both user-visible (unlike the prior behavior-neutral `745cd5a` deploy):
