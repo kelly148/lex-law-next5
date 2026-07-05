@@ -3962,3 +3962,42 @@ export type TitleExamSession = typeof titleExamSession.$inferSelect;
 export type NewTitleExamSession = typeof titleExamSession.$inferInsert;
 export type TitleExamFinding = typeof titleExamFinding.$inferSelect;
 export type NewTitleExamFinding = typeof titleExamFinding.$inferInsert;
+
+// title_exam_client_delivery_approval — TITLE-EXAM-1 (T6, NC-3). APPEND-ONLY durable record of one
+// Approve-for-Client-Delivery act: client-facing artifacts (email / branded report) generate ONLY from the
+// attorney-approved, version-locked memo behind this logged action. Content-hash-bound (memoVersionHash) +
+// supersede-on-change — a later memo edit re-arms the approval. approvalEventId points to the audit_events
+// approval row (Fork-C: audit_events is the decision source of truth). Additive, matter-scoped, flag-dark.
+export const titleExamClientDeliveryApproval = mysqlTable(
+  'title_exam_client_delivery_approval',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    sessionId: char('sessionId', { length: 36 }).notNull(),
+    userId: char('userId', { length: 36 }).notNull(),
+    matterId: char('matterId', { length: 36 }).notNull(),
+    // WHO affirmatively approved for client delivery (the attorney).
+    attorneyUserId: char('attorneyUserId', { length: 36 }).notNull(),
+    // NC-3b version-lock: the content hash of the approved memo. A material change re-arms the approval.
+    memoVersionHash: varchar('memoVersionHash', { length: 128 }).notNull(),
+    // NC-3d captured at the gate:
+    hat: varchar('hat', { length: 64 }).notNull(),
+    recipientClass: varchar('recipientClass', { length: 64 }).notNull(),
+    posture: varchar('posture', { length: 64 }).notNull(),
+    advicePermitted: boolean('advicePermitted').notNull(),
+    caveats: json('caveats'),
+    exclusions: json('exclusions'),
+    // Pointer to the audit_events approval row recording the decision act (Fork-C source of truth).
+    approvalEventId: char('approvalEventId', { length: 36 }).notNull(),
+    createdAt: timestamp('createdAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    idxTitleExamApprovalSession: index('idx_title_exam_approval_session').on(table.sessionId),
+    idxTitleExamApprovalUserMatter: index('idx_title_exam_approval_user_matter').on(
+      table.userId,
+      table.matterId,
+    ),
+  }),
+);
+
+export type TitleExamClientDeliveryApproval = typeof titleExamClientDeliveryApproval.$inferSelect;
+export type NewTitleExamClientDeliveryApproval = typeof titleExamClientDeliveryApproval.$inferInsert;

@@ -139,8 +139,9 @@ Design note: a T4 test surfaced (and fixed) an under-escalation gap — the DC "
 (a seeded failure class) wasn't caught by the estate pattern; strengthened the recognizer (escalate-only is
 fail-toward-escalation; under-escalation is the dangerous error per the disposition).
 
-### T5 — contamination guards (NC-7) — IN PROGRESS
-Branch `lex-next/tex1-5` off `origin/main` (`36e3a57`). Pure guard + mock-tx import logging. Files:
+### T5 — contamination guards (NC-7) — MERGED (PR #504, squash `31b09ab`)
+Branch `lex-next/tex1-5` off `origin/main` (`36e3a57`). CI green; auto-merged under Rule 15; branch deleted.
+Pure guard + mock-tx import logging. Files:
 - `src/server/titleExam/contaminationGuard.ts` — `evaluateContamination` (a seed fact is a HYPOTHESIS:
   auto-flag on a source-matter-ID mismatch, or when a seed would support a requirement/exception/vesting
   conclusion until re-verified); `assessReconciliationClosure` (reconciliation CANNOT close while any
@@ -152,3 +153,31 @@ Branch `lex-next/tex1-5` off `origin/main` (`36e3a57`). Pure guard + mock-tx imp
 - `src/server/__tests__/title_exam_5_contamination.test.ts` — seed hypothesis auto-flag (mismatch /
   requirement / vesting), flag-clears-on-re-verify, non-seed never flagged, reconciliation-close block +
   release, resolveImport validation, logged-resolution audit shape + mock-tx write + refusal.
+
+### T6 — outputs + gates (spec §7; NC-3) — IN PROGRESS
+Branch `lex-next/tex1-6` off `origin/main` (`31b09ab`). Files:
+- `src/server/titleExam/internalMemo.ts` — the internal exam memo assembler: AI-ASSISTED / NON-FINAL label;
+  NC-10 banners first; BLUF; escalations in the FIVE-FIELD format with a route; requirements / exceptions /
+  notes; curative roadmap (identification only); auto-resolved items shown (full visibility); sendability
+  matrix; scope note. (Not client-facing → not subject to the render-blocks.)
+- `src/server/titleExam/renderBlocks.ts` — NC-3e structural render-BLOCKS for client/underwriter-facing output
+  (a block, not a label): forbidden assurances ("clear/marketable title", "nothing in the land records",
+  "free and clear", absolute no-liens), drafts-only annotation markers ([[ ]]/NOTE:/TODO), and UNVERIFIED
+  citations (a cite with no [externally verified]/[instrument-confirmed] marker). Fail-closed aggregate.
+- `src/server/titleExam/clientDelivery.ts` — the client-artifact generation GATE: `buildMemoVersionHash`
+  (NC-3b version-lock), `buildClientEmailDraft`/`buildBrandedReportDraft` generate DRAFTS from the approved
+  client body, run the render-blocks (fail-closed), add non-editable disclaimers + attorney-of-record framing
+  with NO affirmative AI disclosure (operator resolution). NO send path — drafts the attorney transports.
+- `src/server/titleExam/reconciler.ts` (edit) — carry NC-8/NC-9 provenance (downgraded, ocrSourcePagePincite)
+  onto the reconciled finding so the internal memo can surface it.
+- `src/server/db/schema.ts` + `0055_..._client_delivery_approval.sql` — the additive, append-only,
+  content-hash-bound `title_exam_client_delivery_approval` table (mirrors express_approval_attestation).
+- `src/server/db/queries/titleExamApproval.ts` — the durable Approve-for-Client-Delivery attestation (Fork-C):
+  one audit_events approval row + the attestation row (version-lock hash + pointer), in one tx; mock-tx seam.
+- `src/server/db/queries/matterPurge.ts` (edit) — registered the new table in the purge cascade.
+- `src/server/__tests__/title_exam_6_outputs.test.ts` — memo (label/banners/five-field/scope), render-blocks
+  (assurances/markers/citations), client-delivery gate (version-lock, attorney-of-record, no-AI-disclosure,
+  render-block fail-closed), attestation audit shape + mock-tx write, migration additive-only + out-of-band,
+  purge coverage (14 tests).
+
+Migration inventory (out-of-band): 0054 (T1), **0055 (T6)** — additive, NOT on the auto-apply allowlist.

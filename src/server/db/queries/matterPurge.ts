@@ -103,6 +103,7 @@ import {
   titleExamFinding,
   titleExamSession,
   titleExamMatterAttribute,
+  titleExamClientDeliveryApproval,
 } from '../schema.js';
 
 export interface MatterPurgeResult {
@@ -247,6 +248,7 @@ export async function cascadeDeleteMatterChildren(
   // each attorney ADOPT/MODIFY/HOLD + Approve-for-Client-Delivery act is the auditEvents disposition event
   // (preserved by the everyday delete), so these tables purge WITH the matter, exactly like deedGate /
   // expressLoopRun. Children-first (no FK; for clean counts). Owner+matter-scoped.
+  await step('titleExamClientDeliveryApproval', titleExamClientDeliveryApproval, byMatter(titleExamClientDeliveryApproval));
   await step('titleExamFinding', titleExamFinding, byMatter(titleExamFinding));
   await step('titleExamSession', titleExamSession, byMatter(titleExamSession));
   await step('titleExamMatterAttribute', titleExamMatterAttribute, byMatter(titleExamMatterAttribute));

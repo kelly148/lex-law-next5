@@ -34,6 +34,9 @@ export interface ReconcilerItemInput {
   sourceBasis: TitleExamSourceBasis;
   sendability: TitleExamSendability;
   classification: TitleExamClassification;
+  /** NC-8/NC-9 provenance carried from the lane finding (surfaced in the internal memo). */
+  downgraded?: boolean;
+  ocrSourcePagePincite?: string | null;
   /** Index into laneA / laneB findings this item reconciles (omit if the lane did not raise it). */
   laneARef?: number;
   laneBRef?: number;
@@ -53,6 +56,8 @@ export interface ReconciledFinding {
   sourceBasis: TitleExamSourceBasis;
   sendability: TitleExamSendability;
   classification: TitleExamClassification;
+  downgraded: boolean;
+  ocrSourcePagePincite: string | null;
   laneOrigin: TitleExamLaneOrigin;
   reconClassification: TitleExamReconClass;
   isJudgmentConflict: boolean;
@@ -132,6 +137,8 @@ function reconcileOne(item: ReconcilerItemInput, laneALen: number, laneBLen: num
     sourceBasis: item.sourceBasis,
     sendability: item.sendability,
     classification: item.classification,
+    downgraded: item.downgraded ?? false,
+    ocrSourcePagePincite: item.ocrSourcePagePincite ?? null,
     laneOrigin,
     reconClassification,
     isJudgmentConflict,
