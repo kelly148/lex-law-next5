@@ -221,8 +221,9 @@ E8 gate-hole count is unchanged (0). Design note: §4a's "durable adopt ledger" 
 MR-CAL adopt_ledger; T8 introduces no new decision record (audit_events stays the source of truth). E8 remains
 the operator-only ship gate — this wiring ships byte-neutral (flag OFF) and never self-clears E8.
 
-### T9 — acceptance harness (§9) — IN PROGRESS
-Branch `lex-next/tex1-9` off `origin/main` (`7b655f0`). SYNTHETIC fixtures only; mocks only. File:
+### T9 — acceptance harness (§9) — MERGED (PR #508, squash `971584a`)
+Branch `lex-next/tex1-9` off `origin/main` (`7b655f0`). CI green; auto-merged under Rule 15; branch deleted.
+SYNTHETIC fixtures only; mocks only. File:
 - `src/server/__tests__/title_exam_9_acceptance.test.ts` — the four SEEDED FAILURE CLASSES as PASS/FAIL gates
   (the module must demonstrably CATCH each): (a) the OCR'd-denied-order testacy trap (OCR-derived + downgraded
   + testacy escalates as judgment); (b) §10-105-style over-confidence (an over-confident estate/authority
@@ -235,7 +236,7 @@ Branch `lex-next/tex1-9` off `origin/main` (`7b655f0`). SYNTHETIC fixtures only;
 
 **Increments (all MERGED to `main`, squash, Rule-15 auto-merge, CI green each):**
 T1 #500 `6acfe24` · T2 #501 `c466967` · T3 #502 `203fbf1` · T4 #503 `36e3a57` · T5 #504 `31b09ab` ·
-T6 #505 `3ad9051` · T7 #506 `6abd1c2` · T8 #507 `7b655f0` · T9 #508 (this PR).
+T6 #505 `3ad9051` · T7 #506 `6abd1c2` · T8 #507 `7b655f0` · T9 #508 `971584a`. **Phase A complete; `main` @ `971584a`.**
 
 **Migrations generated (ADDITIVE-ONLY, operator-applied OUT-OF-BAND — NOT on the apply-prod-migrations.mjs
 allowlist; NEVER applied to prod by this batch):**
