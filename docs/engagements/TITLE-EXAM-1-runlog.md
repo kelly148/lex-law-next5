@@ -196,9 +196,10 @@ Pure gate; loads NO FATIC content. Files:
 - `src/server/__tests__/title_exam_7_hatgate.test.ts` — hat resolution, PB-1 FATIC gate, knowledge-lane
   scoping + cross-hat default NO, template/disclaimer/advice posture, full profile (6 tests).
 
-### T8 — Express Mode wiring (§4a) — IN PROGRESS
-Branch `lex-next/tex1-8` off `origin/main` (`6abd1c2`). Wiring-only; rides the platform Express loop (no new
-flag); byte-neutral when AUTO_REVIEW_LOOP_ENABLED is OFF. Files:
+### T8 — Express Mode wiring (§4a) — MERGED (PR #507, squash `7b655f0`)
+Branch `lex-next/tex1-8` off `origin/main` (`6abd1c2`). CI green (full Express suite 719 tests); auto-merged
+under Rule 15; branch deleted. Wiring-only; rides the platform Express loop (no new flag); byte-neutral when
+AUTO_REVIEW_LOOP_ENABLED is OFF. Files:
 - `src/server/express/protectedSpans.ts` (edit) — `DocumentType` += `title_exam`; `TITLE_EXAM_PROTECTED_SPAN_LABELS`
   + widened `ProtectedSpanLabel` (additive union — deed labels unchanged); `TITLE_EXAM_RECOGNIZERS` marking the
   exam memo's escalation / ADOPT-MODIFY-HOLD / requirements / exceptions / incompleteness-banner regions;
@@ -219,3 +220,37 @@ Regression: the full Express suite (E1..E8 locus gate, ledger, corpus) — 719 t
 E8 gate-hole count is unchanged (0). Design note: §4a's "durable adopt ledger" is the Express E4b tables, not
 MR-CAL adopt_ledger; T8 introduces no new decision record (audit_events stays the source of truth). E8 remains
 the operator-only ship gate — this wiring ships byte-neutral (flag OFF) and never self-clears E8.
+
+### T9 — acceptance harness (§9) — IN PROGRESS
+Branch `lex-next/tex1-9` off `origin/main` (`7b655f0`). SYNTHETIC fixtures only; mocks only. File:
+- `src/server/__tests__/title_exam_9_acceptance.test.ts` — the four SEEDED FAILURE CLASSES as PASS/FAIL gates
+  (the module must demonstrably CATCH each): (a) the OCR'd-denied-order testacy trap (OCR-derived + downgraded
+  + testacy escalates as judgment); (b) §10-105-style over-confidence (an over-confident estate/authority
+  conclusion is escalated, never auto-adopted, even when a lane proposes housekeeping); (c) unverified-citation
+  carriage (structurally render-blocked from client output; a verified cite passes); (d) cross-matter
+  contamination (auto-flag + reconciliation-close block). Plus an end-to-end pipeline smoke (mocked lanes →
+  reconcile → memo). Runs in CI with mocked lanes (5 tests).
+
+## Phase-A build complete — final inventory
+
+**Increments (all MERGED to `main`, squash, Rule-15 auto-merge, CI green each):**
+T1 #500 `6acfe24` · T2 #501 `c466967` · T3 #502 `203fbf1` · T4 #503 `36e3a57` · T5 #504 `31b09ab` ·
+T6 #505 `3ad9051` · T7 #506 `6abd1c2` · T8 #507 `7b655f0` · T9 #508 (this PR).
+
+**Migrations generated (ADDITIVE-ONLY, operator-applied OUT-OF-BAND — NOT on the apply-prod-migrations.mjs
+allowlist; NEVER applied to prod by this batch):**
+- `0054_title_exam_1_data_model.sql` — title_exam_matter_attribute, title_exam_session, title_exam_finding.
+- `0055_title_exam_6_client_delivery_approval.sql` — title_exam_client_delivery_approval (append-only).
+Both must land in prod BEFORE `TITLE_EXAM_ENABLED` flips.
+
+**Flag inventory:** `TITLE_EXAM_ENABLED` (new, default OFF, byte-neutral). §4b role bindings are env-overridable
+(`TITLE_EXAM_EXAMINER_A_MODEL` / `_EXAMINER_B_MODEL` / `_RECONCILER_MODEL` / `_EXPRESS_REVIEWER_MODEL`; all
+default to config keys, never a model literal). Express Mode adds NO new flag (rides
+`AUTO_REVIEW_LOOP_ENABLED` + `EXPRESS_DURABLE_RECORDS_ENABLED` + the E8 ship gate).
+
+**What remains for live verification (operator-driven, NOT in this batch):** apply migrations 0054/0055 to
+prod TiDB out-of-band; then the FIRST real exam is an operator-driven live run on a SYNTHETIC matter (the
+lanes/reconciler make live provider calls only when TITLE_EXAM_ENABLED is on and the operator drives a run —
+no live call was made in this batch). Binding the T3 exam lanes / T4 reconciler as the Express reviewPort/
+regeneratePort (so a title memo actually loops) is part of that live wiring, gated on E8. Real-run fixtures
+join after the operator's W2a scrub review. Standing PB-1/PB-2/xAI-ZDR/malpractice items are operator out-of-band.
