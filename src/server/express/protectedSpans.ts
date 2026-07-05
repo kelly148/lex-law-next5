@@ -62,11 +62,25 @@ export const DEED_PROTECTED_SPAN_LABELS = [
   'consideration_recital',
 ] as const;
 
-export type ProtectedSpanLabel = (typeof DEED_PROTECTED_SPAN_LABELS)[number];
+// TITLE-EXAM-1 (T8) — the title-exam memo protected-span labels. The exam memo's judgment/escalation and
+// requirement/exception regions are protected so the platform locus gate never AUTO-ADOPTS an edit landing in
+// them; the non-locus always-escalate properties (abstract-only/OCR-only basis, unverified citation, cross-
+// matter seed) ride the additive modelEscalates hint (src/server/titleExam/expressProfile.ts) instead.
+export const TITLE_EXAM_PROTECTED_SPAN_LABELS = [
+  'escalation_block',
+  'escalation_action',
+  'requirements_block',
+  'exceptions_block',
+  'incompleteness_banner',
+] as const;
+
+export type ProtectedSpanLabel =
+  | (typeof DEED_PROTECTED_SPAN_LABELS)[number]
+  | (typeof TITLE_EXAM_PROTECTED_SPAN_LABELS)[number];
 
 /** Document types the catalog can serve. Deeds are implemented in E1; the rest are forward-declared so the
  *  catalog shape is stable as POA/will/etc. earn their recognizer sets (E8 §7). */
-export type DocumentType = 'deed' | 'poa' | 'will' | 'engagement_letter' | 'llc';
+export type DocumentType = 'deed' | 'poa' | 'will' | 'engagement_letter' | 'llc' | 'title_exam';
 
 // ── deterministic span location ────────────────────────────────────────────────
 
@@ -261,12 +275,41 @@ const DEED_TYPE_LABEL_REGEX = /\bDEED OF (?:GIFT|TRUST)\b|\bTHIS DEED\b/i;
  * — deletion + defined-term — the only protection until that type's recognizers land; a type with no spans is
  * never silently treated as "all-safe" because the caller controls whether auto-adopt is even offered).
  */
+// TITLE-EXAM-1 (T8) — the exam-memo section terminators (the internalMemo.ts ALL-CAPS headers). Kept WIDE.
+const TITLE_EXAM_BLOCK_TERMINATORS: RegExp[] = [
+  /^BLUF$/m,
+  /^ESCALATIONS\b/m,
+  /^REQUIREMENTS TO\b/m,
+  /^EXCEPTIONS TO REMAIN$/m,
+  /^INFORMATIONAL NOTES\b/m,
+  /^CURATIVE ROADMAP\b/m,
+  /^AUTO-RESOLVED\b/m,
+  /^SENDABILITY MATRIX\b/m,
+  /^SCOPE NOTE$/m,
+];
+
+// Title-exam memo recognizers — anchor on the internalMemo.ts house markers. Protecting these regions stops
+// the platform loop auto-adopting an edit that lands in a judgment/escalation or requirement/exception region.
+const TITLE_EXAM_RECOGNIZERS: ReadonlyArray<{ label: ProtectedSpanLabel; recognize: SpanRecognizer }> = [
+  { label: 'escalation_block', recognize: (t) => blockFrom(t, /^ESCALATIONS\b[^\n]*/m, TITLE_EXAM_BLOCK_TERMINATORS) },
+  { label: 'escalation_action', recognize: (t) => rangesOf(t, /ADOPT\s*\/\s*MODIFY\s*\/\s*HOLD/i) },
+  { label: 'requirements_block', recognize: (t) => blockFrom(t, /^REQUIREMENTS TO\b[^\n]*/m, TITLE_EXAM_BLOCK_TERMINATORS) },
+  { label: 'exceptions_block', recognize: (t) => blockFrom(t, /^EXCEPTIONS TO REMAIN$/m, TITLE_EXAM_BLOCK_TERMINATORS) },
+  { label: 'incompleteness_banner', recognize: (t) => [...rangesOf(t, /!! INCOMPLETE EXAMINATION[^\n]*/), ...rangesOf(t, /!! SINGLE-LANE EXAMINATION[^\n]*/)] },
+];
+
+const RECOGNIZERS_BY_TYPE: Partial<Record<DocumentType, ReadonlyArray<{ label: ProtectedSpanLabel; recognize: SpanRecognizer }>>> = {
+  deed: DEED_RECOGNIZERS,
+  title_exam: TITLE_EXAM_RECOGNIZERS,
+};
+
 export function buildProtectedSpans(docType: DocumentType, documentText: string): ProtectedSpan[] {
-  if (docType !== 'deed') return [];
+  const recognizers = RECOGNIZERS_BY_TYPE[docType];
+  if (!recognizers) return [];
   const text = documentText ?? '';
   if (text.length === 0) return [];
   const spans: ProtectedSpan[] = [];
-  for (const { label, recognize } of DEED_RECOGNIZERS) {
+  for (const { label, recognize } of recognizers) {
     for (const r of recognize(text)) {
       const start = Math.max(0, Math.min(r.start, text.length));
       const end = Math.max(start, Math.min(r.end, text.length));
