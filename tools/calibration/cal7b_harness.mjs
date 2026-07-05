@@ -29,7 +29,7 @@
  *         --full  = the entire Block A/B/C grid (this is the CAL-7B-LIVE run)
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -448,16 +448,46 @@ const FIXTURES = {
   },
 };
 
-const TRACKS = {
-  gpt: { modelString: 'openai:gpt-5', track: 'GPT' },
-  claude: { modelString: 'anthropic:claude-opus-4-5', track: 'Claude' },
-  gemini: { modelString: 'google:gemini-2.5-pro', track: 'Gemini' },
-  grok: { modelString: 'xai:grok-4', track: 'Grok' },
-  gpt_lite: { modelString: 'openai:gpt-4.1-mini', track: 'GPT' },
-  claude_lite: { modelString: 'anthropic:claude-sonnet-4-5', track: 'Claude' },
-  gemini_lite: { modelString: 'google:gemini-2.5-flash', track: 'Gemini' },
-  grok_lite: { modelString: 'xai:grok-3-mini', track: 'Grok' },
-};
+// ============================================================
+// CAL-1B: per-lane reviewer model IDs are SOURCED FROM src/server/llm/config.ts (the single source of truth) at
+// runtime — NOT hardcoded — so the harness always tests the currently pinned lanes and cannot drift after a model
+// swap (G.3 corollary). The harness is standalone Node ESM (no TS toolchain), so it READS + PARSES config.ts as
+// text: the REVIEWER_MODELS literals (full) and the LITE_REVIEWER_MODELS resolveLiteModel('ENV','default') lite
+// lanes (env override honored EXACTLY as config does). It fails LOUDLY if any of the 8 lanes cannot be parsed —
+// a config format change must never silently test an undefined model. Only the MODEL IDs are sourced here; the
+// display track labels (GPT/Claude/Gemini/Grok) and all other harness logic/scoring/prompt/parser are unchanged.
+// ============================================================
+function loadConfigModels() {
+  const configPath = join(HERE, '..', '..', 'src', 'server', 'llm', 'config.ts');
+  const src = readFileSync(configPath, 'utf8');
+  const out = {};
+
+  const fullBlock = src.match(/export const REVIEWER_MODELS\s*=\s*\{([\s\S]*?)\}\s*as const;/);
+  if (!fullBlock) throw new Error('CAL-1B: could not locate REVIEWER_MODELS in config.ts (format changed?)');
+  for (const key of ['gpt', 'claude', 'gemini', 'grok']) {
+    const m = fullBlock[1].match(new RegExp(`\\b${key}\\s*:\\s*'([^']+)'`));
+    if (!m) throw new Error(`CAL-1B: could not parse full lane "${key}" from REVIEWER_MODELS`);
+    out[key] = m[1];
+  }
+
+  const liteBlock = src.match(/export const LITE_REVIEWER_MODELS\s*=\s*\{([\s\S]*?)\}\s*as const;/);
+  if (!liteBlock) throw new Error('CAL-1B: could not locate LITE_REVIEWER_MODELS in config.ts (format changed?)');
+  for (const key of ['gpt_lite', 'claude_lite', 'gemini_lite', 'grok_lite']) {
+    const m = liteBlock[1].match(new RegExp(`\\b${key}\\s*:\\s*resolveLiteModel\\('([^']+)',\\s*'([^']+)'\\)`));
+    if (!m) throw new Error(`CAL-1B: could not parse lite lane "${key}" from LITE_REVIEWER_MODELS`);
+    const envVar = m[1];
+    const def = m[2];
+    const override = process.env[envVar];
+    out[key] = override && override.trim().length > 0 ? override.trim() : def; // mirror config's resolveLiteModel
+  }
+  return out;
+}
+
+const CONFIG_MODELS = loadConfigModels();
+const TRACK_LABEL = { gpt: 'GPT', claude: 'Claude', gemini: 'Gemini', grok: 'Grok', gpt_lite: 'GPT', claude_lite: 'Claude', gemini_lite: 'Gemini', grok_lite: 'Grok' };
+const TRACKS = Object.fromEntries(
+  Object.keys(TRACK_LABEL).map((key) => [key, { modelString: CONFIG_MODELS[key], track: TRACK_LABEL[key] }]),
+);
 const SCENARIOS = ['P8-T1', 'P8-T6', 'P8-T7', 'P8-T10'];
 const FULL_TRACKS = ['gpt', 'claude', 'gemini', 'grok'];
 
@@ -569,6 +599,10 @@ async function main() {
   // run-cap guard
   const totalCalls = grid.reduce((a, c) => a + c.n, 0);
   console.log(`[CAL-7B harness] mode=${mode} runId=${runId} cells=${grid.length} calls=${totalCalls} (cap ${RUN_CAP}) snapshot=${SNAPSHOT_COMMIT}`);
+  // CAL-1B: report the EXACT model list sourced from config.ts (dispatch step 2), so the run records which
+  // currently-pinned lanes were tested (no hardcoded drift).
+  console.log('[CAL-7B harness] lane models (from src/server/llm/config.ts): ' +
+    Object.keys(TRACK_LABEL).map((k) => `${k}=${TRACKS[k].modelString}`).join('  '));
   if (totalCalls > RUN_CAP) { console.error(`ABORT: ${totalCalls} calls exceeds run cap ${RUN_CAP}. Narrow the grid or raise the cap deliberately.`); process.exit(2); }
 
   // Flatten cells into individual calls for the concurrency pool.
@@ -589,6 +623,8 @@ async function main() {
 
   const summary = {
     engagement: 'CAL-7B-HARNESS', mode, runId, snapshotCommit: SNAPSHOT_COMMIT,
+    // CAL-1B: the exact per-lane models sourced from config.ts for this run (single source of truth; no drift).
+    laneModels: Object.fromEntries(Object.keys(TRACK_LABEL).map((k) => [k, TRACKS[k].modelString])),
     fixtureProvenance: 're-derived baseline (NOT 20260528T122851Z originals)',
     cells: cellSummaries.map((c) => ({
       block: c.block, scenarioId: c.scenarioId, reviewerKey: c.reviewerKey, track: c.runs[0]?.track,
