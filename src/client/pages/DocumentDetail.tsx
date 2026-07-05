@@ -54,6 +54,7 @@ import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
 import { DeedGatePanel } from '../components/DeedGatePanel.js';
 import { DeedSignoffPanel } from '../components/DeedSignoffPanel.js';
+import { DeedStatusStrip } from '../components/DeedStatusStrip.js';
 import DeliberateActButton from '../components/DeliberateActButton.js';
 import ProvenanceBadge from '../components/ProvenanceBadge.js';
 import DocumentCanvas, { VersionSwitcher } from '../components/DocumentCanvas.js';
@@ -547,6 +548,36 @@ export default function DocumentDetail(): React.ReactElement {
     });
   };
 
+  // DEED-DOC-PAGE-LAYOUT-1 (S1): the deed recordability machinery (three-gate checklist + affirmative
+  // acts + D3 sign-off) moved from ABOVE the document into a collapsed drawer BELOW it, so the deed reads
+  // first. The drawer state persists per user (localStorage), defaults COLLAPSED; the top status strip's
+  // "Open checklist" expands it and scrolls it into view. Display/position only — gate semantics unchanged.
+  const DEED_DRAWER_OPEN_KEY = `lln.deedRecordingOpen.${documentId}`;
+  const deedDrawerRef = React.useRef<HTMLDivElement>(null);
+  const [deedDrawerOpen, setDeedDrawerOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(DEED_DRAWER_OPEN_KEY) === 'true'; } catch { return false; }
+  });
+  const persistDeedDrawer = (next: boolean): void => {
+    try { window.localStorage.setItem(DEED_DRAWER_OPEN_KEY, String(next)); } catch { /* non-fatal */ }
+  };
+  const toggleDeedDrawer = (): void => {
+    setDeedDrawerOpen((prev) => { persistDeedDrawer(!prev); return !prev; });
+  };
+  const openDeedDrawer = (): void => {
+    setDeedDrawerOpen(true);
+    persistDeedDrawer(true);
+    // Reveal-then-scroll: rAF lets the body mount before we scroll it into view.
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        const el = deedDrawerRef.current;
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    }
+  };
+
   // Query materials to detect empty-drawer state before drafting (Option A)
   const { data: materialsData } = trpc.materials.list.useQuery(
     { matterId: matterId! },
@@ -1005,21 +1036,10 @@ export default function DocumentDetail(): React.ReactElement {
         </div>
       )}
 
-      {/* DEED-GATE-MOUNT-1 (M1): surface the three-gate recordability panel for DEED documents.
-          FOLD-DEED-1 shipped DeedGatePanel + tests but never mounted it, so it never appeared (Monster UAT
-          M1). DeedGatePanel self-gates on DEED_GATE_ENABLED (renders null when off — dark on prod until the
-          gate is activated) and the server's deedGate.get is owner-scoped + deed-only; gating the MOUNT on
-          documentType==='deed' (the server's own check) avoids firing an erroring deedGate.get for non-deed
-          docs. The panel itself surfaces the fail-closed states (unverified-locality KB banner, blocking
-          reasons), so no jurisdiction pre-condition is needed here. */}
-      {doc.documentType === 'deed' && (
-        <div data-no-print className="mb-4 space-y-4">
-          <DeedGatePanel documentId={documentId} />
-          {/* D3-SIGNOFF A.1: the source-extracted-facts sign-off (self-gates on deedSignoff.isEnabled — dark
-              on prod until the operator activates the mode). */}
-          <DeedSignoffPanel documentId={documentId} />
-        </div>
-      )}
+      {/* DEED-DOC-PAGE-LAYOUT-1 (S1): the three-gate recordability panel + D3 sign-off USED to render here,
+          above the document — burying the deed under ~20 checklist line-items. They now live in a collapsed
+          drawer BELOW the document (the DEED-GATE-MOUNT-1 block near the page foot); the neutral status strip
+          just under the action row is their at-a-glance summary + entry point. Position/display only. */}
 
       {/* Action row — compact band above document workspace, always visible */}
       <div data-no-print className="relative flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-gray-100">
@@ -1218,37 +1238,13 @@ export default function DocumentDetail(): React.ReactElement {
         )}
       </div>
 
-      {/* REVIEW-UX-REDESIGN-1: finalize-gate PRE-FLIGHT. Sendability + Export-safety LEFT the review
-          pane (disposition §G) and now run as an advisory pre-flight check at the export/finalize
-          moment, framing the Download control above. Advisory ONLY — never gates Finalize/Download.
-          Screen-only furniture (data-no-print). Mirrors the mockup v4 dashed "At export / finalize"
-          strip; the operative export control is the existing Download button above (no duplicate). */}
-      {doc.currentVersionId &&
-        (doc.workflowState === 'drafting' || doc.workflowState === 'substantively_accepted') && (
-          <div data-no-print className="mb-3 rounded-lg border border-dashed border-line bg-paper overflow-hidden">
-            <button
-              onClick={() => setShowSendability(!showSendability)}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface"
-            >
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-accent">
-                <CheckCircle className="w-3.5 h-3.5" /> At export / finalize
-              </span>
-              <span className="text-xs text-accent">Sendability</span>
-              <span className="text-xs text-accent">Export safety</span>
-              <span className="text-[11px] text-ink-hint">run as a pre-flight check before you Download</span>
-              <span className="ml-auto flex items-center gap-1 text-xs text-ink-hint">
-                {showSendability ? 'Hide' : 'Run checks'}
-                {showSendability ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </span>
-            </button>
-            {showSendability && (
-              <div className="border-t border-line bg-white">
-                <SendabilitySection documentId={documentId} />
-                <ExportSafetyPanel documentId={documentId} />
-              </div>
-            )}
-          </div>
-        )}
+      {/* DEED-DOC-PAGE-LAYOUT-1 (S1): the compact, neutral recording status strip — a single line of counts
+          in place of the stacked verdict panels. "Open checklist" expands the relocated drawer below and
+          scrolls to it. Self-gates on the deed gate flag (dark on prod) and only mounts for deed docs, so the
+          page itself never fires deedGate.get for a non-deed. Display only. */}
+      {doc.documentType === 'deed' && (
+        <DeedStatusStrip documentId={documentId} onOpenChecklist={openDeedDrawer} />
+      )}
 
       {/* Main layout: full-width tabs */}
       <div className="space-y-4">
@@ -1445,6 +1441,63 @@ export default function DocumentDetail(): React.ReactElement {
           )}
         </div>
       </div>
+
+      {/* DEED-GATE-MOUNT-1 (M1) + DEED-DOC-PAGE-LAYOUT-1 (S1): the three-gate recordability panel + the D3
+          source-extracted-facts sign-off, RELOCATED below the document into a collapsed drawer (default
+          collapsed, state persisted per user via localStorage). The panels self-gate (DeedGatePanel on
+          deedGate.isEnabled, DeedSignoffPanel on deedSignoff.isEnabled) so they stay dark on prod until each
+          gate is activated. Position/display only — gate computation, affirmative-acts recording, D3/B6/
+          sendability enforcement, and every audit write are unchanged. Two conditionals (header always shown;
+          body only when open) keep the heavy form unmounted while collapsed. */}
+      {doc.documentType === 'deed' && (
+        <div data-no-print ref={deedDrawerRef} className="mt-6">
+          <button
+            type="button"
+            onClick={toggleDeedDrawer}
+            aria-expanded={deedDrawerOpen}
+            className="flex items-center justify-between w-full px-4 py-3 bg-white border border-line rounded-lg text-sm font-semibold text-firm-navy hover:bg-surface"
+          >
+            <span>Recording checklist &amp; source-extracted facts sign-off</span>
+            {deedDrawerOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+      )}
+      {doc.documentType === 'deed' && deedDrawerOpen && (
+        <div data-no-print className="mt-2 space-y-4">
+          <DeedGatePanel documentId={documentId} />
+          <DeedSignoffPanel documentId={documentId} />
+        </div>
+      )}
+
+      {/* REVIEW-UX-REDESIGN-1: finalize-gate PRE-FLIGHT — Sendability + Export-safety run as an advisory
+          pre-flight before Download. DEED-DOC-PAGE-LAYOUT-1 relocated it BELOW the document (with the rest of
+          the machinery); it stays advisory-only and never gates Finalize/Download. Screen-only (data-no-print). */}
+      {doc.currentVersionId &&
+        (doc.workflowState === 'drafting' || doc.workflowState === 'substantively_accepted') && (
+          <div data-no-print className="mt-3 rounded-lg border border-dashed border-line bg-paper overflow-hidden">
+            <button
+              onClick={() => setShowSendability(!showSendability)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface"
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-accent">
+                <CheckCircle className="w-3.5 h-3.5" /> At export / finalize
+              </span>
+              <span className="text-xs text-accent">Sendability</span>
+              <span className="text-xs text-accent">Export safety</span>
+              <span className="text-[11px] text-ink-hint">run as a pre-flight check before you Download</span>
+              <span className="ml-auto flex items-center gap-1 text-xs text-ink-hint">
+                {showSendability ? 'Hide' : 'Run checks'}
+                {showSendability ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </span>
+            </button>
+            {showSendability && (
+              <div className="border-t border-line bg-white">
+                <SendabilitySection documentId={documentId} />
+                <ExportSafetyPanel documentId={documentId} />
+              </div>
+            )}
+          </div>
+        )}
 
       {/* Review pane */}
       {showReview && (
