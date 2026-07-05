@@ -223,7 +223,7 @@ describe('T1 — write bodies apply safe defaults (mock tx)', () => {
   });
 });
 
-describe('T1 — migration 0054 is additive-only and operator-applied OUT-OF-BAND', () => {
+describe('T1 — migration 0054 is additive-only and registered on the apply-prod allowlist (MIGRATION-ALLOWLIST-1)', () => {
   const MIGRATION = read('src/server/db/migrations/0054_title_exam_1_data_model.sql');
   const ALLOWLIST = read('scripts/apply-prod-migrations.mjs');
 
@@ -241,8 +241,8 @@ describe('T1 — migration 0054 is additive-only and operator-applied OUT-OF-BAN
     expect(/\bRENAME\s+(TABLE|COLUMN|INDEX|TO)\b/i.test(stripped)).toBe(false);
   });
 
-  it('is NOT on the apply-prod-migrations auto-apply allowlist (operator-applied out-of-band)', () => {
-    expect(ALLOWLIST).not.toContain('0054_title_exam_1_data_model.sql');
+  it('is registered on the apply-prod-migrations allowlist (MIGRATION-ALLOWLIST-1; additive, applied out-of-band)', () => {
+    expect(ALLOWLIST).toContain('0054_title_exam_1_data_model.sql');
   });
 });
 

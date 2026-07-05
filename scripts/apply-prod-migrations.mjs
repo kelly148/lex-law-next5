@@ -187,8 +187,20 @@ const MIGRATIONS = [
   // default backfills existing rows to FALSE (no UPDATE). No behavior change while KB_BACKBONE_ENABLED is OFF.
   // Apply BEFORE flipping KB_BACKBONE_ENABLED. Default-safe; idempotent; on the additive pre-deploy path.
   '0050_kb_backbone_p2_inc1_memo_scope_metadata.sql',
+  // MIGRATION-ALLOWLIST-1 (2026-07-05, operator-authorized) — register the additive migrations that existed
+  // on main but were never allowlisted/applied, the root cause of the live prod deed-generation failure
+  // (prod writes documents.provenance without 0052's column -> "Unknown column 'provenance'"). All five are
+  // additive-only + idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS); NONE does an ENUM
+  // MODIFY (so the re-run/narrowing invariant is untouched). Sequenced in file order after 0050. 0052 fixes
+  // the live failure; 0051/0053/0054/0055 pre-stage the Express-durable / D3-signoff / title-exam tables so
+  // their (still-OFF) flags can never flip against a missing table.
+  '0051_express_durable_records_e4b_e7b.sql',
+  '0052_deed_provenance.sql',
+  '0053_d3_signoff.sql',
+  '0054_title_exam_1_data_model.sql',
+  '0055_title_exam_6_client_delivery_approval.sql',
 ];
-const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications', 'firm_conflict_policy', 'matter_conflict_posture', 'deed_gate'];
+const EXPECTED_TABLES_EXTRA = ['matter_parties', 'conflict_checks', 'conflict_hits', 'matter_analysis', 'pa_instruction_profiles', 'practice_memos', 'kb_adoptions', 'kb_events', 'provision_provenance', 'ldd_key_term', 'closure_package_item', 'sendability_rule', 'jurisdiction_rule', 'sendability_override', 'sendability_evaluation', 'deadline_rule', 'deadline_rule_revision', 'matter_deadline', 'tickler', 'holiday_calendar', 'document_party', 'gate_override', 'prompt_snapshots', 'reviewer_lanes', 'chat_conversations', 'chat_messages', 'chat_summaries', 'chat_egress_events', 'chat_attachments', 'chat_attachment_party', 'matter_deliverable', 'material_extraction', 'authority_source', 'chat_review_runs', 'chat_review_raw_outputs', 'chat_review_items', 'egress_events', 'egress_hold', 'matter_entity', 'matter_entity_contact', 'notifications', 'firm_conflict_policy', 'matter_conflict_posture', 'deed_gate', 'express_loop_run', 'express_ledger_entry', 'express_approval_attestation', 'deed_signoff', 'title_exam_matter_attribute', 'title_exam_session', 'title_exam_finding', 'title_exam_client_delivery_approval'];
 const EXPECTED_TABLES = ['audit_events', 'source_authority', 'open_items', 'reusable_artifacts'];
 
 // Destructive DDL the pre-deploy path must NEVER run. Patterns are scanned AFTER stripping
