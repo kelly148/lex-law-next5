@@ -137,6 +137,29 @@ export default function DeedIntake({
     grantorsRef.current = grantors;
   }, [grantors]);
   const prefilledRef = useRef<Set<string>>(new Set());
+
+  // FL-6 (FL-MEDIUM-1): after a failed Generate, the form auto-expands (setFormExpanded(true)) and the
+  // missing fields are highlighted; scroll the FIRST missing field into view too (grantor → grantee →
+  // legal, matching buildMissingMessage's order). DOM refs + a scroll effect keyed on [missing,
+  // formExpanded] (missing is a fresh object each setMissing, so this also fires on the already-expanded
+  // path). Optional-call form — Element.scrollIntoView is not implemented in jsdom. UX side-effect only;
+  // the Generate gate logic is unchanged.
+  const grantorFieldRef = useRef<HTMLDivElement>(null);
+  const granteeFieldRef = useRef<HTMLDivElement>(null);
+  const legalWarnRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!formExpanded) return;
+    const target = missing.grantor
+      ? grantorFieldRef.current
+      : missing.grantee
+        ? granteeFieldRef.current
+        : missing.legal
+          ? legalWarnRef.current
+          : null;
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [missing, formExpanded]);
   useEffect(() => {
     const p = previewFacts.data;
     if (!p || !p.hasMaterials) return;
@@ -468,6 +491,16 @@ export default function DeedIntake({
         </div>
       )}
 
+      {/* FL-8 (FL-MEDIUM-1): no-upload variant of the source cure — the express lane expects a dropped prior
+          vesting deed but none has been uploaded to this matter yet. Display only (no gate flag, no assembler,
+          no schema) — the drop zone above and the manual form below are the two remedies. */}
+      {showUpload && previewFacts.data && previewFacts.data.hasMaterials === false && (
+        <div data-testid="deed-intake-no-source" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          No prior vesting deed was provided yet — drop one above so the legal description can be read from it,
+          or fill the facts in manually below.
+        </div>
+      )}
+
       {/* (c) Structured gift form — the confirm surface + the collapsed "Fill in all fields manually" fallback. */}
       <form onSubmit={handleSubmit} className="space-y-6">
         {(showUpload || showFreeAssociate) && (
@@ -495,14 +528,14 @@ export default function DeedIntake({
               non-withheld one, warn (the remedy is to re-drop a clearer prior deed). Generating anyway leaves a
               verbatim-legal placeholder for the attorney to complete — never a fabricated description. */}
           {previewFacts.data?.hasMaterials && previewFacts.data.resolved?.legalDescription === false && (
-            <div data-testid="deed-intake-legal-missing" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div ref={legalWarnRef} data-testid="deed-intake-legal-missing" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               The legal/property description could not be read from your uploads. Re-drop a clearer copy of the prior
               vesting deed — otherwise the draft will contain a placeholder for the legal description that you must
               complete manually. It is copied verbatim from your documents and is never written by the system.
             </div>
           )}
 
-          <div>
+          <div ref={grantorFieldRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantor(s) — donor(s) <span className="text-red-500">*</span>
             </label>
@@ -513,7 +546,7 @@ export default function DeedIntake({
               missing.grantor ? 'border-red-400 ring-1 ring-red-300' : grantorNeedsConfirm ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-300',
             )}
           </div>
-          <div>
+          <div ref={granteeFieldRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Grantee(s) — donee(s) <span className="text-red-500">*</span>
             </label>
