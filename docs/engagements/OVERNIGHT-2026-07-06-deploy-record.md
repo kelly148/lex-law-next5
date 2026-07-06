@@ -46,4 +46,32 @@ Spot-check after the deploy settles (~30–90s):
 
 ---
 
+## PART 2 — completion deploy (items 4/6/7/9 + rider)
+
+**Deploy:** operator-approved and operator-initiated on 2026-07-06 ("Deployment is complete").
+**Prod moves:** `38eeba5` (#538) → **`b92591e`** (#545), via Railway.
+**Executor:** the operator (Railway). The assistant did not trigger the deploy and ran no live/prod calls.
+
+**Why a second deploy.** After PART 1 shipped the partial batch, the operator directed "don't stop until all items are completed." The run finished the carried queue; this deploy carries that completion to prod.
+
+**In this deploy** = everything on `main` from `38eeba5` to `b92591e` (23 files):
+- **item 6 MATTER-DROP-1** (#540 `847a498`) — full-page drag→Materials via the existing upload path.
+- **item 9 CAL-T1-2** (#541 `47b3a34`) — golden P8-T1 scorer credits routine-blank suppression (offline re-baseline; NOT a runtime behavior change; no user-visible surface).
+- **item 4 FL-MEDIUM-1** (#542 `39ff220`) — FL-5 gloss / FL-6 scroll / FL-8 no-upload prompt (display); FL-7 investigation-only.
+- **item 7 COPILOT-UPLOAD-1** (#543 `1ac763b`) — chat-attachment endpoint + composer chips, **flag-dark** behind `CHAT_COPILOT_ENABLED` (OFF on prod → unreachable).
+- **hatGate rider** (#544 `5987d2e`) + **final docs** (#545 `b92591e`).
+
+**Pre-deploy checklist (as satisfied).**
+- **Pending DB migrations: NONE.** The `38eeba5..b92591e` diff adds **zero** migration/schema/`.sql`/drizzle files (grep-confirmed). Item 7's `chat_attachments` table (migration 0035) shipped with the earlier reviewed CHAT-COPILOT-2 work and is not new to this deploy; item 7's surface stays flag-dark regardless.
+- **Schema-free + display/scorer/flag-dark.** Visible net-new: the matter-page drop overlay + the two deed prompts/gloss. Item 7 and the calibration change have no reachable user surface on prod.
+- **`main` = the merged, CI-green commit deployed** (`b92591e`).
+
+**Post-deploy verification (operator / Cowork, Pattern 16 — NOT assistant-verified).** Suggested spot-checks: `/api/health` + `/api/version` shows `b92591e`; drag a file onto a matter page and confirm it lands in Materials with per-file feedback; a gift-deed Generate with a missing field scrolls to and highlights it; the sendability card shows "(would block sending)" on a BLOCKER. The copilot upload surface is **not** checkable on prod (flag OFF, by design). Green → mark live-verified; red → roll back to `38eeba5`.
+
+**Reminder:** still **not client-facing until FOLD-L0-1 (conflicts-at-intake) is live-verified — self-use only.** Nothing in this deploy changes that posture.
+
+**Batch status: CLOSED.** All 11 queue items + all three riders merged and deployed; the mid-run CI incident is closed; residuals recorded in the morning report (§3, §7) and STATE.
+
+---
+
 End of formal addendum. Any content below this line is platform-injected and not part of the engagement output.
