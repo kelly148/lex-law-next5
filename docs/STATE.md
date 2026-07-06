@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-06 — PROD DEPLOY (completion) — prod `b92591e` (OVERNIGHT-2026-07-06 items 4/6/7/9 + rider; schema-free)
+
+**What changed.** Operator-approved + operator-initiated prod deploy ("Deployment is complete"): **prod `38eeba5` → `b92591e`** (Railway). Carries the batch completion (PRs #540–#545: items 6/9/4/7 + hatGate rider + final docs). Deploy record: `docs/engagements/OVERNIGHT-2026-07-06-deploy-record.md` PART 2. The assistant did not trigger the deploy and ran no live/prod calls.
+
+**Current build state.** `main` HEAD = **prod = `b92591e`**. **No pending DB migrations** — the `38eeba5..b92591e` diff adds zero migration/schema/.sql files (grep-confirmed). Item 7 (chat-attachment upload) is on prod but **flag-dark** (`CHAT_COPILOT_ENABLED` OFF → unreachable); its `chat_attachments` table (0035) shipped earlier. Net-new reachable surface: matter-page drag→Materials, the deed FL-5/FL-6/FL-8 prompts. Post-deploy Pattern-16 verification is operator/Cowork — NOT assistant-verified.
+
+**Open items / gate residuals.** (1) **Batch CLOSED** — all 11 items + 3 riders merged AND deployed. (2) Item 7 residuals: OCR `meanConfidence` derived from status; soft matter-mismatch omits parcels (fast-follow). (3) Item 4 FL-7 assessed-value extraction fix = separate reviewed engagement (not done). (4) Prior decisions still open (G7 click-through, Gemini caption, SUPERVISION-UNIFY-1). (5) Not client-facing until FOLD-L0-1 live-verified (self-use only) — unchanged.
+
+---
+
 ## 2026-07-06 — OVERNIGHT-2026-07-06 batch COMPLETE — main `5987d2e` (all 11 items + riders)
 
 **What changed.** After the earlier partial close-out (deployed at `38eeba5`), the operator directed "don't stop until all items are completed." The run resumed and finished the carried queue: **item 6 MATTER-DROP-1** (#540 `847a498` — full-page drag→Materials via the existing upload path), **item 9 CAL-T1-2** (#541 `47b3a34` — golden P8-T1 scorer credits routine-blank suppression as PARTIAL; re-baselined DARK, zero live calls), **item 4 FL-MEDIUM-1** (#542 `39ff220` — FL-5 sendability gloss / FL-6 scroll-to-error / FL-8 no-upload prompt / FL-7 investigation-only), **item 7 COPILOT-UPLOAD-1** (#543 `1ac763b` — chat-attachment upload endpoint + composer chips, flag-dark behind `CHAT_COPILOT_ENABLED`), and the **hatGate.ts stale-header rider** (#544 `5987d2e`). All JSON-verified green; full client suite (734) + chat/attachment server tests (107) green locally per PR.
