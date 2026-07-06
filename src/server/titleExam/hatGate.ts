@@ -4,8 +4,9 @@
  * Dual-hat is SUBSTANTIVE, not cosmetic (NC-5): the entity attribute (the shipped engagement-capacity
  * election, matters.engagementCapacity) gates FATIC knowledge availability, knowledge-lane access, the
  * client-email template family, and the disclaimer set. This module is the deterministic gate. It BUILDS the
- * gate — it loads NO FATIC content (PB-1 interim: FATIC is Universal-Title-hat only until the written
- * agency/underwriter basis exists; the law-firm hat requires that paper first).
+ * gate — it loads NO FATIC content (PB-1 RESOLVED, operator resolution 2026-07-05: at Stage-1 personal use
+ * FATIC is available for BOTH hats; the Stage-2 re-gate against the agency-agreement basis is retained on
+ * resolveFaticAvailability below via pb1PaperInHand).
  *
  * PURE. Flag-dark by construction; no model literal. Nothing crosses hats without an affirmative promotion.
  */
