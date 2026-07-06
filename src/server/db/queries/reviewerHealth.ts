@@ -44,6 +44,9 @@ export interface ReviewerHealthSnapshot {
     lifecyclePhase: string | null;
     createdAt: string;
     ageMinutes: number;
+    /** SESSION-UNSTICK-1: server-authoritative "meets the possibly-stuck heuristic" flag (ageMinutes >=
+     *  STUCK_SESSION_MINUTES). Gates the manual per-session Abandon action on Diagnostics. */
+    isPossiblyStuck: boolean;
   }>;
 }
 
@@ -77,14 +80,18 @@ export async function getReviewerHealthSnapshot(
     .where(and(ownerScope(reviewSessions.userId, userId), eq(reviewSessions.state, 'active')));
 
   const now = Date.now();
-  const activeSessions = activeRows.map((s) => ({
-    id: s.id,
-    documentId: s.documentId,
-    lifecyclePhase: s.lifecyclePhase,
-    createdAt: s.createdAt.toISOString(),
-    ageMinutes: Math.round((now - s.createdAt.getTime()) / 60_000),
-  }));
-  const stuckSessionCount = activeSessions.filter((s) => s.ageMinutes >= STUCK_SESSION_MINUTES).length;
+  const activeSessions = activeRows.map((s) => {
+    const ageMinutes = Math.round((now - s.createdAt.getTime()) / 60_000);
+    return {
+      id: s.id,
+      documentId: s.documentId,
+      lifecyclePhase: s.lifecyclePhase,
+      createdAt: s.createdAt.toISOString(),
+      ageMinutes,
+      isPossiblyStuck: ageMinutes >= STUCK_SESSION_MINUTES,
+    };
+  });
+  const stuckSessionCount = activeSessions.filter((s) => s.isPossiblyStuck).length;
 
   // W7 — per-lane reviewer-output health from the ALWAYS-ON telemetry sink (reviewer_output_captured):
   // parse-failure (parseOk === false) + empty-review (parsedSuggestionCount === 0), by reviewer lane.

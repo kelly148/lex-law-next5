@@ -3,12 +3,17 @@
  *
  * READ-ONLY, owner-scoped operational view (the SUPERVISION-VIEW-1 pattern): reviewer_feedback job-status
  * counts over a window + active/stuck review sessions. Self-gates on reviewerHealth.isEnabled — redirects
- * to /matters when the flag is OFF. No mutations; informational only.
+ * to /matters when the flag is OFF.
+ *
+ * SESSION-UNSTICK-1: the ONE mutation on this page — a manual, per-session "Abandon session" for a
+ * possibly-stuck session (server-flagged isPossiblyStuck), using the existing owner-scoped, fail-closed-
+ * AUDITED reviewSession.abandon. NO bulk auto-reap (that stays the JOB_REAPER_ENABLED operator decision).
  */
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { Activity } from 'lucide-react';
 import { trpc } from '../trpc.js';
+import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 
 const STATUS_ORDER = ['completed', 'running', 'queued', 'failed', 'timed_out', 'cancelled'] as const;
 
@@ -18,6 +23,14 @@ export default function ReviewerHealthView(): React.ReactElement {
   // W7 — request the 30-day window (720h) so the panel-composition decision sees the full window. The
   // underlying collection is always-on, so the window is already accumulating.
   const snapQ = trpc.reviewerHealth.snapshot.useQuery({ windowHours: 720 }, { enabled });
+
+  // SESSION-UNSTICK-1: manual abandon of a possibly-stuck session (hook before the early returns). On
+  // success, re-read the snapshot so the abandoned session drops off the list.
+  const utils = trpc.useUtils();
+  const abandonMutation = useGuardedMutation(
+    (input: { sessionId: string }) => utils.client.reviewSession.abandon.mutate(input),
+    { onSuccess: () => { void utils.reviewerHealth.snapshot.invalidate(); } },
+  );
 
   if (enabledQ.isLoading) return <div className="p-8 text-sm text-ink-hint">Loading…</div>;
   if (!enabled) return <Navigate to="/matters" replace />;
@@ -95,13 +108,36 @@ export default function ReviewerHealthView(): React.ReactElement {
                 {snap.activeSessions.map((s) => (
                   <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm" data-testid="rh-active-session">
                     <span className="font-mono text-xs text-ink-secondary truncate">{s.documentId}</span>
-                    <span className="text-ink-hint whitespace-nowrap">
-                      {s.lifecyclePhase ?? 'idle'} · {s.ageMinutes}m
-                      {s.ageMinutes >= 10 && <span className="ml-1 text-accent" title="long-lived active session — possible stuck">⚠</span>}
-                    </span>
+                    <div className="flex items-center gap-3 whitespace-nowrap">
+                      <span className="text-ink-hint">
+                        {s.lifecyclePhase ?? 'idle'} · {s.ageMinutes}m
+                        {s.isPossiblyStuck && <span className="ml-1 text-warning" title="long-lived active session — possibly stuck">⚠</span>}
+                      </span>
+                      {/* SESSION-UNSTICK-1: manual abandon, only for a server-flagged possibly-stuck session. */}
+                      {s.isPossiblyStuck && (
+                        <button
+                          data-testid="rh-abandon-session"
+                          onClick={() => {
+                            if (window.confirm('Abandon this possibly-stuck review session? This ends the session (an audited action) so the next review can start. It does not delete any recorded feedback.')) {
+                              abandonMutation.mutate({ sessionId: s.id });
+                            }
+                          }}
+                          disabled={abandonMutation.isPending}
+                          className="text-xs text-danger hover:underline disabled:opacity-50"
+                        >
+                          Abandon session
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
+            )}
+            {/* G9: surface the abandon error instead of a silent failure. */}
+            {abandonMutation.error && (
+              <p data-testid="rh-abandon-error" className="mt-2 text-xs text-warning">
+                Couldn’t abandon the session: {abandonMutation.error.message}
+              </p>
             )}
           </section>
           <p className="text-xs text-ink-hint">Generated {new Date(snap.generatedAt).toLocaleString()}.</p>
