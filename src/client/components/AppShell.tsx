@@ -16,7 +16,7 @@
  * Ch 35.3 — No business logic in React: logout is a server-side operation.
  */
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { FileText, Settings, LogOut, FilePlus, ClipboardList, ShieldCheck, Bell, CheckCheck, X, Activity, Stamp } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../hooks/useAuth.js';
@@ -33,6 +33,16 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
   const { user } = useAuth();
   const navigate = useNavigate();
   const utils = trpc.useUtils();
+  // PERF-TRANSITIONS-1 (FL-11): the persistent <main> is the scroll container, and nothing reset its
+  // scroll on navigation — so landing on a shorter page (e.g. Settings) kept the previous page's scrollTop
+  // and showed a mid-scroll blank band. Reset to the top on every pathname change (DOM-only side effect;
+  // cannot touch data/mutations). Standard SPA behavior.
+  const { pathname } = useLocation();
+  const mainRef = React.useRef<HTMLElement>(null);
+  React.useEffect(() => {
+    const el = mainRef.current;
+    if (el) el.scrollTop = 0;
+  }, [pathname]);
   // FOLD-PM-4 — show the Overview nav link only when the feature is enabled (default OFF -> hidden).
   const deliverableFlag = trpc.matterDeliverable.isEnabled.useQuery();
   // SUPERVISION-VIEW-1 — show the Supervision nav link only when enabled (default OFF -> hidden).
@@ -178,8 +188,10 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
               Whereas<span className="text-accent">,</span>
             </span>
           </div>
+          {/* G8 rider (UI-ATTORNEY-SWEEP-1): give the name line normal line-height + a hair of bottom
+              padding so a descender (the "y" in "kelly") isn't clipped by truncate's overflow-hidden. */}
           {user && (
-            <p data-rail-label className="text-ink-hint text-xs mt-1 truncate">{user.displayName}</p>
+            <p data-rail-label className="text-ink-hint text-xs mt-1 leading-normal pb-0.5 truncate">{user.displayName}</p>
           )}
         </div>
 
@@ -356,7 +368,7 @@ export default function AppShell({ children }: AppShellProps): React.ReactElemen
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 bg-firm-light overflow-auto">
+      <main ref={mainRef} className="flex-1 bg-firm-light overflow-auto">
         {/* NOTIFY-SUITE-1 N1 — "while you were away" digest: ONE coherent summary on return (not N toasts),
             dismissible. Shown only when notifications are ON and something is unread. */}
         {showDigest && digest && (
