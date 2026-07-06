@@ -502,10 +502,8 @@ export default function MatterDetail(): React.ReactElement {
   const [showEditMatter, setShowEditMatter] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [includeArchivedDocs, setIncludeArchivedDocs] = useState(false);
-  // S16 (UI-ATTORNEY-SWEEP-1): interim "Add client" header affordance — opens + scrolls to the intake
-  // party control (the full parties card arrives with C.4–C.6). Hooks declared here, before the early
-  // returns below (Rules of Hooks). Display/navigation only.
-  const [intakeOpenSignal, setIntakeOpenSignal] = useState(0);
+  // S16 (UI-ATTORNEY-SWEEP-1): interim "Add client" header affordance — scrolls to the intake party
+  // control (the full parties card arrives with C.4–C.6). Ref declared before the early returns.
   const intakePanelRef = useRef<HTMLDivElement>(null);
 
   const { data: matter, isLoading: matterLoading } = trpc.matter.get.useQuery(
@@ -540,7 +538,6 @@ export default function MatterDetail(): React.ReactElement {
   const docs = documents ?? [];
 
   const handleAddClient = (): void => {
-    setIntakeOpenSignal((s) => s + 1);
     if (typeof window !== 'undefined') {
       window.requestAnimationFrame(() => {
         const el = intakePanelRef.current;
@@ -729,9 +726,9 @@ export default function MatterDetail(): React.ReactElement {
       </div>
 
       {/* FOLD-L0-1 — Layer-0 matter intake & analysis (conflicts-at-intake + plan closure).
-          S16: the header "Add client" affordance opens + scrolls here via openSignal. */}
+          S16: the header "Add client" affordance scrolls here. */}
       <div ref={intakePanelRef}>
-        <MatterIntakePanel matterId={matterId} openSignal={intakeOpenSignal} />
+        <MatterIntakePanel matterId={matterId} />
       </div>
 
       {/* FOLD-KB-1 — Practice Knowledge Base (surface-not-inject; adopt; memos; per-PA profile) */}
