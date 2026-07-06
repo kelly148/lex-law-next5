@@ -98,4 +98,24 @@ Stopped building after item 10 to protect quality after the §2 incident and to 
 
 ---
 
+## 7. FINAL COMPLETION UPDATE — the run continued to full completion
+
+§§1–6 above were written mid-run (after item 10), when items 4/6/7/9 were carried, not built. You then directed **"don't stop until all items are completed."** The run resumed and finished the entire queue. **End state: `origin/main = 5987d2e` — green.** The four carried items and the last rider are now merged:
+
+| # | Item | PR | Squash SHA |
+| :-- | :-- | :-- | :-- |
+| 6 | **MATTER-DROP-1** — full-page drag-and-drop → Materials on the matter page, via the existing `POST /api/materials/upload` path (same OCR/extraction pipeline; no new egress); drop overlay + per-file feedback (G9) + accepted-format validation. Composer-level drops are item 7, not this. | #540 | `847a498` |
+| 9 | **CAL-T1-2** — credit routine-blank *suppression* in the GOLDEN P8-T1 scorer (cal7b parity): suppressed routine-blank → PARTIAL, unsuppressed → FAIL. Re-baselined from committed fixtures, **DARK harness, ZERO live calls**. Pin flips: P8-T1 × `claude_lite` FAIL→PARTIAL; 5 empty lanes gain `suppressedRoutineBlank:false`. | #541 | `47b3a34` |
+| 4 | **FL-MEDIUM-1** — FL-5 sendability "(would block sending)" gloss on BLOCKER (display); FL-6 scroll-to-first-missing-field on failed Generate (jsdom-safe, gate logic unchanged); FL-8 no-upload cure prompt (display); FL-7 assessed-value extraction **investigation-only** (findings doc). | #542 | `39ff220` |
+| 7 | **COPILOT-UPLOAD-1** — completes the reviewed CHAT-COPILOT-2 A3 design: `POST /api/chat/attachments/upload` (flag-gated, synchronous OCR, `ingestChatAttachment`, 409 cross-matter) + `CopilotAttachments` composer chips (three-state, select-for-this-turn → `submitTurn`, accept-with-warning / save-to-matter / pin / 409 override). Flag-dark behind `CHAT_COPILOT_ENABLED`. | #543 | `1ac763b` |
+| rider | **hatGate.ts stale header** — the file-header still said "PB-1 interim: UT-hat only"; corrected to PB-1 RESOLVED (matches `resolveFaticAvailability`). Docs-only. | #544 | `5987d2e` |
+
+All five were JSON-verified green before merge (the §2 process fix), and the **full client suite (734) + chat/attachment server tests (107)** ran green locally on each. **Every rider is now resolved:** sidebar name-clip (item 11, #534), build-stamp (investigation — one source, no code change), hatGate header (#544).
+
+**New residuals (item 7, recorded, non-blocking):** (1) OCR-source `meanConfidence` is **derived from the extraction status** (representative), not the raw numeric confidence — the honesty floor stays meaningful; (2) the copilot soft matter-mismatch advisory passes **party names but omits parcels** (a fast-follow). **Item 4 FL-7** is investigation-only — the assessed-value extraction fix (same-line/colon pairing relaxation, or a `vesting_deed` fallback) is a separate reviewed engagement, not done here.
+
+**Revised deploy scope:** the §6 DEPLOY PROMPT now covers **everything on `main` since prod `7f8f7b2` → `5987d2e`** (PRs #526–#544). **Still zero pending DB migrations** — items 4/6/9 are display/scorer-only; item 7's tables (`chat_attachments`, migration 0035) shipped in the earlier reviewed CHAT-COPILOT-2 work and are **not** new to this batch (verify 0035 is applied to prod before the copilot flag is ever turned on — but the flag stays OFF, so nothing in this deploy is reachable). Item 7 + the copilot surface remain **flag-dark** (`CHAT_COPILOT_ENABLED` OFF). The not-client-facing-until-FOLD-L0-1 reminder is unchanged.
+
+---
+
 End of formal addendum. Any content below this line is platform-injected and not part of the engagement output.
