@@ -52,6 +52,7 @@ import ReviewPane, { SendabilitySection } from '../components/ReviewPane.js';
 import ExpressReviewPane from '../components/ExpressReviewPane.js';
 import ExportSafetyPanel from '../components/ExportSafetyPanel.js';
 import ContextPreviewPanel from '../components/ContextPreviewPanel.js';
+import { downloadDocumentExport } from '../utils/exportDocument.js';
 import { DeedGatePanel } from '../components/DeedGatePanel.js';
 import { DeedSignoffPanel } from '../components/DeedSignoffPanel.js';
 import { DeedStatusStrip } from '../components/DeedStatusStrip.js';
@@ -520,6 +521,10 @@ export default function DocumentDetail(): React.ReactElement {
   const [showDraftWarning, setShowDraftWarning] = useState(false);
   const [showRegenInput, setShowRegenInput] = useState(false);
   const [showSendability, setShowSendability] = useState(false);
+  // DEED-EXPORT-409-1: fetch-based DOCX export so a 409 block reason is shown in-app instead of the browser
+  // saving the JSON error body as export.json.
+  const [exportingDocx, setExportingDocx] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   // RELAYOUT-1 — page-first canvas: the selected version drives the switcher + canvas.
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const previousCurrentVersionRef = React.useRef<string | null>(null);
@@ -528,6 +533,25 @@ export default function DocumentDetail(): React.ReactElement {
     { documentId: documentId! },
     { enabled: !!documentId }
   );
+
+  // DEED-EXPORT-409-1: on a non-2xx export the util returns the server block reason (never downloading the
+  // JSON error body); on success it triggers the DOCX download. The reason string is the server's own message,
+  // so it is correct for whichever gate blocks (deed guard, conflicts, sendability, or D3 sign-off).
+  const handleExportDocx = async (): Promise<void> => {
+    if (!documentId || exportingDocx) return;
+    setExportError(null);
+    setExportingDocx(true);
+    try {
+      const result = await downloadDocumentExport(documentId);
+      if (!result.ok) {
+        setExportError(result.error ?? 'The document could not be exported. Please try again.');
+      }
+    } catch {
+      setExportError('The document could not be exported. Please try again.');
+    } finally {
+      setExportingDocx(false);
+    }
+  };
 
   // S11 (UI-ATTORNEY-SWEEP-1): the deed drafter's-notes page is written into the free-text `notes`
   // field server-side (deedGiftNotes/deedCategoryNotes via deedDraftAgent). For that page ONLY, collapse
@@ -1222,16 +1246,20 @@ export default function DocumentDetail(): React.ReactElement {
           doc.officialFinalVersionNumber !== null ||
           doc.officialSubstantiveVersionNumber !== null) && (
           <div className="flex flex-col items-end gap-0.5">
-            <a
-              href={`/api/documents/${documentId}/export`}
-              download
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+            <button
+              type="button"
+              onClick={handleExportDocx}
+              disabled={exportingDocx}
+              data-testid="export-docx-button"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
-              {doc.workflowState === 'complete' && doc.officialFinalVersionNumber !== null
-                ? 'Download Final DOCX'
-                : 'Download DOCX'}
-            </a>
+              {exportingDocx
+                ? 'Preparing…'
+                : doc.workflowState === 'complete' && doc.officialFinalVersionNumber !== null
+                  ? 'Download Final DOCX'
+                  : 'Download DOCX'}
+            </button>
             {doc.workflowState !== 'complete' && (
               <span
                 data-testid="export-state-disclosure"
@@ -1240,6 +1268,14 @@ export default function DocumentDetail(): React.ReactElement {
                 {doc.workflowState === 'finalizing'
                   ? 'Formatting in progress — export uses substantive version'
                   : 'Export uses substantive/current version (not final formatted)'}
+              </span>
+            )}
+            {exportError && (
+              <span
+                data-testid="export-error"
+                className="text-[10px] text-warning max-w-[18rem] text-right"
+              >
+                {exportError}
               </span>
             )}
           </div>
