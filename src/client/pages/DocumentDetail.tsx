@@ -1209,6 +1209,14 @@ export default function DocumentDetail(): React.ReactElement {
             )}
           </>
         )}
+        {/* TEMPLATE-PIPELINE-1 (FL-17) / G9: no silent 412 — surface the template-mode mutation errors
+            (extract / auto-populate / render) instead of swallowing them. basis-full drops it to its own
+            row in the wrapping action band. Display only. */}
+        {isTemplate && (extractVariablesMutation.error || populateFromMatterMutation.error || renderMutation.error) && (
+          <p data-testid="template-mutation-error" className="basis-full text-xs text-warning">
+            {(extractVariablesMutation.error ?? populateFromMatterMutation.error ?? renderMutation.error)?.message}
+          </p>
+        )}
         {/* Download DOCX — MR-FINALIZE-EXPORT-2: state-aware label and disclosure */}
         {(doc.currentVersionId ||
           doc.officialFinalVersionNumber !== null ||

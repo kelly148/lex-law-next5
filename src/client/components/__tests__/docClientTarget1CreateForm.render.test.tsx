@@ -18,7 +18,9 @@ import { MemoryRouter } from 'react-router-dom';
 
 const MATTER_ID = '22222222-2222-2222-2222-222222222222';
 
-const mockState = vi.hoisted(() => ({ parties: [] as unknown[], instances: [] as unknown[] }));
+const mockState = vi.hoisted(() => ({ parties: [] as unknown[], instances: [] as unknown[], templates: [] as unknown[] }));
+// TEMPLATE-PIPELINE-1: capture the create-mutation input so the picker→bind path is assertable.
+const createMutateSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('../../trpc.js', async () => {
   const React = await import('react');
@@ -35,12 +37,14 @@ vi.mock('../../trpc.js', async () => {
       // DEED-INTAKE-PARITY-1 Inc 2: CreateDocumentForm now probes the deed-agent flag (default OFF here, so the
       // generic create form renders exactly as these tests expect).
       deedDraftAgent: { isEnabled: { useQuery: q(() => ({ enabled: false })) } },
+      // TEMPLATE-PIPELINE-1 (FL-17): the create form now offers active templates for the selected type.
+      template: { list: { useQuery: q(() => ({ templates: mockState.templates })) } },
     },
   };
 });
 
 vi.mock('../../hooks/useGuardedMutation.js', () => ({
-  useGuardedMutation: () => ({ mutate: () => {}, isPending: false, error: null }),
+  useGuardedMutation: () => ({ mutate: createMutateSpy, isPending: false, error: null }),
 }));
 
 import { CreateDocumentForm } from '../../pages/MatterDetail.js';
@@ -69,7 +73,14 @@ afterEach(() => cleanup());
 beforeEach(() => {
   mockState.parties = [];
   mockState.instances = [];
+  mockState.templates = [];
+  createMutateSpy.mockClear();
 });
+
+function selectTemplateMode(container: HTMLElement): void {
+  const templateRadio = container.querySelector('input[name="draftingMode"][value="template"]') as HTMLInputElement;
+  fireEvent.click(templateRadio);
+}
 
 function pickPrincipal(container: HTMLElement, partyId: string): void {
   const principalSelect = container.querySelector('[data-testid="principal-selector"] select') as HTMLSelectElement;
@@ -172,5 +183,60 @@ describe('DOC-CLIENT-TARGET-1 CreateDocumentForm — pair affordance + duplicate
     const existing = c.querySelector('[data-testid="pair-existing"]');
     expect(existing).toBeTruthy();
     expect(existing!.textContent).toContain("Gregory Edwin Brown's existing");
+  });
+});
+
+describe('TEMPLATE-PIPELINE-1 CreateDocumentForm — template picker + bind', () => {
+  const TEMPLATE = { id: 't1', name: 'Standard Engagement Letter', documentType: 'engagement_letter', activeVersionId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', archivedAt: null };
+
+  it('template mode + a type with an ACTIVE template -> a picker select listing that template', () => {
+    mockState.templates = [TEMPLATE];
+    const c = renderForm();
+    selectType(c, 'engagement_letter');
+    selectTemplateMode(c);
+    const picker = c.querySelector('[data-testid="template-picker-select"]') as HTMLSelectElement;
+    expect(picker).toBeTruthy();
+    const opts = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent);
+    expect(opts.some((l) => l?.includes('Standard Engagement Letter'))).toBe(true);
+  });
+
+  it('template mode + a type with NO active template -> empty-state, no select', () => {
+    mockState.templates = [];
+    const c = renderForm();
+    selectType(c, 'engagement_letter');
+    selectTemplateMode(c);
+    expect(c.querySelector('[data-testid="template-picker-empty"]')).toBeTruthy();
+    expect(c.querySelector('[data-testid="template-picker-select"]')).toBeFalsy();
+  });
+
+  it('deed type -> NO template picker (LIVE-9 exclusion, even in template mode)', () => {
+    mockState.templates = [{ ...TEMPLATE, documentType: 'deed' }];
+    const c = renderForm();
+    selectType(c, 'deed');
+    selectTemplateMode(c);
+    expect(c.querySelector('[data-testid="template-picker"]')).toBeFalsy();
+  });
+
+  it('iterative mode -> NO template picker', () => {
+    mockState.templates = [TEMPLATE];
+    const c = renderForm();
+    selectType(c, 'engagement_letter'); // default draftingMode is iterative
+    expect(c.querySelector('[data-testid="template-picker"]')).toBeFalsy();
+  });
+
+  it('selecting a template and submitting binds templateVersionId into the document.create input', () => {
+    mockState.templates = [TEMPLATE];
+    const c = renderForm();
+    const titleInput = c.querySelector('input[type="text"]') as HTMLInputElement;
+    fireEvent.change(titleInput, { target: { value: 'Engagement Letter' } });
+    selectType(c, 'engagement_letter');
+    selectTemplateMode(c);
+    const picker = c.querySelector('[data-testid="template-picker-select"]') as HTMLSelectElement;
+    fireEvent.change(picker, { target: { value: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' } });
+    fireEvent.click(c.querySelector('button[type="submit"]') as HTMLButtonElement);
+    expect(createMutateSpy).toHaveBeenCalled();
+    const arg = createMutateSpy.mock.calls[0]![0] as { primary: { templateVersionId?: string; draftingMode: string } };
+    expect(arg.primary.draftingMode).toBe('template');
+    expect(arg.primary.templateVersionId).toBe('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   });
 });

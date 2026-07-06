@@ -96,6 +96,8 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
   const [documentType, setDocumentType] = useState('');
   const [customTypeLabel, setCustomTypeLabel] = useState('');
   const [draftingMode, setDraftingMode] = useState<'template' | 'iterative'>('iterative');
+  // TEMPLATE-PIPELINE-1 (FL-17): the chosen template version to bind at create (template mode). '' = none.
+  const [templateVersionId, setTemplateVersionId] = useState('');
   // DOC-CLIENT-TARGET-1: the chosen principal for an individual document in a multi-client matter.
   const [subjectPartyId, setSubjectPartyId] = useState('');
   // DOC-CLIENT-TARGET-1: pair affordance — also create the matching instance for the other client(s).
@@ -114,6 +116,17 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
   // role label are read from the shared doc-type config (the single accessor — never hardcoded here).
   const { data: parties } = trpc.matterIntake.listParties.useQuery({ matterId });
   const clientParties = (parties ?? []).filter((p) => p.role === 'client');
+
+  // TEMPLATE-PIPELINE-1 (FL-17): in template mode, offer the ACTIVE template versions for the selected
+  // documentType. Deed-like types are excluded (LIVE-9 — they use the deed agent, not templates).
+  const templateEligible = draftingMode === 'template' && documentType !== '' && documentType !== 'deed';
+  const { data: templateList } = trpc.template.list.useQuery(
+    { documentType },
+    { enabled: templateEligible },
+  );
+  const activeTemplates = (templateList?.templates ?? []).filter(
+    (t) => t.activeVersionId !== null && t.archivedAt === null,
+  );
   const docTypeConfig = getDocTypeConfig(documentType);
   const isIndividualSubject = docTypeConfig?.targetStructure === 'individual_subject';
   // DOC-CLIENT-TARGET-1 Inc 3: party_set (joint) types -> no selector; the whole client set is bound.
@@ -145,7 +158,7 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
 
   const createMutation = useGuardedMutation(
     async (input: {
-      primary: { matterId: string; title: string; documentType: string; customTypeLabel?: string | null; draftingMode: 'template' | 'iterative'; subjectPartyId?: string };
+      primary: { matterId: string; title: string; documentType: string; customTypeLabel?: string | null; draftingMode: 'template' | 'iterative'; subjectPartyId?: string; templateVersionId?: string };
       pairTargetPartyIds: string[];
     }) => {
       const primaryDoc = await utils.client.document.create.mutate(input.primary);
@@ -182,6 +195,8 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
         customTypeLabel: documentType === 'custom' ? customTypeLabel.trim() : null,
         draftingMode,
         ...(subjectPartyId ? { subjectPartyId } : {}),
+        // TEMPLATE-PIPELINE-1: bind only in template mode with a chosen template (server re-validates).
+        ...(draftingMode === 'template' && templateVersionId ? { templateVersionId } : {}),
       },
       pairTargetPartyIds: showPairOffer && createPair ? pairTargets.map((c) => c.id) : [],
     });
@@ -213,7 +228,7 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
             </label>
             <select
               value={documentType}
-              onChange={(e) => { setDocumentType(e.target.value); setSubjectPartyId(''); }}
+              onChange={(e) => { setDocumentType(e.target.value); setSubjectPartyId(''); setTemplateVersionId(''); }}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
             >
               <option value="">— Select —</option>
@@ -332,6 +347,31 @@ export function CreateDocumentForm({ matterId, onClose, onCreated }: CreateDocum
               ))}
             </div>
           </div>
+          {/* TEMPLATE-PIPELINE-1 (FL-17): template picker — ACTIVE versions for this documentType. Deed-like
+              types are excluded (LIVE-9). Empty-state explains why nothing is bindable. */}
+          {templateEligible && (
+            <div data-testid="template-picker">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Template</label>
+              {activeTemplates.length === 0 ? (
+                <p data-testid="template-picker-empty" className="text-xs text-gray-500">
+                  No active template for this type — the document will start empty. Upload and activate a
+                  template on the Templates page to bind one here.
+                </p>
+              ) : (
+                <select
+                  data-testid="template-picker-select"
+                  value={templateVersionId}
+                  onChange={(e) => setTemplateVersionId(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                >
+                  <option value="">— No template (start empty) —</option>
+                  {activeTemplates.map((t) => (
+                    <option key={t.id} value={t.activeVersionId ?? ''}>{t.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
