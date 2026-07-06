@@ -27,6 +27,8 @@ vi.mock('../../trpc.js', async () => {
       matterIntake: { listParties: { useQuery: q(() => []) } },
       document: { instancesForType: { useQuery: q(() => []) } },
       deedDraftAgent: { isEnabled: { useQuery: q(() => ({ enabled: mockState.deedEnabled })) } },
+      // TEMPLATE-PIPELINE-1 (FL-17): CreateDocumentForm now offers active templates in template mode.
+      template: { list: { useQuery: q(() => ({ templates: [] })) } },
     },
   };
 });
