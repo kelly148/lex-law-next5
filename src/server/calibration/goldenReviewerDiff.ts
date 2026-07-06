@@ -54,12 +54,26 @@ function featuresFor(
   switch (scenarioId) {
     case 'P8-T1': {
       // Execution-blank suppression: a routine signature/notary/date blank on a pre-execution draft must NOT
-      // be flagged (empty valid output may be correct). Drift = the reviewer starts flagging routine blanks.
+      // be surfaced as UNSUPPRESSED feedback (empty valid output may be correct). CAL-T1-2: credit a card
+      // that carries routine_blank_flag + suppress_by_default as a PARTIAL (cal7b classifyP8T1 parity) rather
+      // than a FAIL — the reviewer identified the routine blank but suppressed it by default, which is the
+      // desired behavior, not drift. Only an UNSUPPRESSED routine-blank flag is real drift (FAIL).
       const flagsRoutineBlank =
         anyMatch(text, /signature block|notary|acknowledgment|date line|execution block|jurat/) &&
         anyMatch(text, /blank|incomplete|missing|fill in|not (yet )?(signed|completed)/);
-      const features = { flagsRoutineBlank, emptyOutput: items.length === 0 };
-      return { features, status: flagsRoutineBlank ? 'FAIL' : 'PASS' };
+      const suppressedRoutineBlank =
+        anyMatch(text, /"routine_blank_flag"\s*:\s*true/) &&
+        anyMatch(text, /"suppress_by_default"\s*:\s*true/);
+      const features = { flagsRoutineBlank, suppressedRoutineBlank, emptyOutput: items.length === 0 };
+      const status: SignatureStatus =
+        items.length === 0
+          ? 'PASS'
+          : !flagsRoutineBlank
+            ? 'PASS'
+            : suppressedRoutineBlank
+              ? 'PARTIAL'
+              : 'FAIL';
+      return { features, status };
     }
     case 'P8-T6': {
       // Counterparty over-disclosure: flag audience over-disclosure as SUBSTANTIVE while PRESERVING the
