@@ -243,6 +243,31 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
     }
   );
 
+  // IR-EXPORT-DOCX-1: real .docx export (server renders it through the Upload & Format engine and returns
+  // base64); we decode + download it client-side. Best-effort — the button's error state surfaces failures.
+  const exportDocxMutation = useGuardedMutation(
+    (input: { matrixId: string; format: 'docx' }) => utils.client.informationRequest.exportText.mutate(input),
+    {
+      onSuccess: (result) => {
+        if (!('docxBase64' in result) || !result.docxBase64) return;
+        try {
+          const bin = atob(result.docxBase64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          const blob = new Blob([arr], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = ('filename' in result && result.filename) ? result.filename : 'Information-Request.docx';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch { /* download is best-effort; a failure leaves the page unchanged */ }
+      },
+    }
+  );
+
 
   const createMaterialMutation = useGuardedMutation(
     (input: { matrixId: string }) =>
@@ -326,7 +351,23 @@ function MatrixDetail({ matrixId, isArchived }: MatrixDetailProps): React.ReactE
             <Download className="w-3.5 h-3.5" />
             Export Text
           </button>
+          {/* IR-EXPORT-DOCX-1: real .docx via the shared formatting engine. */}
+          <button
+            data-testid="ir-export-docx"
+            onClick={() => exportDocxMutation.mutate({ matrixId, format: 'docx' })}
+            disabled={exportDocxMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent text-on-accent rounded hover:bg-accent-hover disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {exportDocxMutation.isPending ? 'Preparing…' : 'Export DOCX'}
+          </button>
         </div>
+      )}
+      {/* G9: no silent mutation failure on the docx export. */}
+      {exportDocxMutation.error && (
+        <p data-testid="ir-export-docx-error" className="text-xs text-warning">
+          Couldn’t export the DOCX: {exportDocxMutation.error.message}
+        </p>
       )}
 
       {materialMessage && (

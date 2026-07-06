@@ -39,6 +39,9 @@ import {
 import { getMatterById } from '../db/queries/matters.js';
 import { insertMaterial, listMaterialsForMatter } from '../db/queries/materials.js';
 import { executeCanonicalMutation } from '../db/canonicalMutation.js';
+// IR-EXPORT-DOCX-1: real .docx export via the same engine as Upload & Format (markdownToDocxParagraphs).
+import { Document as DocxDocument, Packer } from 'docx';
+import { markdownToDocxParagraphs } from '../utils/markdownToDocx.js';
 import { PRIMARY_DRAFTER_MODEL } from '../llm/config.js';
 import { emitTelemetry } from '../telemetry/emitTelemetry.js';
 import { parseGeneratedMatrixItems, InformationRequestItemsSchema } from './informationRequestParse.js';
@@ -379,15 +382,32 @@ export const informationRequestRouter = router({
           lines.push('');
         }
       }
+      const text = lines.join('\n');
+
       void emitTelemetry(
         'matrix_exported',
         { matrixId: input.matrixId, format: input.format },
         { userId, matterId: matrix.matterId, documentId: null, jobId: null },
       );
+
+      // IR-EXPORT-DOCX-1: for format='docx', render a REAL .docx through the shared engine (the same
+      // markdownToDocxParagraphs used by Upload & Format) and return it as base64 for a client-side
+      // download. format='text' is byte-for-byte unchanged.
+      if (input.format === 'docx') {
+        const children = markdownToDocxParagraphs(text);
+        const docxFile = new DocxDocument({ sections: [{ children }] });
+        const buffer = await Packer.toBuffer(docxFile);
+        return {
+          text,
+          format: input.format,
+          docxBase64: buffer.toString('base64'),
+          filename: 'Information-Request.docx',
+        };
+      }
+
       return {
-        text: lines.join('\n'),
+        text,
         format: input.format,
-        note: input.format === 'docx' ? 'Full .docx export available in Phase 6.' : undefined,
       };
     }),
 
