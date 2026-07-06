@@ -205,6 +205,44 @@ export function isDeedDraftAgentEnabled(): boolean {
 }
 
 /**
+ * Deed RECORDABILITY machinery — one master display+enforcement switch (DEED-RECORDABILITY-FLAG-1). DEFAULT OFF.
+ *
+ * A single runtime flag that gates the whole deed recordability surface AND the export-time D3 sign-off block,
+ * together, as one switch — so the Stage-1 solo attorney's deed page is simply "parties + facts in -> draft out
+ * -> Download DOCX in whatever state it is in; the attorney finalizes recordability himself" (operator directive
+ * 2026-07-06). The recordability code is kept intact behind the flag for the future; flip it back on any time.
+ *
+ * When OFF (the default — Kelly's Stage-1 state):
+ *   - DISPLAY: the deed document page does NOT mount the recording status strip (DeedStatusStrip), the
+ *     recording-checklist drawer, or its panels (DeedGatePanel three-gate + DeedSignoffPanel D3 sign-off). The
+ *     page renders document-first: the drafted instrument + the action row (Download DOCX / Request Review),
+ *     nothing else below. (The client reads this flag via the ungated deedRecordability.isEnabled probe.)
+ *   - EXPORT: the DOCX export never blocks on recordability. The D3 source-extracted-facts sign-off block (both
+ *     the observe telemetry and the enforce -> D3_SIGNOFF_REQUIRED 409) is skipped entirely (src/server/index.ts).
+ *
+ * When exactly "true": current behavior exactly — the recordability surface mounts (each panel still self-gates
+ * on its own flag: DEED_GATE_ENABLED / D3_SIGNOFF_MODE) and the D3 export gate applies per getD3SignoffMode().
+ *
+ * INVARIANT (do NOT gate on this flag): the LIVE-9 DEED_EXPORT_BLOCKED guard (a non-agent deed-text export
+ * hard-stop) STAYS on regardless — it is a sanctioned-deed defense, not recordability supervision. Additive +
+ * reversible: no schema, no migration, no egress. Flipping it is the whole of the reversal.
+ */
+export function isDeedRecordabilityEnabled(): boolean {
+  return process.env['DEED_RECORDABILITY_ENABLED'] === 'true';
+}
+
+/**
+ * Resolve the D3 sign-off mode the deed EXPORT route should apply, given the recordability master switch
+ * (DEED-RECORDABILITY-FLAG-1). When recordability is OFF (Stage-1 default), the D3 source-extracted-facts sign-off
+ * is suppressed entirely (returns 'off' -> both the observe telemetry and the enforce -> D3_SIGNOFF_REQUIRED 409
+ * skip); when ON, the configured getD3SignoffMode() applies verbatim. Extracted as a PURE function so the gate
+ * decision is unit-tested (executed), not only source-audited. Does NOT touch the LIVE-9 DEED_EXPORT_BLOCKED guard.
+ */
+export function resolveDeedExportD3Mode(recordabilityEnabled: boolean, mode: D3SignoffMode): D3SignoffMode {
+  return recordabilityEnabled ? mode : 'off';
+}
+
+/**
  * Knowledge Backbone Phase 2 (KNOWLEDGE-BACKBONE-PHASE2). DEFAULT OFF.
  *
  * When OFF (the default), the kbBackbone tRPC surface is entirely dormant — every procedure fail-closes with

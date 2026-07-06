@@ -1,22 +1,25 @@
 // @vitest-environment jsdom
 /**
- * DocumentDetail deed page-first layout — DEED-DOC-PAGE-LAYOUT-1 (sweep S1) (ci-gotchas #10: render, don't
- * trust tsc).
+ * DocumentDetail deed RECORDABILITY flag-gating — DEED-RECORDABILITY-FLAG-1 (Part A) (ci-gotchas #10: render,
+ * don't trust tsc).
  *
- * The operator friction: the three-gate recordability panel + D3 sign-off (~20 line-items) sat ABOVE the
- * document, so the attorney scrolled past all of it to read the deed. This proves the fix:
- *   1. a single neutral status strip (counts only) renders near the top for a deed doc;
- *   2. the heavy recording machinery (DeedGatePanel) is NOT mounted by default — it lives in a collapsed
- *      drawer BELOW the document, so the document is above the fold;
- *   3. the document sheet (DocumentCanvas) IS rendered;
- *   4. "Open checklist" reveals the drawer (DeedGatePanel mounts) on demand.
+ * Operator directive (2026-07-06): for Stage-1 solo use, one runtime switch (DEED_RECORDABILITY_ENABLED, default
+ * OFF) hides the WHOLE deed recordability surface — the status strip, the recording-checklist drawer, and its
+ * panels — as a unit, so the deed page is document-first. This proves the client half of that switch:
+ *   OFF (Stage-1 default) — none of the recording status strip / drawer header / gate panel mounts, and the
+ *     Download DOCX action still renders (the attorney gets the drafted instrument + the action row, nothing else);
+ *   ON — the machinery mounts exactly as before (strip renders; "Open checklist" reveals the gate panel).
  *
- * The panels' own behavior is covered by deedGatePanel.render.test.tsx / deedSignoffPanel.render.test.tsx —
- * here they are stubbed to markers so this test asserts LAYOUT/POSITION only (semantics untouched).
+ * The flag reaches the client via the ungated deedRecordability.isEnabled probe. DeedGatePanel is stubbed to a
+ * marker; DeedStatusStrip is the REAL component (self-gates on deedGate.isEnabled, ON here) so its mount is
+ * observable. The export-route half (skip the D3 sign-off block under the same flag) is covered server-side by
+ * deed_recordability_flag_1.test.ts.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+
+const flags = vi.hoisted(() => ({ recordability: undefined as { enabled: boolean } | undefined }));
 
 const DOC = {
   id: 'd-1', matterId: 'm-1', title: 'Test Deed', documentType: 'deed', customTypeLabel: null,
@@ -57,10 +60,8 @@ vi.mock('../../trpc.js', async () => {
       outline: { get: q(() => ({ outline: null })) },
       job: { listForDocument: q(() => ({ jobs: [] })) },
       expressReviewLoop: { isEnabled: q(() => ({ enabled: false })) },
-      // DEED-RECORDABILITY-FLAG-1: the page now gates the deed recordability surface on this probe. ON here so the
-      // strip/drawer assertions below exercise the (unchanged) flag-ON layout. New-signature stub, not an
-      // assertion change.
-      deedRecordability: { isEnabled: q(() => ({ enabled: true })) },
+      // The switch under test.
+      deedRecordability: { isEnabled: q(() => flags.recordability) },
       deedGate: {
         isEnabled: q(() => ({ enabled: true })),
         get: q(() => GATE_GET),
@@ -80,7 +81,8 @@ vi.mock('../../hooks/useDraftStream.js', () => ({
   useDraftStream: () => ({ streamingText: '', isStreaming: false }),
 }));
 
-// Heavy children → markers. The recording machinery in particular must NOT render until the drawer opens.
+// Heavy children → markers / null. DeedGatePanel is a marker so the drawer-body mount is observable; the real
+// DeedStatusStrip is kept so the strip mount is observable.
 vi.mock('../../components/DocumentCanvas.js', async () => {
   const React = await import('react');
   return {
@@ -105,6 +107,8 @@ vi.mock('../../components/DraftingTargetHeader.js', () => ({ DraftingTargetHeade
 
 import DocumentDetail from '../DocumentDetail.js';
 
+const DRAWER_HEADER = /Recording checklist & source-extracted facts sign-off/;
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/matters/m-1/documents/d-1']}>
@@ -116,33 +120,41 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  flags.recordability = undefined;
   try { window.localStorage.clear(); } catch { /* noop */ }
 });
 afterEach(() => cleanup());
 
-describe('DEED-DOC-PAGE-LAYOUT-1: document-first deed page', () => {
-  it('shows the neutral recording status strip with an open-item count (no verdict banner)', () => {
+describe('DEED-RECORDABILITY-FLAG-1: deed page recordability surface is one flag-gated switch', () => {
+  it('flag OFF (Stage-1 default): no status strip, no drawer, no gate panel — but Download DOCX still renders', () => {
+    flags.recordability = { enabled: false };
     const c = renderPage();
-    const strip = c.getByTestId('deed-status-strip');
-    expect(strip).toBeTruthy();
-    // union of the three gates' distinct blocking reasons = 4
-    expect(strip.textContent).toContain('Recording checklist:');
-    expect(strip.textContent).toContain('4 open');
-    // neutral tone — no "Recordable: NO" verdict headline in the strip
-    expect(strip.textContent).not.toContain('Recordable: NO');
+    expect(c.queryByTestId('deed-status-strip')).toBeNull();
+    expect(c.queryByText(DRAWER_HEADER)).toBeNull();
+    expect(c.queryByTestId('deed-gate-marker')).toBeNull();
+    // the document-first action row is intact
+    expect(c.queryByTestId('doc-canvas-marker')).toBeTruthy();
+    expect(c.queryByTestId('export-docx-button')).toBeTruthy();
   });
 
-  it('renders the document sheet and does NOT mount the recording checklist above it by default', () => {
+  it('flag undefined (loading): the surface is absent (OFF is the safe default before enabled === true)', () => {
+    flags.recordability = undefined;
     const c = renderPage();
-    expect(c.queryByTestId('doc-canvas-marker')).toBeTruthy();
-    // The heavy gate form is collapsed by default → not in the DOM (document is above the fold).
+    expect(c.queryByTestId('deed-status-strip')).toBeNull();
+    expect(c.queryByText(DRAWER_HEADER)).toBeNull();
     expect(c.queryByTestId('deed-gate-marker')).toBeNull();
   });
 
-  it('"Open checklist" expands the relocated drawer (the gate panel mounts on demand)', () => {
+  it('flag ON: the status strip + drawer mount, and "Open checklist" reveals the gate panel', () => {
+    flags.recordability = { enabled: true };
     const c = renderPage();
+    expect(c.queryByTestId('deed-status-strip')).toBeTruthy();
+    expect(c.queryByText(DRAWER_HEADER)).toBeTruthy();
+    // heavy gate form still collapsed by default
     expect(c.queryByTestId('deed-gate-marker')).toBeNull();
     fireEvent.click(c.getByTestId('deed-status-open-checklist'));
     expect(c.queryByTestId('deed-gate-marker')).toBeTruthy();
+    // Download DOCX unaffected by the flag being ON
+    expect(c.queryByTestId('export-docx-button')).toBeTruthy();
   });
 });

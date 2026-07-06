@@ -60,7 +60,7 @@ import { scanForDeedOperativeLanguage, isSanctionedAgentDeed } from './deed/deed
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
-import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode, isChatCopilotEnabled } from './config/featureFlags.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode, isChatCopilotEnabled, isDeedRecordabilityEnabled, resolveDeedExportD3Mode } from './config/featureFlags.js';
 import { consolidateDeedSourceFacts } from './deed/deedSourceFacts.js';
 import { observeD3Comparison, buildD3ObserveTelemetry } from './deed/d3Observe.js';
 import { hashDeedContent } from './deed/d3Signoff.js';
@@ -742,7 +742,13 @@ app.get(
     // a sanctioned deed at export and LOG it (measures the false-fail rate). OBSERVE NEVER blocks and writes NO
     // sign-off record — enforcement + the attorney sign-off record are the UI increment + the operator ENFORCE
     // flip (NC-D3-7). Best-effort: any failure here never breaks the export.
-    const d3Mode = getD3SignoffMode();
+    // DEED-RECORDABILITY-FLAG-1: the D3 source-extracted-facts sign-off is recordability supervision, so it moves
+    // with the one recordability switch. When DEED_RECORDABILITY_ENABLED is OFF (Stage-1 default), treat the mode
+    // as 'off' — BOTH the observe telemetry block and the enforce -> D3_SIGNOFF_REQUIRED 409 below skip entirely,
+    // so a Stage-1 deed export is never blocked on recordability. (The LIVE-9 DEED_EXPORT_BLOCKED guard above is
+    // NOT gated on this flag — it stays on regardless.) When ON, behavior is exactly getD3SignoffMode() as before.
+    // The gate decision is the pure resolveDeedExportD3Mode() so it is unit-tested (executed), not only audited.
+    const d3Mode = resolveDeedExportD3Mode(isDeedRecordabilityEnabled(), getD3SignoffMode());
     if (d3Mode !== 'off' && doc.documentType === 'deed') {
       try {
         const d3Materials = await listMaterialsForMatter(doc.matterId, userId);
