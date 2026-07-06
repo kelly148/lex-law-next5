@@ -51,6 +51,7 @@ import { matterDeliverableRouter } from './procedures/matterDeliverable.js';
 import { supervisionRouter } from './procedures/supervision.js';
 import { reviewerHealthRouter } from './procedures/reviewerHealth.js';
 import { deedSignoffRouter } from './procedures/deedSignoff.js';
+import { deedRecordabilityRouter } from './procedures/deedRecordability.js';
 import { materialExtractionRouter } from './procedures/materialExtraction.js';
 import { matterEntityRouter } from './procedures/matterEntity.js';
 import { notificationsRouter } from './procedures/notifications.js';
@@ -143,6 +144,7 @@ export const appRouter = router({
   supervision: supervisionRouter,
   reviewerHealth: reviewerHealthRouter,
   deedSignoff: deedSignoffRouter,
+  deedRecordability: deedRecordabilityRouter,
   // FOLD-PM-2 — document-type structured extraction (commitment/deed/survey/settlement)
   // over a material's already-extracted text, gated behind DOCUMENT_EXTRACTION_ENABLED
   // (default OFF, refuses with PRECONDITION_FAILED when OFF). Additive; no egress.

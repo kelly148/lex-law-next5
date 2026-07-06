@@ -39,6 +39,10 @@ vi.mock('../../trpc.js', async () => {
       outline: { get: q(() => ({ headings: [] })) },
       job: { listForDocument: q(() => []) },
       expressReviewLoop: { isEnabled: q(() => flags.express) },
+      // DEED-RECORDABILITY-FLAG-1: the page now reads this probe unconditionally; stub it so the mount does not
+      // throw. This test asserts only the Express entry (the deed surface is stubbed to null), so the value is
+      // immaterial. New-signature stub, not an assertion change.
+      deedRecordability: { isEnabled: q(() => ({ enabled: false })) },
     },
   };
 });

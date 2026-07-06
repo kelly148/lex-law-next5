@@ -516,6 +516,13 @@ export default function DocumentDetail(): React.ReactElement {
   const [showExpress, setShowExpress] = useState(false);
   const { data: expressFlag } = trpc.expressReviewLoop.isEnabled.useQuery();
   const expressEnabled = expressFlag?.enabled === true;
+  // DEED-RECORDABILITY-FLAG-1: one runtime switch (DEED_RECORDABILITY_ENABLED, default OFF) gates the WHOLE deed
+  // recordability surface — the status strip, the recording-checklist drawer, and its panels — as a unit. OFF
+  // (Stage-1 solo default) => the deed page is document-first (instrument + action row only). ON => the machinery
+  // mounts exactly as before (each panel still self-gates on its own flag). The export route skips the D3 sign-off
+  // block under the SAME flag (src/server/index.ts), so display and enforcement move together.
+  const { data: recordabilityFlag } = trpc.deedRecordability.isEnabled.useQuery();
+  const recordabilityEnabled = recordabilityFlag?.enabled === true;
   const [showContextPreview, setShowContextPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'outline' | 'variables' | 'references'>('content');
   const [showDraftWarning, setShowDraftWarning] = useState(false);
@@ -1286,7 +1293,7 @@ export default function DocumentDetail(): React.ReactElement {
           in place of the stacked verdict panels. "Open checklist" expands the relocated drawer below and
           scrolls to it. Self-gates on the deed gate flag (dark on prod) and only mounts for deed docs, so the
           page itself never fires deedGate.get for a non-deed. Display only. */}
-      {doc.documentType === 'deed' && (
+      {recordabilityEnabled && doc.documentType === 'deed' && (
         <DeedStatusStrip documentId={documentId} onOpenChecklist={openDeedDrawer} />
       )}
 
@@ -1493,7 +1500,7 @@ export default function DocumentDetail(): React.ReactElement {
           gate is activated. Position/display only — gate computation, affirmative-acts recording, D3/B6/
           sendability enforcement, and every audit write are unchanged. Two conditionals (header always shown;
           body only when open) keep the heavy form unmounted while collapsed. */}
-      {doc.documentType === 'deed' && (
+      {recordabilityEnabled && doc.documentType === 'deed' && (
         <div data-no-print ref={deedDrawerRef} className="mt-6">
           <button
             type="button"
@@ -1506,7 +1513,7 @@ export default function DocumentDetail(): React.ReactElement {
           </button>
         </div>
       )}
-      {doc.documentType === 'deed' && deedDrawerOpen && (
+      {recordabilityEnabled && doc.documentType === 'deed' && deedDrawerOpen && (
         <div data-no-print className="mt-2 space-y-4">
           <DeedGatePanel documentId={documentId} />
           <DeedSignoffPanel documentId={documentId} />
