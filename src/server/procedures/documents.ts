@@ -44,6 +44,7 @@ import {
   getMatterById,
   updateMatterPhase,
 } from '../db/queries/matters.js';
+import { getTemplateById, getTemplateVersionById } from '../db/queries/templates.js';
 import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import { isConflictGateEnabled } from '../config/featureFlags.js';
@@ -166,6 +167,11 @@ export const documentRouter = router({
         // required for an individual type in a multi-client matter; auto-bound for a single-client matter;
         // ignored for non-individual types.
         subjectPartyId: z.string().uuid().optional(),
+        // TEMPLATE-PIPELINE-1 (FL-17): optionally bind the created document to a template version at
+        // creation time. Validated below (must be the ACTIVE version of a template the user owns whose
+        // documentType matches); persisted onto the document (the column already exists — it was hardcoded
+        // null before). Additive + optional, so every existing caller is byte-for-byte unchanged.
+        templateVersionId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -252,6 +258,36 @@ export const documentRouter = router({
         clientPartyIds,
       });
 
+      // TEMPLATE-PIPELINE-1 (FL-17): validate + resolve the optional template binding BEFORE insert, so a
+      // document is never created with an invalid or cross-owner binding. Absent input -> null (the prior
+      // behavior, byte-for-byte).
+      let boundTemplateVersionId: string | null = null;
+      if (input.templateVersionId) {
+        if (input.draftingMode !== 'template') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'TEMPLATE_BIND_REQUIRES_TEMPLATE_MODE: a template can only be bound to a template-mode document.' });
+        }
+        // LIVE-9 posture preserved: deed-like types belong to the deed-agent track, NOT the generic
+        // template pipeline. Reject a template binding for them (the client also hides the picker).
+        if (input.documentType === 'deed') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'TEMPLATE_BIND_NOT_ALLOWED_FOR_DEED: deeds use the deed-draft agent, not the generic template pipeline.' });
+        }
+        const version = await getTemplateVersionById(input.templateVersionId, ctx.userId);
+        if (!version) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'TEMPLATE_VERSION_NOT_FOUND' });
+        }
+        const tmpl = await getTemplateById(version.templateId, ctx.userId);
+        if (!tmpl) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'TEMPLATE_NOT_FOUND' });
+        }
+        if (tmpl.activeVersionId !== input.templateVersionId) {
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'TEMPLATE_VERSION_NOT_ACTIVE: only the active version of a template may be bound.' });
+        }
+        if (tmpl.documentType !== input.documentType) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `TEMPLATE_DOCUMENT_TYPE_MISMATCH: this template is for "${tmpl.documentType}", not "${input.documentType}".` });
+        }
+        boundTemplateVersionId = input.templateVersionId;
+      }
+
       const doc = await insertDocument({
         userId: ctx.userId,
         matterId: input.matterId,
@@ -260,7 +296,7 @@ export const documentRouter = router({
         customTypeLabel: input.customTypeLabel ?? null,
         draftingMode: input.draftingMode,
         templateBindingStatus: 'bound',
-        templateVersionId: null,
+        templateVersionId: boundTemplateVersionId,
         templateSnapshot: null,
         variableMap: null,
         workflowState: 'drafting',
