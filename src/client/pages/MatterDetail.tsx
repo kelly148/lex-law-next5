@@ -19,10 +19,12 @@
  */
 import React, { useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot, UserPlus } from 'lucide-react';
+import { ArrowLeft, Edit2, Plus, FileText, Layers, ChevronRight, BookOpen, MessageSquare, Bot, UserPlus, Upload } from 'lucide-react';
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { getDocTypeConfig } from '../../shared/docTypes/docTypeConfig.js';
+import { isAcceptedUpload } from '../../shared/deedUploadFormats.js';
+import { uploadMaterialFile } from '../utils/uploadMaterial.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDrawer from '../components/MaterialsDrawer.js';
 import MatterStateDashboard from '../components/MatterStateDashboard.js';
@@ -498,6 +500,7 @@ function EditMatterForm({ matter, onClose }: EditMatterFormProps): React.ReactEl
 export default function MatterDetail(): React.ReactElement {
   const { matterId } = useParams<{ matterId: string }>();
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const [showCreateDoc, setShowCreateDoc] = useState(false);
   const [showEditMatter, setShowEditMatter] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
@@ -505,6 +508,13 @@ export default function MatterDetail(): React.ReactElement {
   // S16 (UI-ATTORNEY-SWEEP-1): interim "Add client" header affordance — scrolls to the intake party
   // control (the full parties card arrives with C.4–C.6). Ref declared before the early returns.
   const intakePanelRef = useRef<HTMLDivElement>(null);
+  // MATTER-DROP-1: full-page drag-and-drop → Materials. Dropping files anywhere on the matter page
+  // ingests them through the EXISTING POST /api/materials/upload path (same server pipeline as the
+  // drawer's Upload File — no new egress, no new extraction). Overlay + per-file feedback (G9).
+  const [dragActive, setDragActive] = useState(false);
+  const [dropBusy, setDropBusy] = useState(false);
+  const [dropResults, setDropResults] = useState<Array<{ name: string; ok: boolean; message?: string }>>([]);
+  const dragDepthRef = useRef(0);
 
   const { data: matter, isLoading: matterLoading } = trpc.matter.get.useQuery(
     { matterId: matterId! },
@@ -546,8 +556,87 @@ export default function MatterDetail(): React.ReactElement {
     }
   };
 
+  // MATTER-DROP-1 drag-and-drop → Materials.
+  const dropFileExt = (name: string): string => { const i = name.lastIndexOf('.'); return i >= 0 ? name.slice(i + 1).toLowerCase() : ''; };
+  const dragHasFiles = (e: React.DragEvent): boolean => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  const handleDragEnter = (e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+  const handleDragOver = (e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault(); // allow the drop; stop the browser from navigating to the file
+  };
+  const handleDragLeave = (e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return;
+    dragDepthRef.current -= 1;
+    if (dragDepthRef.current <= 0) { dragDepthRef.current = 0; setDragActive(false); }
+  };
+  const handlePageDrop = (e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    const dropped = Array.from(e.dataTransfer?.files ?? []); // read synchronously before any await
+    if (dropped.length === 0) return;
+    setDropBusy(true);
+    setDropResults([]);
+    void (async () => {
+      const results: Array<{ name: string; ok: boolean; message?: string }> = [];
+      for (const f of dropped) {
+        if (!isAcceptedUpload(f.type, dropFileExt(f.name))) {
+          results.push({ name: f.name, ok: false, message: 'unsupported file type' });
+          continue;
+        }
+        const r = await uploadMaterialFile(f, matterId);
+        results.push(r.ok ? { name: f.name, ok: true } : { name: f.name, ok: false, message: r.error ?? 'upload failed' });
+      }
+      void utils.materials.list.invalidate({ matterId });
+      setDropResults(results);
+      setDropBusy(false);
+    })();
+  };
+
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div
+      className="p-6 max-w-4xl mx-auto relative min-h-screen"
+      data-testid="matter-drop-root"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handlePageDrop}
+    >
+      {/* MATTER-DROP-1: full-page drop overlay (while dragging files) + per-file result banner (G9). */}
+      {dragActive && (
+        <div data-testid="matter-drop-overlay" data-no-print className="fixed inset-0 z-50 flex items-center justify-center bg-accent/10 pointer-events-none">
+          <div className="rounded-lg border-2 border-dashed border-accent bg-white/95 px-8 py-6 text-center shadow-lg">
+            <Upload className="w-8 h-8 text-accent mx-auto mb-2" />
+            <p className="text-sm font-medium text-ink">Drop files to add to Materials</p>
+            <p className="text-xs text-ink-secondary mt-0.5">They ingest through the standard materials upload.</p>
+          </div>
+        </div>
+      )}
+      {(dropBusy || dropResults.length > 0) && (
+        <div data-testid="matter-drop-results" data-no-print className="mb-4 rounded-lg border border-line bg-surface px-4 py-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-ink">{dropBusy ? 'Adding files to Materials…' : 'Added to Materials'}</span>
+            {!dropBusy && (
+              <button onClick={() => setDropResults([])} className="text-ink-hint hover:text-ink">Dismiss</button>
+            )}
+          </div>
+          {dropResults.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {dropResults.map((r, i) => (
+                <li key={i} className={r.ok ? 'text-ink-secondary' : 'text-warning'}>
+                  {r.ok ? '✓' : '✗'} {r.name}{r.ok ? '' : ` — ${r.message}`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-4 text-sm text-gray-500">
         <Link to="/matters" className="hover:text-firm-navy flex items-center gap-1">
