@@ -4,6 +4,16 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-06 — PROD DEPLOY — main `38eeba5` (OVERNIGHT-2026-07-06 batch; schema-free)
+
+**What changed.** Operator-approved + operator-initiated prod deploy: **prod `7f8f7b2` → `38eeba5`** (Railway). Ships the entire OVERNIGHT-2026-07-06 batch (PRs #526–#538: items 1/2/3/5/8/10/11 + CI-RECOVERY-1 + docs). Deploy record: `docs/engagements/OVERNIGHT-2026-07-06-deploy-record.md`; batch detail: `docs/engagements/OVERNIGHT-2026-07-06-morning-report.md`. The assistant did not trigger the deploy and ran no live/prod calls.
+
+**Current build state.** `main` HEAD = `38eeba5`. **prod target = `38eeba5`** (operator deploying). **No pending DB migrations** — the `7f8f7b2..38eeba5` diff adds zero migration/schema/.sql files (grep-confirmed); schema-free, display + additive; product flags unchanged. Post-deploy verification (deed page, nav order, template schema editor, IR .docx export, scroll-reset, flag-gated Diagnostics abandon) is operator/Cowork Pattern-16 — NOT assistant-verified. Green → live-verified; red → roll back to `7f8f7b2`.
+
+**Open items / gate residuals.** (1) Carried batch items 4/6/7/9 (recon captured). (2) Three operator decisions surfaced: G7 recital-band click-through (reverses signed RELAYOUT §2.3), Gemini "dormant" caption (unverified), SUPERVISION-UNIFY-1 (egress-ledger unification). (3) Deferred sweep sub-items (S14 doc-count field, S18 voice control, S16 capacity collapse, S17 chrome partial). (4) Not client-facing until FOLD-L0-1 live-verified (self-use only) — unchanged. (5) Incident closed: #529/#531 briefly red, fixed by CI-RECOVERY-1 (#536).
+
+---
+
 ## 2026-07-06 — OVERNIGHT-2026-07-06 batch (items 1,2,3,5,8,10,11 + CI recovery) MERGED — awaiting deploy
 
 **What changed.** Unattended overnight batch, 12 PRs merged to `main` (`2bc3026` → `1d7a99f`); full detail + deploy prompt in `docs/engagements/OVERNIGHT-2026-07-06-morning-report.md`.
