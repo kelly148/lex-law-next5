@@ -863,6 +863,17 @@ const SENDABILITY_CATEGORY_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
+// FL-5 (FL-MEDIUM-1): DISPLAY gloss only — a BLOCKER is the tier the advisory classifier maps to
+// "sendable=false", so name that consequence in the label. The parsed b.severity value + the QA-5
+// classification/schema/prompt are untouched; only the rendered text changes.
+const SENDABILITY_SEVERITY_LABELS: Record<string, string> = {
+  BLOCKER: 'BLOCKER (would block sending)',
+  SUBSTANTIVE: 'SUBSTANTIVE',
+  STRUCTURAL: 'STRUCTURAL',
+  PRECISION: 'PRECISION',
+  POLISH: 'POLISH',
+};
+
 export function SendabilitySection({ documentId }: SendabilitySectionProps): React.ReactElement {
   // On-demand: enabled=false until the attorney triggers a check (avoids an Opus
   // call on every render). refetch() runs the classifier query.
@@ -917,7 +928,7 @@ export function SendabilitySection({ documentId }: SendabilitySectionProps): Rea
                       'text-[10px] font-semibold px-1 py-0.5 rounded',
                       b.severity === 'BLOCKER' ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-700',
                     )}>
-                      {b.severity}
+                      {SENDABILITY_SEVERITY_LABELS[b.severity] ?? b.severity}
                     </span>
                     <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">
                       {SENDABILITY_CATEGORY_LABELS[b.category] ?? b.category}

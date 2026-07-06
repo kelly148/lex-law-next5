@@ -336,4 +336,18 @@ describe('DeedIntake — DEED-INTAKE-REDESIGN-1 + DEED-EXPRESS-1', () => {
     fireEvent.click(getByTestId('deed-intake-form-toggle'));
     expect(fieldsHidden(container)).toBe(false);
   });
+
+  it('FL-8: no prior vesting deed uploaded yet → the no-source prompt shows (drop-or-manual)', () => {
+    mockState.previewFacts = pf({ hasMaterials: false });
+    const { container } = renderIntake(); // showUpload defaults true
+    const banner = container.querySelector('[data-testid="deed-intake-no-source"]');
+    expect(banner).toBeTruthy();
+    expect(banner?.textContent).toContain('No prior vesting deed was provided');
+  });
+
+  it('FL-8: when materials ARE present the no-source prompt is absent', () => {
+    mockState.previewFacts = pf(); // hasMaterials true
+    const { container } = renderIntake();
+    expect(container.querySelector('[data-testid="deed-intake-no-source"]')).toBeNull();
+  });
 });
