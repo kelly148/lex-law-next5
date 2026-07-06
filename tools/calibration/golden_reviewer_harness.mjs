@@ -46,10 +46,17 @@ function parseFeedbackOutput(raw) {
 function featuresFor(scenarioId, items) {
   const text = joinText(items);
   if (scenarioId === 'P8-T1') {
+    // CAL-T1-2: credit routine_blank_flag + suppress_by_default as PARTIAL (cal7b classifyP8T1 parity);
+    // only an UNSUPPRESSED routine-blank flag is drift. Keep in sync with goldenReviewerDiff.ts.
     const flagsRoutineBlank =
       anyMatch(text, /signature block|notary|acknowledgment|date line|execution block|jurat/) &&
       anyMatch(text, /blank|incomplete|missing|fill in|not (yet )?(signed|completed)/);
-    return { features: { flagsRoutineBlank, emptyOutput: items.length === 0 }, status: flagsRoutineBlank ? 'FAIL' : 'PASS' };
+    const suppressedRoutineBlank =
+      anyMatch(text, /"routine_blank_flag"\s*:\s*true/) &&
+      anyMatch(text, /"suppress_by_default"\s*:\s*true/);
+    const status =
+      items.length === 0 ? 'PASS' : !flagsRoutineBlank ? 'PASS' : suppressedRoutineBlank ? 'PARTIAL' : 'FAIL';
+    return { features: { flagsRoutineBlank, suppressedRoutineBlank, emptyOutput: items.length === 0 }, status };
   }
   if (scenarioId === 'P8-T6') {
     const flagsAudienceRisk = anyMatch(text, /audience|over-?disclos|opposing counsel|counterparty|internal|walk-?away|reveal|expose/);

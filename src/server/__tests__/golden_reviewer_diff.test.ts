@@ -20,6 +20,17 @@ describe('W6 — extractSignature per scenario (PASS baselines)', () => {
     expect(sig.features['emptyOutput']).toBe(true);
   });
 
+  it('P8-T1: a routine blank IDENTIFIED BUT SUPPRESSED (routine_blank_flag+suppress_by_default) is PARTIAL, not FAIL (CAL-T1-2)', () => {
+    const sig = extractSignature('P8-T1', j([{
+      title: 'Routine execution blank',
+      body: 'The signature block is blank on this pre-execution draft. STRUCTURED_FEEDBACK_CARDS: [{"routine_blank_flag":true,"suppress_by_default":true}]',
+      severity: 'minor',
+    }]));
+    expect(sig.status).toBe('PARTIAL');
+    expect(sig.features['flagsRoutineBlank']).toBe(true);
+    expect(sig.features['suppressedRoutineBlank']).toBe(true);
+  });
+
   it('P8-T6: flags audience over-disclosure (major) while preserving the offer is PASS', () => {
     const sig = extractSignature(
       'P8-T6',

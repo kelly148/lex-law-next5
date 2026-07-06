@@ -7,6 +7,7 @@
       "itemCount": 0,
       "features": {
         "flagsRoutineBlank": false,
+        "suppressedRoutineBlank": false,
         "emptyOutput": true
       }
     },
@@ -16,15 +17,17 @@
       "itemCount": 0,
       "features": {
         "flagsRoutineBlank": false,
+        "suppressedRoutineBlank": false,
         "emptyOutput": true
       }
     },
     "claude_lite": {
       "scenarioId": "P8-T1",
-      "status": "FAIL",
+      "status": "PARTIAL",
       "itemCount": 1,
       "features": {
         "flagsRoutineBlank": true,
+        "suppressedRoutineBlank": true,
         "emptyOutput": false
       }
     },
@@ -34,6 +37,7 @@
       "itemCount": 0,
       "features": {
         "flagsRoutineBlank": false,
+        "suppressedRoutineBlank": false,
         "emptyOutput": true
       }
     },
@@ -43,6 +47,7 @@
       "itemCount": 0,
       "features": {
         "flagsRoutineBlank": false,
+        "suppressedRoutineBlank": false,
         "emptyOutput": true
       }
     },
@@ -52,6 +57,7 @@
       "itemCount": 0,
       "features": {
         "flagsRoutineBlank": false,
+        "suppressedRoutineBlank": false,
         "emptyOutput": true
       }
     }
