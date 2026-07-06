@@ -21,6 +21,7 @@ import React, { useRef, useState } from 'react';
 import { ShieldAlert, Lock, Download, Trash2, EyeOff, Ban, Users } from 'lucide-react';
 import { trpc } from '../trpc.js';
 import ChatReviewPanel from './ChatReviewPanel.js';
+import CopilotAttachments from './CopilotAttachments.js';
 
 export interface CopilotConversation {
   id: string;
@@ -127,6 +128,16 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
   const [mode, setMode] = useState<GuidedMode | null>(null);
   const [guided, setGuided] = useState<GuidedInputs>(EMPTY_GUIDED);
   const inFlight = useRef(false);
+  // COPILOT-UPLOAD-1: attachments selected for THIS turn only (Q5). Their ids thread into submitTurn's
+  // existing selectedAttachmentIds grounding; the server pins any it actually grounds (Q6).
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<Set<string>>(() => new Set<string>());
+  const toggleAttachment = (id: string): void =>
+    setSelectedAttachmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   /** Select/clear a guided mode. Review auto-binds the operative document when the conversation is doc-bound. */
   const chooseMode = (next: GuidedMode | null): void => {
@@ -156,6 +167,7 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
         matterId,
         turnText: text,
         ...(mode !== null ? { mode } : {}),
+        ...(selectedAttachmentIds.size > 0 ? { selectedAttachmentIds: Array.from(selectedAttachmentIds) } : {}),
       });
       setSignals({
         notice: data.master?.notice ?? null,
@@ -402,6 +414,17 @@ export default function CopilotThread({ conversation, matterId, onRefetch, onDel
                 {ra.label}
               </button>
             ))}
+          </div>
+        )}
+        {/* COPILOT-UPLOAD-1: ephemeral attachment upload + three-state chips (select-for-this-turn). */}
+        {!frozen && (
+          <div className="mb-2">
+            <CopilotAttachments
+              conversationId={conversationId}
+              matterId={matterId}
+              selectedIds={selectedAttachmentIds}
+              onToggleSelect={toggleAttachment}
+            />
           </div>
         )}
         <div className="flex items-end gap-2">
