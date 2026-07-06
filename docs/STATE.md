@@ -4,6 +4,21 @@ Append-only, **newest-first**. One dated paragraph per engagement close-out (CLA
 
 ---
 
+## 2026-07-06 — OVERNIGHT-2026-07-06 batch (items 1,2,3,5,8,10,11 + CI recovery) MERGED — awaiting deploy
+
+**What changed.** Unattended overnight batch, 12 PRs merged to `main` (`2bc3026` → `1d7a99f`); full detail + deploy prompt in `docs/engagements/OVERNIGHT-2026-07-06-morning-report.md`.
+- **Item 1** DEED-DOC-PAGE-LAYOUT-1 (#526 `a3d8119`): document-first deed page — neutral status strip + the three-gate/D3/sendability machinery moved into a collapsed drawer BELOW the document. Zero gate-semantics change; existing deed-gate/D3/relayout tests green unmodified.
+- **Item 2** UI-ATTORNEY-SWEEP-1 in 4 increments — S12 nav reorder (#527 `c0f23da`); S14/S15 matters+overview + G6/G7/G9 (#528 `cf61dfe`); S13/S16 matter-detail + conflicts quieting + G6 (#529 `5a22881`); S19 + Settings/Supervision/Diagnostics/Templates G6/G7/G9 + FL-18 (#530 `074d8eb`). Display-only; behavioral tests unmodified.
+- **Item 3** TEMPLATE-PIPELINE-1 — inc1 bind-at-create (server validation + LIVE-9 deed exclusion) + picker + G9 (#531 `f36924d`); inc2 schema-authoring UI derive→edit→save→confirm (#532 `c5d3803`). No migration.
+- **Item 11** PERF-TRANSITIONS-1 scroll-reset-on-nav + sidebar clip (#534 `0a0142c`); **Item 8** SESSION-UNSTICK-1 Diagnostics per-session abandon (#535 `f9fd839`); **Item 5+11-inv** FL-1 + PERF investigations (#533 `0f286c8`); **Item 10** IR-EXPORT-DOCX-1 real .docx (#537 `1d7a99f`).
+- **INCIDENT:** #529 + #531 briefly landed on a RED main — the auto-merge trusted `gh pr checks --watch` exit 0 (= completion, not success). Repaired by **CI-RECOVERY-1 (#536 `c11d594`)** with NO test-assertion changes (reverted the openSignal auto-open → Add-client is scroll-only; added a template.list mock stub). Full client suite (727) green; process fix = verify `--json statusCheckRollup` before merge + run the full affected test set.
+
+**Current build state.** `main` HEAD = `1d7a99f`, green. **prod = `7f8f7b2`** (this batch is NOT deployed — awaiting operator deploy). No schema/flag change; product flags still OFF. Deploy is schema-free (no pending migrations) — see the report's DEPLOY PROMPT (§6).
+
+**Open items / gate residuals.** (1) **Carried to next batch:** item 4 (FL-MEDIUM deed UX), item 6 (MATTER-DROP — recon done), item 7 (COPILOT-UPLOAD), item 9 (CAL-T1-2). (2) **Deliberate skip:** G7 recital-band click-through reverses the signed RELAYOUT status-only spec (§2.3) — operator decision. (3) **New follow-up:** SUPERVISION-UNIFY-1 (FL-1 finding — Supervision under-reports reviewer/deed/intake egress). (4) Deferred sweep sub-items (S14 doc-count/last-activity = needs server field; S18 voice control + Gemini caption; S16 capacity collapse; S17 chrome pass partial). (5) Prior carry-forwards unchanged. (6) Not client-facing until FOLD-L0-1 live-verified (self-use only).
+
+---
+
 ## 2026-07-05 — UI-ATTORNEY-SWEEP-1 inc 2 (S2/S3/S4/S6/S7/S8/S10/S11) MERGED — display-only, awaiting deploy
 
 **What changed.** UI-ATTORNEY-SWEEP-1 increment 2 (#523 squash `7f8f7b2`) merged to `main` — display-only attorney-audience polish across seven surfaces + one docs carry-forward. **No safeguard semantics, gates, audit writes, or attestation RECORDS change**; attestation text is preserved byte-identical (now behind a one-click expand where relevant). Mapped with a 7-agent parallel workflow, implemented + verified in the main loop.
