@@ -47,6 +47,8 @@ vi.mock('../../trpc.js', async () => {
         isEnabled: { useQuery: () => { React.useRef(null); return { data: { enabled: true }, isLoading: false }; } },
         list: { useQuery: () => { React.useRef(null); return { data: h.conversations, isLoading: false, isError: false }; } },
         messages: { useQuery: () => { React.useRef(null); return { data: h.messages, isLoading: false, isError: false }; } },
+        // COPILOT-UPLOAD-1: CopilotThread now renders CopilotAttachments, which reads listAttachments.
+        listAttachments: { useQuery: () => { React.useRef(null); return { data: [], isLoading: false, isError: false }; } },
       },
       // CHAT-COPILOT-2-INCB wiring added a flag read in CopilotThread; provide it (panel OFF here).
       chatReviewPanel: { isPanelEnabled: { useQuery: () => { React.useRef(null); return { data: { enabled: false }, isLoading: false }; } } },

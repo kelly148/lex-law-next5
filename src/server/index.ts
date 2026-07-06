@@ -20,9 +20,12 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { extractPdfText } from './intake/pdfExtract.js';
-import { startMaterialOcrInBackground, pdfNeedsOcr, type OcrKind } from './intake/ocrPipeline.js';
+import { startMaterialOcrInBackground, pdfNeedsOcr, runMaterialOcr, type OcrKind } from './intake/ocrPipeline.js';
 import { routeUploadFormat } from '../shared/deedUploadFormats.js';
-import { terminateOcrWorker } from './intake/ocrExtract.js';
+// COPILOT-UPLOAD-1 (CHAT-COPILOT-2 A3): the ephemeral chat-attachment ingest pipeline.
+import { ingestChatAttachment } from './db/queries/chatAttachments.js';
+import { listPartiesForMatter } from './db/queries/matterParties.js';
+import { OCR_CONFIDENCE_FLOOR, terminateOcrWorker } from './intake/ocrExtract.js';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
 import { setTelemetryDbWriter, emitTelemetry } from './telemetry/emitTelemetry.js';
@@ -57,7 +60,7 @@ import { scanForDeedOperativeLanguage, isSanctionedAgentDeed } from './deed/deed
 import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
-import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode } from './config/featureFlags.js';
+import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode, isChatCopilotEnabled } from './config/featureFlags.js';
 import { consolidateDeedSourceFacts } from './deed/deedSourceFacts.js';
 import { observeD3Comparison, buildD3ObserveTelemetry } from './deed/d3Observe.js';
 import { hashDeedContent } from './deed/d3Signoff.js';
@@ -355,6 +358,130 @@ app.post(
     );
 
     res.status(201).json(material);
+  },
+);
+
+// ============================================================
+// COPILOT-UPLOAD-1 (CHAT-COPILOT-2 A3): ephemeral chat-attachment upload.
+// Mirrors /api/materials/upload but: (1) gated on CHAT_COPILOT_ENABLED (fail-closed, like every chatCopilot
+// procedure); (2) extracts text SYNCHRONOUSLY (ingestChatAttachment applies the honesty floor + G5 up
+// front); (3) ingests via ingestChatAttachment — store-by-reference, ephemeral, purged at conversation end
+// — NOT into Materials (the drop-to-Materials ruling is a DIFFERENT surface). A Q3 cross-matter duplicate is
+// surfaced as 409 so the client can offer an explicit override.
+// ============================================================
+const chatAttachmentUploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+}).single('file');
+
+/** OcrClassification carries a status, not a number — map it back to a representative confidence so the
+ *  ingest honesty floor stays meaningful (extracted above the floor, low_confidence below it, failed null). */
+function copilotConfidenceFromStatus(status: string): number | null {
+  if (status === 'extracted') return OCR_CONFIDENCE_FLOOR + 10;
+  if (status === 'low_confidence') return OCR_CONFIDENCE_FLOOR - 10;
+  return null;
+}
+
+async function extractCopilotAttachment(
+  buffer: Buffer,
+  mimeType: string,
+  ext: string,
+): Promise<{ extractedText: string; meanConfidence: number | null; isImageSource: boolean }> {
+  const branch = routeUploadFormat(mimeType, ext);
+  if (branch === 'docx') {
+    const r = await mammoth.extractRawText({ buffer });
+    return { extractedText: r.value ?? '', meanConfidence: null, isImageSource: false };
+  }
+  if (branch === 'text') {
+    return { extractedText: buffer.toString('utf-8'), meanConfidence: null, isImageSource: false };
+  }
+  if (branch === 'pdf') {
+    const r = await extractPdfText(buffer);
+    if (pdfNeedsOcr(r.extractionStatus)) {
+      const ocr = await runMaterialOcr('scanned_pdf', buffer);
+      return { extractedText: ocr.textContent ?? '', meanConfidence: copilotConfidenceFromStatus(ocr.extractionStatus), isImageSource: true };
+    }
+    return { extractedText: r.textContent ?? '', meanConfidence: null, isImageSource: false };
+  }
+  if (branch === 'image') {
+    const ocr = await runMaterialOcr('image', buffer);
+    return { extractedText: ocr.textContent ?? '', meanConfidence: copilotConfidenceFromStatus(ocr.extractionStatus), isImageSource: true };
+  }
+  return { extractedText: '', meanConfidence: null, isImageSource: false };
+}
+
+app.post(
+  '/api/chat/attachments/upload',
+  (req: Request, res: Response, next: NextFunction) => {
+    chatAttachmentUploadMiddleware(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') { res.status(413).json({ error: 'FILE_TOO_LARGE', message: 'File exceeds 50 MB limit' }); return; }
+        res.status(400).json({ error: err.code, message: err.message }); return;
+      }
+      if (err) { next(err); return; }
+      next();
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    // Fail-closed on the flag (matches every chatCopilot procedure — dark on prod by default).
+    if (!isChatCopilotEnabled()) {
+      res.status(404).json({ error: 'CHAT_COPILOT_DISABLED', message: 'The copilot surface is not enabled.' });
+      return;
+    }
+    const session = await getSession(req, res);
+    const userId: string | null = extractUserId(session);
+    if (!userId) { res.status(401).json({ error: 'UNAUTHENTICATED', message: 'Not authenticated' }); return; }
+
+    const matterId = typeof req.body?.['matterId'] === 'string' ? (req.body['matterId'] as string) : null;
+    const conversationId = typeof req.body?.['conversationId'] === 'string' ? (req.body['conversationId'] as string) : null;
+    if (!matterId) { res.status(400).json({ error: 'MISSING_MATTER_ID', message: 'matterId is required' }); return; }
+    if (!conversationId) { res.status(400).json({ error: 'MISSING_CONVERSATION_ID', message: 'conversationId is required' }); return; }
+    const allowCrossMatterDuplicate = req.body?.['allowCrossMatterDuplicate'] === 'true';
+
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'MISSING_FILE', message: "A file field named 'file' is required" }); return; }
+
+    const matter = await getMatterById(matterId, userId);
+    if (!matter) { res.status(404).json({ error: 'MATTER_NOT_FOUND', message: 'Matter not found' }); return; }
+
+    const originalName = file.originalname;
+    const dotIdx = originalName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+
+    // SYNCHRONOUS extraction (the ingest applies the honesty floor + G5 immediately, unlike materials which
+    // defers image/scanned-PDF OCR to a background job).
+    const { extractedText, meanConfidence, isImageSource } = await extractCopilotAttachment(file.buffer, file.mimetype, ext);
+
+    // SOFT matter-mismatch advisory (G5) reuses the matter's party display names. Parcels are omitted here
+    // (a fast-follow) — the check is advisory and fails open without them.
+    const parties = await listPartiesForMatter(matterId, userId);
+    const matterPartyNames = parties.map((p) => p.displayName).filter((n) => n.length > 0);
+
+    try {
+      const result = await ingestChatAttachment({
+        userId,
+        matterId,
+        conversationId,
+        filename: originalName,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        bytes: file.buffer,
+        extractedText,
+        meanConfidence,
+        isImageSource,
+        allowCrossMatterDuplicate,
+        matterPartyNames,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      // Q3 cross-matter HARD STOP surfaces as a TRPCError(code CONFLICT) carrying CROSS_MATTER_DUPLICATE.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('CROSS_MATTER_DUPLICATE')) {
+        res.status(409).json({ error: 'CROSS_MATTER_DUPLICATE', message: msg });
+        return;
+      }
+      res.status(500).json({ error: 'INGEST_FAILED', message: msg });
+    }
   },
 );
 
