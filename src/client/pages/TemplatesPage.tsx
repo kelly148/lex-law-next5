@@ -23,6 +23,133 @@ import { Plus, Archive, ArchiveRestore, ChevronDown, ChevronUp, CheckCircle, Ale
 import clsx from 'clsx';
 import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
+import { deriveTemplateVariables, defaultFieldLabel } from '../utils/templateVariables.js';
+
+// TEMPLATE-PIPELINE-1 (FL-17) inc 2 — the attorney-facing variable field types (mirror the server's
+// VariableFieldInputSchema). No new server procedure: updateSchema + confirmSchema already exist.
+const SCHEMA_FIELD_TYPES = ['string', 'number', 'date', 'currency', 'boolean', 'array'] as const;
+type SchemaFieldType = (typeof SCHEMA_FIELD_TYPES)[number];
+interface EditableSchemaField {
+  name: string;
+  label: string;
+  type: SchemaFieldType;
+  required: boolean;
+}
+
+// ============================================================
+// VersionSchemaEditor — derive → edit → save → confirm a version's variable schema
+// ============================================================
+export function VersionSchemaEditor({ versionId, handlebarsSource }: { versionId: string; handlebarsSource: string }): React.ReactElement {
+  const utils = trpc.useUtils();
+  const derived = React.useMemo(() => deriveTemplateVariables(handlebarsSource), [handlebarsSource]);
+  const [fields, setFields] = useState<EditableSchemaField[]>(() =>
+    derived.map((name) => ({ name, label: defaultFieldLabel(name), type: 'string' as SchemaFieldType, required: true })),
+  );
+  const [saved, setSaved] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [needsAck, setNeedsAck] = useState(false);
+
+  const updateSchemaMutation = useGuardedMutation(
+    (input: { versionId: string; schema: { fields: EditableSchemaField[]; schemaVersion: number } }) =>
+      utils.client.template.updateSchema.mutate(input),
+    { onSuccess: () => { setSaved(true); setConfirmed(false); setNeedsAck(false); } },
+  );
+  const confirmSchemaMutation = useGuardedMutation(
+    (input: { versionId: string; acknowledgeWarnings?: boolean }) =>
+      utils.client.template.confirmSchema.mutate(input),
+    {
+      onSuccess: () => { setConfirmed(true); setNeedsAck(false); },
+      onError: (err) => { if (err.message.includes('SCHEMA_WARNINGS_UNACKNOWLEDGED')) setNeedsAck(true); },
+    },
+  );
+
+  const setField = (i: number, patch: Partial<EditableSchemaField>): void =>
+    setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
+
+  if (derived.length === 0) {
+    return (
+      <p data-testid="schema-editor-empty" className="px-3 py-2 text-xs text-gray-400">
+        No fillable variables found in this template’s source.
+      </p>
+    );
+  }
+
+  return (
+    <div data-testid="schema-editor" className="px-3 py-3 space-y-3 bg-white border-t border-gray-100">
+      <p className="text-xs text-gray-500">Variables derived from the template. Set each field’s label, type, and whether it’s required, then Save and Confirm.</p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-gray-400">
+            <th className="py-1 pr-2 font-medium">Variable</th>
+            <th className="py-1 pr-2 font-medium">Label</th>
+            <th className="py-1 pr-2 font-medium">Type</th>
+            <th className="py-1 font-medium">Required</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fields.map((f, i) => (
+            <tr key={f.name} data-testid={`schema-field-${f.name}`} className="border-t border-gray-50">
+              <td className="py-1 pr-2 font-mono text-gray-700">{f.name}</td>
+              <td className="py-1 pr-2">
+                <input
+                  value={f.label}
+                  onChange={(e) => setField(i, { label: e.target.value })}
+                  className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
+                />
+              </td>
+              <td className="py-1 pr-2">
+                <select
+                  value={f.type}
+                  onChange={(e) => setField(i, { type: e.target.value as SchemaFieldType })}
+                  className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-firm-navy"
+                >
+                  {SCHEMA_FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </td>
+              <td className="py-1">
+                <input type="checkbox" checked={f.required} onChange={(e) => setField(i, { required: e.target.checked })} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          data-testid="schema-save"
+          onClick={() => updateSchemaMutation.mutate({ versionId, schema: { fields, schemaVersion: 1 } })}
+          disabled={updateSchemaMutation.isPending}
+          className="text-xs border border-line text-ink rounded px-3 py-1 hover:bg-surface disabled:opacity-50"
+        >
+          {updateSchemaMutation.isPending ? 'Saving…' : 'Save schema'}
+        </button>
+        <button
+          type="button"
+          data-testid="schema-confirm"
+          onClick={() => confirmSchemaMutation.mutate({ versionId, ...(needsAck ? { acknowledgeWarnings: true } : {}) })}
+          disabled={!saved || confirmSchemaMutation.isPending}
+          className="text-xs bg-accent text-on-accent rounded px-3 py-1 hover:bg-accent-hover disabled:opacity-50"
+        >
+          {needsAck ? 'Acknowledge & confirm' : (confirmSchemaMutation.isPending ? 'Confirming…' : 'Confirm schema')}
+        </button>
+        {saved && !confirmed && <span className="text-xs text-gray-400">Saved — confirm to make it usable.</span>}
+        {confirmed && <span data-testid="schema-confirmed" className="text-xs text-success">Schema confirmed.</span>}
+      </div>
+      {needsAck && (
+        <p data-testid="schema-warnings" className="text-xs text-warning">
+          This schema has validation warnings (a placeholder without a field, or a field not used in the template). Acknowledge to confirm anyway.
+        </p>
+      )}
+      {/* G9: surface the mutation errors instead of a silent 412. */}
+      {updateSchemaMutation.error && (
+        <p data-testid="schema-save-error" className="text-xs text-warning">Couldn’t save the schema: {updateSchemaMutation.error.message}</p>
+      )}
+      {confirmSchemaMutation.error && !needsAck && (
+        <p data-testid="schema-confirm-error" className="text-xs text-warning">Couldn’t confirm the schema: {confirmSchemaMutation.error.message}</p>
+      )}
+    </div>
+  );
+}
 
 // ============================================================
 // UploadTemplateForm
@@ -150,6 +277,9 @@ interface TemplateVersionRowProps {
     versionNumber: number;
     validationStatus: string;
     createdAt: string;
+    // TEMPLATE-PIPELINE-1 inc 2: the Handlebars source drives the derived schema editor. template.get
+    // returns the full version row (ParsedTemplateVersion), so this is present.
+    handlebarsSource: string;
   };
   templateId: string;
   isActive: boolean;
@@ -158,6 +288,8 @@ interface TemplateVersionRowProps {
 
 function TemplateVersionRow({ version, templateId, isActive, onRefresh }: TemplateVersionRowProps): React.ReactElement {
   const utils = trpc.useUtils();
+  // TEMPLATE-PIPELINE-1 inc 2: the schema authoring surface (derive → edit → save → confirm), collapsed.
+  const [showSchema, setShowSchema] = useState(false);
 
   const activateMutation = useGuardedMutation(
     (input: { templateId: string; versionId: string }) => utils.client.template.activate.mutate(input),
@@ -172,42 +304,56 @@ function TemplateVersionRow({ version, templateId, isActive, onRefresh }: Templa
 
 
   return (
-    <div className={clsx(
-      'flex items-center gap-3 px-3 py-2 text-sm',
-      isActive && 'bg-green-50'
-    )}>
-      <span className="text-gray-500 w-16">v{version.versionNumber}</span>
-      <span className={clsx(
-        'text-xs px-1.5 py-0.5 rounded',
-        version.validationStatus === 'valid' && 'bg-green-100 text-green-700',
-        version.validationStatus === 'invalid' && 'bg-red-100 text-red-700',
-        version.validationStatus === 'pending' && 'bg-gray-100 text-gray-600',
-      )}>
-        {version.validationStatus}
-      </span>
-      {isActive && (
-        <span className="flex items-center gap-1 text-xs text-green-700">
-          <CheckCircle className="w-3 h-3" /> Active
+    <div className={clsx('text-sm', isActive && 'bg-green-50')}>
+      <div className="flex items-center gap-3 px-3 py-2">
+        <span className="text-gray-500 w-16">v{version.versionNumber}</span>
+        <span className={clsx(
+          'text-xs px-1.5 py-0.5 rounded',
+          version.validationStatus === 'valid' && 'bg-green-100 text-green-700',
+          version.validationStatus === 'invalid' && 'bg-red-100 text-red-700',
+          version.validationStatus === 'pending' && 'bg-gray-100 text-gray-600',
+        )}>
+          {version.validationStatus}
         </span>
-      )}
-      {version.validationStatus === 'valid' && !isActive && (
-        <button
-          onClick={() => activateMutation.mutate({ templateId, versionId: version.id })}
-          disabled={activateMutation.isPending}
-          className="text-xs text-firm-navy hover:underline disabled:opacity-50"
-        >
-          Activate
-        </button>
-      )}
-      {/* G9 (UI-ATTORNEY-SWEEP-1): no silent 412 — surface the activate error instead of swallowing it. */}
-      {activateMutation.error && (
-        <span data-testid="template-activate-error" className="text-xs text-warning" title={activateMutation.error.message}>
-          Couldn’t activate
+        {isActive && (
+          <span className="flex items-center gap-1 text-xs text-green-700">
+            <CheckCircle className="w-3 h-3" /> Active
+          </span>
+        )}
+        {/* TEMPLATE-PIPELINE-1 inc 2: author/confirm the variable schema (a version must have a confirmed
+            schema before it can be activated). */}
+        {version.validationStatus === 'valid' && (
+          <button
+            data-testid="schema-toggle"
+            onClick={() => setShowSchema((s) => !s)}
+            className="flex items-center gap-1 text-xs text-firm-navy hover:underline"
+          >
+            {showSchema ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            Configure schema
+          </button>
+        )}
+        {version.validationStatus === 'valid' && !isActive && (
+          <button
+            onClick={() => activateMutation.mutate({ templateId, versionId: version.id })}
+            disabled={activateMutation.isPending}
+            className="text-xs text-firm-navy hover:underline disabled:opacity-50"
+          >
+            Activate
+          </button>
+        )}
+        {/* G9 (UI-ATTORNEY-SWEEP-1): no silent 412 — surface the activate error instead of swallowing it. */}
+        {activateMutation.error && (
+          <span data-testid="template-activate-error" className="text-xs text-warning" title={activateMutation.error.message}>
+            Couldn’t activate
+          </span>
+        )}
+        <span className="ml-auto text-xs text-gray-400">
+          {new Date(version.createdAt).toLocaleDateString()}
         </span>
+      </div>
+      {showSchema && version.validationStatus === 'valid' && (
+        <VersionSchemaEditor versionId={version.id} handlebarsSource={version.handlebarsSource} />
       )}
-      <span className="ml-auto text-xs text-gray-400">
-        {new Date(version.createdAt).toLocaleDateString()}
-      </span>
     </div>
   );
 }
