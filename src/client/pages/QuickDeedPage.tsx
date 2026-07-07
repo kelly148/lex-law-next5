@@ -22,7 +22,7 @@ import { trpc } from '../trpc.js';
 import { useGuardedMutation } from '../hooks/useGuardedMutation.js';
 import MaterialsDropZone from '../components/MaterialsDropZone.js';
 import DeedIntake, { type DeedGiftIntakePayload } from '../components/DeedIntake.js';
-import QuickDeedCategoryForm from './quickDeedCategoryForms.js';
+import QuickDeedCategoryForm, { LegalDescriptionField } from './quickDeedCategoryForms.js';
 import { ManualFieldsToggle, MISSING_RING_CLASS } from './deedManualForm.js';
 import { sellerProposalToFields, type SellerProposalInput } from './quickDeedProposalApply.js';
 
@@ -157,6 +157,7 @@ export default function QuickDeedPage(): React.ReactElement {
   const [granteeDescriptor, setGranteeDescriptor] = useState('');
   const [tenancy, setTenancy] = useState('');
   const [vestingRecital, setVestingRecital] = useState('');
+  const [legalDescription, setLegalDescription] = useState('');
   const [venue, setVenue] = useState('');
   const [returnTo, setReturnTo] = useState('');
   const [titleInsurer, setTitleInsurer] = useState('');
@@ -321,6 +322,7 @@ export default function QuickDeedPage(): React.ReactElement {
         granteeDescriptor: granteeDescriptor.trim() || undefined,
         tenancy: tenancy.trim(),
         vestingRecital: vestingRecital.trim(),
+        legalDescription: legalDescription.trim() || undefined,
         venue: venue.trim(),
         returnTo: returnTo.trim(),
         sellerType,
@@ -579,6 +581,7 @@ export default function QuickDeedPage(): React.ReactElement {
               The conveyance facts the prior document can&apos;t supply. The legal description, parcel/tax id, and
               assessed value resolve from your uploads (override below if needed).
             </p>
+            <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-seller-legal" />
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Warranty</label>

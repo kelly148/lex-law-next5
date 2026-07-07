@@ -203,6 +203,46 @@ function CollapsibleFields({
 
 const trimOrUndef = (v: string): string | undefined => (v.trim().length > 0 ? v.trim() : undefined);
 
+/**
+ * DEED-MANUAL-LEGAL-DESC-1 (non-gift lanes): the OPTIONAL attorney-verbatim legal-description override. The server
+ * already accepts `input.legalDescription` with `firstNonEmpty(input.legalDescription, extractedLegal)` precedence
+ * for every non-gift lane (deedDraftAgent.ts) — this only EXPOSES it in the intake; there is no server/schema change.
+ * When left blank the field is absent and the legal read verbatim from the uploads is used, unchanged. The system
+ * still never AUTHORS the legal: it is either read verbatim from the upload or pasted verbatim by the attorney.
+ * The GIFT lane deliberately has NO such field (its extraction-only invariant is under external triad review) and is
+ * NOT wired here — structurally, the gift path uses the top-level gift fields, which carry no legalDescription.
+ */
+export function LegalDescriptionField({
+  value,
+  onChange,
+  testId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  testId: string;
+}): React.ReactElement {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Legal description <span className="font-normal text-ink-hint">(optional — paste verbatim from the source)</span>
+      </label>
+      <textarea
+        data-testid={testId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
+        className={inputCls}
+        placeholder="Paste the legal description exactly as it appears on the prior recorded deed. Leave blank to use the one read from your uploads."
+      />
+      <p className="text-xs text-ink-hint mt-1">
+        The system never writes the legal description. It is read verbatim from your uploads — or, if an upload
+        can&apos;t be read, paste it here exactly as it appears on the source. When blank, the legal from your
+        uploads is used.
+      </p>
+    </div>
+  );
+}
+
 // ── C3: Deed Into an LLC ────────────────────────────────────────────────────────────────────────────────────────
 
 function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
@@ -213,6 +253,7 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
   const [instrumentDatePhrase, setInstrumentDatePhrase] = useState('');
   const [preparedBy, setPreparedBy] = useState('');
   const [derivationOfTitle, setDerivationOfTitle] = useState('');
+  const [legalDescription, setLegalDescription] = useState('');
   const [subjectTo, setSubjectTo] = useState('');
   const [notaryCommonwealth, setNotaryCommonwealth] = useState('COMMONWEALTH OF VIRGINIA');
   const [notaryLocality, setNotaryLocality] = useState('');
@@ -255,6 +296,7 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
     props.onGenerate({
       deedType: QUICK_DEED_INTO_LLC_TYPE,
       intoLlc: {
+        legalDescription: trimOrUndef(legalDescription),
         preparedBy: preparedBy.trim(),
         consideration: consideration.trim() || '$0.00',
         instrumentDatePhrase: instrumentDatePhrase.trim(),
@@ -285,6 +327,7 @@ function IntoLlcForm(props: CategoryFormProps): React.ReactElement {
       />
       <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-into_llc-fields">
         <p className="text-xs text-ink-secondary">QUITCLAIM into a Virginia LLC (no warranty; § 58.1-811(A)(10)). The grantee LLC name is read from the SCC/operating-agreement upload unless you enter it below.</p>
+        <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-into_llc-legal" />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Grantor(s) — current owner(s) <span className="text-red-500">*</span></label>
           {grantorNeedsConfirm && (
@@ -343,6 +386,7 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
   const [executionYear, setExecutionYear] = useState('');
   const [localityType, setLocalityType] = useState('County');
   const [derivationInstrumentNumber, setDerivationInstrumentNumber] = useState('');
+  const [legalDescription, setLegalDescription] = useState('');
   const [notaryLocality, setNotaryLocality] = useState('');
   const [rtCompany, setRtCompany] = useState('');
   const [rtLine1, setRtLine1] = useState('');
@@ -374,6 +418,7 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
     props.onGenerate({
       deedType: QUICK_DEED_OUT_OF_LLC_TYPE,
       outOfLlc: {
+        legalDescription: trimOrUndef(legalDescription),
         grantorLlc: trimOrUndef(grantorLlc),
         members: cleanMembers,
         fileNumber: fileNumber.trim(),
@@ -413,6 +458,7 @@ function OutOfLlcForm(props: CategoryFormProps): React.ReactElement {
       />
       <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-out_of_llc-fields">
         <p className="text-xs text-ink-secondary">Special Warranty out of a Virginia LLC (§ 58.1-811(A)(11)); the members sign. The grantor LLC name + member set are read from the LLC/operating-agreement upload unless you enter them below.</p>
+        <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-out_of_llc-legal" />
         <Text label="Grantor LLC (else read from uploads)" value={grantorLlc} onChange={setGrantorLlc} placeholder="e.g. Maplehurst Holdings LLC" />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Signing member(s) (else read from uploads)</label>
@@ -467,6 +513,7 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
   const [transferorCapacity, setTransferorCapacity] = useState('');
   const [persons, setPersons] = useState<string[]>(['']);
   const [beneficiaryVesting, setBeneficiaryVesting] = useState('');
+  const [legalDescription, setLegalDescription] = useState('');
   const [preparer, setPreparer] = useState('');
   const [returnTo, setReturnTo] = useState('');
   const [deedDatePhrase, setDeedDatePhrase] = useState('');
@@ -514,6 +561,7 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
     props.onGenerate({
       deedType: QUICK_DEED_TOD_TYPE,
       tod: {
+        legalDescription: trimOrUndef(legalDescription),
         preparer: preparer.trim(),
         returnTo: returnTo.trim(),
         deedDatePhrase: deedDatePhrase.trim(),
@@ -542,6 +590,7 @@ function TodForm(props: CategoryFormProps): React.ReactElement {
       />
       <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-tod-fields">
         <p className="text-xs text-ink-secondary">A Revocable Transfer on Death Deed (§ 58.1-811(J); death-effective, no consideration, no warranty). It is NOT effective unless recorded before the transferor&apos;s death.</p>
+        <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-tod-legal" />
         {transferorNeedsConfirm && (
           <p data-testid="tod-transferor-seed-note" className="text-xs text-amber-700">
             Transferor read from the prior deed (the current owner) — confirm or edit.
@@ -582,6 +631,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
   const [vesting, setVesting] = useState('sole owner');
   const [grantingVerb, setGrantingVerb] = useState('grant and convey');
   const [warranty, setWarranty] = useState('General Warranty and English Covenants of title');
+  const [legalDescription, setLegalDescription] = useState('');
   const [subjectTo, setSubjectTo] = useState('covenants, conditions, restrictions, easements and rights of way of record');
 
   // C1-a survivorship
@@ -634,6 +684,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
     props.setError(null);
     const base = {
       archetype,
+      legalDescription: trimOrUndef(legalDescription),
       exemptionCode: exemptionCode.trim() || '58.1-810(1)',
       preparer: preparer.trim(),
       preparedNote: preparedNote.trim(),
@@ -706,6 +757,7 @@ function ConfirmationForm(props: CategoryFormProps): React.ReactElement {
       />
       <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-confirmation-fields">
         <p className="text-xs text-ink-secondary">A Deed of Confirmation places of record a title already vested by operation of law; it does not transfer. The chain-of-title recitals are attorney-load-bearing — verify each link.</p>
+        <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-confirmation-legal" />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Archetype <span className="text-red-500">*</span></label>
           <select value={archetype} onChange={(e) => setArchetype(e.target.value === 'C1-b-testate-devise' ? 'C1-b-testate-devise' : 'C1-a-survivorship')} className={`${inputCls} bg-white`}>
@@ -819,6 +871,7 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
   const [grantorMaritalStatus, setGrantorMaritalStatus] = useState('');
   const [heldAs, setHeldAs] = useState('');
   const [trustStructure, setTrustStructure] = useState('');
+  const [legalDescription, setLegalDescription] = useState('');
   const [trusteesRecital, setTrusteesRecital] = useState('');
   const [granteeObjectPlurality, setGranteeObjectPlurality] = useState<'GRANTEE' | 'GRANTEES'>('GRANTEES');
   const [grantingVerb, setGrantingVerb] = useState('quitclaim, release and convey');
@@ -871,6 +924,7 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
     props.onGenerate({
       deedType: QUICK_DEED_INTO_TRUST_TYPE,
       intoTrust: {
+        legalDescription: trimOrUndef(legalDescription),
         exemplar,
         exemptionBasis: exemptionBasis.split(',').map((s) => s.trim()).filter((s) => s.length > 0),
         titleSearchPerformed,
@@ -912,6 +966,7 @@ function IntoTrustForm(props: CategoryFormProps): React.ReactElement {
       />
       <CollapsibleFields expanded={formExpanded} onToggle={() => setFormExpanded((v) => !v)} testId="quick-deed-into_trust-fields">
         <p className="text-xs text-ink-secondary">Conveyance into a revocable living trust. The trustees recital is load-bearing and attorney-supplied verbatim — it is never auto-generated from the certificate of trust.</p>
+        <LegalDescriptionField value={legalDescription} onChange={setLegalDescription} testId="quick-deed-into_trust-legal" />
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Exemplar</label>
