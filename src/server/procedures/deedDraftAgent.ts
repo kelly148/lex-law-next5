@@ -28,7 +28,7 @@ import { resolvePostureDraftingGate } from '../conflicts/postureGate.js';
 import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
-import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft } from '../deed/deedGiftAssembler.js';
+import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft, type GiftLegalAffirmation } from '../deed/deedGiftAssembler.js';
 import { VA_VESTING_OPTIONS } from '../deed/deedKbVa.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { EVALUATOR_MODEL } from '../llm/config.js';
@@ -114,6 +114,19 @@ const createGiftDraftInput = z.object({
   derivationReference: z.string().max(400).nullable().optional(),
   returnTo: z.string().max(200).nullable().optional(),
   title: z.string().min(1).max(256).optional(),
+  // DEED-MANUAL-LEGAL-GIFT-1 (G2/G3): the OPTIONAL attorney-pasted verbatim legal + its G5 source + the G3
+  // affirmation. Transport only — the assembler (isGiftLegalAffirmationValid) is the gate: a paste is used ONLY on
+  // a WITHHELD/absent extraction AND under the full affirmation, inserted byte-for-byte (G8). Absent -> unchanged.
+  legalDescription: z.string().max(20000).nullable().optional(),
+  legalDescriptionSource: z.string().max(2000).nullable().optional(),
+  legalDescriptionAffirmation: z
+    .object({
+      verbatimFromSource: z.boolean(),
+      responsibleForAccuracy: z.boolean(),
+      describesSubjectProperty: z.boolean(),
+      affirmedAt: z.string().max(40).optional(),
+    })
+    .optional(),
 });
 
 // Inc 4 — the refine-loop input: an existing deed-agent document + the attorney's REVISED gift input (same gift
@@ -153,6 +166,9 @@ export function toGiftDeedInput(input: {
   locality?: string | null | undefined;
   derivationReference?: string | null | undefined;
   returnTo?: string | null | undefined;
+  legalDescription?: string | null | undefined;
+  legalDescriptionSource?: string | null | undefined;
+  legalDescriptionAffirmation?: GiftLegalAffirmation | undefined;
 }): GiftDeedInput {
   return {
     grantors: input.grantors.map((p) => ({ name: p.name, descriptor: p.descriptor })),
@@ -165,6 +181,10 @@ export function toGiftDeedInput(input: {
     locality: input.locality,
     derivationReference: input.derivationReference,
     returnTo: input.returnTo,
+    // G2/G3/G5: thread the attorney-entered legal + source + affirmation to the assembler gate.
+    legalDescription: input.legalDescription,
+    legalDescriptionSource: input.legalDescriptionSource,
+    legalDescriptionAffirmation: input.legalDescriptionAffirmation,
   };
 }
 
