@@ -182,3 +182,24 @@ export async function recordAuditEvent(
     );
   }
 }
+
+/**
+ * DEED-MANUAL-LEGAL-GIFT-1 (G7/G9): was an ATTORNEY-ENTERED verbatim legal recorded for this document version?
+ * Reads the append-only audit log for the draft-time G12 event (action='attorney_entered_verbatim' on the
+ * version). The export route uses this to render the HONEST D3 posture (no fabricated comparison) and the
+ * conspicuous NON-BLOCKING export warning. Owner-scoped via ownerScope() (FOLD-AUTH-1 chokepoint).
+ */
+export async function versionHasAttorneyEnteredLegal(userId: string, versionId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: auditEvents.id })
+    .from(auditEvents)
+    .where(
+      and(
+        ownerScope(auditEvents.userId, userId),
+        eq(auditEvents.versionId, versionId),
+        eq(auditEvents.action, 'attorney_entered_verbatim'),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
