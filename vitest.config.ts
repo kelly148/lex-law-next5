@@ -14,7 +14,7 @@ export default defineConfig({
       // session.ts) can be loaded in unit tests without a real session configuration.
       SESSION_SECRET: process.env['SESSION_SECRET'] ?? 'test-session-secret-at-least-32-chars-long!!',
     },
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tools/**/*.test.mjs'],
     exclude: ['node_modules', 'dist'],
     coverage: {
       provider: 'v8',

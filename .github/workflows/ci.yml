@@ -91,3 +91,72 @@ jobs:
         # MR-2C: continue-on-error removed — lint failures now fail CI.
         # Previously masked by continue-on-error: true (CI Suppression pattern, MR-2 v3 T1).
         run: pnpm lint
+
+  reversible-lane-guard:
+    name: Reversible-lane guard
+    runs-on: ubuntu-latest
+    # GOV-MECH-1 Part A (CI-LANE-GUARD-1). Enforces the reversible lane MECHANICALLY instead of letting the model
+    # seeking the merge self-certify "no residual risk" (Rule 15 (iv)). PR-only: labels/actors don't exist on push.
+    # If the diff touches a protected path (migrations, schema.ts, featureFlags.ts, .github/**, deploy/infra, new
+    # infra/hosting/env files, …) this job FAILS unless the operator (kelly148) has applied the
+    # `lane:non-reversible-ack` label. The label is NOT a pass-to-auto-merge: it lets CI go green, but the PR is
+    # then EXCLUDED from Rule-15 auto-merge — merge requires an explicit `operator approve accept:` (see Part A
+    # semantics + the Rule 15 amendment). Fail-closed: if the label's actor can't be confirmed as the operator, FAIL.
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout (full history for the base..head diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Compute changed paths (add / modify / rename[old+new] / delete)
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null || git fetch --no-tags origin "$BASE_SHA" 2>/dev/null || true
+          # -M detects renames; for R lines emit BOTH old and new paths so a rename/move of a protected file trips.
+          git diff --name-status -M "$BASE_SHA" "$HEAD_SHA" \
+            | awk -F'\t' '{ for (i=2;i<=NF;i++) if ($i != "") print $i }' | sort -u > changed.txt
+          echo "---- changed paths ----"; cat changed.txt
+
+      - name: Classify against the protected-path set
+        id: classify
+        run: node tools/ci/reversibleLaneGuard.mjs changed.txt
+
+      - name: Enforce operator ack on a protected diff (fail-closed)
+        if: steps.classify.outputs.protected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          OPERATOR: kelly148
+          ACK_LABEL: 'lane:non-reversible-ack'
+        run: |
+          set -euo pipefail
+          # The ONLY valid acknowledgment is the ACK_LABEL applied by the operator account. The label's mere presence
+          # is insufficient — verify the ACTOR of the 'labeled' event via the issue timeline. Fail closed on any doubt.
+          actor=$(gh api "repos/$REPO/issues/$PR/timeline?per_page=100" \
+            -H "Accept: application/vnd.github+json" \
+            --jq "[.[] | select(.event==\"labeled\" and .label.name==\"$ACK_LABEL\") | .actor.login] | last // \"\"" || echo "")
+          if [ -z "$actor" ]; then
+            echo "::error::Protected path(s) changed and no '$ACK_LABEL' label applied by the operator is present."
+            echo "This PR is NOT reversible-lane: it must be reviewed and merged manually (operator approve accept:), never Rule-15 auto-merged."
+            exit 1
+          fi
+          if [ "$actor" != "$OPERATOR" ]; then
+            echo "::error::'$ACK_LABEL' was applied by '$actor', not the operator ($OPERATOR) — fail-closed."
+            exit 1
+          fi
+          echo "::notice::'$ACK_LABEL' applied by the operator ($OPERATOR). CI may go green, but this PR is EXCLUDED from Rule-15 auto-merge (GOV-MECH-1 Part A) — merge requires an explicit 'operator approve accept:'."
