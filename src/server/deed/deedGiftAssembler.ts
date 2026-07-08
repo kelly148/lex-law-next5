@@ -78,7 +78,42 @@ export interface GiftDeedInput {
   derivationReference?: string | null | undefined;
   /** After-recording return-to; defaults to Universal Title. */
   returnTo?: string | null | undefined;
+  /**
+   * DEED-MANUAL-LEGAL-GIFT-1 (G2/G3): an OPTIONAL attorney-pasted VERBATIM legal description, used ONLY on the
+   * gift path when the extracted legal is WITHHELD/absent AND `legalDescriptionAffirmation` is fully affirmed
+   * (G3). Never edited (G8): inserted exactly as entered. Approved as an EXPRESS re-ratified exception to the
+   * extraction-only invariant (G1; disposition DEED-MANUAL-LEGAL-DESC-1_triad_disposition_2026-07-07). Absent or
+   * unaffirmed -> ignored, the [[ ]] placeholder stays.
+   */
+  legalDescription?: string | null | undefined;
+  /** G5 source capture: the cited source of a pasted legal (instrument + book/page or recording ref), or an
+   *  explicit "no recorded source" affirmation. Recorded for auditability alongside the attorney-entered legal. */
+  legalDescriptionSource?: string | null | undefined;
+  /** G3 per-instance affirmation gating a pasted legal. All three prongs required, non-pre-checked. */
+  legalDescriptionAffirmation?: GiftLegalAffirmation | undefined;
 }
+
+/**
+ * G3 affirmation for an attorney-pasted gift legal description. The paste is used ONLY when ALL THREE prongs are
+ * affirmed: verbatim-from-identified-source, personal responsibility for accuracy, and the subject-property
+ * cross-check ("this legal describes the property conveyed by THIS deed"). Non-pre-checked (the caller must set
+ * each true from an un-checked control). `affirmedAt` is an ISO timestamp for the audit log (G12).
+ */
+export interface GiftLegalAffirmation {
+  verbatimFromSource: boolean;
+  responsibleForAccuracy: boolean;
+  describesSubjectProperty: boolean;
+  affirmedAt?: string | undefined;
+}
+
+/** PURE (G3): a pasted gift legal may be used ONLY when every affirmation prong is true. */
+export function isGiftLegalAffirmationValid(a: GiftLegalAffirmation | undefined | null): boolean {
+  return !!a && a.verbatimFromSource === true && a.responsibleForAccuracy === true && a.describesSubjectProperty === true;
+}
+
+/** Field-level provenance of the legal description in the assembled gift draft (G4). Document-level provenance
+ *  stays `agent_assembled` — this is the FIELD origin only, distinct from the LIVE-9 doc latch. */
+export type GiftLegalProvenance = 'ocr_extracted' | 'attorney_entered' | null;
 
 export interface GiftDeedPlaceholder {
   /** The literal [[ ... ]] token as it appears in the draft. */
@@ -96,6 +131,15 @@ export interface GiftDeedDraft {
   placeholders: GiftDeedPlaceholder[];
   /** The exact verbatim legal description inserted, or null when withheld/absent (-> placeholder). */
   verbatimLegalUsed: string | null;
+  /** G4 field-level provenance of the inserted legal: 'ocr_extracted' (from the packet), 'attorney_entered'
+   *  (an affirmed paste), or null (withheld -> placeholder). Distinct from the LIVE-9 document-level latch. */
+  legalDescriptionProvenance: GiftLegalProvenance;
+  /** G6: true when the legal was attorney-entered (affirmed paste) -> the draft is in the DISTINCT
+   *  "attorney-entered legal, attorney verification required" state and the client shows the persistent banner.
+   *  A pasted legal clears the [[ ]] placeholder but never silently: it is surfaced as pending verification. */
+  attorneyEnteredLegalPendingVerification: boolean;
+  /** G5: the cited source recorded for an attorney-entered legal (or null). */
+  legalDescriptionSource: string | null;
   /** The applied vesting key + canonical language. */
   vesting: { key: string; language: string };
   /** The applied warranty phrase. */
@@ -268,16 +312,45 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
   // Legal description — VERBATIM or withheld -> placeholder. Never regenerated. The honesty floor is gated on
   // the WITHHELD flag (not just nullness): a withheld legal becomes a placeholder even if a low-confidence
   // value were present, so the honesty floor holds structurally, independent of the upstream value coupling.
-  const legalWithheld = facts.legalDescription.withheld || facts.legalDescription.value === null;
-  const verbatimLegalUsed = facts.legalDescription.withheld ? null : facts.legalDescription.value;
-  const legalBlock = verbatimLegalUsed
-    ? verbatimLegalUsed
-    : ph(
-        'Legal description (VERBATIM)',
-        facts.legalDescription.withheld
-          ? 'Legal description — OCR WITHHELD it (low-confidence/truncated). Paste it VERBATIM from the prior vesting deed (the short tax-record legal is a fallback only, KB §8).'
-          : 'Legal description — not found in the packet. Paste it VERBATIM from the prior vesting deed.',
-      );
+  // Extraction-VERBATIM by default. On a WITHHELD/absent extraction, an AFFIRMED attorney paste may supply the
+  // legal VERBATIM (DEED-MANUAL-LEGAL-GIFT-1, the operator-re-ratified G1 exception) — used ONLY under the full G3
+  // affirmation, inserted EXACTLY as entered (G8, no normalization), and surfaced as a distinct attorney-entered
+  // pending-verification state (G6). Extraction always wins over a paste; an unaffirmed paste is ignored and the
+  // [[ ]] placeholder stays (G3). Field-level provenance is recorded (G4); the LIVE-9 document latch is untouched.
+  const extractedLegal = facts.legalDescription.withheld ? null : facts.legalDescription.value;
+  const pastedLegalRaw = input.legalDescription ?? null;
+  const pastedLegalPresent = pastedLegalRaw !== null && pastedLegalRaw.trim().length > 0;
+  const legalAffirmed = isGiftLegalAffirmationValid(input.legalDescriptionAffirmation);
+  let verbatimLegalUsed: string | null;
+  let legalDescriptionProvenance: GiftLegalProvenance;
+  let attorneyEnteredLegalPendingVerification = false;
+  let legalDescriptionSource: string | null = null;
+  let legalBlock: string;
+  if (extractedLegal !== null) {
+    verbatimLegalUsed = extractedLegal;
+    legalDescriptionProvenance = 'ocr_extracted';
+    legalBlock = extractedLegal;
+  } else if (pastedLegalPresent && legalAffirmed) {
+    verbatimLegalUsed = pastedLegalRaw; // G8: inserted EXACTLY as entered — no cleanup of calls/metes-and-bounds/lot-block/tax-map
+    legalDescriptionProvenance = 'attorney_entered';
+    attorneyEnteredLegalPendingVerification = true; // G6: distinct state, persistent banner (client)
+    legalDescriptionSource = (input.legalDescriptionSource ?? '').trim() || null; // G5
+    legalBlock = pastedLegalRaw;
+    notes.push(
+      'Legal description is ATTORNEY-ENTERED (pasted verbatim by the attorney; not machine-compared to an extracted source). Attorney verification required before finalize/record — confirm it against the source instrument (G6/G7).',
+    );
+  } else {
+    verbatimLegalUsed = null;
+    legalDescriptionProvenance = null;
+    if (pastedLegalPresent && !legalAffirmed) warnings.push('legal_paste_unaffirmed'); // G3: paste ignored without the full affirmation
+    legalBlock = ph(
+      'Legal description (VERBATIM)',
+      facts.legalDescription.withheld
+        ? 'Legal description — OCR WITHHELD it (low-confidence/truncated). Paste it VERBATIM from the prior vesting deed (the short tax-record legal is a fallback only, KB §8).'
+        : 'Legal description — not found in the packet. Paste it VERBATIM from the prior vesting deed.',
+    );
+  }
+  const legalResolved = verbatimLegalUsed !== null;
 
   // Derivation reference — attorney-confirmed, with packet candidates as a lead (never auto-used).
   const derivCandidate = facts.derivationCandidates.value ?? facts.derivationCandidates.values.join(', ');
@@ -345,9 +418,9 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
   // not just the [[ ]] placeholders. (The [[ ]] placeholders themselves also trip B6, so a placeholder-bearing
   // draft is doubly fail-closed.)
   const b6 = checkAnnotationLeak(text);
-  const factsResolved = placeholders.length === 0 && !legalWithheld && b6.ok;
+  const factsResolved = placeholders.length === 0 && legalResolved && b6.ok;
 
-  if (legalWithheld) warnings.push('legal_description_unresolved');
+  if (!legalResolved) warnings.push('legal_description_unresolved');
   if (placeholders.length > 0) warnings.push(`unresolved_placeholders:${placeholders.length}`);
   // A B6 failure NOT explained by the [[ ]] placeholders means a stray char/marker leaked from a value or the
   // legal — surface it explicitly so the offending content is corrected before finalize.
@@ -357,6 +430,9 @@ export function assembleGiftDeed(facts: DeedSourceFacts, input: GiftDeedInput): 
     text,
     placeholders,
     verbatimLegalUsed,
+    legalDescriptionProvenance,
+    attorneyEnteredLegalPendingVerification,
+    legalDescriptionSource,
     vesting,
     warranty,
     factsResolved,
