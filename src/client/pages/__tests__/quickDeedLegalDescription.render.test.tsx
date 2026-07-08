@@ -5,9 +5,11 @@
  * + into_trust). The server already accepts input.legalDescription with firstNonEmpty(input, extracted) precedence
  * for every one of these lanes (deedDraftAgent.ts) — this exposes it in the intake (client-only; no server change).
  *
- * The GIFT/Express lane is DELIBERATELY EXCLUDED: its extraction-only legal-description invariant is under external
- * triad review (DEED-MANUAL-LEGAL-DESC-1 §3.1 FIRED). This file locks that fence: the field never appears on the
- * gift lane, and a gift generate payload carries no legalDescription at all.
+ * The GIFT/Express lane now has its OWN attorney-entered legal path (DEED-MANUAL-LEGAL-GIFT-1, G3) — the
+ * operator-re-ratified exception (external triad review COMPLETE, approve-with-conditions 2026-07-07): a DISTINCT
+ * paste control gated by a NON-PRE-CHECKED three-prong affirmation. This file locks that the gift lane uses that
+ * affirmation-gated control (NOT the non-gift lanes' plain paste field), and that a gift generate carries an
+ * attorney-entered legalDescription ONLY under the full affirmation — an unaffirmed paste never reaches the server.
  *
  * Reuses the QuickDeedPage render harness (mocked trpc + MaterialsDropZone) from quickDeedPage.render.test.tsx.
  */
@@ -193,14 +195,18 @@ describe('DEED-MANUAL-LEGAL-DESC-1 — the paste-verbatim legal field is present
     });
   }
 
-  it('gift lane (FENCE): renders NONE of the paste-verbatim legal fields', () => {
+  it('gift lane: renders the attorney-entered legal control (the G3 exception), NOT the non-gift paste fields', () => {
     const c = renderPage();
     selectType(c, 'deed_of_gift');
-    // No lane exposes a "*-legal" paste field on the gift/Express intake (its legal stays extraction-only, under review).
-    expect(c.querySelector('[data-testid$="-legal"]')).toBeNull();
+    // DEED-MANUAL-LEGAL-GIFT-1 (G3): the gift lane now exposes a DISTINCT attorney-entered VERBATIM legal control —
+    // the operator-re-ratified exception — a paste box gated by a non-pre-checked three-prong affirmation.
+    expect(c.querySelector('[data-testid="deed-intake-attorney-legal-text"]')).toBeTruthy();
+    // It is NOT any of the SIX non-gift lanes' plain paste fields.
     for (const lane of LANES) {
       expect(c.querySelector(`[data-testid="${lane.legalTestId}"]`)).toBeNull();
     }
+    // The affirmation control appears only AFTER a legal is entered (non-pre-checked) — absent here (no paste yet).
+    expect(c.querySelector('[data-testid="deed-intake-legal-affirmation"]')).toBeNull();
   });
 });
 
@@ -236,20 +242,56 @@ describe('DEED-MANUAL-LEGAL-DESC-1 — an EMPTY legal field is omitted (the extr
   });
 });
 
-describe('DEED-MANUAL-LEGAL-DESC-1 — the gift generate payload can never carry a manual legal (structural fence)', () => {
-  it('deed_of_gift: a gift generate has no legalDescription anywhere in its payload', async () => {
-    const c = renderPage();
-    selectType(c, 'deed_of_gift');
+describe('DEED-MANUAL-LEGAL-GIFT-1 — the gift generate carries an attorney-entered legal ONLY under a full affirmation', () => {
+  function fillGiftParties(c: HTMLElement): void {
     fireEvent.click(c.querySelector('[data-testid="deed-intake-form-toggle"]')!); // expand the gift form
     const names = Array.from(c.querySelectorAll('input[placeholder="Full legal name"]')) as HTMLInputElement[];
     fireEvent.change(names[0]!, { target: { value: 'Donor Owner' } });
     fireEvent.change(names[1]!, { target: { value: 'Donee Person' } });
+  }
+
+  it('no paste → the gift generate carries NO manual legal (legalDescription null, affirmation null)', async () => {
+    const c = renderPage();
+    selectType(c, 'deed_of_gift');
+    fillGiftParties(c);
     fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
 
     await waitFor(() => expect(generateMutate).toHaveBeenCalledTimes(1));
     const arg = generateMutate.mock.calls[0]![0] as GenArg;
-    expect(arg.legalDescription).toBeUndefined();
-    expect('legalDescription' in arg).toBe(false); // the gift top-level shape has no such key at all
+    expect(arg.legalDescription).toBeNull();
+    expect((arg as Record<string, unknown>)['legalDescriptionAffirmation']).toBeNull();
+    expect(arg.intoLlc).toBeUndefined();
+    expect(arg.tod).toBeUndefined();
+  });
+
+  it('a paste WITHOUT the full affirmation is BLOCKED — the unaffirmed legal never reaches the server (G3)', async () => {
+    const c = renderPage();
+    selectType(c, 'deed_of_gift');
+    fillGiftParties(c);
+    fireEvent.change(c.querySelector('[data-testid="deed-intake-attorney-legal-text"]')!, { target: { value: PASTED } });
+    // deliberately do NOT check the three affirmation prongs
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
+
+    await waitFor(() => expect(c.querySelector('[data-testid="quick-deed-error"]')).toBeTruthy());
+    expect(generateMutate).not.toHaveBeenCalled();
+  });
+
+  it('a paste WITH the full three-prong affirmation threads the legal verbatim + the affirmation into the gift payload (G3/G8)', async () => {
+    const c = renderPage();
+    selectType(c, 'deed_of_gift');
+    fillGiftParties(c);
+    fireEvent.change(c.querySelector('[data-testid="deed-intake-attorney-legal-text"]')!, { target: { value: PASTED } });
+    fireEvent.click(c.querySelector('[data-testid="deed-intake-aff-verbatim"]')!);
+    fireEvent.click(c.querySelector('[data-testid="deed-intake-aff-responsible"]')!);
+    fireEvent.click(c.querySelector('[data-testid="deed-intake-aff-subject"]')!);
+    fireEvent.click(c.querySelector('[data-testid="quick-deed-generate"]')!);
+
+    await waitFor(() => expect(generateMutate).toHaveBeenCalledTimes(1));
+    const arg = generateMutate.mock.calls[0]![0] as GenArg;
+    expect(arg.legalDescription).toBe(PASTED); // byte-for-byte (G8)
+    const aff = (arg as Record<string, unknown>)['legalDescriptionAffirmation'] as Record<string, unknown>;
+    expect(aff).toMatchObject({ verbatimFromSource: true, responsibleForAccuracy: true, describesSubjectProperty: true });
+    expect(typeof aff['affirmedAt']).toBe('string');
     expect(arg.intoLlc).toBeUndefined();
     expect(arg.tod).toBeUndefined();
   });

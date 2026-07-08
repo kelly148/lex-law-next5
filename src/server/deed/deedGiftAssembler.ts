@@ -10,6 +10,15 @@
  * The FIRE §7 spine, enforced structurally:
  *  1. LEGAL DESCRIPTION VERBATIM — the legal description is inserted EXACTLY as extracted; it is never
  *     paraphrased or regenerated. A withheld/absent legal becomes a [[ ]] placeholder, never a guess.
+ *     EXCEPTION — ATTORNEY-ENTERED VERBATIM (DEED-MANUAL-LEGAL-GIFT-1; operator EXPRESS re-ratification
+ *     2026-07-07, disposition docs/reviews/DEED-MANUAL-LEGAL-DESC-1_triad_disposition_2026-07-07.md, G1):
+ *     when the extracted legal is WITHHELD/absent, the attorney may supply it VERBATIM by paste — used ONLY
+ *     under the full three-prong G3 affirmation and inserted BYTE-FOR-BYTE (G8). The system still never
+ *     AUTHORS a legal description; this admits attorney-as-source as a fourth path, it does NOT relax the
+ *     no-generation red line. The paste carries field-level provenance `attorney_entered` (G4), is surfaced
+ *     as a DISTINCT pending-verification state (G6), is protected from any Express revise/regenerate pass
+ *     (G10), and its paste+affirmation events are captured in the audit log (G12). Absent or unaffirmed ->
+ *     the [[ ]] placeholder stays.
  *  2. NO FABRICATED FACTS — every genuinely-missing fact becomes a [[ ]] placeholder WITH a research lead.
  *  3. EXEMPTION-SAFE — the granting verb is hardcoded "grant and convey" (NOT "grant, bargain, sell, and
  *     convey") and the instrument states it is a "Deed of Gift" on its face; both are required for the

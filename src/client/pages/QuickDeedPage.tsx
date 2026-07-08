@@ -277,6 +277,12 @@ export default function QuickDeedPage(): React.ReactElement {
       locality: p.locality,
       derivationReference: p.derivationReference,
       vestingOverride: p.vestingOverride,
+      // DEED-MANUAL-LEGAL-GIFT-1 (G3/G5): thread the attorney-entered legal + source + affirmation through to the
+      // gift tRPC input (#558). The server uses them ONLY under the full affirmation and only when extraction is
+      // withheld/absent (G8); all null when the attorney entered none.
+      legalDescription: p.legalDescription,
+      legalDescriptionSource: p.legalDescriptionSource,
+      legalDescriptionAffirmation: p.legalDescriptionAffirmation,
       title: 'Deed of Gift',
     } as GeneratePayload);
   };

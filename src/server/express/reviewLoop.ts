@@ -54,7 +54,7 @@ import {
   type DecisionRecord,
   type Redline,
 } from './decisionLedger.js';
-import { buildProtectedSpans, type ProtectedSpan, type DocumentType } from './protectedSpans.js';
+import { buildProtectedSpans, buildDeedProtectedSpans, type ProtectedSpan, type DocumentType } from './protectedSpans.js';
 
 // ── the absolute hard cap ────────────────────────────────────────────────────────────────────────────
 
@@ -173,6 +173,13 @@ export interface ExpressLoopParams {
    * authoritative catalog may pass it. (Passing a fixed catalog also lets a test pin offsets.)
    */
   protectedSpans?: readonly ProtectedSpan[] | undefined;
+  /**
+   * G10 (DEED-MANUAL-LEGAL-GIFT-1): the attorney-entered VERBATIM legal, when the deed carries one. Registered as
+   * a first-class locked `legal_description` span each round (in addition to the recognizer pass) so an Express
+   * revise/regenerate pass can NEVER touch it — the model-never-authors red line. Optional; absent = no extra
+   * lock (behavior unchanged). Ignored when `protectedSpans` is pinned by the caller.
+   */
+  attorneyEnteredLegal?: string | null | undefined;
   /** Optional defined-term list, forwarded to the E1 locus gate each round. */
   definedTerms?: readonly string[] | undefined;
   /** The requested round budget. Clamped to [1, HARD_CAP_ROUNDS]; a larger value is ignored. Default 2. */
@@ -279,7 +286,7 @@ export async function runExpressLoop(params: ExpressLoopParams): Promise<Express
 
     // The protected-span catalog for THIS round's candidate (caller-supplied or derived per round).
     const protectedSpans =
-      params.protectedSpans ?? deriveProtectedSpans(params.documentType, candidate);
+      params.protectedSpans ?? deriveProtectedSpans(params.documentType, candidate, params.attorneyEnteredLegal);
     const routeCtx: RouteContext = {
       protectedSpans,
       documentText: candidate,
@@ -428,6 +435,16 @@ function routeOne(
  * A tiny, explicit indirection so the loop's per-round catalog source is named and a future doc-type override
  * slots here. Pure — just the deterministic E1 recognizer pass over the candidate text.
  */
-function deriveProtectedSpans(documentType: DocumentType, candidate: string): readonly ProtectedSpan[] {
+function deriveProtectedSpans(
+  documentType: DocumentType,
+  candidate: string,
+  attorneyEnteredLegal?: string | null,
+): readonly ProtectedSpan[] {
+  // G10: for a deed carrying an attorney-entered VERBATIM legal, register that exact legal as a locked
+  // legal_description span IN ADDITION to the recognizer pass — the operator-re-ratified red line the model
+  // (revise/regenerate) can never touch. Absent an attorney-entered legal, this is byte-identical to the pass.
+  if (documentType === 'deed' && (attorneyEnteredLegal ?? '').trim().length > 0) {
+    return buildDeedProtectedSpans(candidate, attorneyEnteredLegal);
+  }
   return buildProtectedSpans(documentType, candidate);
 }
