@@ -61,6 +61,7 @@ import { makeReadyHandler } from './routes/ready.js';
 import { runExportGate } from './send/exportGate.js';
 import { resolvePostureDraftingGate } from './conflicts/postureGate.js';
 import { isSendabilityGateEnabled, isConflictGateEnabled, isLandingAtRootEnabled, isDraftStreamingEnabled, getD3SignoffMode, isChatCopilotEnabled, isDeedRecordabilityEnabled, resolveDeedExportD3Mode } from './config/featureFlags.js';
+import { versionHasAttorneyEnteredLegal } from './db/queries/auditEvents.js';
 import { consolidateDeedSourceFacts } from './deed/deedSourceFacts.js';
 import { observeD3Comparison, buildD3ObserveTelemetry } from './deed/d3Observe.js';
 import { hashDeedContent } from './deed/d3Signoff.js';
@@ -748,9 +749,37 @@ app.get(
     // so a Stage-1 deed export is never blocked on recordability. (The LIVE-9 DEED_EXPORT_BLOCKED guard above is
     // NOT gated on this flag — it stays on regardless.) When ON, behavior is exactly getD3SignoffMode() as before.
     // The gate decision is the pure resolveDeedExportD3Mode() so it is unit-tested (executed), not only audited.
+    // G7/G9 (DEED-MANUAL-LEGAL-GIFT-1): detect an ATTORNEY-ENTERED verbatim legal on this version (recorded at
+    // draft time in the append-only audit log). When present, D3 renders the HONEST "attorney-supplied verbatim —
+    // no extracted source to compare" posture (never a fabricated comparison, G7) and the export carries a
+    // conspicuous NON-BLOCKING warning (G9). Best-effort: a lookup failure never breaks the export.
+    let attorneyEnteredLegal = false;
+    if (doc.documentType === 'deed') {
+      try {
+        attorneyEnteredLegal = await versionHasAttorneyEnteredLegal(userId, version.id);
+      } catch {
+        attorneyEnteredLegal = false;
+      }
+    }
     const d3Mode = resolveDeedExportD3Mode(isDeedRecordabilityEnabled(), getD3SignoffMode());
     if (d3Mode !== 'off' && doc.documentType === 'deed') {
       try {
+        if (attorneyEnteredLegal) {
+          // G7: the legal is attorney-supplied VERBATIM — there is NO extracted source to compare against, so we
+          // NEVER run a comparison that would fabricate an absent/mismatch. Skip the D3 comparison entirely (OBSERVE
+          // stays non-blocking); record an honest breadcrumb only. The honest attestation is recorded via the
+          // sign-off panel under ENFORCE.
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[D3-SIGNOFF observe] ' +
+              JSON.stringify({
+                event: 'd3_signoff_attorney_entered_no_source',
+                documentVersionId: version.id,
+                gateMode: d3Mode,
+                ts: new Date().toISOString(),
+              }),
+          );
+        } else {
         const d3Materials = await listMaterialsForMatter(doc.matterId, userId);
         const sourceFacts = consolidateDeedSourceFacts(
           d3Materials.map((m) => ({ materialId: m.id, textContent: m.textContent })),
@@ -786,6 +815,7 @@ app.get(
                 ts: new Date().toISOString(),
               }),
           );
+        }
         }
       } catch (err) {
         // Best-effort: never break the export on an observe failure.
@@ -877,6 +907,15 @@ app.get(
     res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.docx"`);
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'no-store');
+    // G9 (DEED-MANUAL-LEGAL-GIFT-1): a conspicuous NON-BLOCKING warning on the export of an attorney-entered-legal
+    // deed — it was not machine-compared to extracted source facts. Rides a response header (the success path is a
+    // binary DOCX stream, so it cannot be a JSON body field); the client surfaces it. Never blocks the export.
+    if (attorneyEnteredLegal) {
+      res.setHeader(
+        'X-Deed-Export-Warning',
+        'attorney-entered-legal: not machine-compared to extracted source facts — confirm against the source instrument before execution or recording',
+      );
+    }
     res.status(200).end(buffer);
   },
 );

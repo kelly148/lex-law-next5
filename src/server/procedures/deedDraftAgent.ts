@@ -29,6 +29,7 @@ import { hasUndispositionedBlocker } from '../db/queries/conflicts.js';
 import { getFirmConflictPolicy, setFirmConflictPolicy } from '../db/queries/conflictPolicy.js';
 import { consolidateDeedSourceFacts, type DeedSourceFacts } from '../deed/deedSourceFacts.js';
 import { assembleGiftDeed, type GiftDeedInput, type GiftDeedDraft, type GiftLegalAffirmation } from '../deed/deedGiftAssembler.js';
+import { recordAuditEvent } from '../db/queries/auditEvents.js';
 import { VA_VESTING_OPTIONS } from '../deed/deedKbVa.js';
 import { documentEgressSend, DocumentEgressBlockedError } from '../egress/documentEgress.js';
 import { EVALUATOR_MODEL } from '../llm/config.js';
@@ -2904,6 +2905,33 @@ export const quickDeedRouter = router({
       iterationNumber: 1,
     });
     await updateDocumentCurrentVersion(doc.id, ctx.userId, version.id);
+
+    // G12 (DEED-MANUAL-LEGAL-GIFT-1): when the legal is ATTORNEY-ENTERED (an affirmed paste used because the
+    // extracted legal was withheld/absent), capture the paste + affirmation event immutably in the append-only
+    // audit log (who/what/basis/timestamp). Best-effort — the audit can never break the draft. Rides the existing
+    // audit_events table (eventType='disposition'); no migration. This durable record is ALSO how export (G7/G9)
+    // detects an attorney-entered legal to render the honest D3 posture + the non-blocking export warning.
+    if (draft.legalDescriptionProvenance === 'attorney_entered') {
+      await recordAuditEvent({
+        userId: ctx.userId,
+        matterId: input.matterId,
+        documentId: doc.id,
+        eventType: 'disposition',
+        actor: 'attorney',
+        summary: 'Attorney entered a verbatim legal description on a gift deed (no extracted source to compare).',
+        targetType: 'deed_legal_description',
+        targetId: version.id,
+        action: 'attorney_entered_verbatim',
+        rationale: draft.legalDescriptionSource ?? null,
+        scope: 'document',
+        versionId: version.id,
+        payload: {
+          provenance: 'attorney_entered',
+          source: draft.legalDescriptionSource,
+          affirmation: giftInput.legalDescriptionAffirmation ?? null,
+        },
+      });
+    }
 
     return {
       documentId: doc.id,
