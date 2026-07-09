@@ -51,6 +51,23 @@ export interface DeedGiftIntakePayload {
   locality: string | null;
   derivationReference: string | null;
   vestingOverride: string | null;
+  /** DEED-MANUAL-LEGAL-GIFT-1 (G3/G5): an OPTIONAL attorney-entered VERBATIM legal description + its cited
+   *  source. The server uses it ONLY when the extracted legal is withheld/absent AND the affirmation is full
+   *  (all three prongs); it is inserted byte-for-byte (G8). null when the attorney did not enter one. */
+  legalDescription: string | null;
+  legalDescriptionSource: string | null;
+  /** G3 per-instance affirmation (non-pre-checked). Present (all prongs true) only when the attorney entered a
+   *  legal and affirmed it; null otherwise. affirmedAt is stamped at submit for the audit log (G12). */
+  legalDescriptionAffirmation: GiftLegalAffirmationInput | null;
+}
+
+/** G3 affirmation the client emits for an attorney-entered gift legal description. Mirrors the server
+ *  GiftLegalAffirmation; all three prongs must be true for the server to use the paste. */
+export interface GiftLegalAffirmationInput {
+  verbatimFromSource: boolean;
+  responsibleForAccuracy: boolean;
+  describesSubjectProperty: boolean;
+  affirmedAt?: string;
 }
 
 /** The inferred proposeIntake result union (proposed | needs_clarification | blocked) straight off the client. */
@@ -99,6 +116,16 @@ export default function DeedIntake({
   const [locality, setLocality] = useState('');
   const [derivationReference, setDerivationReference] = useState('');
   const [vestingOverride, setVestingOverride] = useState('');
+  // DEED-MANUAL-LEGAL-GIFT-1 (G3/G5/G6): the attorney-entered VERBATIM legal description (the operator-re-ratified
+  // exception — used by the server ONLY when extraction is withheld/absent AND all three affirmation prongs are
+  // checked), its cited source (G5), and the NON-PRE-CHECKED three-prong affirmation (G3). All default false/empty.
+  const [attorneyLegal, setAttorneyLegal] = useState('');
+  const [legalSource, setLegalSource] = useState('');
+  const [affVerbatim, setAffVerbatim] = useState(false);
+  const [affResponsible, setAffResponsible] = useState(false);
+  const [affSubjectProperty, setAffSubjectProperty] = useState(false);
+  // Highlight the affirmation control when a paste was entered without the full affirmation on a Generate attempt.
+  const [affirmationMissing, setAffirmationMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The structured form is the collapsed Express fallback: drop zone + free-associate are primary. Under
   // DEED-EXPRESS-1 it stays COLLAPSED by default — it no longer force-expands on upload or on a proposal. It opens
@@ -287,8 +314,8 @@ export default function DeedIntake({
     if (legal) {
       parts.push(
         hasMaterials
-          ? 'The legal description could not be read from your uploads — re-drop a clearer copy of the prior vesting deed (it is copied verbatim from your documents, never written by the system).'
-          : 'Drop the prior vesting deed above so the legal description can be read from it (it is copied verbatim from your documents, never written by the system).',
+          ? 'The legal description could not be read from your uploads — re-drop a clearer copy of the prior vesting deed, or enter it verbatim yourself below (it is copied verbatim from your documents or entered by you from the source; it is never written by the system).'
+          : 'Drop the prior vesting deed above so the legal description can be read from it, or enter it verbatim yourself below (it is copied verbatim from your documents or entered by you from the source; it is never written by the system).',
       );
     }
     return parts.join(' ');
@@ -306,7 +333,28 @@ export default function DeedIntake({
     // EXPRESS required set ONLY once a packet exists — with no uploads the attorney is doing manual entry and the
     // server honestly placeholders a missing legal (unchanged behavior); we do not block that.
     const legalResolved = previewFacts.data?.resolved?.legalDescription === true;
-    const legalMissing = hasMaterials && !legalResolved;
+    // G3: an attorney-entered VERBATIM legal (the operator-re-ratified exception) is used by the server ONLY under
+    // the full three-prong affirmation. A pasted+affirmed legal supplies the legal when extraction did not, so it
+    // clears the express legal gate; a paste without the full affirmation is IGNORED by the server (G3).
+    const attorneyLegalTrimmed = attorneyLegal.trim();
+    const hasAttorneyLegal = attorneyLegalTrimmed.length > 0;
+    const affirmed = affVerbatim && affResponsible && affSubjectProperty;
+    const attorneyLegalReady = hasAttorneyLegal && affirmed;
+    const legalMissing = hasMaterials && !legalResolved && !attorneyLegalReady;
+
+    // G3 affirmation gate — only meaningful when the paste WOULD be used (extraction did not supply the legal;
+    // extraction always wins). Block a paste without the full affirmation and ask the attorney to affirm or clear
+    // it, so an attorney-entered legal is never silently dropped by the server.
+    const pasteWouldBeUsed = hasAttorneyLegal && !legalResolved;
+    if (pasteWouldBeUsed && !affirmed) {
+      setAffirmationMissing(true);
+      setError(
+        'You entered a legal description. Check all three affirmations below to use it verbatim, or clear the box — without the affirmation it will not be used.',
+      );
+      if (!formExpanded) setFormExpanded(true);
+      return;
+    }
+    setAffirmationMissing(false);
 
     // DEED-EXPRESS-1 Generate gate:
     //  • EXPRESS (form collapsed): require the full merged set — grantor + grantee + (once a packet exists) a
@@ -343,6 +391,19 @@ export default function DeedIntake({
       locality: locality.trim() || null,
       derivationReference: derivationReference.trim() || null,
       vestingOverride: vestingOverride.trim() || null,
+      // G3/G5: the attorney-entered legal + source + full affirmation (or null when none entered). The server
+      // uses it byte-for-byte ONLY under the full affirmation and ONLY when extraction is withheld/absent (G8).
+      legalDescription: hasAttorneyLegal ? attorneyLegalTrimmed : null,
+      legalDescriptionSource: hasAttorneyLegal ? (legalSource.trim() || null) : null,
+      legalDescriptionAffirmation:
+        hasAttorneyLegal && affirmed
+          ? {
+              verbatimFromSource: true,
+              responsibleForAccuracy: true,
+              describesSubjectProperty: true,
+              affirmedAt: new Date().toISOString(),
+            }
+          : null,
     });
   };
 
@@ -390,6 +451,14 @@ export default function DeedIntake({
       </button>
     </div>
   );
+
+  // G3/G6: the attorney-entered legal control is shown only when extraction has NOT supplied a legal (no packet,
+  // or the packet's legal was withheld) — exactly the case where the server would use an affirmed paste. When
+  // extraction supplied the legal it wins and a paste would be ignored, so the control is hidden to avoid confusion.
+  const extractionSuppliedLegal =
+    previewFacts.data?.hasMaterials === true && previewFacts.data.resolved?.legalDescription === true;
+  const showAttorneyLegal = !extractionSuppliedLegal;
+  const attorneyLegalPresent = attorneyLegal.trim().length > 0;
 
   return (
     <div className="space-y-6">
@@ -530,8 +599,89 @@ export default function DeedIntake({
           {previewFacts.data?.hasMaterials && previewFacts.data.resolved?.legalDescription === false && (
             <div ref={legalWarnRef} data-testid="deed-intake-legal-missing" className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               The legal/property description could not be read from your uploads. Re-drop a clearer copy of the prior
-              vesting deed — otherwise the draft will contain a placeholder for the legal description that you must
-              complete manually. It is copied verbatim from your documents and is never written by the system.
+              vesting deed — or enter it verbatim yourself below. It is copied verbatim from your documents, or
+              entered by you from the source instrument; it is never written by the system.
+            </div>
+          )}
+
+          {/* DEED-MANUAL-LEGAL-GIFT-1 (G3/G5/G6/G11): attorney-entered VERBATIM legal description. Shown only when
+              extraction did not supply the legal. The system NEVER authors it — the attorney enters it verbatim
+              from an identified source under a per-instance three-prong affirmation (non-pre-checked). Inserted
+              byte-for-byte; the draft is surfaced as attorney-entered / verification-required until confirmed. */}
+          {showAttorneyLegal && (
+            <div data-testid="deed-intake-attorney-legal" className="rounded border border-firm-navy/20 bg-surface px-3 py-3 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="deed-intake-attorney-legal-text">
+                  Legal description — enter it verbatim from the source{' '}
+                  <span className="font-normal text-ink-hint">(only if it could not be read from your uploads)</span>
+                </label>
+                <textarea
+                  id="deed-intake-attorney-legal-text"
+                  data-testid="deed-intake-attorney-legal-text"
+                  value={attorneyLegal}
+                  onChange={(e) => { setAttorneyLegal(e.target.value); setAffirmationMissing(false); }}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                  placeholder="Enter the legal description EXACTLY as it appears on the prior recorded deed — do not retype from memory, paraphrase, or clean it up."
+                />
+                {/* G11: honest dual-path promise — the system still never AUTHORS the legal. */}
+                <p className="text-xs text-ink-hint mt-1">
+                  The system never writes or edits the legal description. It is read verbatim from your uploads — or,
+                  when an upload cannot be read, you may enter it here yourself, exactly as it appears on the source
+                  instrument. It is inserted byte-for-byte and is never machine-generated. Leave this blank to use the
+                  legal read from your uploads.
+                </p>
+              </div>
+
+              {attorneyLegalPresent && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="deed-intake-legal-source">
+                      Source of this legal description
+                    </label>
+                    <input
+                      id="deed-intake-legal-source"
+                      type="text"
+                      data-testid="deed-intake-legal-source"
+                      value={legalSource}
+                      onChange={(e) => setLegalSource(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-firm-navy"
+                      placeholder="e.g. Deed Book 4412 at Page 118 (or state &quot;no recorded source&quot;)"
+                    />
+                  </div>
+
+                  {/* G3: the three-prong affirmation — NON-PRE-CHECKED. All three are required for the entered legal
+                      to be used; without them the server ignores the paste. */}
+                  <fieldset
+                    data-testid="deed-intake-legal-affirmation"
+                    className={`rounded border px-3 py-2 space-y-2 ${affirmationMissing ? 'border-red-400 ring-1 ring-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'}`}
+                  >
+                    <legend className="text-xs font-medium text-amber-900 px-1">Affirm to use the legal you entered</legend>
+                    <label className="flex items-start gap-2 text-xs text-amber-900">
+                      <input type="checkbox" data-testid="deed-intake-aff-verbatim" checked={affVerbatim} onChange={(e) => setAffVerbatim(e.target.checked)} className="mt-0.5 rounded" />
+                      I am entering this legal description VERBATIM from an identified source instrument — I did not type
+                      it from memory, paraphrase it, or clean it up.
+                    </label>
+                    <label className="flex items-start gap-2 text-xs text-amber-900">
+                      <input type="checkbox" data-testid="deed-intake-aff-responsible" checked={affResponsible} onChange={(e) => setAffResponsible(e.target.checked)} className="mt-0.5 rounded" />
+                      I take personal responsibility for its accuracy.
+                    </label>
+                    <label className="flex items-start gap-2 text-xs text-amber-900">
+                      <input type="checkbox" data-testid="deed-intake-aff-subject" checked={affSubjectProperty} onChange={(e) => setAffSubjectProperty(e.target.checked)} className="mt-0.5 rounded" />
+                      This legal description describes the property conveyed by THIS deed.
+                    </label>
+                  </fieldset>
+
+                  {/* G6: persistent "attorney-entered, verification required" banner — not dismissible; it states the
+                      distinct state the draft will carry whenever a legal has been entered. */}
+                  <div data-testid="deed-intake-attorney-legal-banner" className="rounded border border-amber-400 bg-amber-100 px-3 py-2 text-xs text-amber-900">
+                    Attorney-entered legal description — verification required. This legal was supplied by you, not read
+                    from an extracted source, so it is not machine-compared. The draft will be marked
+                    &ldquo;attorney-entered, verification required&rdquo; and must be confirmed against the source
+                    instrument before finalize or recording.
+                  </div>
+                </>
+              )}
             </div>
           )}
 

@@ -322,6 +322,47 @@ export function buildProtectedSpans(docType: DocumentType, documentText: string)
   return spans;
 }
 
+/**
+ * G10 (DEED-MANUAL-LEGAL-GIFT-1) — the attorney-entered legal RED LINE. Locate the EXACT attorney-entered
+ * VERBATIM legal description within `documentText` and return it as `legal_description` protected span(s), so no
+ * Express revise/regenerate pass may ever touch it. The `to wit:`-anchored recognizer already covers a
+ * well-formed deed; registering the exact verbatim text makes the lock FIRST-CLASS and robust to any structural
+ * change — the operator-re-ratified exception admits attorney-as-source but the model still never AUTHORS the
+ * legal, so it must never be silently rewritten. PURE: an empty/absent legal or no verbatim occurrence -> [];
+ * every exact occurrence is returned (the loop only needs intersection, so overlaps with the recognizer span
+ * are harmless).
+ */
+export function attorneyEnteredLegalSpans(documentText: string, verbatimLegal: string | null | undefined): ProtectedSpan[] {
+  const text = documentText ?? '';
+  const legal = verbatimLegal ?? '';
+  if (text.length === 0 || legal.trim().length === 0) return [];
+  const spans: ProtectedSpan[] = [];
+  let from = 0;
+  // indexOf walk — deterministic; finds every non-overlapping exact occurrence of the verbatim legal.
+  for (;;) {
+    const idx = text.indexOf(legal, from);
+    if (idx < 0) break;
+    spans.push({ start: idx, end: idx + legal.length, label: 'legal_description' });
+    from = idx + legal.length;
+  }
+  return spans;
+}
+
+/**
+ * Deed protected-span catalog INCLUDING the G10 attorney-entered-legal lock. Equivalent to
+ * buildProtectedSpans('deed', text), plus explicit `legal_description` spans for a known attorney-entered
+ * verbatim legal. The locus gate only needs intersection, so an overlap with the recognizer's span is harmless.
+ * PURE + deterministic; identical to buildProtectedSpans when no attorney-entered legal is supplied.
+ */
+export function buildDeedProtectedSpans(documentText: string, attorneyEnteredLegal?: string | null): ProtectedSpan[] {
+  const base = buildProtectedSpans('deed', documentText);
+  const extra = attorneyEnteredLegalSpans(documentText, attorneyEnteredLegal);
+  if (extra.length === 0) return base;
+  const merged = [...base, ...extra];
+  merged.sort((a, b) => a.start - b.start || a.end - b.end || a.label.localeCompare(b.label));
+  return merged;
+}
+
 /** True when the body parses as a deed (carries a deed type label). Convenience for callers that must pick a
  *  docType; the gate itself takes an explicit docType. Pure. */
 export function looksLikeDeed(documentText: string): boolean {
